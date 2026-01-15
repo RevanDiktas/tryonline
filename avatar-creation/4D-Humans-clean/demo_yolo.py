@@ -5,6 +5,15 @@ Works on macOS without compilation issues
 import os
 os.environ['PYOPENGL_PLATFORM'] = ''
 
+# ============================================================
+# FIX FOR PYTHON 3.11+ (inspect.getargspec removed)
+# chumpy uses deprecated getargspec, we add it back as alias
+# ============================================================
+import inspect
+if not hasattr(inspect, 'getargspec'):
+    inspect.getargspec = inspect.getfullargspec
+# ============================================================
+
 from pathlib import Path
 import torch
 import argparse
