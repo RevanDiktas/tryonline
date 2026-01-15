@@ -14,6 +14,27 @@ if not hasattr(inspect, 'getargspec'):
     inspect.getargspec = inspect.getfullargspec
 # ============================================================
 
+# ============================================================
+# FIX FOR NUMPY 2.0+ (deprecated types removed)
+# chumpy imports np.bool, np.int, etc. which were removed
+# ============================================================
+import numpy as np
+if not hasattr(np, 'bool'):
+    np.bool = np.bool_
+if not hasattr(np, 'int'):
+    np.int = np.int_
+if not hasattr(np, 'float'):
+    np.float = np.float64
+if not hasattr(np, 'complex'):
+    np.complex = np.complex128
+if not hasattr(np, 'object'):
+    np.object = np.object_
+if not hasattr(np, 'str'):
+    np.str = np.str_
+if not hasattr(np, 'unicode'):
+    np.unicode = np.str_
+# ============================================================
+
 from pathlib import Path
 import torch
 import argparse
