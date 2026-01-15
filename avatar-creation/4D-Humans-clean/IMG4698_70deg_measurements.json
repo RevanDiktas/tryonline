@@ -1,0 +1,22 @@
+{
+  "height_cm": 192.0,
+  "chest_circumference_cm": 125.50824928980124,
+  "underbust_cm": 93.72845407126951,
+  "waist_circumference_cm": 93.35583765748235,
+  "hip_circumference_cm": 101.95747036791818,
+  "neck_circumference_cm": 309.24628650109236,
+  "thigh_circumference_cm": 87.33929876375551,
+  "shoulder_width_cm": 123.6591997628917,
+  "arm_span_cm": 185.28240266476223,
+  "inseam_cm": 86.4,
+  "torso_length_cm": 67.2,
+  "arm_length_cm": 57.60000000000001,
+  "_metadata": {
+    "source_mesh": "IMG4698_ARMS_70DEG.obj",
+    "actual_height_input_cm": 192.0,
+    "mesh_original_height_cm": 192.000019,
+    "scale_factor_applied": 0.9999999010416765,
+    "calibration_method": "height_based",
+    "note": "All measurements calibrated using actual height"
+  }
+}

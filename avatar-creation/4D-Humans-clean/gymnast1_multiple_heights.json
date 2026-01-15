@@ -1,0 +1,90 @@
+{
+  "155.0cm": {
+    "height_cm": 155.0,
+    "chest_circumference_cm": 100.62340525963688,
+    "underbust_cm": 95.06768382861407,
+    "waist_circumference_cm": 101.54288360163694,
+    "hip_circumference_cm": 100.9094978928862,
+    "neck_circumference_cm": 73.67868831020148,
+    "thigh_circumference_cm": 152.36569417526104,
+    "shoulder_width_cm": 25.307717621074772,
+    "arm_span_cm": 52.22267709217385,
+    "inseam_cm": 69.75,
+    "torso_length_cm": 54.249999999999986,
+    "arm_length_cm": 46.49999999999999,
+    "_metadata": {
+      "source_mesh": "video_meshes/frame_0001_person0.obj",
+      "actual_height_input_cm": 155.0,
+      "mesh_original_height_cm": 170.06814500000002,
+      "scale_factor_applied": 0.9113993687647971,
+      "calibration_method": "height_based",
+      "note": "All measurements calibrated using actual height"
+    }
+  },
+  "165.0cm": {
+    "height_cm": 165.0,
+    "chest_circumference_cm": 107.11523785703282,
+    "underbust_cm": 101.20108278529885,
+    "waist_circumference_cm": 108.09403738238773,
+    "hip_circumference_cm": 107.41978807952404,
+    "neck_circumference_cm": 78.43215207214998,
+    "thigh_circumference_cm": 162.1957389607618,
+    "shoulder_width_cm": 26.94047359662799,
+    "arm_span_cm": 55.59188206586248,
+    "inseam_cm": 74.25,
+    "torso_length_cm": 57.74999999999999,
+    "arm_length_cm": 49.49999999999999,
+    "_metadata": {
+      "source_mesh": "video_meshes/frame_0001_person0.obj",
+      "actual_height_input_cm": 165.0,
+      "mesh_original_height_cm": 170.06814500000002,
+      "scale_factor_applied": 0.9701993280399454,
+      "calibration_method": "height_based",
+      "note": "All measurements calibrated using actual height"
+    }
+  },
+  "175.0cm": {
+    "height_cm": 175.0,
+    "chest_circumference_cm": 113.60707045442877,
+    "underbust_cm": 107.33448174198364,
+    "waist_circumference_cm": 114.64519116313848,
+    "hip_circumference_cm": 113.93007826616186,
+    "neck_circumference_cm": 83.18561583409844,
+    "thigh_circumference_cm": 172.02578374626248,
+    "shoulder_width_cm": 28.57322957218119,
+    "arm_span_cm": 58.96108703955112,
+    "inseam_cm": 78.75,
+    "torso_length_cm": 61.24999999999999,
+    "arm_length_cm": 52.49999999999999,
+    "_metadata": {
+      "source_mesh": "video_meshes/frame_0001_person0.obj",
+      "actual_height_input_cm": 175.0,
+      "mesh_original_height_cm": 170.06814500000002,
+      "scale_factor_applied": 1.0289992873150935,
+      "calibration_method": "height_based",
+      "note": "All measurements calibrated using actual height"
+    }
+  },
+  "185.0cm": {
+    "height_cm": 185.0,
+    "chest_circumference_cm": 120.0989030518247,
+    "underbust_cm": 113.46788069866842,
+    "waist_circumference_cm": 121.19634494388927,
+    "hip_circumference_cm": 120.44036845279969,
+    "neck_circumference_cm": 87.93907959604692,
+    "thigh_circumference_cm": 181.85582853176317,
+    "shoulder_width_cm": 30.205985547734404,
+    "arm_span_cm": 62.33029201323975,
+    "inseam_cm": 83.25,
+    "torso_length_cm": 64.75,
+    "arm_length_cm": 55.50000000000001,
+    "_metadata": {
+      "source_mesh": "video_meshes/frame_0001_person0.obj",
+      "actual_height_input_cm": 185.0,
+      "mesh_original_height_cm": 170.06814500000002,
+      "scale_factor_applied": 1.0877992465902417,
+      "calibration_method": "height_based",
+      "note": "All measurements calibrated using actual height"
+    }
+  }
+}

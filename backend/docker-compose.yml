@@ -1,0 +1,43 @@
+# TryOn Backend - Local Development Stack
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=true
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Redis for Celery
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # Celery Worker (for background jobs)
+  celery_worker:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+
+volumes:
+  redis_data:

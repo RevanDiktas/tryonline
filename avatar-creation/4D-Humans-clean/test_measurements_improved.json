@@ -1,0 +1,21 @@
+{
+  "height_cm": 192.0,
+  "chest_circumference_cm": 105.92780371016362,
+  "waist_circumference_cm": 91.3831700126954,
+  "hip_circumference_cm": 265.8340747814048,
+  "neck_circumference_cm": 95.83229824983019,
+  "thigh_circumference_cm": 140.23136343438998,
+  "shoulder_width_cm": 44.11081832998492,
+  "arm_span_cm": 114.42621033884532,
+  "inseam_cm": 96.50526315789472,
+  "torso_length_cm": 53.557894736842094,
+  "arm_length_cm": 57.59999999999999,
+  "_metadata": {
+    "source_mesh": "IMG4698_mesh/IMG_4698_person0.obj",
+    "actual_height_input_cm": 192.0,
+    "mesh_original_height_cm": 175.392681,
+    "scale_factor_applied": 1.0946864994896792,
+    "method": "geometric_landmark_detection",
+    "note": "Landmarks found by analyzing mesh geometry (narrowest/widest points)"
+  }
+}

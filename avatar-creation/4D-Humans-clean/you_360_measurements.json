@@ -1,0 +1,22 @@
+{
+  "height_cm": 192.0,
+  "chest_circumference_cm": 32.4362514271345,
+  "underbust_cm": 24.4884665489128,
+  "waist_circumference_cm": 28.720074043573746,
+  "hip_circumference_cm": 34.16336397959406,
+  "neck_circumference_cm": 25.399550409602416,
+  "thigh_circumference_cm": 28.723831388387445,
+  "shoulder_width_cm": 9.026321,
+  "arm_span_cm": 26.068513,
+  "inseam_cm": 86.4,
+  "torso_length_cm": 67.19999999999999,
+  "arm_length_cm": 57.599999999999994,
+  "_metadata": {
+    "source_mesh": "refined_360_mesh/you_360_refined_refined.obj",
+    "actual_height_input_cm": 192.0,
+    "mesh_original_height_cm": 192.0,
+    "scale_factor_applied": 1.0,
+    "calibration_method": "height_based",
+    "note": "All measurements calibrated using actual height"
+  }
+}

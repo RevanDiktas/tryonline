@@ -1,0 +1,101 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+venv310/
+venv312/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.cursor/
+
+# OS
+.DS_Store
+._*
+.__*
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.env
+
+# Node.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Logs
+logs/
+*.log
+
+# Test outputs
+output/
+outputs/
+temp_*/
+
+# Large model files (download separately)
+*.pkl
+*.pt
+*.pth
+*.ckpt
+checkpoints/
+
+# SMPL models (must be downloaded separately due to license)
+avatar-creation/4D-Humans-clean/data/basicModel_*.pkl
+avatar-creation/4D-Humans-clean/data/SMPL_python_v.1.1.0/
+avatar-creation/4D-Humans-clean/data/checkpoints/
+
+# Uploaded/generated images
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+!frontend/public/**/*.png
+!frontend/public/**/*.jpg
+!docs/**/*.png
+
+# 3D model outputs
+*.obj
+*.ply
+*.glb
+*.gltf
+!frontend/public/models/*.glb
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build artifacts
+*.tar.gz
+*.zip

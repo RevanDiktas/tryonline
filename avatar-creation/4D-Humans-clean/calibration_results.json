@@ -1,0 +1,26 @@
+{
+  "chest": {
+    "y_ratio": 0.8586206896551725,
+    "y_level": 0.340029774137931,
+    "method": 3,
+    "thickness": 0.03,
+    "circumference": 101.72136153452634,
+    "error": 0.2786384654736622
+  },
+  "waist": {
+    "y_ratio": 0.4,
+    "y_level": -0.54052195,
+    "method": 2,
+    "thickness": 0.01,
+    "circumference": 83.71895802385866,
+    "error": 0.7189580238586615
+  },
+  "hip": {
+    "y_ratio": 0.37241379310344824,
+    "y_level": -0.5934874672413795,
+    "method": 1,
+    "thickness": 0.04,
+    "circumference": 92.57099260626833,
+    "error": 3.4290073937316663
+  }
+}

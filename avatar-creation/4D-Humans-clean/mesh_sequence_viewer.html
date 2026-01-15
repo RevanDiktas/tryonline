@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mesh Sequence Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #ffffff;
+        }
+        h1 { color: #4CAF50; }
+        .controls {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .frame-info {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+            border-radius: 5px;
+        }
+        button:hover { background: #45a049; }
+        input[type="range"] {
+            width: 100%;
+            margin: 10px 0;
+        }
+        .mesh-list {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .mesh-item {
+            padding: 5px;
+            margin: 2px 0;
+            font-family: monospace;
+        }
+        .current { color: #4CAF50; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>🎬 Mesh Sequence Viewer</h1>
+    
+    <div class="controls">
+        <div class="frame-info">
+            Frame: <span id="currentFrame">1</span> / <span id="totalFrames">31</span>
+        </div>
+        
+        <input type="range" id="frameSlider" min="1" max="31" value="1" />
+        
+        <div>
+            <button onclick="playPause()">▶️ Play / ⏸️ Pause</button>
+            <button onclick="prevFrame()">⏮️ Previous</button>
+            <button onclick="nextFrame()">⏭️ Next</button>
+            <button onclick="reset()">🔄 Reset</button>
+        </div>
+        
+        <div style="margin-top: 10px;">
+            <label>FPS: <input type="number" id="fpsInput" value="10" min="1" max="60" style="width: 60px;" /></label>
+        </div>
+    </div>
+    
+    <div class="mesh-list">
+        <h3>📁 Mesh Files (31 total)</h3>
+        <div id="meshList"></div>
+    </div>
+    
+    <script>
+        const meshPaths = ['frame_0001_person0.obj', 'frame_0002_person0.obj', 'frame_0003_person0.obj', 'frame_0004_person0.obj', 'frame_0005_person0.obj', 'frame_0006_person0.obj', 'frame_0007_person0.obj', 'frame_0008_person0.obj', 'frame_0009_person0.obj', 'frame_0010_person0.obj', 'frame_0011_person0.obj', 'frame_0012_person0.obj', 'frame_0013_person0.obj', 'frame_0014_person0.obj', 'frame_0015_person0.obj', 'frame_0016_person0.obj', 'frame_0017_person0.obj', 'frame_0018_person0.obj', 'frame_0019_person0.obj', 'frame_0020_person0.obj', 'frame_0021_person0.obj', 'frame_0022_person0.obj', 'frame_0023_person0.obj', 'frame_0024_person0.obj', 'frame_0025_person0.obj', 'frame_0026_person0.obj', 'frame_0027_person0.obj', 'frame_0028_person0.obj', 'frame_0029_person0.obj', 'frame_0030_person0.obj', 'frame_0031_person0.obj'];
+        let currentFrame = 1;
+        let isPlaying = false;
+        let playInterval = null;
+        
+        function updateDisplay() {
+            document.getElementById('currentFrame').textContent = currentFrame;
+            document.getElementById('frameSlider').value = currentFrame;
+            
+            // Update mesh list
+            const meshListDiv = document.getElementById('meshList');
+            meshListDiv.innerHTML = meshPaths.map((mesh, idx) => {
+                const frameNum = idx + 1;
+                const className = frameNum === currentFrame ? 'mesh-item current' : 'mesh-item';
+                return `<div class="${className}">${frameNum}. ${mesh}</div>`;
+            }).join('');
+        }
+        
+        function nextFrame() {
+            currentFrame = currentFrame >= 31 ? 1 : currentFrame + 1;
+            updateDisplay();
+        }
+        
+        function prevFrame() {
+            currentFrame = currentFrame <= 1 ? 31 : currentFrame - 1;
+            updateDisplay();
+        }
+        
+        function playPause() {
+            isPlaying = !isPlaying;
+            
+            if (isPlaying) {
+                const fps = parseInt(document.getElementById('fpsInput').value) || 10;
+                const interval = 1000 / fps;
+                playInterval = setInterval(nextFrame, interval);
+            } else {
+                if (playInterval) {
+                    clearInterval(playInterval);
+                    playInterval = null;
+                }
+            }
+        }
+        
+        function reset() {
+            currentFrame = 1;
+            isPlaying = false;
+            if (playInterval) {
+                clearInterval(playInterval);
+                playInterval = null;
+            }
+            updateDisplay();
+        }
+        
+        document.getElementById('frameSlider').addEventListener('input', (e) => {
+            currentFrame = parseInt(e.target.value);
+            updateDisplay();
+        });
+        
+        // Initialize
+        updateDisplay();
+        
+        console.log('Mesh Sequence Viewer Ready!');
+        console.log(`Total meshes: 31`);
+    </script>
+    
+    <div style="margin-top: 30px; padding: 20px; background: #2a2a2a; border-radius: 10px;">
+        <h3>💡 How to View 3D Meshes:</h3>
+        <p><strong>Option 1: Blender (Recommended)</strong></p>
+        <pre>blender --python mesh_animation_blender.py</pre>
+        
+        <p><strong>Option 2: Manual in Blender</strong></p>
+        <ol>
+            <li>Open Blender</li>
+            <li>File > Import > Wavefront (.obj)</li>
+            <li>Navigate through meshes using this viewer as reference</li>
+        </ol>
+        
+        <p><strong>Option 3: Create Video</strong></p>
+        <pre>python create_mesh_animation.py --meshes ./*.obj --output animation.mp4</pre>
+    </div>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "height_cm": 192.0,
+  "chest_circumference_cm": 66.70669603605346,
+  "waist_circumference_cm": 50.99185024393427,
+  "hip_circumference_cm": 69.59215024145206,
+  "neck_circumference_cm": 103.19805643313184,
+  "thigh_circumference_cm": 106.54380791071691,
+  "shoulder_width_cm": 15.54258018732071,
+  "arm_span_cm": 23.88722598552704,
+  "arm_length_cm": 177.30478644371033,
+  "inseam_cm": 76.65148973464966,
+  "torso_length_cm": 9.825483709573746,
+  "size_category": "XS",
+  "_metadata": {
+    "source_params": "./outputs/IMG4698_mesh/IMG_4698_person0_params.npz",
+    "actual_height_input_cm": 192.0,
+    "method": "smpl_joint_based_enhanced",
+    "note": "Measurements extracted using SMPL joint positions with multi-method averaging and adaptive search"
+  }
+}

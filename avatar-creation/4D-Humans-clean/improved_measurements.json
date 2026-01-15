@@ -1,0 +1,21 @@
+{
+  "height_cm": 192.0,
+  "chest_circumference_cm": 134.83074503918607,
+  "waist_circumference_cm": 130.75602967200936,
+  "hip_circumference_cm": 177.36002669975983,
+  "neck_circumference_cm": 53.5820899395698,
+  "thigh_circumference_cm": 85.37864996885821,
+  "shoulder_width_cm": 50.35413200000001,
+  "arm_span_cm": 77.02998199999999,
+  "inseam_cm": 86.4,
+  "torso_length_cm": 57.599999999999994,
+  "arm_length_cm": 57.599999999999994,
+  "_metadata": {
+    "source_mesh": "FINAL_RELAXED_RIG.obj",
+    "actual_height_input_cm": 192.0,
+    "mesh_original_height_cm": 192.0,
+    "scale_factor_applied": 1.0,
+    "method": "geometric_landmark_detection",
+    "note": "Landmarks found by analyzing mesh geometry (narrowest/widest points)"
+  }
+}

@@ -1,0 +1,52 @@
+# TryOn MVP Avatar Pipeline - GPU Environment Requirements
+# ========================================================
+# Python 3.10 required
+# Install: pip install -r requirements_gpu.txt
+#
+# For GPU support, install PyTorch with CUDA first:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+# Core ML/DL
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.21.0,<1.24.0  # Pinned for chumpy compatibility
+scipy>=1.10.0
+
+# SMPL/Body Models
+smplx>=0.1.28
+chumpy>=0.70
+
+# Computer Vision
+opencv-python>=4.8.0
+Pillow>=10.0.0
+scikit-image>=0.21.0
+
+# 3D Mesh Processing
+trimesh>=4.0.0
+pyglet<2  # Required by trimesh for rendering
+
+# 4D-Humans Dependencies
+timm>=0.9.0
+einops>=0.6.0
+pytorch-lightning>=2.0.0
+hydra-core>=1.3.0
+yacs>=0.1.8
+
+# Object Detection (for demo_yolo.py)
+ultralytics>=8.0.0  # YOLOv8
+
+# Visualization (optional, can skip for headless)
+# pyrender>=0.1.45
+# pyopengl>=3.1.0
+
+# Configuration
+pyyaml>=6.0
+omegaconf>=2.3.0
+
+# Utilities
+tqdm>=4.65.0
+joblib>=1.3.0
+requests>=2.31.0
+
+# For SMPL-Anthropometry measurements
+# (already covered by smplx, trimesh, numpy)

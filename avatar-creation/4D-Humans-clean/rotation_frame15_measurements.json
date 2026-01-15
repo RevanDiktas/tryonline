@@ -1,0 +1,22 @@
+{
+  "height_cm": 192.0,
+  "chest_circumference_cm": 89.52690362716227,
+  "underbust_cm": 94.27293743130957,
+  "waist_circumference_cm": 125.92099392195166,
+  "hip_circumference_cm": 126.90487300786393,
+  "neck_circumference_cm": 101.037635020226,
+  "thigh_circumference_cm": 106.97977503205377,
+  "shoulder_width_cm": 16.22028895801378,
+  "arm_span_cm": 96.381017454393,
+  "inseam_cm": 86.4,
+  "torso_length_cm": 67.19999999999999,
+  "arm_length_cm": 57.599999999999994,
+  "_metadata": {
+    "source_mesh": "rotation_meshes/frame_0015_person0.obj",
+    "actual_height_input_cm": 192.0,
+    "mesh_original_height_cm": 169.080758,
+    "scale_factor_applied": 1.135552041941993,
+    "calibration_method": "height_based",
+    "note": "All measurements calibrated using actual height"
+  }
+}
