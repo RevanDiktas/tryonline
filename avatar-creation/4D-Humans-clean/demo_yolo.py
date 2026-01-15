@@ -13,13 +13,18 @@ import numpy as np
 import trimesh
 import time
 
-# Fix for PyTorch 2.6+ weights_only default change
-# Allow loading checkpoints with omegaconf objects
-try:
-    import omegaconf
-    torch.serialization.add_safe_globals([omegaconf.dictconfig.DictConfig, omegaconf.listconfig.ListConfig])
-except Exception:
-    pass  # Older PyTorch versions don't need this
+# ============================================================
+# FIX FOR PYTORCH 2.6+ weights_only BREAKING CHANGE
+# PyTorch 2.6 changed default weights_only=True which breaks
+# loading checkpoints with omegaconf/custom objects.
+# We monkeypatch torch.load to force weights_only=False.
+# ============================================================
+_original_torch_load = torch.load
+def _patched_torch_load(*args, **kwargs):
+    kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+torch.load = _patched_torch_load
+# ============================================================
 
 from hmr2.configs import CACHE_DIR_4DHUMANS, get_config
 from hmr2.models import HMR2, download_models, DEFAULT_CHECKPOINT
