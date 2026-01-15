@@ -78,8 +78,7 @@ def step1_extract_body(
         str(demo_script),
         "--img_folder", str(temp_input),
         "--out_folder", str(output_dir),
-        "--batch_size", "1",
-        "--save_mesh"
+        "--batch_size", "1"
     ]
     
     print(f"  Running: {' '.join(cmd)}")
