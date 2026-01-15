@@ -236,6 +236,22 @@ files.download('avatar_output.zip')
 
 ---
 
+## Known Issues to Fix
+
+### Issue 1: Avatar Not Textured
+- **Current:** Solid skin color (vertex colors only)
+- **Expected:** UV-mapped texture for realistic appearance
+- **Fix needed:** Add UV texture mapping in step6_create_textured_glb()
+- **Root:** SMPL has UV coords but we're not using them
+
+### Issue 2: Only 5 Measurements (should be 16+)
+- **Current:** height, chest, waist, hip, inseam only
+- **Expected:** 16+ measurements including neck, bicep, thigh, etc.
+- **Error:** `No module named 'visualize'`
+- **Fix needed:** Create stub `visualize.py` or make import optional in `measure.py`
+
+---
+
 ## Troubleshooting
 
 ### Error: `weights_only` / `omegaconf.DictConfig`
@@ -253,6 +269,10 @@ files.download('avatar_output.zip')
 ### Error: 403 Forbidden (download)
 - **Cause:** Berkeley server blocks downloads
 - **Fix:** Use Google Drive for model files (this guide)
+
+### Error: `No module named 'visualize'`
+- **Cause:** Missing visualize.py in avatar-creation-measurements
+- **Fix:** Create stub file (see "Known Issues" above)
 
 ### Runtime Disconnects
 - **Cause:** Long uploads/idle time

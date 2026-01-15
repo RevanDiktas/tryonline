@@ -246,22 +246,129 @@ Measurements:
 
 ---
 
+---
+
+## Known Issues to Fix Before Deployment
+
+### Issue 1: Avatar Not Textured (Solid Color Only)
+
+**Problem:** The avatar GLB has only a solid skin color, not proper UV texture mapping.
+
+**Root Cause:** In `step6_create_textured_glb()` (run_avatar_pipeline.py lines 468-507):
+- Currently applies skin color as **vertex colors** (line 494-496)
+- Creates uniform color across all 6890 vertices
+- No UV mapping or texture image is being used
+
+**What SMPL Provides:**
+- SMPL has built-in UV coordinates
+- Can support texture mapping for realistic skin appearance
+
+**Solution Options (No Blender API):**
+1. **Use trimesh with UV textures:**
+   - Load SMPL UV coordinates from the model
+   - Create a texture image (from skin detection or procedural)
+   - Apply texture using trimesh's material system
+   
+2. **Use smplx texture support:**
+   - smplx library can load UV-mapped textures
+   - Need to generate or use a skin texture template
+   
+3. **Procedural texture approach:**
+   - Generate a simple skin texture with variations
+   - Map using SMPL's standard UVs
+
+**Files to Modify:**
+- `avatar-creation/pipelines/run_avatar_pipeline.py` (step6)
+- May need SMPL UV template file
+
+---
+
+### Issue 2: Limited Measurements (5 instead of 16+)
+
+**Problem:** Only 5 measurements returned instead of 16+ available.
+
+**Error from Colab:**
+```
+[ERROR] Missing dependency: No module named 'visualize'
+[WARNING] Measurement extraction failed, using defaults
+```
+
+**Root Cause:** The file `visualize.py` is **MISSING** from `avatar-creation-measurements/`
+
+**What's Available (from measurement_definitions.py):**
+```
+FULL MEASUREMENTS AVAILABLE:
+- height
+- head circumference
+- neck circumference  
+- shoulder to crotch height
+- chest circumference
+- waist circumference
+- hip circumference
+- wrist right circumference
+- bicep right circumference
+- forearm right circumference
+- arm right length
+- arm left length
+- inside leg height
+- thigh left circumference
+- calf left circumference
+- ankle left circumference
+- shoulder breadth
+- arm length (shoulder to elbow)
+- arm length (spine to wrist)
+- crotch height
+- Hip circumference max height
+```
+
+**Solution Options:**
+1. **Create stub visualize.py:**
+   - The Visualizer class is only used for the `visualize()` method
+   - Create an empty stub that doesn't break imports
+   - Measurements work without visualization
+
+2. **Make visualize import optional:**
+   - Wrap the import in try/except in measure.py
+   - Only use Visualizer if available
+
+3. **Download visualize.py from original repo:**
+   - Get from https://github.com/DavidBoja/SMPL-Anthropometry
+   - Requires plotly and other visualization deps
+
+**Recommended Fix:** Option 2 (make import optional) since we don't need visualization in production
+
+**Files to Modify:**
+- `avatar-creation-measurements/measure.py` (make visualize optional)
+- OR create `avatar-creation-measurements/visualize.py` (stub)
+
+---
+
 ## Tomorrow's Plan (Jan 16)
 
-### Priority 1: Deploy GPU to RunPod
+### Priority 1: Fix Avatar Texture
+- [ ] Add UV texture mapping to GLB export
+- [ ] Use SMPL UV coordinates + skin texture
+- [ ] Test textured avatar rendering
+
+### Priority 2: Fix Full Measurements
+- [ ] Create stub visualize.py OR make import optional
+- [ ] Verify all 16+ measurements are extracted
+- [ ] Update measurement JSON output format
+
+### Priority 3: Deploy GPU to RunPod
 - [ ] Create RunPod serverless endpoint
 - [ ] Deploy pipeline with all fixes
 - [ ] Test endpoint API
 
-### Priority 2: Deploy Backend
+### Priority 4: Deploy Backend
 - [ ] Deploy FastAPI to Railway or Render
 - [ ] Configure environment variables
 - [ ] Connect to RunPod endpoint
 
-### Priority 3: End-to-End Test
+### Priority 5: End-to-End Test
 - [ ] Full flow: Upload photo → Get real avatar
-- [ ] Verify measurements are accurate
-- [ ] Verify GLB loads in dashboard
+- [ ] Verify measurements are accurate (all 16+)
+- [ ] Verify textured GLB loads in dashboard
 
 ---
 
