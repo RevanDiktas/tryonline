@@ -1,6 +1,29 @@
+# ============================================================
+# COMPATIBILITY FIXES FOR PYTHON 3.11+ AND NUMPY 2.0+
+# Must be applied BEFORE any imports that use chumpy/smplx
+# ============================================================
+import inspect
+if not hasattr(inspect, 'getargspec'):
+    inspect.getargspec = inspect.getfullargspec
+
+import numpy as np
+if not hasattr(np, 'bool'):
+    np.bool = np.bool_
+if not hasattr(np, 'int'):
+    np.int = np.int_
+if not hasattr(np, 'float'):
+    np.float = np.float64
+if not hasattr(np, 'complex'):
+    np.complex = np.complex128
+if not hasattr(np, 'object'):
+    np.object = np.object_
+if not hasattr(np, 'str'):
+    np.str = np.str_
+if not hasattr(np, 'unicode'):
+    np.unicode = np.str_
+# ============================================================
 
 from typing import List, Dict
-import numpy as np
 import trimesh
 import torch
 import smplx
