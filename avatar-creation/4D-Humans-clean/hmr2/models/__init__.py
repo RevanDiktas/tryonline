@@ -40,11 +40,15 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
         return
     
     # Check if checkpoint exists in either location (primary check)
+    # Also check common RunPod mount paths
     checkpoint_paths = [
         os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"),
         str(local_data_folder / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"),
         os.path.join(folder, "checkpoints/epoch=35-step=1000000.ckpt"),  # Alternative location
         str(local_data_folder / "checkpoints/epoch=35-step=1000000.ckpt"),  # Alternative location
+        "/workspace/checkpoints/epoch=35-step=1000000.ckpt",  # RunPod volume mount
+        "/workspace/models/epoch=35-step=1000000.ckpt",  # Alternative RunPod mount
+        "/runpod-volume/epoch=35-step=1000000.ckpt",  # Common RunPod volume path
     ]
     
     for checkpoint_path in checkpoint_paths:
@@ -115,10 +119,28 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 if os.path.exists(essential_checkpoint):
                     print(f"Found checkpoint at {essential_checkpoint}, continuing despite download failure.")
                     return
-                # If download fails and files don't exist, this will cause an error later
-                # but at least we've warned the user
-                print(f"Error: Required models not available. Please provide models via volume mount or ensure download succeeds.")
-                raise
+                # If download fails and files don't exist, check one more time for checkpoint
+                # in case it was mounted or copied while we were trying to download
+                for checkpoint_path in checkpoint_paths:
+                    if os.path.exists(checkpoint_path):
+                        print(f"Found checkpoint at {checkpoint_path} after download failure. Continuing...")
+                        return
+                
+                # Final error if nothing found
+                error_msg = (
+                    f"ERROR: HMR2 checkpoint file not found and download failed.\n"
+                    f"Required file: epoch=35-step=1000000.ckpt\n"
+                    f"Checked locations:\n"
+                    f"  - {os.path.join(folder, 'logs/train/multiruns/hmr2/0/checkpoints/')}\n"
+                    f"  - {local_data_folder / 'checkpoints/'}\n"
+                    f"  - /workspace/checkpoints/\n"
+                    f"\nSolutions:\n"
+                    f"1. Mount checkpoint via RunPod Volumes\n"
+                    f"2. Include checkpoint in Docker image build\n"
+                    f"3. Ensure download URL is accessible"
+                )
+                print(error_msg)
+                raise FileNotFoundError(error_msg)
 
             # if ends with tar.gz, tar -xzf
             if file_name.endswith(".tar.gz"):
