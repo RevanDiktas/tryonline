@@ -89,11 +89,38 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
     try:
         jobs[job_id]["status"] = ProcessingStatus.processing
         jobs[job_id]["progress"] = 10
+        jobs[job_id]["message"] = "Preparing photo for GPU..."
+        
+        # Convert photo URL to signed URL (required for private buckets)
+        # Extract path from public URL: https://xxx.supabase.co/storage/v1/object/public/photos/user_id/file.jpg
+        # -> user_id/file.jpg (path within bucket, not including bucket name)
+        photo_url = request.photo_url
+        if "/storage/v1/object/public/photos/" in photo_url:
+            # Extract the path after /photos/ (this is the path within the bucket)
+            path_start = photo_url.find("/photos/") + len("/photos/")
+            photo_path = photo_url[path_start:]
+            
+            # Remove query parameters if any
+            if "?" in photo_path:
+                photo_path = photo_path.split("?")[0]
+            
+            # Create signed URL (valid for 1 hour)
+            try:
+                signed_url = supabase_service.get_photo_signed_url(photo_path, expires_in=3600)
+                if signed_url:
+                    photo_url = signed_url
+                    print(f"[Avatar] Using signed URL for photo (path: {photo_path})")
+                else:
+                    print(f"[Avatar] Warning: Failed to create signed URL, using original: {photo_url}")
+            except Exception as e:
+                print(f"[Avatar] Error creating signed URL: {e}, using original URL")
+                # Continue with original URL - might work if bucket is public
+        
         jobs[job_id]["message"] = "Uploading to GPU..."
         
         # Submit to RunPod
         runpod_job_id = await runpod_service.submit_avatar_job(
-            photo_url=request.photo_url,
+            photo_url=photo_url,  # Use signed URL
             height=request.height,
             weight=request.weight,
             gender=request.gender.value,

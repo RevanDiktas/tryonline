@@ -10,6 +10,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     """Download checkpoints and files for running inference.
     """
     import os
+    import sys
     from pathlib import Path
     
     os.makedirs(folder, exist_ok=True)
@@ -92,6 +93,45 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 shutil.copy(str(local_cf), cache_cf)
                 print(f"  Copied {cf}")
         return
+    
+    # Try downloading checkpoint from Google Drive if not found
+    # Replace this with your Google Drive file ID after uploading
+    # Get file ID from: https://drive.google.com/file/d/FILE_ID_HERE/view
+    GOOGLE_DRIVE_CHECKPOINT_FILE_ID = os.environ.get("GOOGLE_DRIVE_CHECKPOINT_ID")  # Can set via env var
+    # Or hardcode it: GOOGLE_DRIVE_CHECKPOINT_FILE_ID = "YOUR_FILE_ID_HERE"
+    
+    checkpoint_dest = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+    
+    # Only try Google Drive if checkpoint doesn't exist and we have a file ID
+    if not os.path.exists(checkpoint_dest) and GOOGLE_DRIVE_CHECKPOINT_FILE_ID:
+        print(f"Checkpoint not found. Attempting to download from Google Drive...")
+        try:
+            import subprocess
+            # Install gdown if not available
+            try:
+                import gdown
+            except ImportError:
+                print("Installing gdown...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "gdown"])
+                import gdown
+            
+            os.makedirs(os.path.dirname(checkpoint_dest), exist_ok=True)
+            
+            # Google Drive URL format
+            gdrive_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_CHECKPOINT_FILE_ID}"
+            print(f"Downloading from: {gdrive_url}")
+            print("(This may take 10-30 minutes for 2.5GB file...)")
+            
+            gdown.download(gdrive_url, checkpoint_dest, quiet=False)
+            
+            if os.path.exists(checkpoint_dest):
+                print(f"✅ Checkpoint downloaded from Google Drive!")
+                return
+            else:
+                print(f"⚠️  Download completed but file not found at {checkpoint_dest}")
+        except Exception as e:
+            print(f"⚠️  Google Drive download failed: {e}")
+            print("Falling back to check other locations...")
     
     download_files = {
         "hmr2_data.tar.gz"      : ["https://people.eecs.berkeley.edu/~jathushan/projects/4dhumans/hmr2_data.tar.gz", folder],

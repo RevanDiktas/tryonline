@@ -292,12 +292,24 @@ def runpod_handler(event):
 
 
 # For RunPod serverless - register the handler
+# Always try to start (RunPod imports the module)
 try:
     import runpod
+    print("[RunPod] Starting serverless handler...")
+    print(f"[RunPod] Python path: {sys.path}")
+    print(f"[RunPod] Working directory: {os.getcwd()}")
     runpod.serverless.start({"handler": runpod_handler})
 except ImportError:
     # RunPod not installed - running locally
+    print("[RunPod] RunPod not installed, skipping serverless registration")
     pass
+except Exception as e:
+    # Print any startup errors
+    print(f"[RunPod] ERROR during handler startup: {e}")
+    import traceback
+    traceback.print_exc()
+    # Don't raise - let RunPod handle it
+    raise
 
 
 # For local testing

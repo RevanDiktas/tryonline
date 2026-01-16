@@ -79,7 +79,14 @@ class RunPodService:
             
             if response.status_code == 200:
                 data = response.json()
+                status = data.get("status", "UNKNOWN")
                 output = data.get("output", {})
+                error = data.get("error")
+                
+                # Debug logging
+                print(f"[RunPod] Job {job_id} status: {status}")
+                if error:
+                    print(f"[RunPod] Job {job_id} error: {error}")
                 
                 # Transform output to expected format
                 processed_output = None

@@ -128,11 +128,19 @@ class SupabaseService:
     
     def get_photo_signed_url(self, photo_path: str, expires_in: int = 3600) -> str:
         """Get signed URL for private photo"""
-        response = self.client.storage.from_(settings.photos_bucket).create_signed_url(
-            photo_path, 
-            expires_in
-        )
-        return response.get("signedURL", "")
+        try:
+            response = self.client.storage.from_(settings.photos_bucket).create_signed_url(
+                photo_path, 
+                expires_in
+            )
+            if isinstance(response, dict):
+                return response.get("signedURL", "")
+            elif hasattr(response, "signedURL"):
+                return response.signedURL
+            return ""
+        except Exception as e:
+            print(f"[Supabase] Error creating signed URL for {photo_path}: {e}")
+            return ""
     
     async def upload_avatar(self, user_id: str, file_data: bytes, filename: str) -> str:
         """Upload avatar GLB to storage"""
