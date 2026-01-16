@@ -237,12 +237,12 @@ export default function DashboardPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <a href="/">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img 
-              src="/tryon-logo.jpg" 
-              alt="TRYON" 
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img 
+            src="/tryon-logo.jpg" 
+            alt="TRYON" 
               className="h-14 w-auto cursor-pointer hover:opacity-80 transition"
-            />
+          />
           </a>
           <div className="flex items-center gap-4">
             <span className="text-gray-500 text-sm">{user.email}</span>
@@ -318,7 +318,7 @@ export default function DashboardPage() {
                 <p className="text-blue-700 text-sm">
                   Review your measurements below. If any are incorrect, you can adjust them.
                 </p>
-              </div>
+                </div>
             )}
 
             <div className="grid grid-cols-2 gap-3">
@@ -337,7 +337,7 @@ export default function DashboardPage() {
                         className="w-full px-2 py-1 text-lg font-bold text-black bg-white border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-black"
                       />
                       <span className="text-gray-400 text-sm">cm</span>
-                    </div>
+                </div>
                   ) : (
                     <p className="text-black text-lg font-bold">
                       {measurements[field.key as keyof Measurements]}
@@ -346,7 +346,7 @@ export default function DashboardPage() {
                   )}
                 </div>
               ))}
-            </div>
+                </div>
 
             {!isEditing && (
               <p className="text-gray-400 text-xs mt-4 text-center">
@@ -409,16 +409,16 @@ export default function DashboardPage() {
                 <div>
                   <p className="text-black text-sm font-medium">Measurements saved</p>
                   <p className="text-gray-400 text-xs">Size recommendations enabled</p>
-                </div>
-              </div>
+            </div>
+          </div>
 
               <div className="pt-4 border-t border-gray-100">
-                <button
-                  onClick={handleClearData}
-                  className="w-full py-3 text-red-500 text-sm hover:bg-red-50 rounded-xl transition"
-                >
+              <button
+                onClick={handleClearData}
+                className="w-full py-3 text-red-500 text-sm hover:bg-red-50 rounded-xl transition"
+              >
                   Delete account and data
-                </button>
+              </button>
               </div>
             </div>
           </div>

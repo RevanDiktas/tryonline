@@ -183,16 +183,78 @@ def handler(event: dict) -> dict:
         if not results.get("success"):
             return {"error": results.get("error", "Pipeline failed")}
         
-        # Read GLB file and encode as base64
-        glb_path = Path(results["outputs"]["avatar_glb"])
-        if not glb_path.exists():
-            return {"error": "GLB file not generated"}
+        # Collect all output files and encode as base64
+        files_base64 = {}
+        file_sizes = {}
         
-        with open(glb_path, "rb") as f:
-            glb_data = f.read()
+        # Map of file keys to paths (from results or by common filenames)
+        output_files = {}
         
-        glb_base64 = base64.b64encode(glb_data).decode("utf-8")
-        print(f"[RunPod] GLB size: {len(glb_data) / 1024:.1f} KB")
+        # Get paths from results
+        if "outputs" in results:
+            output_files.update({
+                "avatar_glb": results["outputs"].get("avatar_glb"),
+                "skin_texture": results["outputs"].get("skin_texture"),
+                "original_mesh": results["outputs"].get("original_mesh"),
+                "smpl_params": results["outputs"].get("smpl_params"),
+                "tpose_mesh": results["outputs"].get("tpose_mesh"),
+                "apose_mesh": results["outputs"].get("apose_mesh"),
+                "measurements": results["outputs"].get("measurements"),
+            })
+        
+        # Also check for additional files in output_dir by common names
+        additional_files = {
+            "face_crop": output_dir / "face_crop.png",
+            "avatar_texture": output_dir / "avatar_texture.png",
+            "skin_detection_mask": output_dir / "skin_detection_mask.png",
+            # Also check for common GLB names
+            "avatar_glb_alt": output_dir / "avatar_textured.glb",
+        }
+        
+        # Encode all files
+        for file_key, file_path in output_files.items():
+            if file_path:
+                file_path = Path(file_path)
+                if file_path.exists():
+                    try:
+                        with open(file_path, "rb") as f:
+                            file_data = f.read()
+                        files_base64[file_key] = base64.b64encode(file_data).decode("utf-8")
+                        file_sizes[file_key] = len(file_data)
+                        print(f"[RunPod] Encoded {file_key}: {len(file_data) / 1024:.1f} KB")
+                    except Exception as e:
+                        print(f"[RunPod] Warning: Failed to encode {file_key}: {e}")
+        
+        for file_key, file_path in additional_files.items():
+            if file_path.exists():
+                try:
+                    with open(file_path, "rb") as f:
+                        file_data = f.read()
+                    files_base64[file_key] = base64.b64encode(file_data).decode("utf-8")
+                    file_sizes[file_key] = len(file_data)
+                    print(f"[RunPod] Encoded {file_key}: {len(file_data) / 1024:.1f} KB")
+                except Exception as e:
+                    print(f"[RunPod] Warning: Failed to encode {file_key}: {e}")
+        
+        # Normalize GLB key (use avatar_glb as standard)
+        if "avatar_glb_alt" in files_base64:
+            if "avatar_glb" not in files_base64:
+                files_base64["avatar_glb"] = files_base64.pop("avatar_glb_alt")
+            else:
+                del files_base64["avatar_glb_alt"]
+        
+        # Ensure GLB exists
+        if "avatar_glb" not in files_base64:
+            # Try to find any GLB file in output_dir
+            glb_files = list(output_dir.glob("*.glb"))
+            if glb_files:
+                glb_path = glb_files[0]
+                with open(glb_path, "rb") as f:
+                    glb_data = f.read()
+                files_base64["avatar_glb"] = base64.b64encode(glb_data).decode("utf-8")
+                file_sizes["avatar_glb"] = len(glb_data)
+            else:
+                return {"error": "GLB file not generated"}
         
         # Standardize measurements
         raw_measurements = results.get("measurements", {})
@@ -201,13 +263,16 @@ def handler(event: dict) -> dict:
         # Ensure height is included
         standardized_measurements["height"] = float(height)
         
+        print(f"[RunPod] Encoded {len(files_base64)} files")
+        print(f"[RunPod] Total size: {sum(file_sizes.values()) / 1024 / 1024:.2f} MB")
         print(f"[RunPod] Measurements: {len(standardized_measurements)} values")
         
         processing_time = time.time() - start_time
         print(f"[RunPod] Complete in {processing_time:.1f}s")
         
         return {
-            "avatar_glb_base64": glb_base64,
+            "files_base64": files_base64,  # All files as base64 dict
+            "file_sizes": file_sizes,      # Original file sizes for reference
             "measurements": standardized_measurements,
             "processing_time_seconds": round(processing_time, 1),
             "user_id": user_id,

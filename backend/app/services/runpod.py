@@ -87,18 +87,25 @@ class RunPodService:
                     processed_output = {
                         "measurements": output.get("measurements", {}),
                         "processing_time": output.get("processing_time_seconds"),
-                        # Decode base64 GLB and return raw bytes for upload
-                        "avatar_glb_bytes": None,
+                        # All files as decoded bytes dict
+                        "files_bytes": {},
+                        "file_sizes": output.get("file_sizes", {}),
                     }
                     
-                    # Decode base64 GLB if present
-                    if output.get("avatar_glb_base64"):
+                    # Decode all base64 files
+                    files_base64 = output.get("files_base64", {})
+                    if not files_base64:
+                        # Fallback to old format (single GLB)
+                        if output.get("avatar_glb_base64"):
+                            files_base64 = {"avatar_glb": output["avatar_glb_base64"]}
+                    
+                    for file_key, file_base64 in files_base64.items():
                         try:
-                            processed_output["avatar_glb_bytes"] = base64.b64decode(
-                                output["avatar_glb_base64"]
+                            processed_output["files_bytes"][file_key] = base64.b64decode(
+                                file_base64
                             )
                         except Exception as e:
-                            print(f"Failed to decode GLB base64: {e}")
+                            print(f"Failed to decode {file_key} base64: {e}")
                 
                 return {
                     "status": data.get("status", "UNKNOWN"),

@@ -129,26 +129,40 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 output = status_result.get("output", {})
                 measurements = output.get("measurements", {})
                 
-                # Upload GLB to Supabase storage
+                # Upload all pipeline files to Supabase storage
                 jobs[job_id]["progress"] = 95
-                jobs[job_id]["message"] = "Saving your avatar..."
+                jobs[job_id]["message"] = "Saving your avatar files..."
                 
-                glb_bytes = output.get("avatar_glb_bytes")
-                if glb_bytes:
-                    avatar_url = await supabase_service.upload_avatar(
+                files_bytes = output.get("files_bytes", {})
+                
+                # Upload all files
+                file_urls = {}
+                if files_bytes:
+                    file_urls = await supabase_service.upload_pipeline_files(
                         user_id=request.user_id,
-                        file_data=glb_bytes,
-                        filename="avatar.glb"
+                        files_bytes=files_bytes
                     )
                 else:
-                    # Fallback to default avatar
-                    avatar_url = "/models/avatar_with_tshirt_m.glb"
+                    # Fallback: try old format (single GLB)
+                    glb_bytes = output.get("avatar_glb_bytes")
+                    if glb_bytes:
+                        avatar_url = await supabase_service.upload_avatar(
+                            user_id=request.user_id,
+                            file_data=glb_bytes,
+                            filename="avatar_textured.glb"
+                        )
+                        file_urls["avatar_glb"] = avatar_url
                 
-                # Update database
+                # Get main avatar URL (prioritize GLB)
+                avatar_url = file_urls.get("avatar_glb") or file_urls.get("apose_mesh") or "/models/avatar_with_tshirt_m.glb"
+                
+                # Update database with all file URLs stored in JSONB
+                # First update basic fields
                 await supabase_service.update_fit_passport_with_results(
                     user_id=request.user_id,
                     avatar_url=avatar_url,
-                    measurements=measurements
+                    measurements=measurements,
+                    pipeline_files=file_urls  # Store all URLs in JSONB field
                 )
                 
                 jobs[job_id]["status"] = ProcessingStatus.completed

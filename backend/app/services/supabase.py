@@ -61,7 +61,8 @@ class SupabaseService:
         user_id: str,
         avatar_url: str,
         measurements: Dict[str, int],
-        thumbnail_url: Optional[str] = None
+        thumbnail_url: Optional[str] = None,
+        pipeline_files: Optional[Dict[str, str]] = None
     ) -> bool:
         """Update fit passport with avatar and measurements"""
         update_data = {
@@ -81,6 +82,12 @@ class SupabaseService:
             "thigh": measurements.get("thigh"),
             "torso_length": measurements.get("torso_length"),
         }
+        
+        # Store all pipeline file URLs in JSONB field (if column exists)
+        if pipeline_files:
+            # Try to update pipeline_files column if it exists
+            # If column doesn't exist, files are still in storage and can be accessed via URLs
+            update_data["pipeline_files"] = pipeline_files
         
         response = self.client.table("fit_passports").update(update_data).eq("user_id", user_id).execute()
         return len(response.data) > 0
@@ -131,15 +138,74 @@ class SupabaseService:
         """Upload avatar GLB to storage"""
         file_path = f"{user_id}/{filename}"
         
+        # Determine content type based on extension
+        content_type = "application/octet-stream"
+        if filename.endswith(".glb"):
+            content_type = "model/gltf-binary"
+        elif filename.endswith(".obj"):
+            content_type = "model/obj"
+        elif filename.endswith(".png"):
+            content_type = "image/png"
+        elif filename.endswith(".json"):
+            content_type = "application/json"
+        elif filename.endswith(".npz"):
+            content_type = "application/octet-stream"
+        
         self.client.storage.from_(settings.avatars_bucket).upload(
             file_path,
             file_data,
-            {"content-type": "model/gltf-binary"}
+            {"content-type": content_type}
         )
         
         # Get public URL
         public_url = self.client.storage.from_(settings.avatars_bucket).get_public_url(file_path)
         return public_url
+    
+    async def upload_pipeline_files(
+        self, 
+        user_id: str, 
+        files_bytes: dict,
+        file_key_to_filename: dict = None
+    ) -> dict:
+        """
+        Upload all pipeline output files to Supabase storage.
+        
+        Args:
+            user_id: User ID for folder organization
+            files_bytes: Dict of {file_key: bytes_data}
+            file_key_to_filename: Optional mapping of file_key to filename
+        
+        Returns:
+            Dict of {file_key: public_url}
+        """
+        if file_key_to_filename is None:
+            # Default filename mapping
+            file_key_to_filename = {
+                "avatar_glb": "avatar_textured.glb",
+                "skin_texture": "skin_texture.png",
+                "original_mesh": "body_original.obj",
+                "smpl_params": "smpl_params.npz",
+                "tpose_mesh": "body_tpose.obj",
+                "apose_mesh": "body_apose.obj",
+                "measurements": "measurements.json",
+                "face_crop": "face_crop.png",
+                "avatar_texture": "avatar_texture.png",
+                "skin_detection_mask": "skin_detection_mask.png",
+            }
+        
+        uploaded_urls = {}
+        
+        for file_key, file_data in files_bytes.items():
+            filename = file_key_to_filename.get(file_key, f"{file_key}.bin")
+            try:
+                url = await self.upload_avatar(user_id, file_data, filename)
+                uploaded_urls[file_key] = url
+                print(f"Uploaded {file_key} -> {filename} ({len(file_data) / 1024:.1f} KB)")
+            except Exception as e:
+                print(f"Failed to upload {file_key}: {e}")
+                # Continue with other files
+        
+        return uploaded_urls
     
     # ==========================================
     # ANALYTICS OPERATIONS
