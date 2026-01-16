@@ -794,8 +794,22 @@ Examples:
         sys.exit(1)
     
     # Output results as JSON for programmatic use
+    # Convert numpy types to Python types for JSON serialization
+    def convert_numpy(obj):
+        if isinstance(obj, dict):
+            return {k: convert_numpy(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [convert_numpy(v) for v in obj]
+        elif isinstance(obj, (np.floating, np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, (np.integer, np.int32, np.int64)):
+            return int(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return obj
+    
     print(f"\n--- RESULTS JSON ---")
-    print(json.dumps(results, indent=2))
+    print(json.dumps(convert_numpy(results), indent=2))
 
 
 if __name__ == "__main__":
