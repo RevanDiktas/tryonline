@@ -591,7 +591,7 @@ def save_measurements_json(
             "gender": gender
         },
         "measurements_cm": {
-            name: round(value, 1)
+            name: round(float(value), 1)  # Convert numpy float32 to Python float
             for name, value in sorted(measurements.items())
         }
     }
