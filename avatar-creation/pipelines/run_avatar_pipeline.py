@@ -383,10 +383,12 @@ def step5_extract_skin(
     output_dir: Path
 ) -> Optional[Tuple[Path, np.ndarray]]:
     """
-    Step 5: Extract skin color from FACE region for accuracy.
-    Uses face detection to find face, then samples skin from forehead/cheeks.
+    Step 5: Extract skin color by cropping face and sampling from it.
+    1. Detect face using Haar cascade
+    2. Crop and save face image
+    3. Extract skin color from cropped face only
     """
-    log_step(5, "Skin Color Extraction from Face")
+    log_step(5, "Skin Color Extraction from Face Crop")
     
     try:
         import cv2
@@ -405,58 +407,75 @@ def step5_extract_skin(
     h, w = image.shape[:2]
     print(f"  Image size: {w}x{h}")
     
-    # Try to detect face using Haar cascade
+    # Detect face using Haar cascade
     face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
     face_cascade = cv2.CascadeClassifier(face_cascade_path)
     
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
     
-    face_region = None
     if len(faces) > 0:
         # Use the largest face
         largest_face = max(faces, key=lambda f: f[2] * f[3])
         fx, fy, fw, fh = largest_face
         print(f"  Face detected at: ({fx}, {fy}) size: {fw}x{fh}")
         
-        # Sample from forehead area (upper middle of face) - most reliable for skin
-        forehead_y = fy + int(fh * 0.15)
-        forehead_h = int(fh * 0.25)
-        forehead_x = fx + int(fw * 0.25)
-        forehead_w = int(fw * 0.5)
+        # Crop face with some padding
+        pad = int(min(fw, fh) * 0.1)
+        crop_x = max(0, fx - pad)
+        crop_y = max(0, fy - pad)
+        crop_x2 = min(w, fx + fw + pad)
+        crop_y2 = min(h, fy + fh + pad)
         
-        face_region = image[forehead_y:forehead_y+forehead_h, forehead_x:forehead_x+forehead_w]
-        print(f"  Sampling from forehead region: {forehead_w}x{forehead_h}")
+        face_crop = image[crop_y:crop_y2, crop_x:crop_x2]
     else:
-        print("  [WARNING] No face detected, using upper-center region")
-        # Fallback: use upper center of image (likely head area)
-        face_region = image[int(h*0.05):int(h*0.25), int(w*0.35):int(w*0.65)]
+        print("  [WARNING] No face detected, using top-center of image")
+        # Fallback: crop top-center (likely head area in A-pose photo)
+        crop_x = int(w * 0.3)
+        crop_x2 = int(w * 0.7)
+        crop_y = int(h * 0.02)
+        crop_y2 = int(h * 0.25)
+        face_crop = image[crop_y:crop_y2, crop_x:crop_x2]
     
-    # Apply skin color detection within the face region
-    hsv = cv2.cvtColor(face_region, cv2.COLOR_BGR2HSV)
+    # Save face crop for debugging
+    face_crop_path = output_dir / "face_crop.png"
+    cv2.imwrite(str(face_crop_path), face_crop)
+    print(f"  [OK] Face crop saved: {face_crop_path.name} ({face_crop.shape[1]}x{face_crop.shape[0]})")
     
-    # Tighter skin detection ranges
-    lower_skin1 = np.array([0, 30, 60], dtype=np.uint8)
+    # Now extract skin color from the cropped face ONLY
+    # Focus on center of face crop (avoid hair, edges)
+    fh_crop, fw_crop = face_crop.shape[:2]
+    center_region = face_crop[
+        int(fh_crop * 0.2):int(fh_crop * 0.7),  # Middle vertically (forehead to chin, skip hair)
+        int(fw_crop * 0.25):int(fw_crop * 0.75)  # Middle horizontally (skip ears/edges)
+    ]
+    
+    # Apply skin color detection within center region
+    hsv = cv2.cvtColor(center_region, cv2.COLOR_BGR2HSV)
+    
+    # Skin detection in HSV
+    lower_skin1 = np.array([0, 20, 50], dtype=np.uint8)
     upper_skin1 = np.array([25, 255, 255], dtype=np.uint8)
-    lower_skin2 = np.array([165, 30, 60], dtype=np.uint8)
+    lower_skin2 = np.array([165, 20, 50], dtype=np.uint8)
     upper_skin2 = np.array([180, 255, 255], dtype=np.uint8)
     
     mask1 = cv2.inRange(hsv, lower_skin1, upper_skin1)
     mask2 = cv2.inRange(hsv, lower_skin2, upper_skin2)
     skin_mask = cv2.bitwise_or(mask1, mask2)
     
-    # Get skin pixels from face region
-    skin_pixels = face_region[skin_mask > 0]
+    # Get skin pixels
+    skin_pixels = center_region[skin_mask > 0]
     
-    if len(skin_pixels) < 50:
-        print("  [WARNING] Few skin pixels in face, using median of face region")
-        skin_color = np.median(face_region.reshape(-1, 3), axis=0)
+    if len(skin_pixels) < 20:
+        print("  [WARNING] Few skin pixels detected, using median of center region")
+        skin_color = np.median(center_region.reshape(-1, 3), axis=0)
     else:
+        # Use median for robustness
         skin_color = np.median(skin_pixels, axis=0)
     
     skin_color = skin_color.astype(np.uint8)
     
-    print(f"  Skin pixels sampled: {len(skin_pixels)}")
+    print(f"  Skin pixels from face: {len(skin_pixels)}")
     print(f"  Skin color (BGR): {skin_color}")
     print(f"  Skin color (RGB): {skin_color[::-1]}")
     
@@ -468,21 +487,14 @@ def step5_extract_skin(
     
     print(f"  [OK] Skin texture saved: {texture_path.name}")
     
-    # Save visualization showing detected face and sample region
-    mask_vis_path = output_dir / "skin_detection_mask.png"
+    # Save visualization showing face detection on original
+    vis_path = output_dir / "skin_detection_mask.png"
     vis = image.copy()
     if len(faces) > 0:
         fx, fy, fw, fh = largest_face
-        cv2.rectangle(vis, (fx, fy), (fx+fw, fy+fh), (255, 0, 0), 3)  # Blue: face
-        # Show forehead sample area
-        forehead_y = fy + int(fh * 0.15)
-        forehead_h = int(fh * 0.25)
-        forehead_x = fx + int(fw * 0.25)
-        forehead_w = int(fw * 0.5)
-        cv2.rectangle(vis, (forehead_x, forehead_y), 
-                     (forehead_x+forehead_w, forehead_y+forehead_h), (0, 255, 0), 3)  # Green: sample
-    cv2.imwrite(str(mask_vis_path), vis)
-    print(f"  [OK] Detection visualization: {mask_vis_path.name}")
+        cv2.rectangle(vis, (fx, fy), (fx+fw, fy+fh), (0, 255, 0), 4)  # Green: detected face
+    cv2.imwrite(str(vis_path), vis)
+    print(f"  [OK] Detection visualization: {vis_path.name}")
     
     log_step(5, "Skin Color Extraction", "done")
     return texture_path, skin_color
