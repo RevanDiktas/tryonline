@@ -38,8 +38,12 @@ RUN pip install --no-cache-dir git+https://github.com/vchoutas/smplx.git
 COPY pipelines/ /workspace/pipelines/
 COPY 4D-Humans-clean/ /workspace/4D-Humans-clean/
 
-# Copy measurement code
-COPY ../avatar-creation-measurements/ /workspace/avatar-creation-measurements/
+# Clone measurements code from GitHub (since it's in the same repo)
+# This works regardless of build context - we get it fresh from the repo
+RUN cd /workspace && \
+    git clone --depth 1 --single-branch --branch main https://github.com/RevanDiktas/tryonline.git temp-repo && \
+    mv temp-repo/avatar-creation-measurements /workspace/ && \
+    rm -rf temp-repo
 
 # Create data directories
 RUN mkdir -p /workspace/data/smpl \
