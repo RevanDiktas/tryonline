@@ -293,18 +293,22 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Triggers for updated_at
+DROP TRIGGER IF EXISTS update_users_updated_at ON public.users;
 CREATE TRIGGER update_users_updated_at
   BEFORE UPDATE ON public.users
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_fit_passports_updated_at ON public.fit_passports;
 CREATE TRIGGER update_fit_passports_updated_at
   BEFORE UPDATE ON public.fit_passports
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_brands_updated_at ON public.brands;
 CREATE TRIGGER update_brands_updated_at
   BEFORE UPDATE ON public.brands
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_garments_updated_at ON public.garments;
 CREATE TRIGGER update_garments_updated_at
   BEFORE UPDATE ON public.garments
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
