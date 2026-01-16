@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS public.fit_passports (
   -- Avatar
   avatar_url TEXT, -- URL to the GLB/OBJ file in storage
   avatar_thumbnail_url TEXT, -- Preview image
+  pipeline_files JSONB, -- All pipeline output file URLs: {"avatar_glb": "url", "face_crop": "url", ...}
   
   -- Body Measurements (all in cm)
   chest INTEGER,
@@ -196,6 +197,7 @@ CREATE TABLE IF NOT EXISTS public.garments (
 -- INDEXES for faster queries
 -- =============================================
 CREATE INDEX IF NOT EXISTS idx_fit_passports_user_id ON public.fit_passports(user_id);
+CREATE INDEX IF NOT EXISTS idx_fit_passports_pipeline_files ON public.fit_passports USING GIN (pipeline_files);
 CREATE INDEX IF NOT EXISTS idx_user_photos_user_id ON public.user_photos(user_id);
 CREATE INDEX IF NOT EXISTS idx_tryon_sessions_user_id ON public.tryon_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_tryon_sessions_shop ON public.tryon_sessions(shop_domain);
