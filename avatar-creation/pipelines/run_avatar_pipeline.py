@@ -529,33 +529,31 @@ def step6_create_textured_glb(
     texture_img = Image.new('RGB', (texture_size, texture_size), 
                             tuple(skin_color_rgb.tolist()))
     
-    # Save texture to file for debugging
+    # Save texture to file
     if texture_path is None:
         texture_path = output_path.parent / "avatar_texture.png"
     texture_img.save(str(texture_path))
     print(f"  Saved texture: {texture_path.name}")
     
-    # Create a textured visual for the mesh
-    # Using SimpleMaterial for solid color texture
-    from trimesh.visual.material import SimpleMaterial, PBRMaterial
+    # Create a textured visual for the mesh with actual texture image
+    from trimesh.visual.material import PBRMaterial
     from trimesh.visual import TextureVisuals
     
-    # Create PBR material with the skin color
+    # Load texture as numpy array for PBR material
+    texture_array = np.array(texture_img)
+    
+    # Create PBR material with the actual texture image
     material = PBRMaterial(
-        baseColorFactor=[
-            skin_color_rgb[0] / 255.0,
-            skin_color_rgb[1] / 255.0,
-            skin_color_rgb[2] / 255.0,
-            1.0
-        ],
+        baseColorTexture=Image.fromarray(texture_array),
+        baseColorFactor=[1.0, 1.0, 1.0, 1.0],  # No tint, use texture as-is
         metallicFactor=0.0,
-        roughnessFactor=0.8
+        roughnessFactor=0.7
     )
     
-    # Apply texture visual with UV coordinates
+    # Apply texture visual with UV coordinates and material
     mesh.visual = TextureVisuals(uv=uv, material=material)
     
-    print(f"  Applied PBR material with skin color")
+    print(f"  Applied texture: {texture_path.name} with PBR material")
     
     # Export as GLB (binary glTF)
     mesh.export(str(output_path), file_type='glb')
