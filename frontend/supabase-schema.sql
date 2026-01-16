@@ -219,40 +219,54 @@ ALTER TABLE public.tryon_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.analytics_events ENABLE ROW LEVEL SECURITY;
 
 -- Users: can only access own data
+DROP POLICY IF EXISTS "Users can view own profile" ON public.users;
 CREATE POLICY "Users can view own profile" ON public.users
   FOR SELECT USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Users can update own profile" ON public.users;
 CREATE POLICY "Users can update own profile" ON public.users
   FOR UPDATE USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Users can insert own profile" ON public.users;
 CREATE POLICY "Users can insert own profile" ON public.users
   FOR INSERT WITH CHECK (auth.uid() = id);
 
 -- Fit Passports: can only access own passport
+DROP POLICY IF EXISTS "Users can view own fit passport" ON public.fit_passports;
 CREATE POLICY "Users can view own fit passport" ON public.fit_passports
   FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own fit passport" ON public.fit_passports;
 CREATE POLICY "Users can update own fit passport" ON public.fit_passports
   FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own fit passport" ON public.fit_passports;
 CREATE POLICY "Users can insert own fit passport" ON public.fit_passports
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own fit passport" ON public.fit_passports;
 CREATE POLICY "Users can delete own fit passport" ON public.fit_passports
   FOR DELETE USING (auth.uid() = user_id);
 
 -- User Photos: can only access own photos
+DROP POLICY IF EXISTS "Users can view own photos" ON public.user_photos;
 CREATE POLICY "Users can view own photos" ON public.user_photos
   FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own photos" ON public.user_photos;
 CREATE POLICY "Users can insert own photos" ON public.user_photos
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own photos" ON public.user_photos;
 CREATE POLICY "Users can delete own photos" ON public.user_photos
   FOR DELETE USING (auth.uid() = user_id);
 
 -- TryOn Sessions: can only access own sessions
+DROP POLICY IF EXISTS "Users can view own sessions" ON public.tryon_sessions;
 CREATE POLICY "Users can view own sessions" ON public.tryon_sessions
   FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own sessions" ON public.tryon_sessions;
 CREATE POLICY "Users can insert own sessions" ON public.tryon_sessions
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Analytics Events: can only access own events
+DROP POLICY IF EXISTS "Users can view own events" ON public.analytics_events;
 CREATE POLICY "Users can view own events" ON public.analytics_events
   FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own events" ON public.analytics_events;
 CREATE POLICY "Users can insert own events" ON public.analytics_events
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
