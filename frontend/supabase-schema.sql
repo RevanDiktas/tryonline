@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS public.fit_passports (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Add pipeline_files column if table already exists (migration for existing databases)
+ALTER TABLE public.fit_passports
+ADD COLUMN IF NOT EXISTS pipeline_files JSONB;
+
 -- =============================================
 -- 3. USER PHOTOS TABLE (Original uploads)
 -- =============================================
