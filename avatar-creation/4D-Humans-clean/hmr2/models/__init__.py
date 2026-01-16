@@ -10,7 +10,65 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     """Download checkpoints and files for running inference.
     """
     import os
+    from pathlib import Path
+    
     os.makedirs(folder, exist_ok=True)
+    
+    # Check both the cache folder AND the local 4D-Humans-clean folder
+    script_dir = Path(__file__).parent.parent  # hmr2 folder
+    local_data_folder = script_dir.parent  # 4D-Humans-clean folder
+    
+    # Essential files to check
+    essential_checks = [
+        ("data/smpl/SMPL_NEUTRAL.pkl", "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"),
+    ]
+    
+    # Check cache folder
+    cache_files = [
+        os.path.join(folder, "data/smpl/SMPL_NEUTRAL.pkl"),
+        os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"),
+    ]
+    
+    # Check local folder
+    local_files = [
+        local_data_folder / "data/smpl/SMPL_NEUTRAL.pkl",
+        local_data_folder / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt",
+    ]
+    
+    if all(os.path.exists(f) for f in cache_files):
+        print("HMR2 data found in cache, skipping download.")
+        return
+    
+    if all(f.exists() for f in local_files):
+        print("HMR2 data found locally, copying to cache...")
+        # Copy essential files to cache
+        import shutil
+        for local_f in local_files:
+            rel_path = local_f.relative_to(local_data_folder)
+            cache_path = os.path.join(folder, str(rel_path))
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            if not os.path.exists(cache_path):
+                shutil.copy(str(local_f), cache_path)
+                print(f"  Copied {rel_path}")
+        
+        # Also copy config files
+        config_files = [
+            "logs/train/multiruns/hmr2/0/model_config.yaml",
+            "logs/train/multiruns/hmr2/0/dataset_config.yaml",
+            "data/smpl_mean_params.npz",
+            "data/SMPL_to_J19.pkl",
+            "data/smpl/SMPL_MALE.pkl",
+            "data/smpl/SMPL_FEMALE.pkl",
+        ]
+        for cf in config_files:
+            local_cf = local_data_folder / cf
+            cache_cf = os.path.join(folder, cf)
+            if local_cf.exists() and not os.path.exists(cache_cf):
+                os.makedirs(os.path.dirname(cache_cf), exist_ok=True)
+                shutil.copy(str(local_cf), cache_cf)
+                print(f"  Copied {cf}")
+        return
+    
     download_files = {
         "hmr2_data.tar.gz"      : ["https://people.eecs.berkeley.edu/~jathushan/projects/4dhumans/hmr2_data.tar.gz", folder],
     }
