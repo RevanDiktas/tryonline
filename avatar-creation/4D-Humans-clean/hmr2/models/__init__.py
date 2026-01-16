@@ -39,6 +39,26 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
         print("HMR2 data found in cache, skipping download.")
         return
     
+    # Check if checkpoint exists in either location (primary check)
+    checkpoint_paths = [
+        os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"),
+        str(local_data_folder / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"),
+        os.path.join(folder, "checkpoints/epoch=35-step=1000000.ckpt"),  # Alternative location
+        str(local_data_folder / "checkpoints/epoch=35-step=1000000.ckpt"),  # Alternative location
+    ]
+    
+    for checkpoint_path in checkpoint_paths:
+        if os.path.exists(checkpoint_path):
+            print(f"HMR2 checkpoint found at {checkpoint_path}, skipping download.")
+            # Still copy to expected cache location if not already there
+            expected_cache_path = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+            if checkpoint_path != expected_cache_path and not os.path.exists(expected_cache_path):
+                import shutil
+                os.makedirs(os.path.dirname(expected_cache_path), exist_ok=True)
+                shutil.copy(checkpoint_path, expected_cache_path)
+                print(f"  Copied checkpoint to expected location")
+            return
+    
     if all(f.exists() for f in local_files):
         print("HMR2 data found locally, copying to cache...")
         # Copy essential files to cache
@@ -76,10 +96,29 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     for file_name, url in download_files.items():
         output_path = os.path.join(url[1], file_name)
         if not os.path.exists(output_path):
-            print("Downloading file: " + file_name)
-            # output = gdown.cached_download(url[0], output_path, fuzzy=True)
-            output = cache_url(url[0], output_path)
-            assert os.path.exists(output_path), f"{output} does not exist"
+            print("Attempting to download file: " + file_name)
+            try:
+                # output = gdown.cached_download(url[0], output_path, fuzzy=True)
+                output = cache_url(url[0], output_path)
+                if not os.path.exists(output_path):
+                    print(f"Warning: Download failed or file not found at {output_path}. Models may need to be provided via volume mount.")
+                    # Check if essential files already exist elsewhere (e.g., mounted volumes)
+                    essential_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+                    if os.path.exists(essential_checkpoint):
+                        print(f"Found checkpoint at {essential_checkpoint}, skipping download.")
+                        return
+                    raise FileNotFoundError(f"Required model file not found: {output_path}")
+            except Exception as e:
+                print(f"Warning: Failed to download {file_name}: {e}")
+                # Check if essential files exist elsewhere
+                essential_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+                if os.path.exists(essential_checkpoint):
+                    print(f"Found checkpoint at {essential_checkpoint}, continuing despite download failure.")
+                    return
+                # If download fails and files don't exist, this will cause an error later
+                # but at least we've warned the user
+                print(f"Error: Required models not available. Please provide models via volume mount or ensure download succeeds.")
+                raise
 
             # if ends with tar.gz, tar -xzf
             if file_name.endswith(".tar.gz"):
