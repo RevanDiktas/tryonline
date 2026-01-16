@@ -1,9 +1,18 @@
 import torch
 from typing import Any
 
-from .renderer import Renderer
-from .mesh_renderer import MeshRenderer
-from .skeleton_renderer import SkeletonRenderer
+# Lazy imports for renderers - they require pyrender/OpenGL which may not be available
+try:
+    from .renderer import Renderer
+    from .mesh_renderer import MeshRenderer
+    from .skeleton_renderer import SkeletonRenderer
+except ImportError as e:
+    import warnings
+    warnings.warn(f"Renderer imports failed: {e}. Rendering functionality will be disabled.")
+    Renderer = None
+    MeshRenderer = None
+    SkeletonRenderer = None
+
 from .pose_utils import eval_pose, Evaluator
 
 def recursive_to(x: Any, target: torch.device):

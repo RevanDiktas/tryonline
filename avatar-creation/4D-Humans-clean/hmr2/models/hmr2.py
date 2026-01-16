@@ -4,7 +4,17 @@ from typing import Any, Dict, Mapping, Tuple
 
 from yacs.config import CfgNode
 
-from ..utils import SkeletonRenderer, MeshRenderer
+# Lazy import of renderers - they require pyrender which may not be available
+SkeletonRenderer = None
+MeshRenderer = None
+
+def _load_renderers():
+    global SkeletonRenderer, MeshRenderer
+    if SkeletonRenderer is None:
+        from ..utils import SkeletonRenderer as SR, MeshRenderer as MR
+        SkeletonRenderer = SR
+        MeshRenderer = MR
+
 from ..utils.geometry import aa_to_rotmat, perspective_projection
 from ..utils.pylogger import get_pylogger
 from .backbones import create_backbone
@@ -55,6 +65,7 @@ class HMR2(pl.LightningModule):
         self.register_buffer('initialized', torch.tensor(False))
         # Setup renderer for visualization
         if init_renderer:
+            _load_renderers()  # Load renderers lazily
             self.renderer = SkeletonRenderer(self.cfg)
             self.mesh_renderer = MeshRenderer(self.cfg, faces=self.smpl.faces)
         else:
