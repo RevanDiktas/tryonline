@@ -83,7 +83,8 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
     This is where the magic happens:
     1. Submit to RunPod GPU
     2. Poll for completion
-    3. Update database with results
+    3. Upload GLB to Supabase storage
+    4. Update database with results
     """
     try:
         jobs[job_id]["status"] = ProcessingStatus.processing
@@ -126,8 +127,22 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
             elif runpod_status == "COMPLETED":
                 # Success!
                 output = status_result.get("output", {})
-                avatar_url = output.get("avatar_url", "/models/avatar_with_tshirt_m.glb")
                 measurements = output.get("measurements", {})
+                
+                # Upload GLB to Supabase storage
+                jobs[job_id]["progress"] = 95
+                jobs[job_id]["message"] = "Saving your avatar..."
+                
+                glb_bytes = output.get("avatar_glb_bytes")
+                if glb_bytes:
+                    avatar_url = await supabase_service.upload_avatar(
+                        user_id=request.user_id,
+                        file_data=glb_bytes,
+                        filename="avatar.glb"
+                    )
+                else:
+                    # Fallback to default avatar
+                    avatar_url = "/models/avatar_with_tshirt_m.glb"
                 
                 # Update database
                 await supabase_service.update_fit_passport_with_results(

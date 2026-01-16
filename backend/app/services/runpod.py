@@ -2,6 +2,7 @@
 RunPod service for GPU processing
 """
 import httpx
+import base64
 from typing import Optional, Dict, Any
 from app.config import get_settings
 
@@ -63,6 +64,11 @@ class RunPodService:
         """
         Get status of a RunPod job
         Returns: {status, output, error}
+        
+        Output contains:
+        - avatar_glb_base64: Base64-encoded GLB file
+        - measurements: Standardized measurements dict
+        - processing_time_seconds: Time taken
         """
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -73,9 +79,30 @@ class RunPodService:
             
             if response.status_code == 200:
                 data = response.json()
+                output = data.get("output", {})
+                
+                # Transform output to expected format
+                processed_output = None
+                if output:
+                    processed_output = {
+                        "measurements": output.get("measurements", {}),
+                        "processing_time": output.get("processing_time_seconds"),
+                        # Decode base64 GLB and return raw bytes for upload
+                        "avatar_glb_bytes": None,
+                    }
+                    
+                    # Decode base64 GLB if present
+                    if output.get("avatar_glb_base64"):
+                        try:
+                            processed_output["avatar_glb_bytes"] = base64.b64decode(
+                                output["avatar_glb_base64"]
+                            )
+                        except Exception as e:
+                            print(f"Failed to decode GLB base64: {e}")
+                
                 return {
                     "status": data.get("status", "UNKNOWN"),
-                    "output": data.get("output"),
+                    "output": processed_output,
                     "error": data.get("error"),
                 }
             else:

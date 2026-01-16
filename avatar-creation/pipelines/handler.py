@@ -1,0 +1,282 @@
+"""
+RunPod Serverless Handler for Avatar Pipeline
+==============================================
+
+This is the entry point for RunPod serverless GPU processing.
+It receives a job request, processes it, and returns results.
+
+Expected input:
+{
+    "photo_url": "https://...",  # URL of the body photo
+    "height": 175,               # Height in cm
+    "weight": 70,                # Weight in kg (optional)
+    "gender": "male",            # male, female, neutral
+    "user_id": "uuid"            # User ID for tracking
+}
+
+Output:
+{
+    "avatar_glb_base64": "...",   # Base64-encoded GLB file
+    "measurements": {...},         # Standardized measurements
+    "processing_time_seconds": 45.2
+}
+"""
+
+import os
+import sys
+import time
+import base64
+import tempfile
+from pathlib import Path
+
+# Set up paths before any other imports
+SCRIPT_DIR = Path(__file__).parent.resolve()
+PROJECT_ROOT = SCRIPT_DIR.parent
+
+# Add to Python path
+sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "4D-Humans-clean"))
+sys.path.insert(0, str(PROJECT_ROOT.parent / "avatar-creation-measurements"))
+
+# Try to import httpx, fallback to requests
+try:
+    import httpx
+    USE_HTTPX = True
+except ImportError:
+    import requests
+    USE_HTTPX = False
+
+# Import the pipeline (after path setup)
+from run_avatar_pipeline import run_pipeline
+
+
+# Measurement name mapping: pipeline output -> API expected
+MEASUREMENT_MAPPING = {
+    "height": "height",
+    "chest circumference": "chest",
+    "waist circumference": "waist",
+    "hip circumference": "hips",
+    "inside leg height": "inseam",
+    "shoulder breadth": "shoulder_width",
+    "arm left length": "arm_length",
+    "arm right length": "arm_length",  # Use either arm
+    "neck circumference": "neck",
+    "thigh left circumference": "thigh",
+    "thigh right circumference": "thigh",  # Use either thigh
+    "shoulder to crotch height": "torso_length",
+    "crotch height": "crotch_height",
+    "bicep right circumference": "bicep",
+    "forearm right circumference": "forearm",
+    "wrist right circumference": "wrist",
+    "calf left circumference": "calf",
+    "ankle left circumference": "ankle",
+    "head circumference": "head",
+}
+
+
+def download_photo(photo_url: str, output_path: Path) -> bool:
+    """Download photo from URL to local file."""
+    try:
+        # Handle file:// URLs for local testing
+        if photo_url.startswith("file://"):
+            local_path = photo_url[7:]  # Remove file://
+            import shutil
+            shutil.copy(local_path, output_path)
+            return True
+        
+        # Download from HTTP/HTTPS
+        if USE_HTTPX:
+            with httpx.Client(timeout=60.0) as client:
+                response = client.get(photo_url)
+                response.raise_for_status()
+                content = response.content
+        else:
+            response = requests.get(photo_url, timeout=60)
+            response.raise_for_status()
+            content = response.content
+        
+        with open(output_path, 'wb') as f:
+            f.write(content)
+        
+        return True
+    except Exception as e:
+        print(f"[Handler] Failed to download photo: {e}")
+        return False
+
+
+def standardize_measurements(raw_measurements: dict) -> dict:
+    """Convert pipeline measurement names to API-expected names."""
+    standardized = {}
+    
+    for raw_name, value in raw_measurements.items():
+        mapped_name = MEASUREMENT_MAPPING.get(raw_name.lower())
+        if mapped_name:
+            # Only set if not already set (prefer first match)
+            if mapped_name not in standardized:
+                standardized[mapped_name] = round(float(value), 1)
+    
+    return standardized
+
+
+def handler(event: dict) -> dict:
+    """
+    RunPod serverless handler function.
+    
+    Args:
+        event: Job input with photo_url, height, weight, gender, user_id
+        
+    Returns:
+        Dict with avatar_url (base64), measurements, and processing time
+    """
+    start_time = time.time()
+    
+    # Extract input
+    job_input = event.get("input", {})
+    photo_url = job_input.get("photo_url")
+    height = job_input.get("height")
+    weight = job_input.get("weight")
+    gender = job_input.get("gender", "neutral")
+    user_id = job_input.get("user_id", "unknown")
+    
+    # Validate required inputs
+    if not photo_url:
+        return {"error": "photo_url is required"}
+    if not height:
+        return {"error": "height is required"}
+    
+    print(f"[RunPod] Processing avatar for user: {user_id}")
+    print(f"[RunPod] Height: {height}cm, Gender: {gender}")
+    
+    # Create temp directory for processing
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir = Path(temp_dir)
+        
+        # Download photo
+        photo_path = temp_dir / "input_photo.jpg"
+        print(f"[RunPod] Downloading photo from: {photo_url[:50]}...")
+        
+        if not download_photo(photo_url, photo_path):
+            return {"error": "Failed to download photo"}
+        
+        print(f"[RunPod] Photo downloaded: {photo_path.stat().st_size / 1024:.1f} KB")
+        
+        # Run the pipeline
+        output_dir = temp_dir / "output"
+        output_dir.mkdir()
+        
+        print(f"[RunPod] Running avatar pipeline...")
+        
+        try:
+            results = run_pipeline(
+                image_path=str(photo_path),
+                height_cm=float(height),
+                gender=gender,
+                output_dir=str(output_dir)
+            )
+        except Exception as e:
+            import traceback
+            print(f"[RunPod] Pipeline error: {e}")
+            traceback.print_exc()
+            return {"error": f"Pipeline failed: {str(e)}"}
+        
+        if not results.get("success"):
+            return {"error": results.get("error", "Pipeline failed")}
+        
+        # Read GLB file and encode as base64
+        glb_path = Path(results["outputs"]["avatar_glb"])
+        if not glb_path.exists():
+            return {"error": "GLB file not generated"}
+        
+        with open(glb_path, "rb") as f:
+            glb_data = f.read()
+        
+        glb_base64 = base64.b64encode(glb_data).decode("utf-8")
+        print(f"[RunPod] GLB size: {len(glb_data) / 1024:.1f} KB")
+        
+        # Standardize measurements
+        raw_measurements = results.get("measurements", {})
+        standardized_measurements = standardize_measurements(raw_measurements)
+        
+        # Ensure height is included
+        standardized_measurements["height"] = float(height)
+        
+        print(f"[RunPod] Measurements: {len(standardized_measurements)} values")
+        
+        processing_time = time.time() - start_time
+        print(f"[RunPod] Complete in {processing_time:.1f}s")
+        
+        return {
+            "avatar_glb_base64": glb_base64,
+            "measurements": standardized_measurements,
+            "processing_time_seconds": round(processing_time, 1),
+            "user_id": user_id,
+        }
+
+
+# ============================================
+# RunPod Serverless Integration
+# ============================================
+
+def runpod_handler(event):
+    """
+    Wrapper for RunPod serverless.
+    RunPod expects a function that takes an event dict.
+    """
+    return handler(event)
+
+
+# For RunPod serverless - register the handler
+try:
+    import runpod
+    runpod.serverless.start({"handler": runpod_handler})
+except ImportError:
+    # RunPod not installed - running locally
+    pass
+
+
+# For local testing
+if __name__ == "__main__":
+    import json
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Test avatar handler locally")
+    parser.add_argument("--image", "-i", required=True, help="Path to test image")
+    parser.add_argument("--height", "-H", type=float, default=175, help="Height in cm")
+    parser.add_argument("--gender", "-g", default="male", help="Gender")
+    args = parser.parse_args()
+    
+    # Test with a local file
+    test_event = {
+        "input": {
+            "photo_url": f"file://{os.path.abspath(args.image)}",
+            "height": args.height,
+            "gender": args.gender,
+            "user_id": "test-user-001"
+        }
+    }
+    
+    print("Testing handler locally...")
+    print(f"  Image: {args.image}")
+    print(f"  Height: {args.height}cm")
+    print(f"  Gender: {args.gender}")
+    print()
+    
+    result = handler(test_event)
+    
+    if "error" in result:
+        print(f"\nError: {result['error']}")
+    else:
+        print(f"\nSuccess!")
+        print(f"  GLB size: {len(result.get('avatar_glb_base64', '')) / 1024:.1f} KB (base64)")
+        print(f"  Processing time: {result.get('processing_time_seconds')}s")
+        print(f"\nMeasurements:")
+        for name, value in sorted(result.get('measurements', {}).items()):
+            print(f"    {name}: {value} cm")
+        
+        # Optionally save the GLB
+        if result.get('avatar_glb_base64'):
+            glb_path = Path("test_avatar_output.glb")
+            with open(glb_path, 'wb') as f:
+                f.write(base64.b64decode(result['avatar_glb_base64']))
+            print(f"\nSaved GLB to: {glb_path}")

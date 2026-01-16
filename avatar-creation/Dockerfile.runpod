@@ -1,0 +1,57 @@
+# RunPod Serverless Dockerfile for Avatar Pipeline
+# ================================================
+# This builds a GPU-enabled container for RunPod serverless deployment
+
+FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
+
+# Set working directory
+WORKDIR /workspace
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    ffmpeg \
+    wget \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for layer caching
+COPY requirements_gpu.txt /workspace/requirements_gpu.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements_gpu.txt
+
+# Install additional RunPod dependencies
+RUN pip install --no-cache-dir \
+    runpod \
+    httpx \
+    Pillow
+
+# Install smplx from source (no __version__ attribute issue)
+RUN pip install --no-cache-dir git+https://github.com/vchoutas/smplx.git
+
+# Copy pipeline code
+COPY pipelines/ /workspace/pipelines/
+COPY 4D-Humans-clean/ /workspace/4D-Humans-clean/
+
+# Copy measurement code
+COPY ../avatar-creation-measurements/ /workspace/avatar-creation-measurements/
+
+# Create data directories
+RUN mkdir -p /workspace/data/smpl \
+    && mkdir -p /workspace/4D-Humans-clean/data/smpl \
+    && mkdir -p /workspace/4D-Humans-clean/hmr2/checkpoints
+
+# Note: SMPL model files (.pkl) and HMR2 checkpoints must be mounted or downloaded at runtime
+# due to license restrictions
+
+# Set up environment
+ENV PYTHONPATH=/workspace:/workspace/pipelines:/workspace/4D-Humans-clean:/workspace/avatar-creation-measurements
+ENV PYOPENGL_PLATFORM=egl
+
+# Entry point for RunPod serverless
+CMD ["python", "-u", "/workspace/pipelines/handler.py"]
