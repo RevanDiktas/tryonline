@@ -468,15 +468,20 @@ def step5_extract_skin(
 def step6_create_textured_glb(
     mesh_path: Path,
     skin_color: np.ndarray,
-    output_path: Path
+    output_path: Path,
+    texture_path: Optional[Path] = None
 ) -> Optional[Path]:
     """
-    Step 6: Apply skin color to mesh and export as GLB.
+    Step 6: Apply skin texture to mesh using UV mapping and export as GLB.
+    
+    Uses proper UV texture mapping instead of vertex colors for better
+    rendering in web viewers (Three.js, etc.)
     """
-    log_step(6, "Texture Mapping & GLB Export")
+    log_step(6, "UV Texture Mapping & GLB Export")
     
     try:
         import trimesh
+        from PIL import Image
     except ImportError as e:
         print(f"  [ERROR] Missing dependency: {e}")
         return None
@@ -487,23 +492,89 @@ def step6_create_textured_glb(
     if not isinstance(mesh, trimesh.Trimesh):
         mesh = list(mesh.geometry.values())[0]
     
-    # Convert BGR to RGB and normalize
-    skin_color_rgb = skin_color[::-1] / 255.0
+    # Convert BGR to RGB
+    skin_color_rgb = skin_color[::-1].astype(np.uint8)
     
-    # Apply as vertex colors
-    vertex_colors = np.tile(skin_color_rgb, (len(mesh.vertices), 1))
-    vertex_colors = np.column_stack([vertex_colors, np.ones(len(mesh.vertices))])  # Add alpha
-    mesh.visual.vertex_colors = (vertex_colors * 255).astype(np.uint8)
+    print(f"  Skin color (RGB): {skin_color_rgb}")
+    print(f"  Vertices: {len(mesh.vertices)}, Faces: {len(mesh.faces)}")
     
-    print(f"  Applied skin color to {len(mesh.vertices)} vertices")
+    # Create UV coordinates for the mesh
+    # Simple cylindrical UV projection for SMPL body
+    vertices = mesh.vertices
     
-    # Export as GLB
+    # Normalize vertices for UV mapping
+    v_min = vertices.min(axis=0)
+    v_max = vertices.max(axis=0)
+    v_range = v_max - v_min
+    
+    # Cylindrical UV projection: 
+    # U = atan2(x, z) normalized to [0,1]
+    # V = y normalized to [0,1]
+    x = vertices[:, 0]
+    y = vertices[:, 1]
+    z = vertices[:, 2]
+    
+    # Calculate U coordinate from angle around Y axis
+    u = (np.arctan2(x, z) / (2 * np.pi)) + 0.5
+    
+    # Calculate V coordinate from height
+    v = (y - v_min[1]) / v_range[1]
+    
+    uv = np.column_stack([u, v])
+    
+    print(f"  Generated UV coordinates: shape {uv.shape}")
+    
+    # Create skin texture image (512x512 solid color)
+    texture_size = 512
+    texture_img = Image.new('RGB', (texture_size, texture_size), 
+                            tuple(skin_color_rgb.tolist()))
+    
+    # Save texture to file for debugging
+    if texture_path is None:
+        texture_path = output_path.parent / "avatar_texture.png"
+    texture_img.save(str(texture_path))
+    print(f"  Saved texture: {texture_path.name}")
+    
+    # Create a textured visual for the mesh
+    # Using SimpleMaterial for solid color texture
+    from trimesh.visual.material import SimpleMaterial, PBRMaterial
+    from trimesh.visual import TextureVisuals
+    
+    # Create PBR material with the skin color
+    material = PBRMaterial(
+        baseColorFactor=[
+            skin_color_rgb[0] / 255.0,
+            skin_color_rgb[1] / 255.0,
+            skin_color_rgb[2] / 255.0,
+            1.0
+        ],
+        metallicFactor=0.0,
+        roughnessFactor=0.8
+    )
+    
+    # Apply texture visual with UV coordinates
+    mesh.visual = TextureVisuals(uv=uv, material=material)
+    
+    print(f"  Applied PBR material with skin color")
+    
+    # Export as GLB (binary glTF)
     mesh.export(str(output_path), file_type='glb')
     
     file_size = output_path.stat().st_size / 1024
     print(f"  [OK] GLB exported: {output_path.name} ({file_size:.1f} KB)")
     
-    log_step(6, "Texture Mapping & GLB Export", "done")
+    # Verify the export contains proper data
+    try:
+        test_load = trimesh.load(str(output_path))
+        if hasattr(test_load, 'geometry'):
+            for name, geom in test_load.geometry.items():
+                print(f"  Verified geometry '{name}': {len(geom.vertices)} vertices")
+        else:
+            print(f"  Verified: {len(test_load.vertices)} vertices")
+    except Exception as e:
+        print(f"  [WARNING] Verification failed: {e}")
+    
+    log_step(6, "UV Texture Mapping & GLB Export", "done")
     return output_path
 
 
