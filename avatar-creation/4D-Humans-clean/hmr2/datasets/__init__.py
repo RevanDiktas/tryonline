@@ -15,8 +15,15 @@ except ImportError:
 
 from ..configs import to_lower
 from .dataset import Dataset
-from .image_dataset import ImageDataset
-from .mocap_dataset import MoCapDataset
+
+# These imports require additional dependencies (braceexpand, etc.)
+# Make them lazy for inference-only usage
+try:
+    from .image_dataset import ImageDataset
+    from .mocap_dataset import MoCapDataset
+except ImportError:
+    ImageDataset = None
+    MoCapDataset = None
 
 def create_dataset(cfg: CfgNode, dataset_cfg: CfgNode, train: bool = True, **kwargs) -> Dataset:
     """
