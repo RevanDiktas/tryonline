@@ -383,9 +383,10 @@ def step5_extract_skin(
     output_dir: Path
 ) -> Optional[Tuple[Path, np.ndarray]]:
     """
-    Step 5: Extract skin color from BODY image (not face).
+    Step 5: Extract skin color from FACE region for accuracy.
+    Uses face detection to find face, then samples skin from forehead/cheeks.
     """
-    log_step(5, "Skin Color Extraction from Body Image")
+    log_step(5, "Skin Color Extraction from Face")
     
     try:
         import cv2
@@ -401,48 +402,61 @@ def step5_extract_skin(
         print(f"  [ERROR] Could not load image")
         return None
     
-    print(f"  Image size: {image.shape[1]}x{image.shape[0]}")
+    h, w = image.shape[:2]
+    print(f"  Image size: {w}x{h}")
     
-    # Convert to HSV for skin detection
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    # Try to detect face using Haar cascade
+    face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+    face_cascade = cv2.CascadeClassifier(face_cascade_path)
     
-    # Skin detection ranges (works for various skin tones)
-    lower_skin1 = np.array([0, 20, 70], dtype=np.uint8)
-    upper_skin1 = np.array([20, 255, 255], dtype=np.uint8)
-    lower_skin2 = np.array([170, 20, 70], dtype=np.uint8)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
+    
+    face_region = None
+    if len(faces) > 0:
+        # Use the largest face
+        largest_face = max(faces, key=lambda f: f[2] * f[3])
+        fx, fy, fw, fh = largest_face
+        print(f"  Face detected at: ({fx}, {fy}) size: {fw}x{fh}")
+        
+        # Sample from forehead area (upper middle of face) - most reliable for skin
+        forehead_y = fy + int(fh * 0.15)
+        forehead_h = int(fh * 0.25)
+        forehead_x = fx + int(fw * 0.25)
+        forehead_w = int(fw * 0.5)
+        
+        face_region = image[forehead_y:forehead_y+forehead_h, forehead_x:forehead_x+forehead_w]
+        print(f"  Sampling from forehead region: {forehead_w}x{forehead_h}")
+    else:
+        print("  [WARNING] No face detected, using upper-center region")
+        # Fallback: use upper center of image (likely head area)
+        face_region = image[int(h*0.05):int(h*0.25), int(w*0.35):int(w*0.65)]
+    
+    # Apply skin color detection within the face region
+    hsv = cv2.cvtColor(face_region, cv2.COLOR_BGR2HSV)
+    
+    # Tighter skin detection ranges
+    lower_skin1 = np.array([0, 30, 60], dtype=np.uint8)
+    upper_skin1 = np.array([25, 255, 255], dtype=np.uint8)
+    lower_skin2 = np.array([165, 30, 60], dtype=np.uint8)
     upper_skin2 = np.array([180, 255, 255], dtype=np.uint8)
     
     mask1 = cv2.inRange(hsv, lower_skin1, upper_skin1)
     mask2 = cv2.inRange(hsv, lower_skin2, upper_skin2)
     skin_mask = cv2.bitwise_or(mask1, mask2)
     
-    # For body images: use more of the image (not just center like face)
-    # Focus on upper body area where skin is likely visible
-    h, w = image.shape[:2]
+    # Get skin pixels from face region
+    skin_pixels = face_region[skin_mask > 0]
     
-    # Create region of interest mask (upper 2/3 of image, center 60%)
-    roi_mask = np.zeros((h, w), dtype=np.uint8)
-    roi_y_start = int(h * 0.1)
-    roi_y_end = int(h * 0.7)
-    roi_x_start = int(w * 0.2)
-    roi_x_end = int(w * 0.8)
-    roi_mask[roi_y_start:roi_y_end, roi_x_start:roi_x_end] = 255
-    
-    skin_mask = cv2.bitwise_and(skin_mask, roi_mask)
-    
-    # Get skin pixels
-    skin_pixels = image[skin_mask > 0]
-    
-    if len(skin_pixels) < 100:
-        print("  [WARNING] Few skin pixels detected, using image center")
-        center_region = image[h//3:2*h//3, w//3:2*w//3]
-        skin_color = np.median(center_region.reshape(-1, 3), axis=0)
+    if len(skin_pixels) < 50:
+        print("  [WARNING] Few skin pixels in face, using median of face region")
+        skin_color = np.median(face_region.reshape(-1, 3), axis=0)
     else:
         skin_color = np.median(skin_pixels, axis=0)
     
     skin_color = skin_color.astype(np.uint8)
     
-    print(f"  Skin pixels detected: {np.sum(skin_mask > 0)}")
+    print(f"  Skin pixels sampled: {len(skin_pixels)}")
     print(f"  Skin color (BGR): {skin_color}")
     print(f"  Skin color (RGB): {skin_color[::-1]}")
     
@@ -450,16 +464,25 @@ def step5_extract_skin(
     texture_path = output_dir / "skin_texture.png"
     skin_color_rgb = skin_color[::-1]  # BGR to RGB
     texture_img = np.full((512, 512, 3), skin_color_rgb, dtype=np.uint8)
-    Image.fromarray(texture_img, 'RGB').save(str(texture_path))
+    Image.fromarray(texture_img).save(str(texture_path))
     
     print(f"  [OK] Skin texture saved: {texture_path.name}")
     
-    # Save mask visualization
+    # Save visualization showing detected face and sample region
     mask_vis_path = output_dir / "skin_detection_mask.png"
     vis = image.copy()
-    vis[skin_mask > 0] = [0, 255, 0]  # Green overlay
+    if len(faces) > 0:
+        fx, fy, fw, fh = largest_face
+        cv2.rectangle(vis, (fx, fy), (fx+fw, fy+fh), (255, 0, 0), 3)  # Blue: face
+        # Show forehead sample area
+        forehead_y = fy + int(fh * 0.15)
+        forehead_h = int(fh * 0.25)
+        forehead_x = fx + int(fw * 0.25)
+        forehead_w = int(fw * 0.5)
+        cv2.rectangle(vis, (forehead_x, forehead_y), 
+                     (forehead_x+forehead_w, forehead_y+forehead_h), (0, 255, 0), 3)  # Green: sample
     cv2.imwrite(str(mask_vis_path), vis)
-    print(f"  [OK] Mask visualization: {mask_vis_path.name}")
+    print(f"  [OK] Detection visualization: {mask_vis_path.name}")
     
     log_step(5, "Skin Color Extraction", "done")
     return texture_path, skin_color
