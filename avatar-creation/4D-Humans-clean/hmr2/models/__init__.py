@@ -121,6 +121,15 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
         if GOOGLE_DRIVE_SMPL_FILE_ID:
             print(f"  Attempting to download SMPL model from Google Drive...")
             try:
+                import subprocess
+                # Install gdown if not available
+                try:
+                    import gdown
+                except ImportError:
+                    print("Installing gdown...")
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "gdown"])
+                    import gdown
+                
                 smpl_basic_model_v11 = os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
                 os.makedirs(os.path.dirname(smpl_basic_model_v11), exist_ok=True)
                 gdrive_smpl_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_SMPL_FILE_ID}"
