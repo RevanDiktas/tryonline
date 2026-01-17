@@ -138,9 +138,22 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 smpl_basic_model_v11 = os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
                 os.makedirs(os.path.dirname(smpl_basic_model_v11), exist_ok=True)
                 gdrive_smpl_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_SMPL_FILE_ID}"
+                print(f"[DEBUG] Downloading SMPL to: {smpl_basic_model_v11}")
                 gdown.download(gdrive_smpl_url, smpl_basic_model_v11, quiet=False)
+                print(f"[DEBUG] After download, file exists: {os.path.exists(smpl_basic_model_v11)}")
+                print(f"[DEBUG] File size: {os.path.getsize(smpl_basic_model_v11) if os.path.exists(smpl_basic_model_v11) else 'N/A'} bytes")
                 if os.path.exists(smpl_basic_model_v11):
-                    print(f"✅ SMPL model downloaded from Google Drive!")
+                    print(f"✅ SMPL model downloaded from Google Drive to {smpl_basic_model_v11}!")
+                    # Verify check_smpl_exists can find it
+                    print(f"[DEBUG] Testing check_smpl_exists() can find the file...")
+                    import os
+                    test_paths = [
+                        f'{CACHE_DIR_4DHUMANS}/data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl',
+                        f'{CACHE_DIR_4DHUMANS}/data/basicModel_neutral_lbs_10_207_0_v1.1.0.pkl',
+                        smpl_basic_model_v11,
+                    ]
+                    for tp in test_paths:
+                        print(f"[DEBUG]   Checking: {tp} -> exists={os.path.exists(tp)}")
                     expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
                     _ensure_config_files_exist(expected_checkpoint)
                     return
