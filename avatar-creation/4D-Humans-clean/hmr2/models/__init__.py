@@ -115,8 +115,27 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
         _ensure_config_files_exist(expected_checkpoint)
         return
     elif checkpoint_exists and not smpl_exists:
-        print(f"⚠️  Checkpoint found but SMPL files missing. Will download hmr2_data.tar.gz for SMPL files...")
-        # Continue to tar.gz download below
+        print(f"⚠️  Checkpoint found but SMPL files missing. Trying Google Drive first...")
+        # Try Google Drive SMPL download first
+        GOOGLE_DRIVE_SMPL_FILE_ID = os.environ.get("GOOGLE_DRIVE_SMPL_ID")
+        if GOOGLE_DRIVE_SMPL_FILE_ID:
+            print(f"  Attempting to download SMPL model from Google Drive...")
+            try:
+                smpl_basic_model_v11 = os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
+                os.makedirs(os.path.dirname(smpl_basic_model_v11), exist_ok=True)
+                gdrive_smpl_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_SMPL_FILE_ID}"
+                gdown.download(gdrive_smpl_url, smpl_basic_model_v11, quiet=False)
+                if os.path.exists(smpl_basic_model_v11):
+                    print(f"✅ SMPL model downloaded from Google Drive!")
+                    expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+                    _ensure_config_files_exist(expected_checkpoint)
+                    return
+            except Exception as e:
+                print(f"⚠️  Google Drive SMPL download failed: {e}")
+                print("  Will try hmr2_data.tar.gz as fallback...")
+        else:
+            print("  GOOGLE_DRIVE_SMPL_ID not set, will try hmr2_data.tar.gz...")
+        # Continue to tar.gz download below if Google Drive failed
     elif not checkpoint_exists:
         # Checkpoint missing, will try Google Drive or tar.gz
         pass
