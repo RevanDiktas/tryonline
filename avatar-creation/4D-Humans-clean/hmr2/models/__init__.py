@@ -21,12 +21,12 @@ def _ensure_config_files_exist(checkpoint_path):
         os.makedirs(config_dir, exist_ok=True)
         try:
             from hmr2.configs import default_config, CACHE_DIR_4DHUMANS
+            from yacs.config import CfgNode as CN
             default_cfg = default_config()
+            default_cfg.defrost()
             
             # Add SMPL section (required for get_config with update_cachedir=True)
             if 'SMPL' not in default_cfg:
-                from yacs.config import CfgNode as CN
-                default_cfg.defrost()
                 default_cfg.SMPL = CN(new_allowed=True)
                 default_cfg.SMPL.DATA_DIR = os.path.join(CACHE_DIR_4DHUMANS, "data")
                 default_cfg.SMPL.MODEL_PATH = "data/smpl"
@@ -34,7 +34,22 @@ def _ensure_config_files_exist(checkpoint_path):
                 default_cfg.SMPL.NUM_BODY_JOINTS = 23
                 default_cfg.SMPL.JOINT_REGRESSOR_EXTRA = "data/SMPL_to_J19.pkl"
                 default_cfg.SMPL.MEAN_PARAMS = "data/smpl_mean_params.npz"
-                default_cfg.freeze()
+            
+            # Add MODEL.BACKBONE section (required for HMR2 model loading)
+            if 'MODEL' not in default_cfg:
+                default_cfg.MODEL = CN(new_allowed=True)
+            
+            # Set MODEL.IMAGE_SIZE to 256 (required for ViT backbone)
+            default_cfg.MODEL.IMAGE_SIZE = 256
+            default_cfg.MODEL.IMAGE_MEAN = [0.485, 0.456, 0.406]
+            default_cfg.MODEL.IMAGE_STD = [0.229, 0.224, 0.225]
+            
+            # Add BACKBONE section (required for demo_yolo.py)
+            if 'BACKBONE' not in default_cfg.MODEL:
+                default_cfg.MODEL.BACKBONE = CN(new_allowed=True)
+                default_cfg.MODEL.BACKBONE.TYPE = 'vit'
+            
+            default_cfg.freeze()
             
             with open(model_config_path, 'w') as f:
                 f.write(default_cfg.dump())
