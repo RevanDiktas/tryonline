@@ -221,9 +221,12 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 
                 # Check if SMPL files exist - if not, try Google Drive first, then tar.gz
                 smpl_file = os.path.join(folder, "data/smpl/SMPL_NEUTRAL.pkl")
-                smpl_basic_model = os.path.join(folder, "data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl")
+                # Check for both v1.0.0 and v1.1.0 versions
+                smpl_basic_model_v1 = os.path.join(folder, "data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl")
+                smpl_basic_model_v11 = os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
+                smpl_basic_model = smpl_basic_model_v1 if os.path.exists(smpl_basic_model_v1) else smpl_basic_model_v11
                 
-                if not os.path.exists(smpl_file) and not os.path.exists(smpl_basic_model):
+                if not os.path.exists(smpl_file) and not os.path.exists(smpl_basic_model_v1) and not os.path.exists(smpl_basic_model_v11):
                     print("⚠️  SMPL files not found. Trying Google Drive first...")
                     
                     # Try downloading SMPL model from Google Drive if provided
@@ -231,10 +234,11 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                     if GOOGLE_DRIVE_SMPL_FILE_ID:
                         print(f"  Attempting to download SMPL model from Google Drive...")
                         try:
-                            os.makedirs(os.path.dirname(smpl_basic_model), exist_ok=True)
+                            # Download to v1.1.0 path (user has v1.1.0)
+                            os.makedirs(os.path.dirname(smpl_basic_model_v11), exist_ok=True)
                             gdrive_smpl_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_SMPL_FILE_ID}"
-                            gdown.download(gdrive_smpl_url, smpl_basic_model, quiet=False)
-                            if os.path.exists(smpl_basic_model):
+                            gdown.download(gdrive_smpl_url, smpl_basic_model_v11, quiet=False)
+                            if os.path.exists(smpl_basic_model_v11):
                                 print(f"✅ SMPL model downloaded from Google Drive!")
                                 # check_smpl_exists() will convert it to SMPL_NEUTRAL.pkl
                                 return
