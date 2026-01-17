@@ -29,7 +29,8 @@ RUN pip install --no-cache-dir -r requirements_gpu.txt
 RUN pip install --no-cache-dir \
     runpod \
     httpx \
-    Pillow
+    Pillow \
+    gdown
 
 # Install smplx from source (no __version__ attribute issue)
 RUN pip install --no-cache-dir git+https://github.com/vchoutas/smplx.git
