@@ -219,13 +219,32 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 # After downloading checkpoint, create default config files if they don't exist
                 _ensure_config_files_exist(checkpoint_dest)
                 
-                # Check if SMPL files exist - if not, we still need to download hmr2_data.tar.gz
+                # Check if SMPL files exist - if not, try Google Drive first, then tar.gz
                 smpl_file = os.path.join(folder, "data/smpl/SMPL_NEUTRAL.pkl")
-                if not os.path.exists(smpl_file):
-                    print("⚠️  SMPL files not found. Will attempt to download hmr2_data.tar.gz...")
-                    # Continue to tar.gz download below instead of returning
+                smpl_basic_model = os.path.join(folder, "data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl")
+                
+                if not os.path.exists(smpl_file) and not os.path.exists(smpl_basic_model):
+                    print("⚠️  SMPL files not found. Trying Google Drive first...")
+                    
+                    # Try downloading SMPL model from Google Drive if provided
+                    GOOGLE_DRIVE_SMPL_FILE_ID = os.environ.get("GOOGLE_DRIVE_SMPL_ID")
+                    if GOOGLE_DRIVE_SMPL_FILE_ID:
+                        print(f"  Attempting to download SMPL model from Google Drive...")
+                        try:
+                            os.makedirs(os.path.dirname(smpl_basic_model), exist_ok=True)
+                            gdrive_smpl_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_SMPL_FILE_ID}"
+                            gdown.download(gdrive_smpl_url, smpl_basic_model, quiet=False)
+                            if os.path.exists(smpl_basic_model):
+                                print(f"✅ SMPL model downloaded from Google Drive!")
+                                # check_smpl_exists() will convert it to SMPL_NEUTRAL.pkl
+                                return
+                        except Exception as e:
+                            print(f"⚠️  Google Drive SMPL download failed: {e}")
+                            print("  Will try hmr2_data.tar.gz as fallback...")
+                    
+                    # Continue to tar.gz download below
                 else:
-                    print("✅ SMPL files found, skipping tar.gz download")
+                    print("✅ SMPL files found, skipping download")
                     return
             else:
                 print(f"⚠️  Download completed but file not found at {checkpoint_dest}")
