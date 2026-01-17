@@ -25,8 +25,9 @@ def _ensure_config_files_exist(checkpoint_path):
             
             # Add SMPL section (required for get_config with update_cachedir=True)
             if 'SMPL' not in default_cfg:
+                from yacs.config import CfgNode as CN
                 default_cfg.defrost()
-                default_cfg.SMPL = default_cfg.__class__(new_allowed=True)
+                default_cfg.SMPL = CN(new_allowed=True)
                 default_cfg.SMPL.DATA_DIR = os.path.join(CACHE_DIR_4DHUMANS, "data")
                 default_cfg.SMPL.MODEL_PATH = "data/smpl"
                 default_cfg.SMPL.GENDER = "neutral"
