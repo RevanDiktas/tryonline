@@ -711,11 +711,17 @@ def run_pipeline(
         }
     
     print(f"\nInput:")
+    sys.stdout.flush()  # Force flush
     print(f"  Image: {image_path}")
+    sys.stdout.flush()
     print(f"  Height: {height_cm} cm")
+    sys.stdout.flush()
     print(f"  Gender: {gender}")
+    sys.stdout.flush()
     print(f"  Output: {output_dir}")
+    sys.stdout.flush()
     print(f"  4D-Humans dir: {four_d_humans_dir} (exists: {four_d_humans_dir.exists()})")
+    sys.stdout.flush()
     
     results = {
         "success": False,
@@ -723,12 +729,29 @@ def run_pipeline(
         "outputs": {}
     }
     
+    print("\n[DEBUG] Starting Step 1...")
+    sys.stdout.flush()
+    
     try:
         # Step 1: 4D-Humans body extraction
-        mesh_path, params_path = step1_extract_body(
-            image_path, output_dir, four_d_humans_dir
-        )
+        print("[DEBUG] About to call step1_extract_body...")
+        sys.stdout.flush()
+        try:
+            mesh_path, params_path = step1_extract_body(
+                image_path, output_dir, four_d_humans_dir
+            )
+            print(f"[DEBUG] step1_extract_body completed: mesh={mesh_path}, params={params_path}")
+            sys.stdout.flush()
+        except Exception as e:
+            print(f"[DEBUG] step1_extract_body raised exception: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.stdout.flush()
+            raise
+        
         if not params_path:
+            print("[DEBUG] params_path is None, marking Step 1 as failed")
+            sys.stdout.flush()
             results["error"] = "Step 1 failed: Body extraction"
             return results
         
