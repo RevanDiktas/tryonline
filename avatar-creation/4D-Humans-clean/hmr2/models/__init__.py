@@ -209,7 +209,14 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 # After downloading checkpoint, create default config files if they don't exist
                 _ensure_config_files_exist(checkpoint_dest)
                 
-                return
+                # Check if SMPL files exist - if not, we still need to download hmr2_data.tar.gz
+                smpl_file = os.path.join(folder, "data/smpl/SMPL_NEUTRAL.pkl")
+                if not os.path.exists(smpl_file):
+                    print("⚠️  SMPL files not found. Will attempt to download hmr2_data.tar.gz...")
+                    # Continue to tar.gz download below instead of returning
+                else:
+                    print("✅ SMPL files found, skipping tar.gz download")
+                    return
             else:
                 print(f"⚠️  Download completed but file not found at {checkpoint_dest}")
         except Exception as e:
