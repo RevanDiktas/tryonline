@@ -104,12 +104,22 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
         local_data_folder / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt",
     ]
     
-    if all(os.path.exists(f) for f in cache_files):
+    # Check if BOTH checkpoint AND SMPL files exist
+    checkpoint_exists = os.path.exists(cache_files[1])
+    smpl_exists = os.path.exists(cache_files[0])
+    
+    if checkpoint_exists and smpl_exists:
         print("HMR2 data found in cache, skipping download.")
         # Ensure config files exist even if found in cache
         expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
         _ensure_config_files_exist(expected_checkpoint)
         return
+    elif checkpoint_exists and not smpl_exists:
+        print(f"⚠️  Checkpoint found but SMPL files missing. Will download hmr2_data.tar.gz for SMPL files...")
+        # Continue to tar.gz download below
+    elif not checkpoint_exists:
+        # Checkpoint missing, will try Google Drive or tar.gz
+        pass
     
     # Check if checkpoint exists in either location (primary check)
     # Also check common RunPod mount paths
@@ -286,13 +296,30 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
 
             # if ends with tar.gz, tar -xzf
             if file_name.endswith(".tar.gz"):
-                print("Extracting file: " + file_name)
-                os.system("tar -xvf " + output_path + " -C " + url[1])
+                print(f"Extracting {file_name}...")
+                print(f"  Command: tar -xzf {output_path} -C {url[1]}")
+                result = os.system(f"tar -xzf {output_path} -C {url[1]}")
+                if result != 0:
+                    print(f"⚠️  tar extraction returned non-zero exit code: {result}")
+                else:
+                    print(f"✅ Successfully extracted {file_name}")
                 
                 # After extracting, ensure config files exist
                 expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
                 if os.path.exists(expected_checkpoint):
                     _ensure_config_files_exist(expected_checkpoint)
+                
+                # Verify SMPL files were extracted
+                smpl_check = os.path.join(folder, "data/smpl/SMPL_NEUTRAL.pkl")
+                if os.path.exists(smpl_check):
+                    print(f"✅ SMPL files found after extraction: {smpl_check}")
+                else:
+                    print(f"⚠️  WARNING: SMPL files not found after extraction at {smpl_check}")
+                    print(f"    Listing contents of {os.path.join(folder, 'data')}...")
+                    data_dir = os.path.join(folder, "data")
+                    if os.path.exists(data_dir):
+                        import subprocess
+                        subprocess.run(["find", data_dir, "-name", "*SMPL*", "-o", "-name", "*smpl*"], check=False)
 
 def check_smpl_exists():
     import os
