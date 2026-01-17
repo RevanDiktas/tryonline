@@ -62,6 +62,29 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 os.makedirs(os.path.dirname(expected_cache_path), exist_ok=True)
                 shutil.copy(checkpoint_path, expected_cache_path)
                 print(f"  Copied checkpoint to expected location")
+            
+            # Ensure config files exist even if checkpoint was already there
+            config_dir = os.path.dirname(os.path.dirname(expected_cache_path))  # logs/train/multiruns/hmr2/0/
+            model_config_path = os.path.join(config_dir, "model_config.yaml")
+            dataset_config_path = os.path.join(config_dir, "dataset_config.yaml")
+            
+            if not os.path.exists(model_config_path):
+                print(f"Creating default model_config.yaml...")
+                os.makedirs(config_dir, exist_ok=True)
+                from hmr2.configs import default_config
+                default_cfg = default_config()
+                with open(model_config_path, 'w') as f:
+                    f.write(default_cfg.dump())
+                print(f"  Created: {model_config_path}")
+            
+            if not os.path.exists(dataset_config_path):
+                print(f"Creating default dataset_config.yaml...")
+                from hmr2.configs import dataset_config as get_dataset_config
+                dataset_cfg = get_dataset_config()
+                with open(dataset_config_path, 'w') as f:
+                    f.write(dataset_cfg.dump())
+                print(f"  Created: {dataset_config_path}")
+            
             return
     
     if all(f.exists() for f in local_files):
