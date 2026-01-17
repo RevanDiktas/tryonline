@@ -392,19 +392,48 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
 
 def check_smpl_exists():
     import os
+    # Get absolute paths
+    cache_dir = os.path.abspath(CACHE_DIR_4DHUMANS)
     candidates = [
-        f'{CACHE_DIR_4DHUMANS}/data/smpl/SMPL_NEUTRAL.pkl',
+        f'{cache_dir}/data/smpl/SMPL_NEUTRAL.pkl',
         # Check cache directory first (where we download from Google Drive)
-        f'{CACHE_DIR_4DHUMANS}/data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
-        f'{CACHE_DIR_4DHUMANS}/data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl',
-        f'{CACHE_DIR_4DHUMANS}/data/basicModel_neutral_lbs_10_207_0_v1.1.0.pkl',
+        f'{cache_dir}/data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
+        f'{cache_dir}/data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl',
+        f'{cache_dir}/data/basicModel_neutral_lbs_10_207_0_v1.1.0.pkl',
         # Also check relative paths (for local development)
         f'data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
         f'data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl',  # Also check v1.1.0 (lowercase)
         f'data/basicModel_neutral_lbs_10_207_0_v1.1.0.pkl',  # Also check v1.1.0 (mixed case)
     ]
+    
+    # Debug: print what we're checking
+    print(f"[DEBUG check_smpl_exists] CACHE_DIR_4DHUMANS = {CACHE_DIR_4DHUMANS}")
+    print(f"[DEBUG check_smpl_exists] cache_dir (abs) = {cache_dir}")
+    print(f"[DEBUG check_smpl_exists] Current working directory: {os.getcwd()}")
+    
     candidates_exist = [os.path.exists(c) for c in candidates]
+    
+    # Debug: print which files exist
+    for i, (cand, exists) in enumerate(zip(candidates, candidates_exist)):
+        if exists:
+            print(f"[DEBUG check_smpl_exists] ✅ Found: {cand}")
+        else:
+            print(f"[DEBUG check_smpl_exists] ❌ Not found: {cand}")
+    
     if not any(candidates_exist):
+        # List what's actually in the cache directory
+        if os.path.exists(cache_dir):
+            print(f"[DEBUG check_smpl_exists] Listing contents of {cache_dir}/data:")
+            data_dir = os.path.join(cache_dir, "data")
+            if os.path.exists(data_dir):
+                import subprocess
+                result = subprocess.run(["find", data_dir, "-name", "*.pkl", "-type", "f"], capture_output=True, text=True)
+                if result.stdout:
+                    print(f"[DEBUG check_smpl_exists] Found .pkl files:")
+                    for line in result.stdout.strip().split('\n'):
+                        print(f"[DEBUG check_smpl_exists]   {line}")
+                else:
+                    print(f"[DEBUG check_smpl_exists] No .pkl files found in {data_dir}")
         raise FileNotFoundError(f"SMPL model not found. Please download it from https://smplify.is.tue.mpg.de/ and place it at data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl")
     
     # Code expects SMPL model at CACHE_DIR_4DHUMANS/data/smpl/SMPL_NEUTRAL.pkl. Convert if needed
