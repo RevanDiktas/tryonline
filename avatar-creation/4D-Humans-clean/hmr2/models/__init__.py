@@ -108,6 +108,10 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     checkpoint_exists = os.path.exists(cache_files[1])
     smpl_exists = os.path.exists(cache_files[0])
     
+    print(f"[DEBUG] download_models check: checkpoint_exists={checkpoint_exists}, smpl_exists={smpl_exists}")
+    print(f"[DEBUG] cache_files[0]={cache_files[0]}, exists={os.path.exists(cache_files[0])}")
+    print(f"[DEBUG] cache_files[1]={cache_files[1]}, exists={os.path.exists(cache_files[1])}")
+    
     if checkpoint_exists and smpl_exists:
         print("HMR2 data found in cache, skipping download.")
         # Ensure config files exist even if found in cache
@@ -118,6 +122,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
         print(f"⚠️  Checkpoint found but SMPL files missing. Trying Google Drive first...")
         # Try Google Drive SMPL download first
         GOOGLE_DRIVE_SMPL_FILE_ID = os.environ.get("GOOGLE_DRIVE_SMPL_ID")
+        print(f"[DEBUG] GOOGLE_DRIVE_SMPL_ID env var value: {GOOGLE_DRIVE_SMPL_FILE_ID}")
         if GOOGLE_DRIVE_SMPL_FILE_ID:
             print(f"  Attempting to download SMPL model from Google Drive...")
             try:
