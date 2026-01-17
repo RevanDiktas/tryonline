@@ -6,6 +6,34 @@ from ..utils.download import cache_url
 from ..configs import CACHE_DIR_4DHUMANS
 
 
+def _ensure_config_files_exist(checkpoint_path):
+    """
+    Helper function to ensure model_config.yaml and dataset_config.yaml exist
+    for a given checkpoint path.
+    """
+    import os
+    config_dir = os.path.dirname(os.path.dirname(checkpoint_path))  # logs/train/multiruns/hmr2/0/
+    model_config_path = os.path.join(config_dir, "model_config.yaml")
+    dataset_config_path = os.path.join(config_dir, "dataset_config.yaml")
+    
+    if not os.path.exists(model_config_path):
+        print(f"Creating default model_config.yaml...")
+        os.makedirs(config_dir, exist_ok=True)
+        from hmr2.configs import default_config
+        default_cfg = default_config()
+        with open(model_config_path, 'w') as f:
+            f.write(default_cfg.dump())
+        print(f"  Created: {model_config_path}")
+    
+    if not os.path.exists(dataset_config_path):
+        print(f"Creating default dataset_config.yaml...")
+        from hmr2.configs import dataset_config as get_dataset_config
+        dataset_cfg = get_dataset_config()
+        with open(dataset_config_path, 'w') as f:
+            f.write(dataset_cfg.dump())
+        print(f"  Created: {dataset_config_path}")
+
+
 def download_models(folder=CACHE_DIR_4DHUMANS):
     """Download checkpoints and files for running inference.
     """
@@ -38,6 +66,9 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     
     if all(os.path.exists(f) for f in cache_files):
         print("HMR2 data found in cache, skipping download.")
+        # Ensure config files exist even if found in cache
+        expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+        _ensure_config_files_exist(expected_checkpoint)
         return
     
     # Check if checkpoint exists in either location (primary check)
@@ -64,26 +95,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 print(f"  Copied checkpoint to expected location")
             
             # Ensure config files exist even if checkpoint was already there
-            config_dir = os.path.dirname(os.path.dirname(expected_cache_path))  # logs/train/multiruns/hmr2/0/
-            model_config_path = os.path.join(config_dir, "model_config.yaml")
-            dataset_config_path = os.path.join(config_dir, "dataset_config.yaml")
-            
-            if not os.path.exists(model_config_path):
-                print(f"Creating default model_config.yaml...")
-                os.makedirs(config_dir, exist_ok=True)
-                from hmr2.configs import default_config
-                default_cfg = default_config()
-                with open(model_config_path, 'w') as f:
-                    f.write(default_cfg.dump())
-                print(f"  Created: {model_config_path}")
-            
-            if not os.path.exists(dataset_config_path):
-                print(f"Creating default dataset_config.yaml...")
-                from hmr2.configs import dataset_config as get_dataset_config
-                dataset_cfg = get_dataset_config()
-                with open(dataset_config_path, 'w') as f:
-                    f.write(dataset_cfg.dump())
-                print(f"  Created: {dataset_config_path}")
+            _ensure_config_files_exist(expected_cache_path)
             
             return
     
@@ -115,6 +127,10 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 os.makedirs(os.path.dirname(cache_cf), exist_ok=True)
                 shutil.copy(str(local_cf), cache_cf)
                 print(f"  Copied {cf}")
+        
+        # Ensure config files exist even if they weren't in local directory
+        expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+        _ensure_config_files_exist(expected_checkpoint)
         return
     
     # Try downloading checkpoint from Google Drive if not found
@@ -151,27 +167,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 print(f"✅ Checkpoint downloaded from Google Drive!")
                 
                 # After downloading checkpoint, create default config files if they don't exist
-                config_dir = os.path.dirname(os.path.dirname(checkpoint_dest))  # logs/train/multiruns/hmr2/0/
-                model_config_path = os.path.join(config_dir, "model_config.yaml")
-                dataset_config_path = os.path.join(config_dir, "dataset_config.yaml")
-                
-                if not os.path.exists(model_config_path):
-                    print(f"Creating default model_config.yaml...")
-                    os.makedirs(config_dir, exist_ok=True)
-                    # Create a default config file (yacs CfgNode format)
-                    from hmr2.configs import default_config
-                    default_cfg = default_config()
-                    with open(model_config_path, 'w') as f:
-                        f.write(default_cfg.dump())
-                    print(f"  Created: {model_config_path}")
-                
-                if not os.path.exists(dataset_config_path):
-                    print(f"Creating default dataset_config.yaml...")
-                    from hmr2.configs import dataset_config as get_dataset_config
-                    dataset_cfg = get_dataset_config()
-                    with open(dataset_config_path, 'w') as f:
-                        f.write(dataset_cfg.dump())
-                    print(f"  Created: {dataset_config_path}")
+                _ensure_config_files_exist(checkpoint_dest)
                 
                 return
             else:
@@ -197,6 +193,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                     essential_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
                     if os.path.exists(essential_checkpoint):
                         print(f"Found checkpoint at {essential_checkpoint}, skipping download.")
+                        _ensure_config_files_exist(essential_checkpoint)
                         return
                     raise FileNotFoundError(f"Required model file not found: {output_path}")
             except Exception as e:
@@ -205,12 +202,16 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 essential_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
                 if os.path.exists(essential_checkpoint):
                     print(f"Found checkpoint at {essential_checkpoint}, continuing despite download failure.")
+                    _ensure_config_files_exist(essential_checkpoint)
                     return
                 # If download fails and files don't exist, check one more time for checkpoint
                 # in case it was mounted or copied while we were trying to download
                 for checkpoint_path in checkpoint_paths:
                     if os.path.exists(checkpoint_path):
                         print(f"Found checkpoint at {checkpoint_path} after download failure. Continuing...")
+                        expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+                        if os.path.exists(expected_checkpoint):
+                            _ensure_config_files_exist(expected_checkpoint)
                         return
                 
                 # Final error if nothing found
@@ -233,6 +234,11 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
             if file_name.endswith(".tar.gz"):
                 print("Extracting file: " + file_name)
                 os.system("tar -xvf " + output_path + " -C " + url[1])
+                
+                # After extracting, ensure config files exist
+                expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+                if os.path.exists(expected_checkpoint):
+                    _ensure_config_files_exist(expected_checkpoint)
 
 def check_smpl_exists():
     import os
