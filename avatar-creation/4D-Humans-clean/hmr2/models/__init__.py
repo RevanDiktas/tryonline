@@ -135,11 +135,14 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "gdown"])
                     import gdown
                 
-                smpl_basic_model_v11 = os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
+                smpl_basic_model_v11 = os.path.abspath(os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl"))
                 os.makedirs(os.path.dirname(smpl_basic_model_v11), exist_ok=True)
                 gdrive_smpl_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_SMPL_FILE_ID}"
+                print(f"[DEBUG] Downloading SMPL from: {gdrive_smpl_url}")
                 print(f"[DEBUG] Downloading SMPL to: {smpl_basic_model_v11}")
-                gdown.download(gdrive_smpl_url, smpl_basic_model_v11, quiet=False)
+                print(f"[DEBUG] Directory exists: {os.path.exists(os.path.dirname(smpl_basic_model_v11))}")
+                # Use output parameter explicitly
+                gdown.download(gdrive_smpl_url, output=smpl_basic_model_v11, quiet=False)
                 print(f"[DEBUG] After download, file exists: {os.path.exists(smpl_basic_model_v11)}")
                 print(f"[DEBUG] File size: {os.path.getsize(smpl_basic_model_v11) if os.path.exists(smpl_basic_model_v11) else 'N/A'} bytes")
                 if os.path.exists(smpl_basic_model_v11):
@@ -253,11 +256,14 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
             os.makedirs(os.path.dirname(checkpoint_dest), exist_ok=True)
             
             # Google Drive URL format
+            checkpoint_dest = os.path.abspath(checkpoint_dest)
             gdrive_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_CHECKPOINT_FILE_ID}"
-            print(f"Downloading from: {gdrive_url}")
+            print(f"Downloading checkpoint from: {gdrive_url}")
+            print(f"Downloading checkpoint to: {checkpoint_dest}")
             print("(This may take 10-30 minutes for 2.5GB file...)")
             
-            gdown.download(gdrive_url, checkpoint_dest, quiet=False)
+            # Use output parameter explicitly to avoid path confusion
+            gdown.download(gdrive_url, output=checkpoint_dest, quiet=False)
             
             if os.path.exists(checkpoint_dest):
                 print(f"✅ Checkpoint downloaded from Google Drive!")
@@ -281,9 +287,13 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                         print(f"  Attempting to download SMPL model from Google Drive...")
                         try:
                             # Download to v1.1.0 path (user has v1.1.0)
+                            smpl_basic_model_v11 = os.path.abspath(os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl"))
                             os.makedirs(os.path.dirname(smpl_basic_model_v11), exist_ok=True)
                             gdrive_smpl_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_SMPL_FILE_ID}"
-                            gdown.download(gdrive_smpl_url, smpl_basic_model_v11, quiet=False)
+                            print(f"[DEBUG] Downloading SMPL from: {gdrive_smpl_url}")
+                            print(f"[DEBUG] Downloading SMPL to: {smpl_basic_model_v11}")
+                            # Use output parameter explicitly
+                            gdown.download(gdrive_smpl_url, output=smpl_basic_model_v11, quiet=False)
                             if os.path.exists(smpl_basic_model_v11):
                                 print(f"✅ SMPL model downloaded from Google Drive!")
                                 # check_smpl_exists() will convert it to SMPL_NEUTRAL.pkl
