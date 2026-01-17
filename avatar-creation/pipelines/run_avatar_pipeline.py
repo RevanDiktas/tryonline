@@ -677,11 +677,26 @@ def run_pipeline(
     smpl_model_path = four_d_humans_dir / "data"
     measurements_dir = PROJECT_ROOT.parent / "avatar-creation-measurements"
     
+    # Verify paths exist
+    if not four_d_humans_dir.exists():
+        return {
+            "success": False,
+            "error": f"4D-Humans directory not found: {four_d_humans_dir} (PROJECT_ROOT: {PROJECT_ROOT})",
+            "outputs": {}
+        }
+    if not (four_d_humans_dir / "demo_yolo.py").exists():
+        return {
+            "success": False,
+            "error": f"demo_yolo.py not found at: {four_d_humans_dir / 'demo_yolo.py'}",
+            "outputs": {}
+        }
+    
     print(f"\nInput:")
     print(f"  Image: {image_path}")
     print(f"  Height: {height_cm} cm")
     print(f"  Gender: {gender}")
     print(f"  Output: {output_dir}")
+    print(f"  4D-Humans dir: {four_d_humans_dir} (exists: {four_d_humans_dir.exists()})")
     
     results = {
         "success": False,
