@@ -348,6 +348,11 @@ def check_smpl_exists():
     import os
     candidates = [
         f'{CACHE_DIR_4DHUMANS}/data/smpl/SMPL_NEUTRAL.pkl',
+        # Check cache directory first (where we download from Google Drive)
+        f'{CACHE_DIR_4DHUMANS}/data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
+        f'{CACHE_DIR_4DHUMANS}/data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl',
+        f'{CACHE_DIR_4DHUMANS}/data/basicModel_neutral_lbs_10_207_0_v1.1.0.pkl',
+        # Also check relative paths (for local development)
         f'data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
         f'data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl',  # Also check v1.1.0 (lowercase)
         f'data/basicModel_neutral_lbs_10_207_0_v1.1.0.pkl',  # Also check v1.1.0 (mixed case)
