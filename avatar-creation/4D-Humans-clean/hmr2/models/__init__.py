@@ -20,8 +20,21 @@ def _ensure_config_files_exist(checkpoint_path):
         print(f"Creating default model_config.yaml...")
         os.makedirs(config_dir, exist_ok=True)
         try:
-            from hmr2.configs import default_config
+            from hmr2.configs import default_config, CACHE_DIR_4DHUMANS
             default_cfg = default_config()
+            
+            # Add SMPL section (required for get_config with update_cachedir=True)
+            if 'SMPL' not in default_cfg:
+                default_cfg.defrost()
+                default_cfg.SMPL = default_cfg.__class__(new_allowed=True)
+                default_cfg.SMPL.DATA_DIR = os.path.join(CACHE_DIR_4DHUMANS, "data")
+                default_cfg.SMPL.MODEL_PATH = "data/smpl"
+                default_cfg.SMPL.GENDER = "neutral"
+                default_cfg.SMPL.NUM_BODY_JOINTS = 23
+                default_cfg.SMPL.JOINT_REGRESSOR_EXTRA = "data/SMPL_to_J19.pkl"
+                default_cfg.SMPL.MEAN_PARAMS = "data/smpl_mean_params.npz"
+                default_cfg.freeze()
+            
             with open(model_config_path, 'w') as f:
                 f.write(default_cfg.dump())
             print(f"  Created: {model_config_path}")
