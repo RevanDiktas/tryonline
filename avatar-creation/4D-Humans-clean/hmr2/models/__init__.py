@@ -19,19 +19,30 @@ def _ensure_config_files_exist(checkpoint_path):
     if not os.path.exists(model_config_path):
         print(f"Creating default model_config.yaml...")
         os.makedirs(config_dir, exist_ok=True)
-        from hmr2.configs import default_config
-        default_cfg = default_config()
-        with open(model_config_path, 'w') as f:
-            f.write(default_cfg.dump())
-        print(f"  Created: {model_config_path}")
+        try:
+            from hmr2.configs import default_config
+            default_cfg = default_config()
+            with open(model_config_path, 'w') as f:
+                f.write(default_cfg.dump())
+            print(f"  Created: {model_config_path}")
+        except Exception as e:
+            print(f"  ⚠️  Failed to create model_config.yaml: {e}")
+            raise
     
     if not os.path.exists(dataset_config_path):
         print(f"Creating default dataset_config.yaml...")
-        from hmr2.configs import dataset_config as get_dataset_config
-        dataset_cfg = get_dataset_config()
-        with open(dataset_config_path, 'w') as f:
-            f.write(dataset_cfg.dump())
-        print(f"  Created: {dataset_config_path}")
+        try:
+            from hmr2.configs import dataset_config as get_dataset_config
+            dataset_cfg = get_dataset_config()
+            with open(dataset_config_path, 'w') as f:
+                f.write(dataset_cfg.dump())
+            print(f"  Created: {dataset_config_path}")
+        except Exception as e:
+            print(f"  ⚠️  Failed to create dataset_config.yaml: {e}")
+            # If datasets_tar.yaml is missing, this might fail, but model_config is more critical
+            # Only raise if model_config also doesn't exist
+            if not os.path.exists(model_config_path):
+                raise
 
 
 def download_models(folder=CACHE_DIR_4DHUMANS):
