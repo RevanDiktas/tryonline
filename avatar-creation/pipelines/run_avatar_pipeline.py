@@ -108,32 +108,51 @@ def step1_extract_body(
     print(f"  Running: {' '.join(cmd)}")
     
     try:
+        # Run with unbuffered output to ensure we see errors immediately
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+        
         result = subprocess.run(
             cmd,
             cwd=str(four_d_humans_dir),
             capture_output=True,
             text=True,
-            timeout=300  # 5 minute timeout
+            timeout=600,  # 10 minute timeout (download can take time)
+            env=env
         )
         
         # Always print stdout/stderr for debugging (even on success)
+        print(f"\n  [STDOUT] {'='*60}")
         if result.stdout:
             print(result.stdout)
+        else:
+            print("  (no stdout)")
+        print(f"  [STDERR] {'='*60}")
         if result.stderr:
-            print(result.stderr, file=sys.stderr)
+            print(result.stderr)
+        else:
+            print("  (no stderr)")
+        print(f"  [RETURN CODE] {result.returncode}")
+        print(f"  {'='*60}\n")
         
         if result.returncode != 0:
             print(f"  [ERROR] 4D-Humans failed with return code {result.returncode}:")
             if result.stdout:
                 print("  STDOUT:")
-                print(result.stdout)
+                print(result.stdout[-2000:])  # Last 2000 chars
             if result.stderr:
                 print("  STDERR:")
-                print(result.stderr)
+                print(result.stderr[-2000:])  # Last 2000 chars
             return None, None
             
-    except subprocess.TimeoutExpired:
-        print("  [ERROR] 4D-Humans timed out")
+    except subprocess.TimeoutExpired as e:
+        print(f"  [ERROR] 4D-Humans timed out after {e.timeout}s")
+        print(f"  Command: {' '.join(cmd)}")
+        return None, None
+    except Exception as e:
+        print(f"  [ERROR] Exception running 4D-Humans: {e}")
+        import traceback
+        traceback.print_exc()
         return None, None
     finally:
         # Cleanup temp folder
