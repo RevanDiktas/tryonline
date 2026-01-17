@@ -116,9 +116,20 @@ def step1_extract_body(
             timeout=300  # 5 minute timeout
         )
         
+        # Always print stdout/stderr for debugging (even on success)
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        
         if result.returncode != 0:
-            print(f"  [ERROR] 4D-Humans failed:")
-            print(result.stderr)
+            print(f"  [ERROR] 4D-Humans failed with return code {result.returncode}:")
+            if result.stdout:
+                print("  STDOUT:")
+                print(result.stdout)
+            if result.stderr:
+                print("  STDERR:")
+                print(result.stderr)
             return None, None
             
     except subprocess.TimeoutExpired:
