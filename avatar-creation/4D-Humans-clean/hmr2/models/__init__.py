@@ -349,15 +349,21 @@ def check_smpl_exists():
     candidates = [
         f'{CACHE_DIR_4DHUMANS}/data/smpl/SMPL_NEUTRAL.pkl',
         f'data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
+        f'data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl',  # Also check v1.1.0 (lowercase)
+        f'data/basicModel_neutral_lbs_10_207_0_v1.1.0.pkl',  # Also check v1.1.0 (mixed case)
     ]
     candidates_exist = [os.path.exists(c) for c in candidates]
     if not any(candidates_exist):
-        raise FileNotFoundError(f"SMPL model not found. Please download it from https://smplify.is.tue.mpg.de/ and place it at {candidates[1]}")
-
-    # Code edxpects SMPL model at CACHE_DIR_4DHUMANS/data/smpl/SMPL_NEUTRAL.pkl. Copy there if needed
-    if (not candidates_exist[0]) and candidates_exist[1]:
-        convert_pkl(candidates[1], candidates[0])
-
+        raise FileNotFoundError(f"SMPL model not found. Please download it from https://smplify.is.tue.mpg.de/ and place it at data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl")
+    
+    # Code expects SMPL model at CACHE_DIR_4DHUMANS/data/smpl/SMPL_NEUTRAL.pkl. Convert if needed
+    if not candidates_exist[0]:
+        # Find which basicModel file exists (skip first candidate which is SMPL_NEUTRAL)
+        for i in range(1, len(candidates)):
+            if candidates_exist[i]:
+                convert_pkl(candidates[i], candidates[0])
+                break
+    
     return True
 
 # Convert SMPL pkl file to be compatible with Python 3
