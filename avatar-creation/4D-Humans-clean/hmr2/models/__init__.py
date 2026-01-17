@@ -126,6 +126,30 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
             
             if os.path.exists(checkpoint_dest):
                 print(f"✅ Checkpoint downloaded from Google Drive!")
+                
+                # After downloading checkpoint, create default config files if they don't exist
+                config_dir = os.path.dirname(os.path.dirname(checkpoint_dest))  # logs/train/multiruns/hmr2/0/
+                model_config_path = os.path.join(config_dir, "model_config.yaml")
+                dataset_config_path = os.path.join(config_dir, "dataset_config.yaml")
+                
+                if not os.path.exists(model_config_path):
+                    print(f"Creating default model_config.yaml...")
+                    os.makedirs(config_dir, exist_ok=True)
+                    # Create a default config file (yacs CfgNode format)
+                    from hmr2.configs import default_config
+                    default_cfg = default_config()
+                    with open(model_config_path, 'w') as f:
+                        f.write(default_cfg.dump())
+                    print(f"  Created: {model_config_path}")
+                
+                if not os.path.exists(dataset_config_path):
+                    print(f"Creating default dataset_config.yaml...")
+                    from hmr2.configs import dataset_config as get_dataset_config
+                    dataset_cfg = get_dataset_config()
+                    with open(dataset_config_path, 'w') as f:
+                        f.write(dataset_cfg.dump())
+                    print(f"  Created: {dataset_config_path}")
+                
                 return
             else:
                 print(f"⚠️  Download completed but file not found at {checkpoint_dest}")
