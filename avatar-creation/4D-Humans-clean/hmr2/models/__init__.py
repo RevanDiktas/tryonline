@@ -209,7 +209,14 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 for checkpoint_path in checkpoint_paths:
                     if os.path.exists(checkpoint_path):
                         print(f"Found checkpoint at {checkpoint_path} after download failure. Continuing...")
+                        # Copy to expected location if different
                         expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+                        if checkpoint_path != expected_checkpoint and not os.path.exists(expected_checkpoint):
+                            import shutil
+                            os.makedirs(os.path.dirname(expected_checkpoint), exist_ok=True)
+                            shutil.copy(checkpoint_path, expected_checkpoint)
+                            print(f"  Copied checkpoint to expected location")
+                        # Ensure config files exist (use expected location)
                         if os.path.exists(expected_checkpoint):
                             _ensure_config_files_exist(expected_checkpoint)
                         return
