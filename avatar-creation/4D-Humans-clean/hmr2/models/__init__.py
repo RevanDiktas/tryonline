@@ -632,15 +632,38 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
         return
     
     # Try downloading checkpoint from Google Drive if not found
-    # Replace this with your Google Drive file ID after uploading
-    # Get file ID from: https://drive.google.com/file/d/FILE_ID_HERE/view
+    # Can use either individual file ID or folder ID
+    # Default folder ID: https://drive.google.com/drive/folders/1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O
     GOOGLE_DRIVE_CHECKPOINT_FILE_ID = os.environ.get("GOOGLE_DRIVE_CHECKPOINT_ID")  # Can set via env var
-    # Or hardcode it: GOOGLE_DRIVE_CHECKPOINT_FILE_ID = "YOUR_FILE_ID_HERE"
+    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O")  # For downloading from folder
     
     checkpoint_dest = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
     
-    # Only try Google Drive if checkpoint doesn't exist and we have a file ID
-    if not os.path.exists(checkpoint_dest) and GOOGLE_DRIVE_CHECKPOINT_FILE_ID:
+    # Try Google Drive if checkpoint doesn't exist - try folder first, then individual file ID
+    if not os.path.exists(checkpoint_dest) and (GOOGLE_DRIVE_FOLDER_ID or GOOGLE_DRIVE_CHECKPOINT_FILE_ID):
+        # Try downloading from folder first
+        if GOOGLE_DRIVE_FOLDER_ID:
+            print(f"Checkpoint not found. Attempting to download from Google Drive folder...")
+            if _download_from_gdrive_folder("epoch=35-step=1000000.ckpt", checkpoint_dest,
+                                           folder_id=GOOGLE_DRIVE_FOLDER_ID, file_id=None):
+                # Validate size after download
+                if os.path.exists(checkpoint_dest):
+                    file_size = os.path.getsize(checkpoint_dest)
+                    file_size_mb = file_size / 1024 / 1024
+                    if file_size_mb > 2000:
+                        print(f"✅ Checkpoint downloaded from Google Drive folder! ({file_size_mb:.1f}MB)")
+                        # Ensure config files exist after downloading
+                        _ensure_config_files_exist(checkpoint_dest)
+                        from hmr2.configs import CACHE_DIR_4DHUMANS
+                        data_dir = os.path.join(CACHE_DIR_4DHUMANS, "data")
+                        _ensure_smpl_mean_params_exists(data_dir)
+                        _ensure_smpl_joint_regressor_exists(data_dir)
+                        return
+                    else:
+                        print(f"[WARNING checkpoint download] Downloaded file size unexpected: {file_size_mb:.1f}MB (expected ~2500MB)")
+        
+        # Try individual file ID if folder download didn't work
+        if not os.path.exists(checkpoint_dest) and GOOGLE_DRIVE_CHECKPOINT_FILE_ID:
         print(f"Checkpoint not found. Attempting to download from Google Drive...")
         try:
             import subprocess
