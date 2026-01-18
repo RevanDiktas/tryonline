@@ -158,54 +158,70 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 print(f"[DEBUG download_models] Directory exists: {os.path.exists(smpl_dir)}")
                 print(f"[DEBUG download_models] Directory is writable: {os.access(smpl_dir, os.W_OK) if os.path.exists(smpl_dir) else False}")
                 
-                # Use gdown with explicit output and verify it worked
-                # gdown may create intermediate directories, so ensure we have the right path
+                # WORKAROUND: gdown seems to ignore output parameter sometimes.
+                # Download to a temporary file in the target directory first, then move/rename
+                import tempfile
+                temp_file = os.path.join(smpl_dir, f"temp_smpl_download_{os.getpid()}.pkl")
+                print(f"[DEBUG download_models] Downloading to temp file: {temp_file}")
+                
                 try:
-                    result = gdown.download(gdrive_smpl_url, output=smpl_basic_model_v11, quiet=False)
+                    # Download to temp file
+                    result = gdown.download(gdrive_smpl_url, output=temp_file, quiet=False)
                     print(f"[DEBUG download_models] gdown.download() returned: {result}")
-                    print(f"[DEBUG download_models] Checking if file exists immediately after download...")
-                    print(f"[DEBUG download_models] File exists at target: {os.path.exists(smpl_basic_model_v11)}")
                     
-                    # Also check if gdown created it somewhere else (check current dir and common locations)
-                    if not os.path.exists(smpl_basic_model_v11):
-                        print(f"[DEBUG download_models] ⚠️  File not at expected location! Searching...")
-                        search_dirs = [
-                            os.getcwd(),
-                            smpl_dir,
-                            os.path.dirname(folder),
-                            folder,
-                        ]
-                        for search_dir in search_dirs:
-                            if os.path.exists(search_dir):
-                                result = subprocess.run(["find", search_dir, "-name", "basicmodel*.pkl", "-type", "f", "-size", "+100M"], capture_output=True, text=True, timeout=5)
-                                if result.stdout:
-                                    print(f"[DEBUG download_models] Found file in {search_dir}:")
-                                    for line in result.stdout.strip().split('\n'):
-                                        if line:
-                                            found_path = line.strip()
-                                            print(f"[DEBUG download_models]   {found_path}")
-                                            # Move it to correct location
-                                            try:
-                                                print(f"[DEBUG download_models] Moving {found_path} to {smpl_basic_model_v11}...")
-                                                import shutil
-                                                if os.path.exists(smpl_basic_model_v11):
-                                                    os.remove(smpl_basic_model_v11)
-                                                shutil.move(found_path, smpl_basic_model_v11)
-                                                print(f"[DEBUG download_models] ✅ Moved successfully!")
-                                                break
-                                            except Exception as move_error:
-                                                print(f"[DEBUG download_models] ⚠️  Failed to move: {move_error}")
+                    # Verify temp file was created
+                    if not os.path.exists(temp_file):
+                        print(f"[DEBUG download_models] ⚠️  Temp file not found! Checking current directory...")
+                        # gdown might have downloaded to current directory with auto-generated name
+                        cwd_files = [f for f in os.listdir(os.getcwd()) if f.endswith('.pkl') and os.path.getsize(os.path.join(os.getcwd(), f)) > 100_000_000]
+                        if cwd_files:
+                            print(f"[DEBUG download_models] Found .pkl files in current dir: {cwd_files}")
+                            temp_file = os.path.abspath(os.path.join(os.getcwd(), cwd_files[0]))
+                            print(f"[DEBUG download_models] Using: {temp_file}")
                     
-                    if os.path.exists(smpl_basic_model_v11):
-                        file_size = os.path.getsize(smpl_basic_model_v11)
-                        print(f"[DEBUG download_models] ✅ File confirmed at {smpl_basic_model_v11}")
-                        print(f"[DEBUG download_models] File size: {file_size / 1024 / 1024:.1f}MB")
+                    # Also check checkpoint directory (where gdown seems to be putting it sometimes)
+                    checkpoint_dir = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints")
+                    if os.path.exists(checkpoint_dir) and not os.path.exists(temp_file):
+                        checkpoint_files = [f for f in os.listdir(checkpoint_dir) if f.endswith('.pkl') and os.path.getsize(os.path.join(checkpoint_dir, f)) > 100_000_000 and f != "epoch=35-step=1000000.ckpt"]
+                        if checkpoint_files:
+                            print(f"[DEBUG download_models] Found .pkl in checkpoint dir: {checkpoint_files}")
+                            temp_file = os.path.join(checkpoint_dir, checkpoint_files[0])
+                            print(f"[DEBUG download_models] Using: {temp_file}")
+                    
+                    if os.path.exists(temp_file):
+                        file_size = os.path.getsize(temp_file)
+                        print(f"[DEBUG download_models] ✅ Downloaded file found: {temp_file} ({file_size / 1024 / 1024:.1f}MB)")
+                        
+                        # Move to final location
+                        if os.path.exists(smpl_basic_model_v11):
+                            print(f"[DEBUG download_models] Removing existing file at target location...")
+                            os.remove(smpl_basic_model_v11)
+                        
+                        import shutil
+                        shutil.move(temp_file, smpl_basic_model_v11)
+                        print(f"[DEBUG download_models] ✅ Moved to final location: {smpl_basic_model_v11}")
+                        
+                        # Verify final location
+                        if os.path.exists(smpl_basic_model_v11):
+                            final_size = os.path.getsize(smpl_basic_model_v11)
+                            print(f"[DEBUG download_models] ✅ File confirmed at final location ({final_size / 1024 / 1024:.1f}MB)")
+                        else:
+                            print(f"[DEBUG download_models] ❌ File not found after move!")
+                            raise FileNotFoundError(f"File not found after moving to {smpl_basic_model_v11}")
                     else:
-                        print(f"[DEBUG download_models] ❌ File still not found after search!")
+                        print(f"[DEBUG download_models] ❌ Download failed - temp file not found!")
+                        raise FileNotFoundError(f"Download failed - file not found at {temp_file}")
+                        
                 except Exception as e:
                     print(f"[DEBUG download_models] Exception during download: {e}")
                     import traceback
                     traceback.print_exc()
+                    # Clean up temp file if it exists
+                    if os.path.exists(temp_file):
+                        try:
+                            os.remove(temp_file)
+                        except:
+                            pass
                     raise
                 if os.path.exists(smpl_basic_model_v11):
                     print(f"✅ SMPL model downloaded from Google Drive to {smpl_basic_model_v11}!")
