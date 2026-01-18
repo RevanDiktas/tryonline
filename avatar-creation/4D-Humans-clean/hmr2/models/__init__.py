@@ -202,7 +202,27 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                         # Verify final location
                         if os.path.exists(smpl_basic_model_v11):
                             final_size = os.path.getsize(smpl_basic_model_v11)
-                            print(f"[DEBUG download_models] ✅ File confirmed at final location ({final_size / 1024 / 1024:.1f}MB)")
+                            final_size_mb = final_size / 1024 / 1024
+                            print(f"[DEBUG download_models] ✅ File confirmed at final location ({final_size_mb:.1f}MB)")
+                            
+                            # Validate size - SMPL should be ~247MB, checkpoint is ~2500MB
+                            if final_size_mb > 2000:
+                                print(f"[ERROR download_models] ⚠️  CRITICAL: File is {final_size_mb:.1f}MB - this is the checkpoint, not SMPL!")
+                                print(f"[ERROR download_models] ⚠️  GOOGLE_DRIVE_SMPL_ID is set to checkpoint ID!")
+                                print(f"[ERROR download_models] ⚠️  Current SMPL ID: {GOOGLE_DRIVE_SMPL_FILE_ID}")
+                                print(f"[ERROR download_models] ⚠️  Expected SMPL ID: 1A2qaP3xWZRuBOPaNx0-tovBBhtftxuSv")
+                                os.remove(smpl_basic_model_v11)
+                                raise ValueError(
+                                    f"CRITICAL ERROR: GOOGLE_DRIVE_SMPL_ID is set to checkpoint file ID!\n"
+                                    f"  Current ID: {GOOGLE_DRIVE_SMPL_FILE_ID}\n"
+                                    f"  Expected SMPL ID: 1A2qaP3xWZRuBOPaNx0-tovBBhtftxuSv\n"
+                                    f"  Checkpoint ID: 1ISfMrpiiwoSzLoQXsXsX5FUcOxZY5Bzu\n"
+                                    f"  Fix: Set GOOGLE_DRIVE_SMPL_ID to SMPL file ID in RunPod environment variables"
+                                )
+                            elif 200 < final_size_mb < 300:
+                                print(f"[DEBUG download_models] ✅ File size validated - SMPL file confirmed")
+                            else:
+                                print(f"[WARNING download_models] ⚠️  Unexpected file size: {final_size_mb:.1f}MB (expected ~247MB)")
                         else:
                             print(f"[DEBUG download_models] ❌ File not found after move!")
                             raise FileNotFoundError(f"File not found after moving to {smpl_basic_model_v11}")
@@ -416,10 +436,38 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
             print("(This may take 10-30 minutes for 2.5GB file...)")
             
             # Use output parameter explicitly to avoid path confusion
+            print(f"[DEBUG checkpoint download] Starting download...")
             gdown.download(gdrive_url, output=checkpoint_dest, quiet=False)
             
             if os.path.exists(checkpoint_dest):
-                print(f"✅ Checkpoint downloaded from Google Drive!")
+                file_size = os.path.getsize(checkpoint_dest)
+                file_size_mb = file_size / 1024 / 1024
+                print(f"[DEBUG checkpoint download] File exists, size: {file_size_mb:.1f}MB")
+                
+                # VALIDATION: Checkpoint should be ~2.5GB (2500MB), SMPL is ~247MB
+                # If file is ~247MB, it's actually the SMPL file (wrong ID configured!)
+                if file_size_mb < 500:
+                    print(f"[ERROR checkpoint download] ⚠️  CRITICAL: Downloaded file is only {file_size_mb:.1f}MB!")
+                    print(f"[ERROR checkpoint download] ⚠️  Expected checkpoint size: ~2500MB (2.5GB)")
+                    print(f"[ERROR checkpoint download] ⚠️  This looks like the SMPL file, not the checkpoint!")
+                    print(f"[ERROR checkpoint download] ⚠️  Check GOOGLE_DRIVE_CHECKPOINT_ID environment variable!")
+                    print(f"[ERROR checkpoint download] ⚠️  Current ID: {GOOGLE_DRIVE_CHECKPOINT_FILE_ID}")
+                    print(f"[ERROR checkpoint download] ⚠️  Expected checkpoint ID: 1ISfMrpiiwoSzLoQXsXsX5FUcOxZY5Bzu")
+                    print(f"[ERROR checkpoint download] ⚠️  SMPL ID: 1A2qaP3xWZRuBOPaNx0-tovBBhtftxuSv")
+                    print(f"[ERROR checkpoint download] ⚠️  REMOVING incorrect file and raising error...")
+                    os.remove(checkpoint_dest)
+                    raise ValueError(
+                        f"CRITICAL ERROR: GOOGLE_DRIVE_CHECKPOINT_ID is set to SMPL file ID!\n"
+                        f"  Current ID: {GOOGLE_DRIVE_CHECKPOINT_FILE_ID}\n"
+                        f"  Expected checkpoint ID: 1ISfMrpiiwoSzLoQXsXsX5FUcOxZY5Bzu\n"
+                        f"  SMPL ID: 1A2qaP3xWZRuBOPaNx0-tovBBhtftxuSv\n"
+                        f"  Fix: Set GOOGLE_DRIVE_CHECKPOINT_ID to checkpoint ID in RunPod environment variables"
+                    )
+                
+                if file_size_mb < 2000:
+                    print(f"[WARNING checkpoint download] ⚠️  Checkpoint file seems small ({file_size_mb:.1f}MB), expected ~2500MB")
+                else:
+                    print(f"✅ Checkpoint downloaded from Google Drive! ({file_size_mb:.1f}MB)")
                 
                 # After downloading checkpoint, create default config files if they don't exist
                 _ensure_config_files_exist(checkpoint_dest)
