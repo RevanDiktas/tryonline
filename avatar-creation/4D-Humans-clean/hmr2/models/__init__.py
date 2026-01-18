@@ -507,8 +507,8 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
         if not os.path.exists(output_path):
             print("Attempting to download file: " + file_name)
             try:
-            # output = gdown.cached_download(url[0], output_path, fuzzy=True)
-            output = cache_url(url[0], output_path)
+                # output = gdown.cached_download(url[0], output_path, fuzzy=True)
+                output = cache_url(url[0], output_path)
                 if not os.path.exists(output_path):
                     print(f"Warning: Download failed or file not found at {output_path}. Models may need to be provided via volume mount.")
                     # Check if essential files already exist elsewhere (e.g., mounted volumes)
