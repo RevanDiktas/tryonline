@@ -315,7 +315,6 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                         print(f"[DEBUG download_models] Downloading SMPL to: {smpl_basic_model_v11}")
                         
                         # Use temp file approach
-                        import tempfile
                         temp_file = os.path.join(smpl_dir, f"temp_smpl_download_{os.getpid()}.pkl")
                         print(f"[DEBUG download_models] Downloading to temp file: {temp_file}")
                         
@@ -449,7 +448,6 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                             print(f"[DEBUG checkpoint->SMPL download] Downloading SMPL to: {smpl_basic_model_v11}")
                             
                             # WORKAROUND: Download to temp file first, then move
-                            import tempfile
                             temp_file = os.path.join(smpl_dir, f"temp_smpl_download_{os.getpid()}.pkl")
                             print(f"[DEBUG checkpoint->SMPL download] Downloading to temp file: {temp_file}")
                             
