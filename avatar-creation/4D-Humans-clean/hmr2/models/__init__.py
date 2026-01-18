@@ -954,38 +954,68 @@ def check_smpl_exists():
                 else:
                     print(f"[DEBUG check_smpl_exists] No .pkl files found in {data_dir}")
             
-            # Also check the checkpoint directory (where file might have been incorrectly downloaded)
+            # Also check the checkpoint directory and temp folders (where files might have been downloaded)
+            # Search in both checkpoint directory and entire cache for temp folders
+            search_dirs = [cache_dir]  # Search entire cache directory recursively
             checkpoint_dir = os.path.join(cache_dir, "logs/train/multiruns/hmr2/0/checkpoints")
             if os.path.exists(checkpoint_dir):
-                print(f"[DEBUG check_smpl_exists] Checking checkpoint directory for .pkl files:")
-                result = subprocess.run(["find", checkpoint_dir, "-name", "*.pkl", "-type", "f"], capture_output=True, text=True)
-                if result.stdout:
-                    print(f"[DEBUG check_smpl_exists] Found .pkl files in checkpoint dir:")
-                    for line in result.stdout.strip().split('\n'):
-                        file_path = line.strip()
-                        print(f"[DEBUG check_smpl_exists]   {file_path}")
-                        # Check if this looks like a SMPL file (not a checkpoint)
-                        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-                        if ("basicmodel" in file_path.lower() or "basicModel" in file_path) and file_size < 500_000_000:  # Less than 500MB (checkpoints are 2.5GB)
+                search_dirs.append(checkpoint_dir)
+            
+            print(f"[DEBUG check_smpl_exists] Checking cache directory and temp folders for .pkl files:")
+            all_pkl_files = []
+            for search_dir in search_dirs:
+                if os.path.exists(search_dir):
+                    result = subprocess.run(["find", search_dir, "-name", "*.pkl", "-type", "f"], capture_output=True, text=True)
+                    if result.stdout:
+                        all_pkl_files.extend(result.stdout.strip().split('\n'))
+            
+            if all_pkl_files:
+                print(f"[DEBUG check_smpl_exists] Found .pkl files:")
+                smpl_files_moved = []
+                for file_path in all_pkl_files:
+                    file_path = file_path.strip()
+                    if not file_path:
+                        continue
+                    print(f"[DEBUG check_smpl_exists]   {file_path}")
+                    # Check if this looks like a SMPL file (not a checkpoint)
+                    file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+                    # Check if it's a SMPL file (contains "basicmodel" and is reasonable size, but not the checkpoint)
+                    if ("basicmodel" in file_path.lower()) and file_size < 500_000_000 and "epoch=" not in file_path:  # Less than 500MB (checkpoints are 2.5GB)
+                        # Determine correct path based on filename
+                        filename = os.path.basename(file_path).lower()
+                        if "neutral" in filename:
                             correct_path = os.path.join(cache_dir, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
-                            print(f"[DEBUG check_smpl_exists] ⚠️  Found SMPL file in wrong location! ({file_size/1024/1024:.1f}MB)")
-                            print(f"[DEBUG check_smpl_exists] Moving {file_path} to {correct_path}...")
-                            try:
-                                os.makedirs(os.path.dirname(correct_path), exist_ok=True)
-                                if os.path.exists(correct_path):
-                                    print(f"[DEBUG check_smpl_exists] Target path already exists, removing old file...")
-                                    os.remove(correct_path)
-                                shutil.move(file_path, correct_path)
-                                print(f"[DEBUG check_smpl_exists] ✅ Moved successfully!")
-                                # Retry check
-                                if os.path.exists(correct_path):
-                                    candidates_exist[2] = True  # Update the v1.1.0 lowercase candidate
-                                    print(f"[DEBUG check_smpl_exists] ✅ File now found at correct location!")
-                                    break
-                            except Exception as e:
-                                import traceback
-                                print(f"[DEBUG check_smpl_exists] ⚠️  Failed to move file: {e}")
-                                traceback.print_exc()
+                        elif "basicmodel_f" in filename or "female" in filename:
+                            correct_path = os.path.join(cache_dir, "data/basicmodel_f_lbs_10_207_0_v1.1.0.pkl")
+                        elif "basicmodel_m" in filename or "male" in filename:
+                            correct_path = os.path.join(cache_dir, "data/basicmodel_m_lbs_10_207_0_v1.1.0.pkl")
+                        else:
+                            # Default to neutral
+                            correct_path = os.path.join(cache_dir, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
+                        
+                        print(f"[DEBUG check_smpl_exists] ⚠️  Found SMPL file in wrong location! ({file_size/1024/1024:.1f}MB)")
+                        print(f"[DEBUG check_smpl_exists] Moving {file_path} to {correct_path}...")
+                        try:
+                            os.makedirs(os.path.dirname(correct_path), exist_ok=True)
+                            if os.path.exists(correct_path):
+                                print(f"[DEBUG check_smpl_exists] Target path already exists, removing old file...")
+                                os.remove(correct_path)
+                            shutil.move(file_path, correct_path)
+                            print(f"[DEBUG check_smpl_exists] ✅ Moved successfully!")
+                            smpl_files_moved.append(correct_path)
+                        except Exception as e:
+                            import traceback
+                            print(f"[DEBUG check_smpl_exists] ⚠️  Failed to move file: {e}")
+                            traceback.print_exc()
+                
+                # After moving files, recheck candidates
+                if smpl_files_moved:
+                    print(f"[DEBUG check_smpl_exists] Rechecking after moving {len(smpl_files_moved)} files...")
+                    candidates_exist = [os.path.exists(c) for c in candidates]
+                    # Update debug output
+                    for i, (cand, exists) in enumerate(zip(candidates, candidates_exist)):
+                        if exists:
+                            print(f"[DEBUG check_smpl_exists] ✅ Found: {cand}")
         
         if not any(candidates_exist):
             raise FileNotFoundError(f"SMPL model not found. Please download it from https://smplify.is.tue.mpg.de/ and place it at data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl")

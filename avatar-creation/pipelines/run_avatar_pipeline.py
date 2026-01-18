@@ -106,43 +106,70 @@ def step1_extract_body(
     ]
     
     print(f"  Running: {' '.join(cmd)}")
+    print(f"  Note: This may take 5-15 minutes on first run (downloading ~2.5GB models)...")
+    sys.stdout.flush()
     
     try:
         # Run with unbuffered output to ensure we see errors immediately
         env = os.environ.copy()
         env['PYTHONUNBUFFERED'] = '1'
         
-        result = subprocess.run(
+        # Use Popen with real-time output streaming instead of capture_output
+        # This allows us to see download progress immediately
+        process = subprocess.Popen(
             cmd,
             cwd=str(four_d_humans_dir),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout
             text=True,
-            timeout=600,  # 10 minute timeout (download can take time)
+            bufsize=1,  # Line buffered
             env=env
         )
         
-        # Always print stdout/stderr for debugging (even on success)
-        print(f"\n  [STDOUT] {'='*60}")
-        if result.stdout:
-            print(result.stdout)
-        else:
-            print("  (no stdout)")
-        print(f"  [STDERR] {'='*60}")
-        if result.stderr:
-            print(result.stderr)
-        else:
-            print("  (no stderr)")
-        print(f"  [RETURN CODE] {result.returncode}")
+        # Stream output line by line in real-time
+        stdout_lines = []
+        try:
+            import select
+            import threading
+            
+            # Use threading to read stdout without blocking
+            def read_stdout():
+                for line in iter(process.stdout.readline, ''):
+                    if line:
+                        line = line.rstrip()
+                        print(f"  [4D-Humans] {line}")
+                        sys.stdout.flush()
+                        stdout_lines.append(line)
+                process.stdout.close()
+            
+            # Start thread to read stdout
+            stdout_thread = threading.Thread(target=read_stdout, daemon=True)
+            stdout_thread.start()
+            
+            # Wait for process to complete (with timeout)
+            process.wait(timeout=1800)  # 30 minute timeout for downloads
+            
+            # Wait for stdout reading thread to finish
+            stdout_thread.join(timeout=5)
+            
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            print(f"  [ERROR] 4D-Humans timed out after 30 minutes")
+            print(f"  Command: {' '.join(cmd)}")
+            return None, None
+        
+        returncode = process.returncode
+        stdout_text = '\n'.join(stdout_lines)
+        
+        print(f"\n  [RETURN CODE] {returncode}")
         print(f"  {'='*60}\n")
         
-        if result.returncode != 0:
-            print(f"  [ERROR] 4D-Humans failed with return code {result.returncode}:")
-            if result.stdout:
-                print("  STDOUT:")
-                print(result.stdout[-2000:])  # Last 2000 chars
-            if result.stderr:
-                print("  STDERR:")
-                print(result.stderr[-2000:])  # Last 2000 chars
+        if returncode != 0:
+            print(f"  [ERROR] 4D-Humans failed with return code {returncode}:")
+            if stdout_text:
+                print("  Last 2000 chars of output:")
+                print(stdout_text[-2000:])
             return None, None
             
     except subprocess.TimeoutExpired as e:
