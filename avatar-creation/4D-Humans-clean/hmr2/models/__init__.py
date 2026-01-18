@@ -565,7 +565,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
         if not os.path.exists(output_path):
             print("Attempting to download file: " + file_name)
             try:
-                # output = gdown.cached_download(url[0], output_path, fuzzy=True)
+            # output = gdown.cached_download(url[0], output_path, fuzzy=True)
                 cache_url(url[0], output_path)  # Download file
                 if not os.path.exists(output_path):
                     print(f"Warning: Download failed or file not found at {output_path}. Models may need to be provided via volume mount.")
@@ -725,7 +725,7 @@ def check_smpl_exists():
         
         if not any(candidates_exist):
             raise FileNotFoundError(f"SMPL model not found. Please download it from https://smplify.is.tue.mpg.de/ and place it at data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl")
-    
+
     # Code expects SMPL model at CACHE_DIR_4DHUMANS/data/smpl/SMPL_NEUTRAL.pkl. Convert if needed
     if not candidates_exist[0]:
         # Find which basicModel file exists (skip first candidate which is SMPL_NEUTRAL)
@@ -744,7 +744,13 @@ def convert_pkl(old_pkl, new_pkl):
     """
     import dill
     import pickle
+    import os
 
+    print(f"[DEBUG convert_pkl] Converting {old_pkl} to {new_pkl}...")
+    
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(new_pkl), exist_ok=True)
+    
     # Convert Python 2 "ObjectType" to Python 3 object
     dill._dill._reverse_typemap["ObjectType"] = object
 
@@ -755,6 +761,8 @@ def convert_pkl(old_pkl, new_pkl):
     # Re-save as Python 3 pickle
     with open(new_pkl, "wb") as outfile:
         pickle.dump(loaded, outfile)
+    
+    print(f"[DEBUG convert_pkl] ✅ Successfully converted to {new_pkl}")
 
 DEFAULT_CHECKPOINT=f'{CACHE_DIR_4DHUMANS}/logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt'
 def load_hmr2(checkpoint_path=DEFAULT_CHECKPOINT):

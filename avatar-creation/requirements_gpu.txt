@@ -47,6 +47,7 @@ omegaconf>=2.3.0
 tqdm>=4.65.0
 joblib>=1.3.0
 requests>=2.31.0
+dill>=0.3.7  # For SMPL pickle file conversion (Python 2 to 3)
 
 # For SMPL-Anthropometry measurements
 # (already covered by smplx, trimesh, numpy)
