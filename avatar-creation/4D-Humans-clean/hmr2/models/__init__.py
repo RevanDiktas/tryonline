@@ -49,6 +49,21 @@ def _ensure_config_files_exist(checkpoint_path):
                 default_cfg.MODEL.BACKBONE = CN(new_allowed=True)
                 default_cfg.MODEL.BACKBONE.TYPE = 'vit'
             
+            # Add SMPL_HEAD section (required for build_smpl_head)
+            if 'SMPL_HEAD' not in default_cfg.MODEL:
+                default_cfg.MODEL.SMPL_HEAD = CN(new_allowed=True)
+                default_cfg.MODEL.SMPL_HEAD.TYPE = 'transformer_decoder'
+                default_cfg.MODEL.SMPL_HEAD.IN_CHANNELS = 2048
+                default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER = CN(new_allowed=True)
+                default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER.depth = 6
+                default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER.heads = 8
+                default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER.mlp_dim = 1024
+                default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER.dim_head = 64
+                default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER.dropout = 0.0
+                default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER.emb_dropout = 0.0
+                default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER.norm = 'layer'
+                default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER.context_dim = 1280
+            
             default_cfg.freeze()
             
             with open(model_config_path, 'w') as f:
