@@ -83,7 +83,6 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     
     # CRITICAL: Print immediately to ensure we see this function is being called
     print(f"[DEBUG download_models] FUNCTION CALLED - folder={folder}")
-    import sys
     sys.stdout.flush()
     
     os.makedirs(folder, exist_ok=True)
@@ -91,11 +90,6 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     # Check both the cache folder AND the local 4D-Humans-clean folder
     script_dir = Path(__file__).parent.parent  # hmr2 folder
     local_data_folder = script_dir.parent  # 4D-Humans-clean folder
-    
-    # Essential files to check
-    essential_checks = [
-        ("data/smpl/SMPL_NEUTRAL.pkl", "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"),
-    ]
     
     # Check cache folder
     cache_files = [
@@ -225,7 +219,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                     if os.path.exists(temp_file):
                         try:
                             os.remove(temp_file)
-                        except:
+                        except Exception:
                             pass
                     raise
                 if os.path.exists(smpl_basic_model_v11):
@@ -437,7 +431,6 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 # Check for both v1.0.0 and v1.1.0 versions
                 smpl_basic_model_v1 = os.path.join(folder, "data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl")
                 smpl_basic_model_v11 = os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
-                smpl_basic_model = smpl_basic_model_v1 if os.path.exists(smpl_basic_model_v1) else smpl_basic_model_v11
                 
                 if not os.path.exists(smpl_file) and not os.path.exists(smpl_basic_model_v1) and not os.path.exists(smpl_basic_model_v11):
                     print("⚠️  SMPL files not found. Trying Google Drive first...")
@@ -508,7 +501,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
             print("Attempting to download file: " + file_name)
             try:
                 # output = gdown.cached_download(url[0], output_path, fuzzy=True)
-                output = cache_url(url[0], output_path)
+                cache_url(url[0], output_path)  # Download file
                 if not os.path.exists(output_path):
                     print(f"Warning: Download failed or file not found at {output_path}. Models may need to be provided via volume mount.")
                     # Check if essential files already exist elsewhere (e.g., mounted volumes)
