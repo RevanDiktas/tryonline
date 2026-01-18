@@ -840,6 +840,15 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                     return
                 # If download fails and files don't exist, check one more time for checkpoint
                 # in case it was mounted or copied while we were trying to download
+                checkpoint_paths = [
+                    os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"),
+                    str(local_data_folder / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"),
+                    os.path.join(folder, "checkpoints/epoch=35-step=1000000.ckpt"),
+                    str(local_data_folder / "checkpoints/epoch=35-step=1000000.ckpt"),
+                    "/workspace/checkpoints/epoch=35-step=1000000.ckpt",
+                    "/workspace/models/epoch=35-step=1000000.ckpt",
+                    "/runpod-volume/epoch=35-step=1000000.ckpt",
+                ]
                 for checkpoint_path in checkpoint_paths:
                     if os.path.exists(checkpoint_path):
                         print(f"Found checkpoint at {checkpoint_path} after download failure. Continuing...")
