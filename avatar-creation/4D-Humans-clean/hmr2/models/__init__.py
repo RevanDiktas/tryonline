@@ -23,7 +23,8 @@ def _ensure_smpl_mean_params_exists(data_dir):
     os.makedirs(data_dir, exist_ok=True)
     
     # Try downloading from Google Drive first
-    GOOGLE_DRIVE_MEAN_PARAMS_ID = os.environ.get("GOOGLE_DRIVE_MEAN_PARAMS_ID")
+    # Default file ID: https://drive.google.com/file/d/1cqbspPE9LM2ysB_YvBcRZR3JGVb3ve_I/view
+    GOOGLE_DRIVE_MEAN_PARAMS_ID = os.environ.get("GOOGLE_DRIVE_MEAN_PARAMS_ID", "1cqbspPE9LM2ysB_YvBcRZR3JGVb3ve_I")
     if GOOGLE_DRIVE_MEAN_PARAMS_ID:
         print(f"Attempting to download smpl_mean_params.npz from Google Drive...")
         try:
@@ -57,7 +58,7 @@ def _ensure_smpl_mean_params_exists(data_dir):
             print(f"⚠️  Google Drive download failed: {e}")
             print(f"  Creating default smpl_mean_params.npz...")
     else:
-        print(f"⚠️  GOOGLE_DRIVE_MEAN_PARAMS_ID not set, creating default smpl_mean_params.npz...")
+        print(f"⚠️  Cannot download from Google Drive, creating default smpl_mean_params.npz...")
     
     # Fall back to creating default mean parameters
     mean_params = {
