@@ -402,6 +402,8 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
 
 def check_smpl_exists():
     import os
+    import subprocess
+    import shutil
     # Get absolute paths
     cache_dir = os.path.abspath(CACHE_DIR_4DHUMANS)
     candidates = [
@@ -436,7 +438,6 @@ def check_smpl_exists():
             print(f"[DEBUG check_smpl_exists] Listing contents of {cache_dir}/data:")
             data_dir = os.path.join(cache_dir, "data")
             if os.path.exists(data_dir):
-                import subprocess
                 result = subprocess.run(["find", data_dir, "-name", "*.pkl", "-type", "f"], capture_output=True, text=True)
                 if result.stdout:
                     print(f"[DEBUG check_smpl_exists] Found .pkl files in data dir:")
@@ -462,7 +463,6 @@ def check_smpl_exists():
                             print(f"[DEBUG check_smpl_exists] ⚠️  Found SMPL file in wrong location! ({file_size/1024/1024:.1f}MB)")
                             print(f"[DEBUG check_smpl_exists] Moving {file_path} to {correct_path}...")
                             try:
-                                import shutil
                                 os.makedirs(os.path.dirname(correct_path), exist_ok=True)
                                 if os.path.exists(correct_path):
                                     print(f"[DEBUG check_smpl_exists] Target path already exists, removing old file...")
