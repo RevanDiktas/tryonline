@@ -357,7 +357,27 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                             shutil.move(temp_file, smpl_basic_model_v11)
                             print(f"[DEBUG download_models] ✅ Moved to: {smpl_basic_model_v11}")
                             if os.path.exists(smpl_basic_model_v11):
-                                print(f"[DEBUG download_models] ✅ SMPL file confirmed at final location!")
+                                # Validate file size
+                                file_size = os.path.getsize(smpl_basic_model_v11)
+                                file_size_mb = file_size / 1024 / 1024
+                                print(f"[DEBUG download_models] File confirmed ({file_size_mb:.1f}MB)")
+                                
+                                # Validate size - SMPL should be ~247MB, checkpoint is ~2500MB
+                                if file_size_mb > 2000:
+                                    print(f"[ERROR download_models] ⚠️  CRITICAL: File is {file_size_mb:.1f}MB - this is the checkpoint, not SMPL!")
+                                    print(f"[ERROR download_models] ⚠️  GOOGLE_DRIVE_SMPL_ID is set to checkpoint ID!")
+                                    print(f"[ERROR download_models] ⚠️  Current SMPL ID: {GOOGLE_DRIVE_SMPL_FILE_ID}")
+                                    os.remove(smpl_basic_model_v11)
+                                    raise ValueError(
+                                        f"CRITICAL ERROR: GOOGLE_DRIVE_SMPL_ID is set to checkpoint file ID!\n"
+                                        f"  Current ID: {GOOGLE_DRIVE_SMPL_FILE_ID}\n"
+                                        f"  Expected SMPL ID: 1A2qaP3xWZRuBOPaNx0-tovBBhtftxuSv\n"
+                                        f"  Checkpoint ID: 1ISfMrpiiwoSzLoQXsXsX5FUcOxZY5Bzu"
+                                    )
+                                elif 200 < file_size_mb < 300:
+                                    print(f"[DEBUG download_models] ✅ SMPL file size validated")
+                                else:
+                                    print(f"[WARNING download_models] ⚠️  Unexpected size: {file_size_mb:.1f}MB (expected ~247MB)")
                         else:
                             print(f"[DEBUG download_models] ❌ Download failed - file not found")
                     except Exception as e:
