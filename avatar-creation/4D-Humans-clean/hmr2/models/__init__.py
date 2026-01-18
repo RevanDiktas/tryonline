@@ -163,7 +163,7 @@ def _ensure_config_files_exist(checkpoint_path):
     dataset_config_path = os.path.join(config_dir, "dataset_config.yaml")
     
     # Also ensure smpl_mean_params.npz and SMPL_to_J19.pkl exist
-    from hmr2.configs import CACHE_DIR_4DHUMANS
+    from ..configs import CACHE_DIR_4DHUMANS
     data_dir = os.path.join(CACHE_DIR_4DHUMANS, "data")
     _ensure_smpl_mean_params_exists(data_dir)
     _ensure_smpl_joint_regressor_exists(data_dir)
@@ -172,7 +172,7 @@ def _ensure_config_files_exist(checkpoint_path):
         print(f"Creating default model_config.yaml...")
         os.makedirs(config_dir, exist_ok=True)
         try:
-            from hmr2.configs import default_config, CACHE_DIR_4DHUMANS
+            from ..configs import default_config, CACHE_DIR_4DHUMANS
             from yacs.config import CfgNode as CN
             default_cfg = default_config()
             default_cfg.defrost()
@@ -658,8 +658,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                         print(f"✅ Checkpoint downloaded from Google Drive folder! ({file_size_mb:.1f}MB)")
                         # Ensure config files exist after downloading
                         _ensure_config_files_exist(checkpoint_dest)
-                        from hmr2.configs import CACHE_DIR_4DHUMANS
-                        data_dir = os.path.join(CACHE_DIR_4DHUMANS, "data")
+                        data_dir = os.path.join(_CACHE_DIR, "data")
                         _ensure_smpl_mean_params_exists(data_dir)
                         _ensure_smpl_joint_regressor_exists(data_dir)
                         return
@@ -726,8 +725,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                     _ensure_config_files_exist(checkpoint_dest)
                     
                     # Ensure smpl_mean_params.npz and SMPL_to_J19.pkl exist
-                    from hmr2.configs import CACHE_DIR_4DHUMANS
-                    data_dir = os.path.join(CACHE_DIR_4DHUMANS, "data")
+                    data_dir = os.path.join(_CACHE_DIR, "data")
                     _ensure_smpl_mean_params_exists(data_dir)
                     _ensure_smpl_joint_regressor_exists(data_dir)
                     
@@ -919,6 +917,7 @@ def check_smpl_exists():
     ]
     
     # Debug: print what we're checking
+    # CACHE_DIR_4DHUMANS is imported at top of file
     print(f"[DEBUG check_smpl_exists] CACHE_DIR_4DHUMANS = {CACHE_DIR_4DHUMANS}")
     print(f"[DEBUG check_smpl_exists] cache_dir (abs) = {cache_dir}")
     print(f"[DEBUG check_smpl_exists] Current working directory: {os.getcwd()}")
