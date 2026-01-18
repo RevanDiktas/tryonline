@@ -6,6 +6,33 @@ from ..utils.download import cache_url
 from ..configs import CACHE_DIR_4DHUMANS
 
 
+def _ensure_smpl_mean_params_exists(data_dir):
+    """
+    Helper function to create smpl_mean_params.npz if it doesn't exist.
+    This file contains default (mean) SMPL parameters for pose, shape, and camera.
+    """
+    import os
+    import numpy as np
+    
+    mean_params_path = os.path.join(data_dir, "smpl_mean_params.npz")
+    
+    if not os.path.exists(mean_params_path):
+        print(f"Creating default smpl_mean_params.npz...")
+        os.makedirs(data_dir, exist_ok=True)
+        
+        # Create default mean parameters
+        # pose: 72 values (24 joints * 3 axis-angle parameters)
+        # shape: 10 values (SMPL shape parameters/betas)
+        # cam: 3 values (camera translation/scale)
+        mean_params = {
+            'pose': np.zeros(72, dtype=np.float32),  # Neutral pose (all zeros)
+            'shape': np.zeros(10, dtype=np.float32),  # Mean shape (all zeros)
+            'cam': np.array([0.0, 0.0, 1.0], dtype=np.float32)  # Default camera: no translation, scale=1
+        }
+        
+        np.savez(mean_params_path, **mean_params)
+        print(f"  Created: {mean_params_path}")
+
 def _ensure_config_files_exist(checkpoint_path):
     """
     Helper function to ensure model_config.yaml and dataset_config.yaml exist
@@ -15,6 +42,11 @@ def _ensure_config_files_exist(checkpoint_path):
     config_dir = os.path.dirname(os.path.dirname(checkpoint_path))  # logs/train/multiruns/hmr2/0/
     model_config_path = os.path.join(config_dir, "model_config.yaml")
     dataset_config_path = os.path.join(config_dir, "dataset_config.yaml")
+    
+    # Also ensure smpl_mean_params.npz exists
+    from hmr2.configs import CACHE_DIR_4DHUMANS
+    data_dir = os.path.join(CACHE_DIR_4DHUMANS, "data")
+    _ensure_smpl_mean_params_exists(data_dir)
     
     if not os.path.exists(model_config_path):
         print(f"Creating default model_config.yaml...")
@@ -270,6 +302,9 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                         print(f"[DEBUG]   Checking: {tp} -> exists={os.path.exists(tp)}")
                     expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
                     _ensure_config_files_exist(expected_checkpoint)
+                    # Ensure smpl_mean_params.npz exists
+                    data_dir = os.path.join(folder, "data")
+                    _ensure_smpl_mean_params_exists(data_dir)
                     return
             except Exception as e:
                 print(f"⚠️  Google Drive SMPL download failed: {e}")
@@ -506,6 +541,11 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 
                 # After downloading checkpoint, create default config files if they don't exist
                 _ensure_config_files_exist(checkpoint_dest)
+                
+                # Ensure smpl_mean_params.npz exists
+                from hmr2.configs import CACHE_DIR_4DHUMANS
+                data_dir = os.path.join(CACHE_DIR_4DHUMANS, "data")
+                _ensure_smpl_mean_params_exists(data_dir)
                 
                 # Check if SMPL files exist - if not, try Google Drive first, then tar.gz
                 smpl_file = os.path.join(folder, "data/smpl/SMPL_NEUTRAL.pkl")
