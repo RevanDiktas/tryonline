@@ -156,7 +156,6 @@ def _ensure_config_files_exist(checkpoint_path):
                 default_cfg.SMPL.MODEL_PATH = "data/smpl"
                 default_cfg.SMPL.GENDER = "neutral"
                 default_cfg.SMPL.NUM_BODY_JOINTS = 23
-                default_cfg.SMPL.JOINT_REGRESSOR_EXTRA = "data/SMPL_to_J19.pkl"
                 default_cfg.SMPL.MEAN_PARAMS = "data/smpl_mean_params.npz"
                 
                 # Only set JOINT_REGRESSOR_EXTRA if file exists, otherwise leave it unset
