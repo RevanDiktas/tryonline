@@ -366,12 +366,37 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                         try:
                             # Download to v1.1.0 path (user has v1.1.0)
                             smpl_basic_model_v11 = os.path.abspath(os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl"))
-                            os.makedirs(os.path.dirname(smpl_basic_model_v11), exist_ok=True)
+                            smpl_dir = os.path.dirname(smpl_basic_model_v11)
+                            os.makedirs(smpl_dir, exist_ok=True)
                             gdrive_smpl_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_SMPL_FILE_ID}"
-                            print(f"[DEBUG] Downloading SMPL from: {gdrive_smpl_url}")
-                            print(f"[DEBUG] Downloading SMPL to: {smpl_basic_model_v11}")
-                            # Use output parameter explicitly
-                            gdown.download(gdrive_smpl_url, output=smpl_basic_model_v11, quiet=False)
+                            print(f"[DEBUG checkpoint->SMPL download] Downloading SMPL from: {gdrive_smpl_url}")
+                            print(f"[DEBUG checkpoint->SMPL download] Downloading SMPL to: {smpl_basic_model_v11}")
+                            
+                            # WORKAROUND: Download to temp file first, then move
+                            import tempfile
+                            temp_file = os.path.join(smpl_dir, f"temp_smpl_download_{os.getpid()}.pkl")
+                            print(f"[DEBUG checkpoint->SMPL download] Downloading to temp file: {temp_file}")
+                            
+                            gdown.download(gdrive_smpl_url, output=temp_file, quiet=False)
+                            
+                            # Check if file exists, and if not, search for it
+                            if not os.path.exists(temp_file):
+                                print(f"[DEBUG checkpoint->SMPL download] Temp file not found, searching...")
+                                # Check checkpoint directory
+                                checkpoint_dir = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints")
+                                if os.path.exists(checkpoint_dir):
+                                    checkpoint_files = [f for f in os.listdir(checkpoint_dir) if f.endswith('.pkl') and os.path.getsize(os.path.join(checkpoint_dir, f)) > 100_000_000 and f != "epoch=35-step=1000000.ckpt"]
+                                    if checkpoint_files:
+                                        temp_file = os.path.join(checkpoint_dir, checkpoint_files[0])
+                                        print(f"[DEBUG checkpoint->SMPL download] Found in checkpoint dir: {temp_file}")
+                            
+                            # Move to final location
+                            if os.path.exists(temp_file):
+                                import shutil
+                                if os.path.exists(smpl_basic_model_v11):
+                                    os.remove(smpl_basic_model_v11)
+                                shutil.move(temp_file, smpl_basic_model_v11)
+                                print(f"[DEBUG checkpoint->SMPL download] ✅ Moved to: {smpl_basic_model_v11}")
                             if os.path.exists(smpl_basic_model_v11):
                                 print(f"✅ SMPL model downloaded from Google Drive!")
                                 # check_smpl_exists() will convert it to SMPL_NEUTRAL.pkl
