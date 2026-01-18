@@ -6,6 +6,78 @@ from ..utils.download import cache_url
 from ..configs import CACHE_DIR_4DHUMANS
 
 
+def _download_from_gdrive_folder(file_name, output_path, folder_id=None, file_id=None):
+    """
+    Helper function to download a file from Google Drive.
+    Can use either a file_id directly, or search for file_name in a folder_id.
+    """
+    import os
+    import sys
+    import subprocess
+    import shutil
+    
+    if os.path.exists(output_path):
+        return True  # File already exists
+    
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
+    try:
+        # Install gdown if not available
+        try:
+            import gdown
+        except ImportError:
+            print("Installing gdown...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "gdown"])
+            import gdown
+        
+        # If we have a direct file_id, use it
+        if file_id:
+            gdrive_url = f"https://drive.google.com/uc?id={file_id}"
+            print(f"[DEBUG] Downloading {file_name} from: {gdrive_url}")
+            temp_file = os.path.join(os.path.dirname(output_path), f"temp_{file_name}_{os.getpid()}")
+            gdown.download(gdrive_url, output=temp_file, quiet=False)
+            
+            if os.path.exists(temp_file):
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+                shutil.move(temp_file, output_path)
+                print(f"✅ Downloaded {file_name} from Google Drive!")
+                return True
+        
+        # If we have a folder_id, try to download the entire folder and extract the file
+        # Note: gdown folder download requires folder to be shared with "anyone with link"
+        if folder_id:
+            print(f"[DEBUG] Attempting to download {file_name} from folder {folder_id}...")
+            # Try using gdown folder download
+            temp_folder = os.path.join(os.path.dirname(output_path), f"temp_gdrive_folder_{os.getpid()}")
+            try:
+                os.makedirs(temp_folder, exist_ok=True)
+                # gdown.download_folder can download a folder if shared properly
+                gdown.download_folder(f"https://drive.google.com/drive/folders/{folder_id}", output=temp_folder, quiet=False, use_cookies=False)
+                
+                # Search for the file in the downloaded folder
+                for root, dirs, files in os.walk(temp_folder):
+                    for f in files:
+                        if f == file_name or f.lower() == file_name.lower():
+                            found_file = os.path.join(root, f)
+                            shutil.move(found_file, output_path)
+                            print(f"✅ Found and moved {file_name} from Google Drive folder!")
+                            shutil.rmtree(temp_folder, ignore_errors=True)
+                            return True
+                
+                shutil.rmtree(temp_folder, ignore_errors=True)
+            except Exception as e:
+                print(f"[DEBUG] Folder download failed: {e}")
+                if os.path.exists(temp_folder):
+                    shutil.rmtree(temp_folder, ignore_errors=True)
+        
+    except Exception as e:
+        print(f"[DEBUG] Download failed: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    return False
+
 def _ensure_smpl_joint_regressor_exists(data_dir):
     """
     Helper function to download or create SMPL_to_J19.pkl if it doesn't exist.
@@ -22,43 +94,20 @@ def _ensure_smpl_joint_regressor_exists(data_dir):
     os.makedirs(data_dir, exist_ok=True)
     
     # Try downloading from Google Drive first
-    # Default file ID if available (user can override with GOOGLE_DRIVE_JOINT_REGRESSOR_ID)
+    # Can use either individual file ID or folder ID
     GOOGLE_DRIVE_JOINT_REGRESSOR_ID = os.environ.get("GOOGLE_DRIVE_JOINT_REGRESSOR_ID")
-    if GOOGLE_DRIVE_JOINT_REGRESSOR_ID:
+    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")  # For downloading from folder
+    
+    if GOOGLE_DRIVE_JOINT_REGRESSOR_ID or GOOGLE_DRIVE_FOLDER_ID:
         print(f"Attempting to download SMPL_to_J19.pkl from Google Drive...")
-        try:
-            import subprocess
-            # Install gdown if not available
-            try:
-                import gdown
-            except ImportError:
-                print("Installing gdown...")
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "gdown"])
-                import gdown
-            
-            gdrive_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_JOINT_REGRESSOR_ID}"
-            print(f"[DEBUG] Downloading joint regressor from: {gdrive_url}")
-            
-            # Download to temp file first
-            temp_file = os.path.join(data_dir, f"temp_joint_regressor_{os.getpid()}.pkl")
-            gdown.download(gdrive_url, output=temp_file, quiet=False)
-            
-            if os.path.exists(temp_file):
-                # Move to final location
-                import shutil
-                if os.path.exists(joint_regressor_path):
-                    os.remove(joint_regressor_path)
-                shutil.move(temp_file, joint_regressor_path)
-                print(f"✅ Downloaded SMPL_to_J19.pkl from Google Drive!")
-                return
-            else:
-                print(f"⚠️  Download from Google Drive failed")
-        except Exception as e:
-            print(f"⚠️  Google Drive download failed: {e}")
+        if _download_from_gdrive_folder("SMPL_to_J19.pkl", joint_regressor_path, 
+                                        folder_id=GOOGLE_DRIVE_FOLDER_ID, 
+                                        file_id=GOOGLE_DRIVE_JOINT_REGRESSOR_ID):
+            return
     
     # If download failed or not configured, we'll make it optional in config
     print(f"⚠️  SMPL_to_J19.pkl not found. The code will work without extra joints.")
-    print(f"  To download it, set GOOGLE_DRIVE_JOINT_REGRESSOR_ID environment variable.")
+    print(f"  To download it, set GOOGLE_DRIVE_JOINT_REGRESSOR_ID or GOOGLE_DRIVE_FOLDER_ID environment variable.")
 
 def _ensure_smpl_mean_params_exists(data_dir):
     """
@@ -77,42 +126,19 @@ def _ensure_smpl_mean_params_exists(data_dir):
     os.makedirs(data_dir, exist_ok=True)
     
     # Try downloading from Google Drive first
+    # Can use either individual file ID or folder ID
     # Default file ID: https://drive.google.com/file/d/1cqbspPE9LM2ysB_YvBcRZR3JGVb3ve_I/view
     GOOGLE_DRIVE_MEAN_PARAMS_ID = os.environ.get("GOOGLE_DRIVE_MEAN_PARAMS_ID", "1cqbspPE9LM2ysB_YvBcRZR3JGVb3ve_I")
-    if GOOGLE_DRIVE_MEAN_PARAMS_ID:
+    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")  # For downloading from folder
+    
+    if GOOGLE_DRIVE_MEAN_PARAMS_ID or GOOGLE_DRIVE_FOLDER_ID:
         print(f"Attempting to download smpl_mean_params.npz from Google Drive...")
-        try:
-            import subprocess
-            # Install gdown if not available
-            try:
-                import gdown
-            except ImportError:
-                print("Installing gdown...")
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "gdown"])
-                import gdown
-            
-            gdrive_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_MEAN_PARAMS_ID}"
-            print(f"[DEBUG] Downloading mean params from: {gdrive_url}")
-            
-            # Download to temp file first (same workaround as SMPL)
-            temp_file = os.path.join(data_dir, f"temp_mean_params_{os.getpid()}.npz")
-            gdown.download(gdrive_url, output=temp_file, quiet=False)
-            
-            if os.path.exists(temp_file):
-                # Move to final location
-                import shutil
-                if os.path.exists(mean_params_path):
-                    os.remove(mean_params_path)
-                shutil.move(temp_file, mean_params_path)
-                print(f"✅ Downloaded smpl_mean_params.npz from Google Drive!")
-                return
-            else:
-                print(f"⚠️  Download from Google Drive failed, creating default...")
-        except Exception as e:
-            print(f"⚠️  Google Drive download failed: {e}")
-            print(f"  Creating default smpl_mean_params.npz...")
-    else:
-        print(f"⚠️  Cannot download from Google Drive, creating default smpl_mean_params.npz...")
+        if _download_from_gdrive_folder("smpl_mean_params.npz", mean_params_path,
+                                        folder_id=GOOGLE_DRIVE_FOLDER_ID,
+                                        file_id=GOOGLE_DRIVE_MEAN_PARAMS_ID):
+            return
+    
+    print(f"⚠️  Cannot download from Google Drive, creating default smpl_mean_params.npz...")
     
     # Fall back to creating default mean parameters
     mean_params = {
