@@ -7,7 +7,7 @@ from yacs.config import CfgNode
 
 # webdataset is only needed for training, make it optional for inference
 try:
-    import webdataset as wds
+import webdataset as wds
     HAS_WEBDATASET = True
 except ImportError:
     wds = None
@@ -19,8 +19,8 @@ from .dataset import Dataset
 # These imports require additional dependencies (braceexpand, etc.)
 # Make them lazy for inference-only usage
 try:
-    from .image_dataset import ImageDataset
-    from .mocap_dataset import MoCapDataset
+from .image_dataset import ImageDataset
+from .mocap_dataset import MoCapDataset
 except ImportError:
     ImageDataset = None
     MoCapDataset = None
@@ -47,14 +47,14 @@ def create_webdataset(cfg: CfgNode, dataset_cfg: CfgNode, train: bool = True) ->
 
 # MixedWebDataset requires webdataset - only define if available
 if HAS_WEBDATASET:
-    class MixedWebDataset(wds.WebDataset):
-        def __init__(self, cfg: CfgNode, dataset_cfg: CfgNode, train: bool = True) -> None:
-            super(wds.WebDataset, self).__init__()
-            dataset_list = cfg.DATASETS.TRAIN if train else cfg.DATASETS.VAL
-            datasets = [create_webdataset(cfg, dataset_cfg[dataset], train=train) for dataset, v in dataset_list.items()]
-            weights = np.array([v.WEIGHT for dataset, v in dataset_list.items()])
-            weights = weights / weights.sum()  # normalize
-            self.append(wds.RandomMix(datasets, weights))
+class MixedWebDataset(wds.WebDataset):
+    def __init__(self, cfg: CfgNode, dataset_cfg: CfgNode, train: bool = True) -> None:
+        super(wds.WebDataset, self).__init__()
+        dataset_list = cfg.DATASETS.TRAIN if train else cfg.DATASETS.VAL
+        datasets = [create_webdataset(cfg, dataset_cfg[dataset], train=train) for dataset, v in dataset_list.items()]
+        weights = np.array([v.WEIGHT for dataset, v in dataset_list.items()])
+        weights = weights / weights.sum()  # normalize
+        self.append(wds.RandomMix(datasets, weights))
 else:
     MixedWebDataset = None
 

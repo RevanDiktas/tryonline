@@ -42,7 +42,7 @@ export default function OnboardingPage() {
         return;
       }
       
-      setCurrentUser(user);
+        setCurrentUser(user);
       
       // Check if user already has a completed Fit Passport
       const existingPassport = await getFitPassport(user.id);
@@ -125,7 +125,7 @@ export default function OnboardingPage() {
         (progress, message) => {
           setProgress(progress);
           setProgressMessage(message);
-        }
+      }
       );
 
       if (!result.success) {
@@ -169,12 +169,12 @@ export default function OnboardingPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <a href="/">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img 
-              src="/tryon-logo.jpg" 
-              alt="TRYON" 
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img 
+            src="/tryon-logo.jpg" 
+            alt="TRYON" 
               className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition"
-            />
+          />
           </a>
           <p className="text-gray-500">
             {step === 'info' && 'Tell us about yourself'}
@@ -205,20 +205,20 @@ export default function OnboardingPage() {
           {step === 'info' && (
             <form onSubmit={handleInfoSubmit} className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                     Height (cm) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    value={height}
-                    onChange={(e) => setHeight(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-black placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition text-lg"
-                    placeholder="175"
-                    min="100"
-                    max="250"
-                  />
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={height}
+                  onChange={(e) => setHeight(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-black placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition text-lg"
+                  placeholder="175"
+                  min="100"
+                  max="250"
+                />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">

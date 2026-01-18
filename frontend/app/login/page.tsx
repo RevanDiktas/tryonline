@@ -74,12 +74,12 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img 
-              src="/tryon-logo.jpg" 
-              alt="TRYON" 
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img 
+            src="/tryon-logo.jpg" 
+            alt="TRYON" 
               className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition"
-            />
+          />
           </Link>
           <p className="text-gray-500">Welcome back</p>
         </div>

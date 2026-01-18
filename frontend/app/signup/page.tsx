@@ -344,12 +344,12 @@ export default function SignupPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img 
-              src="/tryon-logo.jpg" 
-              alt="TRYON" 
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img 
+            src="/tryon-logo.jpg" 
+            alt="TRYON" 
               className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition"
-            />
+          />
           </Link>
           <p className="text-gray-500">
             {userType === 'brand' ? 'Set up your brand account' : 'Create your Fit Passport'}
@@ -488,21 +488,21 @@ export default function SignupPage() {
                 </div>
                 
                 {/* Phone Input */}
-                <input
-                  type="tel"
-                  required
+              <input
+                type="tel"
+                required
                   placeholder="6 12345678"
-                  value={formData.phone}
-                  onChange={(e) => {
+                value={formData.phone}
+                onChange={(e) => {
                     // Only allow numbers and remove leading zeros
                     const value = e.target.value.replace(/[^0-9]/g, '');
                     setFormData({ ...formData, phone: value });
-                    if (errors.phone) setErrors({ ...errors, phone: '' });
-                  }}
+                  if (errors.phone) setErrors({ ...errors, phone: '' });
+                }}
                   className={`flex-1 px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
-                    errors.phone ? 'border-red-500' : 'border-gray-200'
-                  }`}
-                />
+                  errors.phone ? 'border-red-500' : 'border-gray-200'
+                }`}
+              />
               </div>
               {errors.phone && (
                 <p className="text-red-500 text-xs mt-1">{errors.phone}</p>
