@@ -108,9 +108,21 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     checkpoint_exists = os.path.exists(cache_files[1])
     smpl_exists = os.path.exists(cache_files[0])
     
-    print(f"[DEBUG] download_models check: checkpoint_exists={checkpoint_exists}, smpl_exists={smpl_exists}")
-    print(f"[DEBUG] cache_files[0]={cache_files[0]}, exists={os.path.exists(cache_files[0])}")
-    print(f"[DEBUG] cache_files[1]={cache_files[1]}, exists={os.path.exists(cache_files[1])}")
+    # Also check for basicModel files (v1.0.0 and v1.1.0) as they can be converted
+    smpl_basic_v1 = os.path.join(folder, "data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl")
+    smpl_basic_v11 = os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
+    smpl_basic_v11_alt = os.path.join(folder, "data/basicModel_neutral_lbs_10_207_0_v1.1.0.pkl")
+    smpl_exists = smpl_exists or os.path.exists(smpl_basic_v1) or os.path.exists(smpl_basic_v11) or os.path.exists(smpl_basic_v11_alt)
+    
+    print(f"[DEBUG download_models] CACHE_DIR_4DHUMANS = {CACHE_DIR_4DHUMANS}")
+    print(f"[DEBUG download_models] folder = {folder}")
+    print(f"[DEBUG download_models] Current working directory: {os.getcwd()}")
+    print(f"[DEBUG download_models] checkpoint_exists={checkpoint_exists}, smpl_exists={smpl_exists}")
+    print(f"[DEBUG download_models] cache_files[0] (SMPL_NEUTRAL)={cache_files[0]}, exists={os.path.exists(cache_files[0])}")
+    print(f"[DEBUG download_models] cache_files[1] (checkpoint)={cache_files[1]}, exists={os.path.exists(cache_files[1])}")
+    print(f"[DEBUG download_models] smpl_basic_v1={smpl_basic_v1}, exists={os.path.exists(smpl_basic_v1)}")
+    print(f"[DEBUG download_models] smpl_basic_v11={smpl_basic_v11}, exists={os.path.exists(smpl_basic_v11)}")
+    print(f"[DEBUG download_models] smpl_basic_v11_alt={smpl_basic_v11_alt}, exists={os.path.exists(smpl_basic_v11_alt)}")
     
     if checkpoint_exists and smpl_exists:
         print("HMR2 data found in cache, skipping download.")
