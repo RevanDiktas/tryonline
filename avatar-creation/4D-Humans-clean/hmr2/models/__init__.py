@@ -81,6 +81,11 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     import sys
     from pathlib import Path
     
+    # CRITICAL: Print immediately to ensure we see this function is being called
+    print(f"[DEBUG download_models] FUNCTION CALLED - folder={folder}")
+    import sys
+    sys.stdout.flush()
+    
     os.makedirs(folder, exist_ok=True)
     
     # Check both the cache folder AND the local 4D-Humans-clean folder
@@ -262,17 +267,95 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     
     for checkpoint_path in checkpoint_paths:
         if os.path.exists(checkpoint_path):
-            print(f"HMR2 checkpoint found at {checkpoint_path}, skipping download.")
+            print(f"[DEBUG download_models] HMR2 checkpoint found at {checkpoint_path}")
             # Still copy to expected cache location if not already there
             expected_cache_path = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
             if checkpoint_path != expected_cache_path and not os.path.exists(expected_cache_path):
                 import shutil
                 os.makedirs(os.path.dirname(expected_cache_path), exist_ok=True)
                 shutil.copy(checkpoint_path, expected_cache_path)
-                print(f"  Copied checkpoint to expected location")
+                print(f"[DEBUG download_models] Copied checkpoint to expected location")
             
             # Ensure config files exist even if checkpoint was already there
             _ensure_config_files_exist(expected_cache_path)
+            
+            # CRITICAL FIX: Check for SMPL even when checkpoint is found in alternative path
+            print(f"[DEBUG download_models] Checkpoint found, now checking for SMPL files...")
+            smpl_file = os.path.join(folder, "data/smpl/SMPL_NEUTRAL.pkl")
+            smpl_basic_v1 = os.path.join(folder, "data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl")
+            smpl_basic_v11 = os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
+            smpl_basic_v11_alt = os.path.join(folder, "data/basicModel_neutral_lbs_10_207_0_v1.1.0.pkl")
+            
+            smpl_exists = (os.path.exists(smpl_file) or 
+                          os.path.exists(smpl_basic_v1) or 
+                          os.path.exists(smpl_basic_v11) or 
+                          os.path.exists(smpl_basic_v11_alt))
+            
+            print(f"[DEBUG download_models] SMPL check: smpl_exists={smpl_exists}")
+            print(f"[DEBUG download_models]   smpl_file={smpl_file}, exists={os.path.exists(smpl_file)}")
+            print(f"[DEBUG download_models]   smpl_basic_v1={smpl_basic_v1}, exists={os.path.exists(smpl_basic_v1)}")
+            print(f"[DEBUG download_models]   smpl_basic_v11={smpl_basic_v11}, exists={os.path.exists(smpl_basic_v11)}")
+            print(f"[DEBUG download_models]   smpl_basic_v11_alt={smpl_basic_v11_alt}, exists={os.path.exists(smpl_basic_v11_alt)}")
+            
+            if not smpl_exists:
+                print(f"[DEBUG download_models] ⚠️  SMPL files missing! Attempting download...")
+                # Try Google Drive SMPL download
+                GOOGLE_DRIVE_SMPL_FILE_ID = os.environ.get("GOOGLE_DRIVE_SMPL_ID")
+                print(f"[DEBUG download_models] GOOGLE_DRIVE_SMPL_ID={GOOGLE_DRIVE_SMPL_FILE_ID}")
+                if GOOGLE_DRIVE_SMPL_FILE_ID:
+                    print(f"[DEBUG download_models] Attempting to download SMPL from Google Drive...")
+                    try:
+                        import subprocess
+                        try:
+                            import gdown
+                        except ImportError:
+                            print("[DEBUG download_models] Installing gdown...")
+                            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "gdown"])
+                            import gdown
+                        
+                        smpl_basic_model_v11 = os.path.abspath(os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl"))
+                        smpl_dir = os.path.dirname(smpl_basic_model_v11)
+                        os.makedirs(smpl_dir, exist_ok=True)
+                        gdrive_smpl_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_SMPL_FILE_ID}"
+                        print(f"[DEBUG download_models] Downloading SMPL from: {gdrive_smpl_url}")
+                        print(f"[DEBUG download_models] Downloading SMPL to: {smpl_basic_model_v11}")
+                        
+                        # Use temp file approach
+                        import tempfile
+                        temp_file = os.path.join(smpl_dir, f"temp_smpl_download_{os.getpid()}.pkl")
+                        print(f"[DEBUG download_models] Downloading to temp file: {temp_file}")
+                        
+                        result = gdown.download(gdrive_smpl_url, output=temp_file, quiet=False)
+                        print(f"[DEBUG download_models] gdown.download() returned: {result}")
+                        
+                        # Check if file exists, search if needed
+                        if not os.path.exists(temp_file):
+                            checkpoint_dir = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints")
+                            if os.path.exists(checkpoint_dir):
+                                checkpoint_files = [f for f in os.listdir(checkpoint_dir) if f.endswith('.pkl') and os.path.getsize(os.path.join(checkpoint_dir, f)) > 100_000_000 and f != "epoch=35-step=1000000.ckpt"]
+                                if checkpoint_files:
+                                    temp_file = os.path.join(checkpoint_dir, checkpoint_files[0])
+                                    print(f"[DEBUG download_models] Found in checkpoint dir: {temp_file}")
+                        
+                        # Move to final location
+                        if os.path.exists(temp_file):
+                            import shutil
+                            if os.path.exists(smpl_basic_model_v11):
+                                os.remove(smpl_basic_model_v11)
+                            shutil.move(temp_file, smpl_basic_model_v11)
+                            print(f"[DEBUG download_models] ✅ Moved to: {smpl_basic_model_v11}")
+                            if os.path.exists(smpl_basic_model_v11):
+                                print(f"[DEBUG download_models] ✅ SMPL file confirmed at final location!")
+                        else:
+                            print(f"[DEBUG download_models] ❌ Download failed - file not found")
+                    except Exception as e:
+                        print(f"[DEBUG download_models] ⚠️  SMPL download failed: {e}")
+                        import traceback
+                        traceback.print_exc()
+                else:
+                    print(f"[DEBUG download_models] GOOGLE_DRIVE_SMPL_ID not set, cannot download SMPL")
+            else:
+                print(f"[DEBUG download_models] ✅ SMPL files found, all good!")
             
             return
     
@@ -424,8 +507,8 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
         if not os.path.exists(output_path):
             print("Attempting to download file: " + file_name)
             try:
-                # output = gdown.cached_download(url[0], output_path, fuzzy=True)
-                output = cache_url(url[0], output_path)
+            # output = gdown.cached_download(url[0], output_path, fuzzy=True)
+            output = cache_url(url[0], output_path)
                 if not os.path.exists(output_path):
                     print(f"Warning: Download failed or file not found at {output_path}. Models may need to be provided via volume mount.")
                     # Check if essential files already exist elsewhere (e.g., mounted volumes)
@@ -592,7 +675,7 @@ def check_smpl_exists():
             if candidates_exist[i]:
                 convert_pkl(candidates[i], candidates[0])
                 break
-    
+
     return True
 
 # Convert SMPL pkl file to be compatible with Python 3
