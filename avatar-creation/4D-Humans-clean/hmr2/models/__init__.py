@@ -95,9 +95,9 @@ def _ensure_smpl_joint_regressor_exists(data_dir):
     
     # Try downloading from Google Drive first
     # Can use either individual file ID or folder ID
-    # Default folder ID: https://drive.google.com/file/d/1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE/view
+    # Default folder ID: https://drive.google.com/drive/folders/1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O
     GOOGLE_DRIVE_JOINT_REGRESSOR_ID = os.environ.get("GOOGLE_DRIVE_JOINT_REGRESSOR_ID")
-    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE")  # For downloading from folder
+    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O")  # For downloading from folder
     
     if GOOGLE_DRIVE_JOINT_REGRESSOR_ID or GOOGLE_DRIVE_FOLDER_ID:
         print(f"Attempting to download SMPL_to_J19.pkl from Google Drive...")
@@ -128,10 +128,10 @@ def _ensure_smpl_mean_params_exists(data_dir):
     
     # Try downloading from Google Drive first
     # Can use either individual file ID or folder ID
-    # Default folder ID: https://drive.google.com/file/d/1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE/view
+    # Default folder ID: https://drive.google.com/drive/folders/1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O
     # Default file ID: https://drive.google.com/file/d/1cqbspPE9LM2ysB_YvBcRZR3JGVb3ve_I/view
     GOOGLE_DRIVE_MEAN_PARAMS_ID = os.environ.get("GOOGLE_DRIVE_MEAN_PARAMS_ID", "1cqbspPE9LM2ysB_YvBcRZR3JGVb3ve_I")
-    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE")  # For downloading from folder
+    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O")  # For downloading from folder
     
     if GOOGLE_DRIVE_MEAN_PARAMS_ID or GOOGLE_DRIVE_FOLDER_ID:
         print(f"Attempting to download smpl_mean_params.npz from Google Drive...")
@@ -314,9 +314,9 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     elif checkpoint_exists and not smpl_exists:
         print(f"⚠️  Checkpoint found but SMPL files missing. Trying Google Drive first...")
         # Try Google Drive SMPL download first
-        # Default folder ID: https://drive.google.com/file/d/1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE/view
+        # Default folder ID: https://drive.google.com/drive/folders/1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O
         GOOGLE_DRIVE_SMPL_FILE_ID = os.environ.get("GOOGLE_DRIVE_SMPL_ID")
-        GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE")
+        GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O")
         print(f"[DEBUG] GOOGLE_DRIVE_SMPL_ID env var value: {GOOGLE_DRIVE_SMPL_FILE_ID}")
         print(f"[DEBUG] GOOGLE_DRIVE_FOLDER_ID env var value: {GOOGLE_DRIVE_FOLDER_ID}")
         
@@ -714,9 +714,9 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                     print("⚠️  SMPL files not found. Trying Google Drive first...")
                     
                     # Try downloading SMPL model from Google Drive if provided
-                    # Default folder ID: https://drive.google.com/file/d/1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE/view
+                    # Default folder ID: https://drive.google.com/drive/folders/1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O
                     GOOGLE_DRIVE_SMPL_FILE_ID = os.environ.get("GOOGLE_DRIVE_SMPL_ID")
-                    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE")
+                    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O")
                     
                     # Try downloading from folder first
                     if GOOGLE_DRIVE_FOLDER_ID:
