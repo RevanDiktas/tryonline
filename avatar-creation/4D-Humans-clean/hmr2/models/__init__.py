@@ -6,6 +6,60 @@ from ..utils.download import cache_url
 from ..configs import CACHE_DIR_4DHUMANS
 
 
+def _ensure_smpl_joint_regressor_exists(data_dir):
+    """
+    Helper function to download or create SMPL_to_J19.pkl if it doesn't exist.
+    Tries to download from Google Drive first, then makes config optional if missing.
+    """
+    import os
+    import sys
+    
+    joint_regressor_path = os.path.join(data_dir, "SMPL_to_J19.pkl")
+    
+    if os.path.exists(joint_regressor_path):
+        return  # File already exists
+    
+    os.makedirs(data_dir, exist_ok=True)
+    
+    # Try downloading from Google Drive first
+    # Default file ID if available (user can override with GOOGLE_DRIVE_JOINT_REGRESSOR_ID)
+    GOOGLE_DRIVE_JOINT_REGRESSOR_ID = os.environ.get("GOOGLE_DRIVE_JOINT_REGRESSOR_ID")
+    if GOOGLE_DRIVE_JOINT_REGRESSOR_ID:
+        print(f"Attempting to download SMPL_to_J19.pkl from Google Drive...")
+        try:
+            import subprocess
+            # Install gdown if not available
+            try:
+                import gdown
+            except ImportError:
+                print("Installing gdown...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "gdown"])
+                import gdown
+            
+            gdrive_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_JOINT_REGRESSOR_ID}"
+            print(f"[DEBUG] Downloading joint regressor from: {gdrive_url}")
+            
+            # Download to temp file first
+            temp_file = os.path.join(data_dir, f"temp_joint_regressor_{os.getpid()}.pkl")
+            gdown.download(gdrive_url, output=temp_file, quiet=False)
+            
+            if os.path.exists(temp_file):
+                # Move to final location
+                import shutil
+                if os.path.exists(joint_regressor_path):
+                    os.remove(joint_regressor_path)
+                shutil.move(temp_file, joint_regressor_path)
+                print(f"✅ Downloaded SMPL_to_J19.pkl from Google Drive!")
+                return
+            else:
+                print(f"⚠️  Download from Google Drive failed")
+        except Exception as e:
+            print(f"⚠️  Google Drive download failed: {e}")
+    
+    # If download failed or not configured, we'll make it optional in config
+    print(f"⚠️  SMPL_to_J19.pkl not found. The code will work without extra joints.")
+    print(f"  To download it, set GOOGLE_DRIVE_JOINT_REGRESSOR_ID environment variable.")
+
 def _ensure_smpl_mean_params_exists(data_dir):
     """
     Helper function to download or create smpl_mean_params.npz if it doesn't exist.
@@ -80,10 +134,11 @@ def _ensure_config_files_exist(checkpoint_path):
     model_config_path = os.path.join(config_dir, "model_config.yaml")
     dataset_config_path = os.path.join(config_dir, "dataset_config.yaml")
     
-    # Also ensure smpl_mean_params.npz exists
+    # Also ensure smpl_mean_params.npz and SMPL_to_J19.pkl exist
     from hmr2.configs import CACHE_DIR_4DHUMANS
     data_dir = os.path.join(CACHE_DIR_4DHUMANS, "data")
     _ensure_smpl_mean_params_exists(data_dir)
+    _ensure_smpl_joint_regressor_exists(data_dir)
     
     if not os.path.exists(model_config_path):
         print(f"Creating default model_config.yaml...")
@@ -103,6 +158,22 @@ def _ensure_config_files_exist(checkpoint_path):
                 default_cfg.SMPL.NUM_BODY_JOINTS = 23
                 default_cfg.SMPL.JOINT_REGRESSOR_EXTRA = "data/SMPL_to_J19.pkl"
                 default_cfg.SMPL.MEAN_PARAMS = "data/smpl_mean_params.npz"
+                
+                # Only set JOINT_REGRESSOR_EXTRA if file exists, otherwise leave it unset
+                joint_regressor_path = os.path.join(CACHE_DIR_4DHUMANS, "data/SMPL_to_J19.pkl")
+                if os.path.exists(joint_regressor_path):
+                    default_cfg.SMPL.JOINT_REGRESSOR_EXTRA = "data/SMPL_to_J19.pkl"
+                else:
+                    # Don't set it - SMPL will work without extra joints (code checks if joint_regressor_extra is None)
+                    print(f"  Note: SMPL_to_J19.pkl not found, SMPL will work without extra joints")
+                
+                # Only set JOINT_REGRESSOR_EXTRA if file exists, otherwise leave it unset
+                joint_regressor_path = os.path.join(CACHE_DIR_4DHUMANS, "data/SMPL_to_J19.pkl")
+                if os.path.exists(joint_regressor_path):
+                    default_cfg.SMPL.JOINT_REGRESSOR_EXTRA = "data/SMPL_to_J19.pkl"
+                else:
+                    # Don't set it - SMPL will work without extra joints
+                    print(f"  Note: SMPL_to_J19.pkl not found, SMPL will work without extra joints")
             
             # Add MODEL.BACKBONE section (required for HMR2 model loading)
             if 'MODEL' not in default_cfg:
@@ -339,9 +410,10 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                         print(f"[DEBUG]   Checking: {tp} -> exists={os.path.exists(tp)}")
                     expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
                     _ensure_config_files_exist(expected_checkpoint)
-                    # Ensure smpl_mean_params.npz exists
+                    # Ensure smpl_mean_params.npz and SMPL_to_J19.pkl exist
                     data_dir = os.path.join(folder, "data")
                     _ensure_smpl_mean_params_exists(data_dir)
+                    _ensure_smpl_joint_regressor_exists(data_dir)
                     return
             except Exception as e:
                 print(f"⚠️  Google Drive SMPL download failed: {e}")
@@ -579,10 +651,11 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 # After downloading checkpoint, create default config files if they don't exist
                 _ensure_config_files_exist(checkpoint_dest)
                 
-                # Ensure smpl_mean_params.npz exists
+                # Ensure smpl_mean_params.npz and SMPL_to_J19.pkl exist
                 from hmr2.configs import CACHE_DIR_4DHUMANS
                 data_dir = os.path.join(CACHE_DIR_4DHUMANS, "data")
                 _ensure_smpl_mean_params_exists(data_dir)
+                _ensure_smpl_joint_regressor_exists(data_dir)
                 
                 # Check if SMPL files exist - if not, try Google Drive first, then tar.gz
                 smpl_file = os.path.join(folder, "data/smpl/SMPL_NEUTRAL.pkl")
