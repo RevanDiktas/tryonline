@@ -263,6 +263,10 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     import sys
     from pathlib import Path
     
+    # Import CACHE_DIR_4DHUMANS at function level to avoid UnboundLocalError
+    # (Python treats it as local if imported later in the function)
+    from ..configs import CACHE_DIR_4DHUMANS as _CACHE_DIR
+    
     # CRITICAL: Print immediately to ensure we see this function is being called
     print(f"[DEBUG download_models] FUNCTION CALLED - folder={folder}")
     sys.stdout.flush()
@@ -295,7 +299,7 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     smpl_basic_v11_alt = os.path.join(folder, "data/basicModel_neutral_lbs_10_207_0_v1.1.0.pkl")
     smpl_exists = smpl_exists or os.path.exists(smpl_basic_v1) or os.path.exists(smpl_basic_v11) or os.path.exists(smpl_basic_v11_alt)
     
-    print(f"[DEBUG download_models] CACHE_DIR_4DHUMANS = {CACHE_DIR_4DHUMANS}")
+    print(f"[DEBUG download_models] CACHE_DIR_4DHUMANS = {_CACHE_DIR}")
     print(f"[DEBUG download_models] folder = {folder}")
     print(f"[DEBUG download_models] Current working directory: {os.getcwd()}")
     print(f"[DEBUG download_models] checkpoint_exists={checkpoint_exists}, smpl_exists={smpl_exists}")
