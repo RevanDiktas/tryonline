@@ -10,6 +10,9 @@ def _download_from_gdrive_folder(file_name, output_path, folder_id=None, file_id
     """
     Helper function to download a file from Google Drive.
     Can use either a file_id directly, or search for file_name in a folder_id.
+    
+    When downloading from a folder, also preserves other useful files (SMPL models, config files, etc.)
+    found in the downloaded folder structure.
     """
     import os
     import sys
@@ -50,25 +53,101 @@ def _download_from_gdrive_folder(file_name, output_path, folder_id=None, file_id
             print(f"[DEBUG] Attempting to download {file_name} from folder {folder_id}...")
             # Try using gdown folder download
             temp_folder = os.path.join(os.path.dirname(output_path), f"temp_gdrive_folder_{os.getpid()}")
+            target_file_found = False
+            preserved_files = []
+            
             try:
                 os.makedirs(temp_folder, exist_ok=True)
                 # gdown.download_folder can download a folder if shared properly
                 gdown.download_folder(f"https://drive.google.com/drive/folders/{folder_id}", output=temp_folder, quiet=False, use_cookies=False)
                 
-                # Search for the file in the downloaded folder
+                # First, find and move the target file
+                from ..configs import CACHE_DIR_4DHUMANS
+                cache_dir = CACHE_DIR_4DHUMANS
+                data_dir = os.path.join(cache_dir, "data")
+                
                 for root, dirs, files in os.walk(temp_folder):
                     for f in files:
+                        file_path = os.path.join(root, f)
+                        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+                        
+                        # Check if this is the target file
                         if f == file_name or f.lower() == file_name.lower():
-                            found_file = os.path.join(root, f)
-                            shutil.move(found_file, output_path)
+                            shutil.move(file_path, output_path)
                             print(f"✅ Found and moved {file_name} from Google Drive folder!")
-                            shutil.rmtree(temp_folder, ignore_errors=True)
-                            return True
+                            target_file_found = True
+                        
+                        # Also preserve other useful files found in the folder
+                        # SMPL model files (basicmodel*.pkl, ~247MB each)
+                        elif ("basicmodel" in f.lower()) and 200_000_000 < file_size < 300_000_000:
+                            # Determine correct destination based on filename
+                            filename_lower = f.lower()
+                            if "neutral" in filename_lower:
+                                dest = os.path.join(data_dir, "basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
+                            elif "basicmodel_f" in filename_lower or "female" in filename_lower:
+                                dest = os.path.join(data_dir, "basicmodel_f_lbs_10_207_0_v1.1.0.pkl")
+                            elif "basicmodel_m" in filename_lower or "male" in filename_lower:
+                                dest = os.path.join(data_dir, "basicmodel_m_lbs_10_207_0_v1.1.0.pkl")
+                            else:
+                                dest = None
+                            
+                            if dest and not os.path.exists(dest):
+                                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                                shutil.move(file_path, dest)
+                                preserved_files.append(("SMPL", os.path.basename(dest)))
+                        
+                        # Config files (small YAML files)
+                        elif f.endswith(('.yaml', '.yml')) and file_size < 1_000_000:  # < 1MB
+                            # These are likely config files - preserve their relative path structure
+                            rel_path = os.path.relpath(file_path, temp_folder)
+                            # Try to maintain structure in cache_dir
+                            dest = os.path.join(cache_dir, rel_path)
+                            if not os.path.exists(dest):
+                                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                                shutil.move(file_path, dest)
+                                preserved_files.append(("config", os.path.basename(dest)))
+                        
+                        # SMPL mean params and joint regressor (small files)
+                        elif f in ("smpl_mean_params.npz", "SMPL_to_J19.pkl") and file_size < 10_000_000:  # < 10MB
+                            dest = os.path.join(data_dir, f)
+                            if not os.path.exists(dest):
+                                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                                shutil.move(file_path, dest)
+                                preserved_files.append(("SMPL data", f))
                 
-                shutil.rmtree(temp_folder, ignore_errors=True)
+                # Report preserved files
+                if preserved_files:
+                    print(f"[DEBUG] Also preserved {len(preserved_files)} additional files from folder:")
+                    for file_type, name in preserved_files:
+                        print(f"  - {file_type}: {name}")
+                
+                # Only return True if target file was found
+                if target_file_found:
+                    # Clean up temp folder
+                    try:
+                        shutil.rmtree(temp_folder, ignore_errors=True)
+                    except Exception as cleanup_error:
+                        print(f"[DEBUG] Warning: Failed to clean up temp folder {temp_folder}: {cleanup_error}")
+                    return True
+                else:
+                    # Target file not found - clean up and return False
+                    shutil.rmtree(temp_folder, ignore_errors=True)
+                    
             except Exception as e:
                 print(f"[DEBUG] Folder download failed: {e}")
+                import traceback
+                traceback.print_exc()
+                # Try to clean up temp folder even on error
                 if os.path.exists(temp_folder):
+                    # But first, try to preserve any useful files before cleanup
+                    try:
+                        # Check if any SMPL files exist in temp folder before deleting
+                        for root, dirs, files in os.walk(temp_folder):
+                            for f in files:
+                                if "basicmodel" in f.lower():
+                                    print(f"[DEBUG] Note: {f} found in temp folder but couldn't preserve due to error")
+                    except Exception:
+                        pass
                     shutil.rmtree(temp_folder, ignore_errors=True)
         
     except Exception as e:
