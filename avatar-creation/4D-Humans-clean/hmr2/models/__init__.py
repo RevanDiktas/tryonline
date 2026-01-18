@@ -8,30 +8,66 @@ from ..configs import CACHE_DIR_4DHUMANS
 
 def _ensure_smpl_mean_params_exists(data_dir):
     """
-    Helper function to create smpl_mean_params.npz if it doesn't exist.
-    This file contains default (mean) SMPL parameters for pose, shape, and camera.
+    Helper function to download or create smpl_mean_params.npz if it doesn't exist.
+    Tries to download from Google Drive first, then falls back to creating default values.
     """
     import os
+    import sys
     import numpy as np
     
     mean_params_path = os.path.join(data_dir, "smpl_mean_params.npz")
     
-    if not os.path.exists(mean_params_path):
-        print(f"Creating default smpl_mean_params.npz...")
-        os.makedirs(data_dir, exist_ok=True)
-        
-        # Create default mean parameters
-        # pose: 72 values (24 joints * 3 axis-angle parameters)
-        # shape: 10 values (SMPL shape parameters/betas)
-        # cam: 3 values (camera translation/scale)
-        mean_params = {
-            'pose': np.zeros(72, dtype=np.float32),  # Neutral pose (all zeros)
-            'shape': np.zeros(10, dtype=np.float32),  # Mean shape (all zeros)
-            'cam': np.array([0.0, 0.0, 1.0], dtype=np.float32)  # Default camera: no translation, scale=1
-        }
-        
-        np.savez(mean_params_path, **mean_params)
-        print(f"  Created: {mean_params_path}")
+    if os.path.exists(mean_params_path):
+        return  # File already exists
+    
+    os.makedirs(data_dir, exist_ok=True)
+    
+    # Try downloading from Google Drive first
+    GOOGLE_DRIVE_MEAN_PARAMS_ID = os.environ.get("GOOGLE_DRIVE_MEAN_PARAMS_ID")
+    if GOOGLE_DRIVE_MEAN_PARAMS_ID:
+        print(f"Attempting to download smpl_mean_params.npz from Google Drive...")
+        try:
+            import subprocess
+            # Install gdown if not available
+            try:
+                import gdown
+            except ImportError:
+                print("Installing gdown...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "gdown"])
+                import gdown
+            
+            gdrive_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_MEAN_PARAMS_ID}"
+            print(f"[DEBUG] Downloading mean params from: {gdrive_url}")
+            
+            # Download to temp file first (same workaround as SMPL)
+            temp_file = os.path.join(data_dir, f"temp_mean_params_{os.getpid()}.npz")
+            gdown.download(gdrive_url, output=temp_file, quiet=False)
+            
+            if os.path.exists(temp_file):
+                # Move to final location
+                import shutil
+                if os.path.exists(mean_params_path):
+                    os.remove(mean_params_path)
+                shutil.move(temp_file, mean_params_path)
+                print(f"✅ Downloaded smpl_mean_params.npz from Google Drive!")
+                return
+            else:
+                print(f"⚠️  Download from Google Drive failed, creating default...")
+        except Exception as e:
+            print(f"⚠️  Google Drive download failed: {e}")
+            print(f"  Creating default smpl_mean_params.npz...")
+    else:
+        print(f"⚠️  GOOGLE_DRIVE_MEAN_PARAMS_ID not set, creating default smpl_mean_params.npz...")
+    
+    # Fall back to creating default mean parameters
+    mean_params = {
+        'pose': np.zeros(72, dtype=np.float32),  # Neutral pose (all zeros)
+        'shape': np.zeros(10, dtype=np.float32),  # Mean shape (all zeros)
+        'cam': np.array([0.0, 0.0, 1.0], dtype=np.float32)  # Default camera: no translation, scale=1
+    }
+    
+    np.savez(mean_params_path, **mean_params)
+    print(f"  Created default: {mean_params_path}")
 
 def _ensure_config_files_exist(checkpoint_path):
     """
