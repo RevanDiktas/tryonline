@@ -7,7 +7,7 @@ from yacs.config import CfgNode
 
 # webdataset is only needed for training, make it optional for inference
 try:
-import webdataset as wds
+    import webdataset as wds
     HAS_WEBDATASET = True
 except ImportError:
     wds = None
@@ -19,8 +19,8 @@ from .dataset import Dataset
 # These imports require additional dependencies (braceexpand, etc.)
 # Make them lazy for inference-only usage
 try:
-from .image_dataset import ImageDataset
-from .mocap_dataset import MoCapDataset
+    from .image_dataset import ImageDataset
+    from .mocap_dataset import MoCapDataset
 except ImportError:
     ImageDataset = None
     MoCapDataset = None
