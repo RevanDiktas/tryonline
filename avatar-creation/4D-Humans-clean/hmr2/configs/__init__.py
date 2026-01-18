@@ -109,7 +109,9 @@ def get_config(config_file: str, merge: bool = True, update_cachedir: bool = Fal
         return os.path.join(CACHE_DIR_4DHUMANS, path)
 
       cfg.SMPL.MODEL_PATH = update_path(cfg.SMPL.MODEL_PATH)
-      cfg.SMPL.JOINT_REGRESSOR_EXTRA = update_path(cfg.SMPL.JOINT_REGRESSOR_EXTRA)
+      # Only update JOINT_REGRESSOR_EXTRA if it exists in config (it's optional)
+      if hasattr(cfg.SMPL, 'JOINT_REGRESSOR_EXTRA') and cfg.SMPL.JOINT_REGRESSOR_EXTRA:
+        cfg.SMPL.JOINT_REGRESSOR_EXTRA = update_path(cfg.SMPL.JOINT_REGRESSOR_EXTRA)
       cfg.SMPL.MEAN_PARAMS = update_path(cfg.SMPL.MEAN_PARAMS)
 
     cfg.freeze()
