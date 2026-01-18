@@ -159,7 +159,6 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 
                 # WORKAROUND: gdown seems to ignore output parameter sometimes.
                 # Download to a temporary file in the target directory first, then move/rename
-                import tempfile
                 temp_file = os.path.join(smpl_dir, f"temp_smpl_download_{os.getpid()}.pkl")
                 print(f"[DEBUG download_models] Downloading to temp file: {temp_file}")
                 
