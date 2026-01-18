@@ -136,15 +136,65 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                     import gdown
                 
                 smpl_basic_model_v11 = os.path.abspath(os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl"))
-                os.makedirs(os.path.dirname(smpl_basic_model_v11), exist_ok=True)
+                smpl_dir = os.path.dirname(smpl_basic_model_v11)
+                os.makedirs(smpl_dir, exist_ok=True)
                 gdrive_smpl_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_SMPL_FILE_ID}"
-                print(f"[DEBUG] Downloading SMPL from: {gdrive_smpl_url}")
-                print(f"[DEBUG] Downloading SMPL to: {smpl_basic_model_v11}")
-                print(f"[DEBUG] Directory exists: {os.path.exists(os.path.dirname(smpl_basic_model_v11))}")
-                # Use output parameter explicitly
-                gdown.download(gdrive_smpl_url, output=smpl_basic_model_v11, quiet=False)
-                print(f"[DEBUG] After download, file exists: {os.path.exists(smpl_basic_model_v11)}")
-                print(f"[DEBUG] File size: {os.path.getsize(smpl_basic_model_v11) if os.path.exists(smpl_basic_model_v11) else 'N/A'} bytes")
+                print(f"[DEBUG download_models] Current working directory: {os.getcwd()}")
+                print(f"[DEBUG download_models] Downloading SMPL from: {gdrive_smpl_url}")
+                print(f"[DEBUG download_models] Target directory: {smpl_dir}")
+                print(f"[DEBUG download_models] Target file: {smpl_basic_model_v11}")
+                print(f"[DEBUG download_models] Directory exists: {os.path.exists(smpl_dir)}")
+                print(f"[DEBUG download_models] Directory is writable: {os.access(smpl_dir, os.W_OK) if os.path.exists(smpl_dir) else False}")
+                
+                # Use gdown with explicit output and verify it worked
+                # gdown may create intermediate directories, so ensure we have the right path
+                try:
+                    result = gdown.download(gdrive_smpl_url, output=smpl_basic_model_v11, quiet=False)
+                    print(f"[DEBUG download_models] gdown.download() returned: {result}")
+                    print(f"[DEBUG download_models] Checking if file exists immediately after download...")
+                    print(f"[DEBUG download_models] File exists at target: {os.path.exists(smpl_basic_model_v11)}")
+                    
+                    # Also check if gdown created it somewhere else (check current dir and common locations)
+                    if not os.path.exists(smpl_basic_model_v11):
+                        print(f"[DEBUG download_models] ⚠️  File not at expected location! Searching...")
+                        search_dirs = [
+                            os.getcwd(),
+                            smpl_dir,
+                            os.path.dirname(folder),
+                            folder,
+                        ]
+                        for search_dir in search_dirs:
+                            if os.path.exists(search_dir):
+                                result = subprocess.run(["find", search_dir, "-name", "basicmodel*.pkl", "-type", "f", "-size", "+100M"], capture_output=True, text=True, timeout=5)
+                                if result.stdout:
+                                    print(f"[DEBUG download_models] Found file in {search_dir}:")
+                                    for line in result.stdout.strip().split('\n'):
+                                        if line:
+                                            found_path = line.strip()
+                                            print(f"[DEBUG download_models]   {found_path}")
+                                            # Move it to correct location
+                                            try:
+                                                print(f"[DEBUG download_models] Moving {found_path} to {smpl_basic_model_v11}...")
+                                                import shutil
+                                                if os.path.exists(smpl_basic_model_v11):
+                                                    os.remove(smpl_basic_model_v11)
+                                                shutil.move(found_path, smpl_basic_model_v11)
+                                                print(f"[DEBUG download_models] ✅ Moved successfully!")
+                                                break
+                                            except Exception as move_error:
+                                                print(f"[DEBUG download_models] ⚠️  Failed to move: {move_error}")
+                    
+                    if os.path.exists(smpl_basic_model_v11):
+                        file_size = os.path.getsize(smpl_basic_model_v11)
+                        print(f"[DEBUG download_models] ✅ File confirmed at {smpl_basic_model_v11}")
+                        print(f"[DEBUG download_models] File size: {file_size / 1024 / 1024:.1f}MB")
+                    else:
+                        print(f"[DEBUG download_models] ❌ File still not found after search!")
+                except Exception as e:
+                    print(f"[DEBUG download_models] Exception during download: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    raise
                 if os.path.exists(smpl_basic_model_v11):
                     print(f"✅ SMPL model downloaded from Google Drive to {smpl_basic_model_v11}!")
                     # Verify check_smpl_exists can find it
