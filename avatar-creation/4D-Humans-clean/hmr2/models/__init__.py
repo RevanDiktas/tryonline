@@ -95,8 +95,9 @@ def _ensure_smpl_joint_regressor_exists(data_dir):
     
     # Try downloading from Google Drive first
     # Can use either individual file ID or folder ID
+    # Default folder ID: https://drive.google.com/file/d/1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE/view
     GOOGLE_DRIVE_JOINT_REGRESSOR_ID = os.environ.get("GOOGLE_DRIVE_JOINT_REGRESSOR_ID")
-    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")  # For downloading from folder
+    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE")  # For downloading from folder
     
     if GOOGLE_DRIVE_JOINT_REGRESSOR_ID or GOOGLE_DRIVE_FOLDER_ID:
         print(f"Attempting to download SMPL_to_J19.pkl from Google Drive...")
@@ -127,9 +128,10 @@ def _ensure_smpl_mean_params_exists(data_dir):
     
     # Try downloading from Google Drive first
     # Can use either individual file ID or folder ID
+    # Default folder ID: https://drive.google.com/file/d/1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE/view
     # Default file ID: https://drive.google.com/file/d/1cqbspPE9LM2ysB_YvBcRZR3JGVb3ve_I/view
     GOOGLE_DRIVE_MEAN_PARAMS_ID = os.environ.get("GOOGLE_DRIVE_MEAN_PARAMS_ID", "1cqbspPE9LM2ysB_YvBcRZR3JGVb3ve_I")
-    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")  # For downloading from folder
+    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE")  # For downloading from folder
     
     if GOOGLE_DRIVE_MEAN_PARAMS_ID or GOOGLE_DRIVE_FOLDER_ID:
         print(f"Attempting to download smpl_mean_params.npz from Google Drive...")
@@ -312,8 +314,28 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     elif checkpoint_exists and not smpl_exists:
         print(f"⚠️  Checkpoint found but SMPL files missing. Trying Google Drive first...")
         # Try Google Drive SMPL download first
+        # Default folder ID: https://drive.google.com/file/d/1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE/view
         GOOGLE_DRIVE_SMPL_FILE_ID = os.environ.get("GOOGLE_DRIVE_SMPL_ID")
+        GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE")
         print(f"[DEBUG] GOOGLE_DRIVE_SMPL_ID env var value: {GOOGLE_DRIVE_SMPL_FILE_ID}")
+        print(f"[DEBUG] GOOGLE_DRIVE_FOLDER_ID env var value: {GOOGLE_DRIVE_FOLDER_ID}")
+        
+        # Try downloading from folder first
+        if GOOGLE_DRIVE_FOLDER_ID:
+            print(f"[DEBUG] Attempting to download SMPL from folder {GOOGLE_DRIVE_FOLDER_ID}...")
+            smpl_basic_model_v11 = os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
+            if _download_from_gdrive_folder("basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl", smpl_basic_model_v11,
+                                           folder_id=GOOGLE_DRIVE_FOLDER_ID, file_id=None):
+                # Validate size
+                if os.path.exists(smpl_basic_model_v11):
+                    file_size = os.path.getsize(smpl_basic_model_v11)
+                    file_size_mb = file_size / 1024 / 1024
+                    if 200 < file_size_mb < 300:
+                        print(f"✅ SMPL downloaded from folder! ({file_size_mb:.1f}MB)")
+                        return
+                    else:
+                        print(f"[WARNING] Downloaded file size unexpected: {file_size_mb:.1f}MB")
+        
         if GOOGLE_DRIVE_SMPL_FILE_ID:
             print(f"  Attempting to download SMPL model from Google Drive...")
             try:
@@ -692,7 +714,24 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                     print("⚠️  SMPL files not found. Trying Google Drive first...")
                     
                     # Try downloading SMPL model from Google Drive if provided
+                    # Default folder ID: https://drive.google.com/file/d/1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE/view
                     GOOGLE_DRIVE_SMPL_FILE_ID = os.environ.get("GOOGLE_DRIVE_SMPL_ID")
+                    GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE")
+                    
+                    # Try downloading from folder first
+                    if GOOGLE_DRIVE_FOLDER_ID:
+                        print(f"[DEBUG checkpoint->SMPL download] Attempting to download SMPL from folder {GOOGLE_DRIVE_FOLDER_ID}...")
+                        if _download_from_gdrive_folder("basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl", smpl_basic_model_v11,
+                                                       folder_id=GOOGLE_DRIVE_FOLDER_ID, file_id=None):
+                            # Validate size
+                            if os.path.exists(smpl_basic_model_v11):
+                                file_size = os.path.getsize(smpl_basic_model_v11)
+                                file_size_mb = file_size / 1024 / 1024
+                                if 200 < file_size_mb < 300:
+                                    print(f"[DEBUG checkpoint->SMPL download] ✅ SMPL downloaded from folder! ({file_size_mb:.1f}MB)")
+                                else:
+                                    print(f"[WARNING checkpoint->SMPL download] Downloaded file size unexpected: {file_size_mb:.1f}MB")
+                    
                     if GOOGLE_DRIVE_SMPL_FILE_ID:
                         print(f"  Attempting to download SMPL model from Google Drive...")
                         try:
