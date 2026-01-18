@@ -64,3 +64,18 @@ def cache_url(url_or_file, cache_file_path, download=True):
         print("Downloading remote file {} to {}".format(url, cache_file_path))
         download_url(url, cache_file_path)
     return cache_file_path
+
+
+def download_models(folder=None):
+    """Wrapper for download_models from hmr2.models to maintain backward compatibility.
+    
+    Original scripts expect this function to be in hmr2.utils.download.
+    This function delegates to the actual implementation in hmr2.models.
+    """
+    from ..models import download_models as _download_models
+    from ..configs import CACHE_DIR_4DHUMANS
+    
+    if folder is None:
+        folder = CACHE_DIR_4DHUMANS
+    
+    return _download_models(folder)
