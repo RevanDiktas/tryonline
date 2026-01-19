@@ -62,7 +62,9 @@ RUN mkdir -p /root/.cache/4DHumans/logs/train/multiruns/hmr2/0/checkpoints \
 # Download models during build (bake into image to avoid runtime quota issues)
 # This step may fail due to Google Drive quota, but build will continue
 # Models will be downloaded at runtime if missing (with quota risk)
-RUN python /workspace/download_models_buildtime.py || echo "⚠️  Build-time download had issues (quota or network). Models will be downloaded at runtime if volume is empty."
+# NOTE: If quota is exceeded, consider manually uploading models to RunPod volume
+# See README_MODEL_SETUP.md for instructions
+RUN python /workspace/download_models_buildtime.py || echo "⚠️  Build-time download had issues (quota or network). Models will be downloaded at runtime if volume is empty. See README_MODEL_SETUP.md for manual upload instructions."
 
 # Set up environment
 ENV PYTHONPATH=/workspace:/workspace/pipelines:/workspace/4D-Humans-clean:/workspace/avatar-creation-measurements
