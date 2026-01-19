@@ -17,48 +17,108 @@ DEFAULT_CACHE_DIR_4DHUMANS = os.path.join(CACHE_DIR, "4DHumans")
 BUILD_CACHE_DIR = Path(DEFAULT_CACHE_DIR_4DHUMANS)
 BUILD_CHECKPOINT = BUILD_CACHE_DIR / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"
 
-# Check if volume has models (checkpoint must exist, not just directory)
-VOLUME_CHECKPOINT = VOLUME_CACHE_DIR / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"
-volume_has_models = VOLUME_CHECKPOINT.exists() and VOLUME_CHECKPOINT.stat().st_size > 2 * 1024**3  # > 2GB
+# Lazy cache directory determination - defer expensive filesystem checks until first access
+# This prevents slow container startup when this module is imported
+_CACHE_DIR_4DHUMANS = None
 
-# PRIORITY 1: Build-time models (baked into image)
-if BUILD_CHECKPOINT.exists():
+def _get_cache_dir_4dhumans():
+    """
+    Lazy function to determine cache directory.
+    Only performs expensive filesystem checks when first called.
+    """
+    global _CACHE_DIR_4DHUMANS
+    if _CACHE_DIR_4DHUMANS is not None:
+        return _CACHE_DIR_4DHUMANS
+    
+    # Check if volume has models (checkpoint must exist, not just directory)
+    VOLUME_CHECKPOINT = VOLUME_CACHE_DIR / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"
     try:
-        file_size_gb = BUILD_CHECKPOINT.stat().st_size / (1024**3)
-        if file_size_gb > 2.0:
-            CACHE_DIR_4DHUMANS = str(BUILD_CACHE_DIR)
-            print(f"[Config] ✓ Using build-time models from image cache: {CACHE_DIR_4DHUMANS}")
-            print(f"[Config]   Checkpoint found: {file_size_gb:.2f} GB")
-        else:
-            # Checkpoint exists but is too small (corrupted or incomplete)
-            print(f"[Config] ⚠️  Build checkpoint exists but is too small ({file_size_gb:.2f} GB), checking volume...")
-            if volume_has_models:
-                CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
-                print(f"[Config] Using RunPod Network Volume cache: {CACHE_DIR_4DHUMANS}")
+        volume_has_models = VOLUME_CHECKPOINT.exists() and VOLUME_CHECKPOINT.stat().st_size > 2 * 1024**3  # > 2GB
+    except Exception:
+        volume_has_models = False
+    
+    # PRIORITY 1: Build-time models (baked into image)
+    if BUILD_CHECKPOINT.exists():
+        try:
+            file_size_gb = BUILD_CHECKPOINT.stat().st_size / (1024**3)
+            if file_size_gb > 2.0:
+                _CACHE_DIR_4DHUMANS = str(BUILD_CACHE_DIR)
+                print(f"[Config] ✓ Using build-time models from image cache: {_CACHE_DIR_4DHUMANS}")
+                print(f"[Config]   Checkpoint found: {file_size_gb:.2f} GB")
             else:
-                CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
-                print(f"[Config] Using default cache (will download models): {CACHE_DIR_4DHUMANS}")
-    except Exception as e:
-        print(f"[Config] ⚠️  Error checking build checkpoint: {e}, checking volume...")
-        if volume_has_models:
-            CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
-            print(f"[Config] Using RunPod Network Volume cache: {CACHE_DIR_4DHUMANS}")
-        else:
-            CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
-            print(f"[Config] Using default cache (will download models): {CACHE_DIR_4DHUMANS}")
-# PRIORITY 2: Volume has models (runtime caching)
-elif RUNPOD_VOLUME_PATH.exists() and volume_has_models:
-    CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
-    print(f"[Config] Using RunPod Network Volume cache: {CACHE_DIR_4DHUMANS}")
-    print(f"[Config]   Checkpoint found in volume: {VOLUME_CHECKPOINT.stat().st_size / (1024**3):.2f} GB")
-else:
-    # Use default location (or symlink created by handler)
-    CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
-    if RUNPOD_VOLUME_PATH.exists():
-        print(f"[Config] Network Volume exists but no models found, using default: {CACHE_DIR_4DHUMANS}")
-        print(f"[Config] Handler will create symlink to volume if needed")
+                # Checkpoint exists but is too small (corrupted or incomplete)
+                print(f"[Config] ⚠️  Build checkpoint exists but is too small ({file_size_gb:.2f} GB), checking volume...")
+                if volume_has_models:
+                    _CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
+                    print(f"[Config] Using RunPod Network Volume cache: {_CACHE_DIR_4DHUMANS}")
+                else:
+                    _CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
+                    print(f"[Config] Using default cache (will download models): {_CACHE_DIR_4DHUMANS}")
+        except Exception as e:
+            print(f"[Config] ⚠️  Error checking build checkpoint: {e}, checking volume...")
+            if volume_has_models:
+                _CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
+                print(f"[Config] Using RunPod Network Volume cache: {_CACHE_DIR_4DHUMANS}")
+            else:
+                _CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
+                print(f"[Config] Using default cache (will download models): {_CACHE_DIR_4DHUMANS}")
+    # PRIORITY 2: Volume has models (runtime caching)
+    elif RUNPOD_VOLUME_PATH.exists() and volume_has_models:
+        _CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
+        print(f"[Config] Using RunPod Network Volume cache: {_CACHE_DIR_4DHUMANS}")
+        try:
+            print(f"[Config]   Checkpoint found in volume: {VOLUME_CHECKPOINT.stat().st_size / (1024**3):.2f} GB")
+        except Exception:
+            pass
     else:
-        print(f"[Config] Using default cache directory: {CACHE_DIR_4DHUMANS}")
+        # Use default location (or symlink created by handler)
+        _CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
+        if RUNPOD_VOLUME_PATH.exists():
+            print(f"[Config] Network Volume exists but no models found, using default: {_CACHE_DIR_4DHUMANS}")
+            print(f"[Config] Handler will create symlink to volume if needed")
+        else:
+            print(f"[Config] Using default cache directory: {_CACHE_DIR_4DHUMANS}")
+    
+    return _CACHE_DIR_4DHUMANS
+
+# Public API: CACHE_DIR_4DHUMANS - use lazy property-like access
+# For backward compatibility with Path(), os.path.join(), etc.
+class _LazyCacheDir:
+    """Lazy property that defers cache directory determination until first access."""
+    def __str__(self):
+        return _get_cache_dir_4dhumans()
+    
+    def __repr__(self):
+        return repr(_get_cache_dir_4dhumans())
+    
+    def __eq__(self, other):
+        return str(self) == str(other) if isinstance(other, str) else False
+    
+    def __fspath__(self):
+        """Implement os.PathLike protocol for pathlib.Path() compatibility."""
+        return _get_cache_dir_4dhumans()
+    
+    def __hash__(self):
+        """Make it hashable for use in dicts/sets."""
+        return hash(_get_cache_dir_4dhumans())
+
+# Initialize immediately but make it fast (skip expensive checks for container startup)
+# Set a default immediately, detailed checks happen lazily in _get_cache_dir_4dhumans()
+try:
+    # Quick check: just see if build checkpoint exists (fast - no size check yet)
+    if BUILD_CHECKPOINT.exists():
+        _CACHE_DIR_4DHUMANS = str(BUILD_CACHE_DIR)
+    elif RUNPOD_VOLUME_PATH.exists():
+        # Volume exists, use it as default (detailed size check happens lazily)
+        _CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
+    else:
+        _CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
+except Exception:
+    # On any error, use default
+    _CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
+
+# Create lazy cache dir object - will resolve on first use
+CACHE_DIR_4DHUMANS = _LazyCacheDir()
 
 def to_lower(x: Dict) -> Dict:
     """
@@ -161,7 +221,9 @@ def get_config(config_file: str, merge: bool = True, update_cachedir: bool = Fal
       def update_path(path: str) -> str:
         if os.path.isabs(path):
           return path
-        return os.path.join(CACHE_DIR_4DHUMANS, path)
+        # Resolve lazy cache dir if needed
+        cache_dir = str(_get_cache_dir_4dhumans()) if _CACHE_DIR_4DHUMANS is None else _CACHE_DIR_4DHUMANS
+        return os.path.join(cache_dir, path)
 
       cfg.SMPL.MODEL_PATH = update_path(cfg.SMPL.MODEL_PATH)
       # Only update JOINT_REGRESSOR_EXTRA if it exists in config (it's optional)
