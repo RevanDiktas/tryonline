@@ -251,8 +251,8 @@ def main():
     )
     
     joint_regressor_success = download_file(
-        gdown,
-        GOOGLE_DRIVE_JOINT_REGRESSOR_ID,
+        None,
+        None,
         DATA_DIR / "SMPL_to_J19.pkl",
         expected_size_mb_min=0.1,
         expected_size_mb_max=50,
