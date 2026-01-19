@@ -102,16 +102,17 @@ class _LazyCacheDir:
         """Make it hashable for use in dicts/sets."""
         return hash(_get_cache_dir_4dhumans())
 
-# Initialize immediately but make it fast (skip expensive checks for container startup)
-# Set a default immediately, detailed checks happen lazily in _get_cache_dir_4dhumans()
+# Initialize immediately with a fast default (skip ALL filesystem checks for container startup)
+# This ensures container creation is fast - detailed checks happen lazily in _get_cache_dir_4dhumans()
+# when CACHE_DIR_4DHUMANS is actually used (e.g., during model loading)
 try:
-    # Quick check: just see if build checkpoint exists (fast - no size check yet)
-    if BUILD_CHECKPOINT.exists():
-        _CACHE_DIR_4DHUMANS = str(BUILD_CACHE_DIR)
-    elif RUNPOD_VOLUME_PATH.exists():
-        # Volume exists, use it as default (detailed size check happens lazily)
+    # Fast initialization: just set a reasonable default based on path existence only
+    # NO file existence or size checks here - those are expensive and deferred
+    if RUNPOD_VOLUME_PATH.exists():
+        # Volume exists - use it as default (will verify models exist later)
         _CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
     else:
+        # No volume - use default cache directory
         _CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
 except Exception:
     # On any error, use default

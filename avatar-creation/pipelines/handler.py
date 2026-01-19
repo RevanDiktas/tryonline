@@ -76,17 +76,16 @@ if RUNPOD_VOLUME_PATH.exists():
                 print(f"[RunPod] ⚠️  Error checking symlink: {e}")
         else:
             # Directory exists but is not a symlink - might have models from build
-            # Check if it has the checkpoint (build-time models)
+            # Defer expensive size check - just note that directory exists
+            # Detailed check will happen when config is loaded
             build_checkpoint = EXPECTED_CACHE_DIR / "logs" / "train" / "multiruns" / "hmr2" / "0" / "checkpoints" / "epoch=35-step=1000000.ckpt"
             if build_checkpoint.exists():
-                build_size_gb = build_checkpoint.stat().st_size / (1024**3)
-                if build_size_gb > 2.0:
-                    print(f"[RunPod] ✓ Build-time models found in {EXPECTED_CACHE_DIR} ({build_size_gb:.2f} GB)")
-                    print(f"[RunPod]   Using build cache (no symlink needed)")
-                else:
-                    print(f"[RunPod] ⚠️  {EXPECTED_CACHE_DIR} exists but checkpoint too small ({build_size_gb:.2f} GB)")
+                # Quick check only (no size check to avoid slow startup)
+                print(f"[RunPod] ✓ Build-time models directory found in {EXPECTED_CACHE_DIR}")
+                print(f"[RunPod]   Using build cache (size verification will happen on first use)")
             else:
-                print(f"[RunPod] ⚠️  {EXPECTED_CACHE_DIR} exists but is not a symlink and has no models")
+                print(f"[RunPod] ⚠️  {EXPECTED_CACHE_DIR} exists but is not a symlink and checkpoint not found")
+                print(f"[RunPod]   Will check for models on first job")
 else:
     print(f"[RunPod] ⚠️  Network Volume not detected at {RUNPOD_VOLUME_PATH}")
     print(f"[RunPod]   Models will be cached locally (not persistent across jobs)")
