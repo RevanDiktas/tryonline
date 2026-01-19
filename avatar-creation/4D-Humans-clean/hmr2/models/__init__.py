@@ -212,6 +212,10 @@ def _ensure_config_files_exist(checkpoint_path):
                 default_cfg.MODEL.SMPL_HEAD = CN(new_allowed=True)
                 default_cfg.MODEL.SMPL_HEAD.TYPE = 'transformer_decoder'
                 default_cfg.MODEL.SMPL_HEAD.IN_CHANNELS = 2048
+                # CRITICAL: Set JOINT_REP='6d' to match checkpoint (144 dims: 24 joints × 6)
+                # This MUST match the checkpoint's training config or we get dimension mismatch
+                default_cfg.MODEL.SMPL_HEAD.JOINT_REP = '6d'
+                default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_INPUT = 'zero'  # or 'mean_shape' (both work, 'zero' is default)
                 default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER = CN(new_allowed=True)
                 default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER.depth = 6
                 default_cfg.MODEL.SMPL_HEAD.TRANSFORMER_DECODER.heads = 8
