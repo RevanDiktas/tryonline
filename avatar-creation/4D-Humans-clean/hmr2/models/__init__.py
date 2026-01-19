@@ -339,202 +339,32 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
         _ensure_config_files_exist(expected_checkpoint)
         return
     elif checkpoint_exists and not smpl_exists:
-        print(f"⚠️  Checkpoint found but SMPL files missing. Trying Dropbox first, then Google Drive...")
+        print(f"⚠️  Checkpoint found but SMPL files missing. Downloading from Dropbox...")
         
-        # PRIORITY 1: Try Dropbox URLs (preferred - no quota issues)
+        # Download from Dropbox (required)
         DROPBOX_SMPL_NEUTRAL_URL = os.environ.get("DROPBOX_SMPL_NEUTRAL_URL")
-        DROPBOX_SMPL_MALE_URL = os.environ.get("DROPBOX_SMPL_MALE_URL")
-        DROPBOX_SMPL_FEMALE_URL = os.environ.get("DROPBOX_SMPL_FEMALE_URL")
-        
         smpl_basic_model_v11 = os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
         smpl_dir = os.path.dirname(smpl_basic_model_v11)
         os.makedirs(smpl_dir, exist_ok=True)
         
-        # Try Dropbox first
-        if DROPBOX_SMPL_NEUTRAL_URL:
-            print(f"[DEBUG] Attempting to download SMPL from Dropbox...")
-            try:
-                from ..utils.download import download_url
-                dropbox_url = DROPBOX_SMPL_NEUTRAL_URL
-                if "dropbox.com" in dropbox_url and "?dl=" not in dropbox_url:
-                    dropbox_url = dropbox_url + "?dl=1" if "?" not in dropbox_url else dropbox_url.replace("?dl=0", "?dl=1")
-                
-                temp_file = smpl_basic_model_v11 + ".tmp"
-                download_url(dropbox_url, temp_file)
-                
-                if os.path.exists(temp_file):
-                    file_size = os.path.getsize(temp_file)
-                    file_size_mb = file_size / 1024 / 1024
-                    if 200 < file_size_mb < 300:
-                        if os.path.exists(smpl_basic_model_v11):
-                            os.remove(smpl_basic_model_v11)
-                        os.rename(temp_file, smpl_basic_model_v11)
-                        print(f"✅ SMPL downloaded from Dropbox! ({file_size_mb:.1f}MB)")
-                        return
-                    else:
-                        print(f"⚠️  Downloaded file size unexpected: {file_size_mb:.1f}MB")
-                        if os.path.exists(temp_file):
-                            os.remove(temp_file)
-            except Exception as e:
-                print(f"⚠️  Dropbox download failed: {e}, trying Google Drive...")
-        
-        # PRIORITY 2: Try Google Drive (fallback)
-        # Default folder ID: https://drive.google.com/drive/folders/1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O
-        GOOGLE_DRIVE_SMPL_FILE_ID = os.environ.get("GOOGLE_DRIVE_SMPL_ID")
-        GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "1bxWXAKEOdBLiFIXQqnxoTjwVIbrqmY8O")
-        print(f"[DEBUG] GOOGLE_DRIVE_SMPL_ID env var value: {GOOGLE_DRIVE_SMPL_FILE_ID}")
-        print(f"[DEBUG] GOOGLE_DRIVE_FOLDER_ID env var value: {GOOGLE_DRIVE_FOLDER_ID}")
-        
-        # Try downloading from folder first
-        if GOOGLE_DRIVE_FOLDER_ID:
-            print(f"[DEBUG] Attempting to download SMPL from folder {GOOGLE_DRIVE_FOLDER_ID}...")
-            smpl_basic_model_v11 = os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl")
-            if _download_from_gdrive_folder("basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl", smpl_basic_model_v11,
-                                           folder_id=GOOGLE_DRIVE_FOLDER_ID, file_id=None):
-                # Validate size
-                if os.path.exists(smpl_basic_model_v11):
-                    file_size = os.path.getsize(smpl_basic_model_v11)
-                    file_size_mb = file_size / 1024 / 1024
-                    if 200 < file_size_mb < 300:
-                        print(f"✅ SMPL downloaded from folder! ({file_size_mb:.1f}MB)")
-                        return
-                    else:
-                        print(f"[WARNING] Downloaded file size unexpected: {file_size_mb:.1f}MB")
-        
-        if GOOGLE_DRIVE_SMPL_FILE_ID:
-            print(f"  Attempting to download SMPL model from Google Drive...")
-            try:
-                import subprocess
-                # Install gdown if not available
-                try:
-                    import gdown
-                except ImportError:
-                    print("Installing gdown...")
-                    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "gdown"])
-                    import gdown
-                
-                smpl_basic_model_v11 = os.path.abspath(os.path.join(folder, "data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl"))
-                smpl_dir = os.path.dirname(smpl_basic_model_v11)
-                os.makedirs(smpl_dir, exist_ok=True)
-                gdrive_smpl_url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_SMPL_FILE_ID}"
-                print(f"[DEBUG download_models] Current working directory: {os.getcwd()}")
-                print(f"[DEBUG download_models] Downloading SMPL from: {gdrive_smpl_url}")
-                print(f"[DEBUG download_models] Target directory: {smpl_dir}")
-                print(f"[DEBUG download_models] Target file: {smpl_basic_model_v11}")
-                print(f"[DEBUG download_models] Directory exists: {os.path.exists(smpl_dir)}")
-                print(f"[DEBUG download_models] Directory is writable: {os.access(smpl_dir, os.W_OK) if os.path.exists(smpl_dir) else False}")
-                
-                # WORKAROUND: gdown seems to ignore output parameter sometimes.
-                # Download to a temporary file in the target directory first, then move/rename
-                temp_file = os.path.join(smpl_dir, f"temp_smpl_download_{os.getpid()}.pkl")
-                print(f"[DEBUG download_models] Downloading to temp file: {temp_file}")
-                
-                try:
-                    # Download to temp file
-                    result = gdown.download(gdrive_smpl_url, output=temp_file, quiet=False)
-                    print(f"[DEBUG download_models] gdown.download() returned: {result}")
-                    
-                    # Verify temp file was created
-                    if not os.path.exists(temp_file):
-                        print(f"[DEBUG download_models] ⚠️  Temp file not found! Checking current directory...")
-                        # gdown might have downloaded to current directory with auto-generated name
-                        cwd_files = [f for f in os.listdir(os.getcwd()) if f.endswith('.pkl') and os.path.getsize(os.path.join(os.getcwd(), f)) > 100_000_000]
-                        if cwd_files:
-                            print(f"[DEBUG download_models] Found .pkl files in current dir: {cwd_files}")
-                            temp_file = os.path.abspath(os.path.join(os.getcwd(), cwd_files[0]))
-                            print(f"[DEBUG download_models] Using: {temp_file}")
-                    
-                    # Also check checkpoint directory (where gdown seems to be putting it sometimes)
-                    checkpoint_dir = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints")
-                    if os.path.exists(checkpoint_dir) and not os.path.exists(temp_file):
-                        checkpoint_files = [f for f in os.listdir(checkpoint_dir) if f.endswith('.pkl') and os.path.getsize(os.path.join(checkpoint_dir, f)) > 100_000_000 and f != "epoch=35-step=1000000.ckpt"]
-                        if checkpoint_files:
-                            print(f"[DEBUG download_models] Found .pkl in checkpoint dir: {checkpoint_files}")
-                            temp_file = os.path.join(checkpoint_dir, checkpoint_files[0])
-                            print(f"[DEBUG download_models] Using: {temp_file}")
-                    
-                    if os.path.exists(temp_file):
-                        file_size = os.path.getsize(temp_file)
-                        print(f"[DEBUG download_models] ✅ Downloaded file found: {temp_file} ({file_size / 1024 / 1024:.1f}MB)")
-                        
-                        # Move to final location
-                        if os.path.exists(smpl_basic_model_v11):
-                            print(f"[DEBUG download_models] Removing existing file at target location...")
-                            os.remove(smpl_basic_model_v11)
-                        
-                        import shutil
-                        shutil.move(temp_file, smpl_basic_model_v11)
-                        print(f"[DEBUG download_models] ✅ Moved to final location: {smpl_basic_model_v11}")
-                        
-                        # Verify final location
-                        if os.path.exists(smpl_basic_model_v11):
-                            final_size = os.path.getsize(smpl_basic_model_v11)
-                            final_size_mb = final_size / 1024 / 1024
-                            print(f"[DEBUG download_models] ✅ File confirmed at final location ({final_size_mb:.1f}MB)")
-                            
-                            # Validate size - SMPL should be ~247MB, checkpoint is ~2500MB
-                            if final_size_mb > 2000:
-                                print(f"[ERROR download_models] ⚠️  CRITICAL: File is {final_size_mb:.1f}MB - this is the checkpoint, not SMPL!")
-                                print(f"[ERROR download_models] ⚠️  GOOGLE_DRIVE_SMPL_ID is set to checkpoint ID!")
-                                print(f"[ERROR download_models] ⚠️  Current SMPL ID: {GOOGLE_DRIVE_SMPL_FILE_ID}")
-                                print(f"[ERROR download_models] ⚠️  Expected SMPL ID: 1A2qaP3xWZRuBOPaNx0-tovBBhtftxuSv")
-                                os.remove(smpl_basic_model_v11)
-                                raise ValueError(
-                                    f"CRITICAL ERROR: GOOGLE_DRIVE_SMPL_ID is set to checkpoint file ID!\n"
-                                    f"  Current ID: {GOOGLE_DRIVE_SMPL_FILE_ID}\n"
-                                    f"  Expected SMPL ID: 1A2qaP3xWZRuBOPaNx0-tovBBhtftxuSv\n"
-                                    f"  Checkpoint ID: 1ISfMrpiiwoSzLoQXsXsX5FUcOxZY5Bzu\n"
-                                    f"  Fix: Set GOOGLE_DRIVE_SMPL_ID to SMPL file ID in RunPod environment variables"
-                                )
-                            elif 200 < final_size_mb < 300:
-                                print(f"[DEBUG download_models] ✅ File size validated - SMPL file confirmed")
-                            else:
-                                print(f"[WARNING download_models] ⚠️  Unexpected file size: {final_size_mb:.1f}MB (expected ~247MB)")
-                        else:
-                            print(f"[DEBUG download_models] ❌ File not found after move!")
-                            raise FileNotFoundError(f"File not found after moving to {smpl_basic_model_v11}")
-                    else:
-                        print(f"[DEBUG download_models] ❌ Download failed - temp file not found!")
-                        raise FileNotFoundError(f"Download failed - file not found at {temp_file}")
-                        
-                except Exception as e:
-                    print(f"[DEBUG download_models] Exception during download: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    # Clean up temp file if it exists
-                    if os.path.exists(temp_file):
-                        try:
-                            os.remove(temp_file)
-                        except Exception:
-                            pass
-                    raise
-                if os.path.exists(smpl_basic_model_v11):
-                    print(f"✅ SMPL model downloaded from Google Drive to {smpl_basic_model_v11}!")
-                    # Verify check_smpl_exists can find it
-                    print(f"[DEBUG] Testing check_smpl_exists() can find the file...")
-                    import os
-                    test_paths = [
-                        f'{CACHE_DIR_4DHUMANS}/data/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl',
-                        f'{CACHE_DIR_4DHUMANS}/data/basicModel_neutral_lbs_10_207_0_v1.1.0.pkl',
-                        smpl_basic_model_v11,
-                    ]
-                    for tp in test_paths:
-                        print(f"[DEBUG]   Checking: {tp} -> exists={os.path.exists(tp)}")
-                    expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
-                    _ensure_config_files_exist(expected_checkpoint)
-                    # Ensure smpl_mean_params.npz and SMPL_to_J19.pkl exist
-                    data_dir = os.path.join(folder, "data")
-                    _ensure_smpl_mean_params_exists(data_dir)
-                    _ensure_smpl_joint_regressor_exists(data_dir)
-                    return
-            except Exception as e:
-                print(f"⚠️  Google Drive SMPL download failed: {e}")
-                print("  Will try hmr2_data.tar.gz as fallback...")
+        if not DROPBOX_SMPL_NEUTRAL_URL:
+            print(f"⚠️  DROPBOX_SMPL_NEUTRAL_URL not set. SMPL files required for pipeline.")
+            print(f"  Set DROPBOX_SMPL_NEUTRAL_URL environment variable in RunPod endpoint settings.")
+            print(f"  See DROPBOX_ENV_VARS_GUIDE.md for instructions.")
+        elif _download_from_dropbox(DROPBOX_SMPL_NEUTRAL_URL, smpl_basic_model_v11,
+                                     expected_size_mb_min=200, expected_size_mb_max=300):
+            print(f"✅ SMPL downloaded from Dropbox!")
+            expected_checkpoint = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+            _ensure_config_files_exist(expected_checkpoint)
+            data_dir = os.path.join(folder, "data")
+            _ensure_smpl_mean_params_exists(data_dir)
+            _ensure_smpl_joint_regressor_exists(data_dir)
+            return
         else:
-            print("  GOOGLE_DRIVE_SMPL_ID not set, will try hmr2_data.tar.gz...")
-        # Continue to tar.gz download below if Google Drive failed
+            print(f"⚠️  Failed to download SMPL from Dropbox. Pipeline may fail without SMPL files.")
+        # Continue to tar.gz download below if Dropbox failed
     elif not checkpoint_exists:
-        # Checkpoint missing, will try Google Drive or tar.gz
+        # Checkpoint missing - will try Dropbox download above
         pass
     
     # Check if checkpoint exists in either location (primary check)
@@ -948,7 +778,7 @@ def check_smpl_exists():
     checkpoint_dir = os.path.join(cache_dir, "logs/train/multiruns/hmr2/0/checkpoints")
     if os.path.exists(checkpoint_dir):
         for temp_dir_name in os.listdir(checkpoint_dir):
-            if "temp_gdrive_folder" in temp_dir_name:
+            if "temp_" in temp_dir_name:  # Check for any temp folders (legacy cleanup)
                 temp_dir = os.path.join(checkpoint_dir, temp_dir_name)
                 if os.path.isdir(temp_dir):
                     # Search for basicmodel_m files in temp folder
@@ -987,7 +817,7 @@ def check_smpl_exists():
     checkpoint_dir = os.path.join(cache_dir, "logs/train/multiruns/hmr2/0/checkpoints")
     if os.path.exists(checkpoint_dir):
         for temp_dir_name in os.listdir(checkpoint_dir):
-            if "temp_gdrive_folder" in temp_dir_name:
+            if "temp_" in temp_dir_name:  # Check for any temp folders (legacy cleanup)
                 temp_dir = os.path.join(checkpoint_dir, temp_dir_name)
                 if os.path.isdir(temp_dir):
                     # Search for basicmodel_f files in temp folder
