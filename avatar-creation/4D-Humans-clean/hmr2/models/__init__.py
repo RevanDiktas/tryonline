@@ -916,12 +916,20 @@ def load_hmr2(checkpoint_path=DEFAULT_CHECKPOINT):
     model_cfg = str(Path(checkpoint_path).parent.parent / 'model_config.yaml')
     model_cfg = get_config(model_cfg, update_cachedir=True)
 
+    # CRITICAL: Ensure JOINT_REP='6d' is set to match checkpoint (144 dims: 24 joints × 6)
+    from yacs.config import CfgNode as CN
+    model_cfg.defrost()
+    if not hasattr(model_cfg.MODEL, 'SMPL_HEAD'):
+        model_cfg.MODEL.SMPL_HEAD = CN(new_allowed=True)
+    if not hasattr(model_cfg.MODEL.SMPL_HEAD, 'JOINT_REP') or model_cfg.MODEL.SMPL_HEAD.JOINT_REP != '6d':
+        print(f"[HMR2] ⚠️  JOINT_REP not set or incorrect in config, fixing to '6d' (required for checkpoint)")
+        model_cfg.MODEL.SMPL_HEAD.JOINT_REP = '6d'
+
     # Override some config values, to crop bbox correctly
     if (model_cfg.MODEL.BACKBONE.TYPE == 'vit') and ('BBOX_SHAPE' not in model_cfg.MODEL):
-        model_cfg.defrost()
         assert model_cfg.MODEL.IMAGE_SIZE == 256, f"MODEL.IMAGE_SIZE ({model_cfg.MODEL.IMAGE_SIZE}) should be 256 for ViT backbone"
         model_cfg.MODEL.BBOX_SHAPE = [192,256]
-        model_cfg.freeze()
+    model_cfg.freeze()
 
     # Ensure SMPL model exists
     check_smpl_exists()
