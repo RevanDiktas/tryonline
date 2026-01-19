@@ -374,6 +374,31 @@ def step3_extract_measurements(
         
         print(f"  ✓ SMPL model verified: {expected_smpl_path.resolve()} exists")
         
+        # Create symlinks for gender-specific models if they don't exist
+        # smplx.create expects SMPL_MALE.pkl, SMPL_FEMALE.pkl, but we only have SMPL_NEUTRAL.pkl
+        smpl_dir = Path("data") / "smpl"
+        neutral_model = smpl_dir / "SMPL_NEUTRAL.pkl"
+        male_model = smpl_dir / "SMPL_MALE.pkl"
+        female_model = smpl_dir / "SMPL_FEMALE.pkl"
+        
+        if neutral_model.exists():
+            neutral_abs = neutral_model.resolve()
+            if not male_model.exists():
+                try:
+                    # Use absolute path for symlink target
+                    os.symlink(str(neutral_abs), str(male_model.resolve()))
+                    print(f"  ✓ Created symlink: {male_model.resolve()} -> {neutral_abs}")
+                except Exception as e:
+                    print(f"  [WARNING] Could not create symlink for MALE model: {e}")
+            
+            if not female_model.exists():
+                try:
+                    # Use absolute path for symlink target
+                    os.symlink(str(neutral_abs), str(female_model.resolve()))
+                    print(f"  ✓ Created symlink: {female_model.resolve()} -> {neutral_abs}")
+                except Exception as e:
+                    print(f"  [WARNING] Could not create symlink for FEMALE model: {e}")
+        
         # Copy required face segmentation file if it doesn't exist
         face_seg_file = Path("data") / "smpl" / "smpl_body_parts_2_faces.json"
         if not face_seg_file.exists():
