@@ -171,14 +171,21 @@ def _ensure_config_files_exist(checkpoint_path):
                 else:
                     # Don't set it - SMPL will work without extra joints (code checks if joint_regressor_extra is None)
                     print(f"  Note: SMPL_to_J19.pkl not found, SMPL will work without extra joints")
+            
+            # Add LOSS_WEIGHTS section with default values (required for HMR2 model initialization)
+            if 'LOSS_WEIGHTS' not in default_cfg or not hasattr(default_cfg.LOSS_WEIGHTS, 'ADVERSARIAL'):
+                if 'LOSS_WEIGHTS' not in default_cfg:
+                    default_cfg.LOSS_WEIGHTS = CN(new_allowed=True)
                 
-                # Only set JOINT_REGRESSOR_EXTRA if file exists, otherwise leave it unset
-                joint_regressor_path = os.path.join(CACHE_DIR_4DHUMANS, "data/SMPL_to_J19.pkl")
-                if os.path.exists(joint_regressor_path):
-                    default_cfg.SMPL.JOINT_REGRESSOR_EXTRA = "data/SMPL_to_J19.pkl"
-                else:
-                    # Don't set it - SMPL will work without extra joints
-                    print(f"  Note: SMPL_to_J19.pkl not found, SMPL will work without extra joints")
+                # Set default loss weights (inference doesn't need adversarial loss, set to 0)
+                default_cfg.LOSS_WEIGHTS.ADVERSARIAL = 0.0  # Disabled for inference
+                default_cfg.LOSS_WEIGHTS.KEYPOINTS_3D = 1.0
+                default_cfg.LOSS_WEIGHTS.KEYPOINTS_2D = 1.0
+                default_cfg.LOSS_WEIGHTS.BODY_POSE = 0.1
+                default_cfg.LOSS_WEIGHTS.BETAS = 0.001
+                default_cfg.LOSS_WEIGHTS.GLOBAL_ORIENT = 0.1
+                default_cfg.LOSS_WEIGHTS.TRANSL = 1.0
+                print(f"  Added default LOSS_WEIGHTS (ADVERSARIAL=0.0 for inference)")
             
             # Add MODEL.BACKBONE section (required for HMR2 model loading)
             if 'MODEL' not in default_cfg:
