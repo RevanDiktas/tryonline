@@ -74,11 +74,12 @@ export default function DashboardPage() {
 
   // Initialize Three.js scene for avatar
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || !passport) return;
 
     let animationId: number;
     let rotation = 0;
     let renderer: ReturnType<typeof import('three').WebGLRenderer.prototype.constructor> | null = null;
+    let currentModel: any = null;
 
     const initThreeJS = async () => {
       const THREE = await import('three');
@@ -110,13 +111,30 @@ export default function DashboardPage() {
       backLight.position.set(-2, 2, -3);
       scene.add(backLight);
 
-      // Load GLB avatar model (nude body for measurements display)
+      // Load GLB avatar model from user's fit passport
       const loader = new GLTFLoader();
       
+      // Use avatar URL from passport, fallback to default model
+      const avatarUrl = passport?.avatarUrl || '/models/avatar_with_tshirt_m.glb';
+      
+      console.log('[Dashboard] Loading avatar from:', avatarUrl);
+      console.log('[Dashboard] Passport data:', { 
+        hasAvatarUrl: !!passport?.avatarUrl, 
+        avatarUrl: passport?.avatarUrl,
+        status: passport?.status 
+      });
+      
+      // Remove previous model if exists
+      if (currentModel) {
+        scene.remove(currentModel);
+        currentModel = null;
+      }
+      
       loader.load(
-        '/models/avatar_with_tshirt_m.glb',
+        avatarUrl,
         (gltf) => {
           const model = gltf.scene;
+          currentModel = model;
           
           // Center and scale the model
           const box = new THREE.Box3().setFromObject(model);
@@ -134,6 +152,7 @@ export default function DashboardPage() {
           model.position.z = -center.z * scale;
 
           scene.add(model);
+          console.log('[Dashboard] ✓ Avatar model loaded successfully');
 
           // Animation loop with rotation
           const animate = () => {
@@ -144,9 +163,42 @@ export default function DashboardPage() {
           };
           animate();
         },
-        undefined,
+        (progress) => {
+          // Loading progress
+          if (progress.lengthComputable) {
+            const percent = (progress.loaded / progress.total) * 100;
+            console.log(`[Dashboard] Loading avatar: ${percent.toFixed(1)}%`);
+          }
+        },
         (error) => {
-          console.error('Error loading avatar model:', error);
+          console.error('[Dashboard] ✗ Error loading avatar model:', error);
+          console.error('[Dashboard] Failed URL:', avatarUrl);
+          // Try fallback if custom URL failed
+          if (avatarUrl !== '/models/avatar_with_tshirt_m.glb') {
+            console.log('[Dashboard] Attempting fallback model...');
+            loader.load(
+              '/models/avatar_with_tshirt_m.glb',
+              (gltf) => {
+                const model = gltf.scene;
+                currentModel = model;
+                const box = new THREE.Box3().setFromObject(model);
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const scale = 1.8 / maxDim;
+                model.scale.setScalar(scale);
+                model.position.x = -center.x * scale;
+                model.position.y = -center.y * scale + 0.9;
+                model.position.z = -center.z * scale;
+                scene.add(model);
+                console.log('[Dashboard] ✓ Fallback model loaded');
+              },
+              undefined,
+              (fallbackError) => {
+                console.error('[Dashboard] ✗ Fallback model also failed:', fallbackError);
+              }
+            );
+          }
           // Fallback to a simple capsule
           const geometry = new THREE.CapsuleGeometry(0.25, 1.0, 8, 16);
           const material = new THREE.MeshStandardMaterial({ color: 0xc4a484 });

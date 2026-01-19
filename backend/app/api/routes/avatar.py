@@ -164,11 +164,26 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 
                 # Upload all files
                 file_urls = {}
+                upload_errors = []
+                
                 if files_bytes:
+                    print(f"[Avatar] Uploading {len(files_bytes)} files to Supabase...")
                     file_urls = await supabase_service.upload_pipeline_files(
                         user_id=request.user_id,
                         files_bytes=files_bytes
                     )
+                    
+                    # Verify uploads
+                    print(f"[Avatar] Upload verification:")
+                    print(f"  Files to upload: {len(files_bytes)}")
+                    print(f"  Files uploaded: {len(file_urls)}")
+                    
+                    for file_key in files_bytes.keys():
+                        if file_key in file_urls:
+                            print(f"    ✓ {file_key}: {file_urls[file_key][:80]}...")
+                        else:
+                            print(f"    ✗ {file_key}: Upload failed")
+                            upload_errors.append(file_key)
                 else:
                     # Fallback: try old format (single GLB)
                     glb_bytes = output.get("avatar_glb_bytes")
@@ -179,18 +194,37 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                             filename="avatar_textured.glb"
                         )
                         file_urls["avatar_glb"] = avatar_url
+                        print(f"[Avatar] Uploaded single GLB: {avatar_url[:80]}...")
                 
                 # Get main avatar URL (prioritize GLB)
                 avatar_url = file_urls.get("avatar_glb") or file_urls.get("apose_mesh") or "/models/avatar_with_tshirt_m.glb"
                 
+                if not avatar_url or avatar_url == "/models/avatar_with_tshirt_m.glb":
+                    print(f"[Avatar] ⚠ WARNING: No valid avatar URL, using fallback")
+                
                 # Update database with all file URLs stored in JSONB
-                # First update basic fields
-                await supabase_service.update_fit_passport_with_results(
+                print(f"[Avatar] Updating database with results...")
+                db_update_success = await supabase_service.update_fit_passport_with_results(
                     user_id=request.user_id,
                     avatar_url=avatar_url,
                     measurements=measurements,
                     pipeline_files=file_urls  # Store all URLs in JSONB field
                 )
+                
+                # Verify database update
+                if db_update_success:
+                    print(f"[Avatar] ✓ Database updated successfully")
+                    # Verify by reading back
+                    fit_passport = await supabase_service.get_fit_passport(request.user_id)
+                    if fit_passport:
+                        print(f"[Avatar] ✓ Verification: Avatar URL in DB: {fit_passport.get('avatar_url', 'NOT SET')[:80]}...")
+                        print(f"[Avatar] ✓ Verification: Status: {fit_passport.get('status')}")
+                        print(f"[Avatar] ✓ Verification: Measurements count: {len([k for k in ['chest', 'waist', 'hips', 'inseam'] if fit_passport.get(k)])}")
+                    else:
+                        print(f"[Avatar] ✗ Verification failed: Could not read back fit_passport")
+                else:
+                    print(f"[Avatar] ✗ Database update failed")
+                    raise Exception("Failed to update database")
                 
                 jobs[job_id]["status"] = ProcessingStatus.completed
                 jobs[job_id]["progress"] = 100

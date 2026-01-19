@@ -267,6 +267,91 @@ def handler(event: dict) -> dict:
         print(f"[RunPod] Total size: {sum(file_sizes.values()) / 1024 / 1024:.2f} MB")
         print(f"[RunPod] Measurements: {len(standardized_measurements)} values")
         
+        # ============================================
+        # VERIFICATION CHECKS
+        # ============================================
+        print(f"\n{'='*60}")
+        print("[VERIFICATION] Post-Pipeline Checks")
+        print(f"{'='*60}")
+        
+        verification_results = {}
+        
+        # 1. Verify models are downloaded and cached
+        try:
+            from hmr2.configs import CACHE_DIR_4DHUMANS
+            cache_dir = Path(CACHE_DIR_4DHUMANS)
+            checkpoint_path = cache_dir / "logs" / "train" / "multiruns" / "hmr2" / "0" / "checkpoints" / "epoch=35-step=1000000.ckpt"
+            smpl_path = cache_dir / "data" / "smpl" / "SMPL_NEUTRAL.pkl"
+            
+            checkpoint_exists = checkpoint_path.exists()
+            smpl_exists = smpl_path.exists()
+            
+            verification_results["models_cached"] = {
+                "checkpoint": checkpoint_exists,
+                "checkpoint_size_gb": checkpoint_path.stat().st_size / (1024**3) if checkpoint_exists else 0,
+                "smpl_model": smpl_exists,
+                "cache_dir": str(cache_dir)
+            }
+            
+            if checkpoint_exists and smpl_exists:
+                print(f"  ✓ Models cached successfully")
+                print(f"    Checkpoint: {verification_results['models_cached']['checkpoint_size_gb']:.2f} GB")
+                print(f"    SMPL model: ✓")
+            else:
+                print(f"  ⚠ Models not fully cached:")
+                print(f"    Checkpoint: {'✓' if checkpoint_exists else '✗'}")
+                print(f"    SMPL model: {'✓' if smpl_exists else '✗'}")
+        except Exception as e:
+            verification_results["models_cached"] = {"error": str(e)}
+            print(f"  ✗ Model verification failed: {e}")
+        
+        # 2. Verify all expected files are generated
+        expected_files = ["avatar_glb", "measurements"]
+        optional_files = ["skin_texture", "original_mesh", "smpl_params", "tpose_mesh", "apose_mesh", "face_crop"]
+        
+        files_generated = {
+            "required": {f: f in files_base64 for f in expected_files},
+            "optional": {f: f in files_base64 for f in optional_files}
+        }
+        
+        verification_results["files_generated"] = files_generated
+        
+        all_required = all(files_generated["required"].values())
+        if all_required:
+            print(f"  ✓ All required files generated")
+        else:
+            missing = [f for f, exists in files_generated["required"].items() if not exists]
+            print(f"  ✗ Missing required files: {missing}")
+        
+        optional_count = sum(files_generated["optional"].values())
+        print(f"  Optional files: {optional_count}/{len(optional_files)}")
+        
+        # 3. Verify measurements are valid
+        measurements_valid = len(standardized_measurements) > 0 and "height" in standardized_measurements
+        verification_results["measurements_valid"] = measurements_valid
+        
+        if measurements_valid:
+            print(f"  ✓ Measurements extracted: {len(standardized_measurements)} values")
+            print(f"    Height: {standardized_measurements.get('height', 'N/A')} cm")
+            print(f"    Chest: {standardized_measurements.get('chest', 'N/A')} cm")
+            print(f"    Waist: {standardized_measurements.get('waist', 'N/A')} cm")
+        else:
+            print(f"  ✗ Measurements invalid or missing")
+        
+        # 4. Verify file sizes are reasonable
+        glb_size_mb = file_sizes.get("avatar_glb", 0) / (1024 * 1024)
+        verification_results["file_sizes"] = {
+            "avatar_glb_mb": round(glb_size_mb, 2),
+            "total_mb": round(sum(file_sizes.values()) / (1024 * 1024), 2)
+        }
+        
+        if 0.1 < glb_size_mb < 50:  # Reasonable GLB size (100KB - 50MB)
+            print(f"  ✓ GLB file size reasonable: {glb_size_mb:.2f} MB")
+        else:
+            print(f"  ⚠ GLB file size unusual: {glb_size_mb:.2f} MB")
+        
+        print(f"{'='*60}\n")
+        
         processing_time = time.time() - start_time
         print(f"[RunPod] Complete in {processing_time:.1f}s")
         
@@ -276,6 +361,7 @@ def handler(event: dict) -> dict:
             "measurements": standardized_measurements,
             "processing_time_seconds": round(processing_time, 1),
             "user_id": user_id,
+            "verification": verification_results,  # Add verification results
         }
 
 
