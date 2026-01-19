@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { login, hasFitPassport, getCurrentUser } from '@/lib/supabase-auth';
+import { login, hasAvatarFiles, getCurrentUser } from '@/lib/supabase-auth';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -49,11 +49,13 @@ export default function LoginPage() {
       }
 
       if (user) {
-        // Check if user has completed onboarding
-        const hasPassport = await hasFitPassport(user.id);
-        if (hasPassport) {
+        // Check if user has completed avatar creation with output files
+        const hasAvatar = await hasAvatarFiles(user.id);
+        if (hasAvatar) {
+          // User has avatar files, go directly to dashboard
           router.push('/dashboard');
         } else {
+          // No avatar files yet, go to onboarding
           router.push('/onboarding');
         }
       } else {

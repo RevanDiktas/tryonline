@@ -52,7 +52,7 @@ const countryCodes = [
 export default function SignupPage() {
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const [step, setStep] = useState<'user_type' | 'details' | 'email_sent'>('user_type');
+  const [step, setStep] = useState<'user_type' | 'details'>('user_type');
   const [userType, setUserType] = useState<'shopper' | 'brand' | null>(null);
   const [phoneCode, setPhoneCode] = useState('+31'); // Default to Netherlands
   const [showCodeDropdown, setShowCodeDropdown] = useState(false);
@@ -81,7 +81,6 @@ export default function SignupPage() {
   ];
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-  const [signupEmail, setSignupEmail] = useState(''); // Store email for verification message
 
   const selectedCountry = countryCodes.find(c => c.code === phoneCode) || countryCodes[0];
 
@@ -170,9 +169,8 @@ export default function SignupPage() {
       }
 
       if (user) {
-        // Show email verification message
-        setSignupEmail(formData.email);
-        setStep('email_sent');
+        // Redirect to login immediately (email verification disabled)
+        router.push('/login');
       }
     } catch (err) {
       setErrors({ form: 'Something went wrong. Please try again.' });
@@ -181,66 +179,6 @@ export default function SignupPage() {
     }
   };
 
-  // Email Verification Screen
-  if (step === 'email_sent') {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          {/* Logo */}
-          <div className="text-center mb-8">
-            <Link href="/">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img 
-                src="/tryon-logo.jpg" 
-                alt="TRYON" 
-                className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition"
-              />
-            </Link>
-          </div>
-
-          {/* Card */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm text-center">
-            {/* Email Icon */}
-            <div className="w-20 h-20 mx-auto mb-6 bg-green-50 rounded-full flex items-center justify-center">
-              <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-            </div>
-
-            <h2 className="text-2xl font-bold text-black mb-2">Check your email</h2>
-            <p className="text-gray-500 mb-6">
-              We&apos;ve sent a verification link to
-            </p>
-            <p className="text-black font-medium mb-6 bg-gray-50 py-3 px-4 rounded-xl">
-              {signupEmail}
-            </p>
-            <p className="text-gray-400 text-sm mb-8">
-              Click the link in your email to verify your account and get started.
-            </p>
-
-            <div className="space-y-4">
-              <Link
-                href="/login"
-                className="block w-full py-3 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition text-center"
-              >
-                Go to Sign In
-              </Link>
-              
-              <p className="text-gray-400 text-sm">
-                Didn&apos;t receive the email? Check your spam folder or{' '}
-                <button
-                  onClick={() => setStep('details')}
-                  className="text-black font-medium hover:underline"
-                >
-                  try again
-                </button>
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // User Type Selection Screen
   if (step === 'user_type') {
