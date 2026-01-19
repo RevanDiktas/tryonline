@@ -59,7 +59,29 @@ def _download_from_gdrive_folder(file_name, output_path, folder_id=None, file_id
             try:
                 os.makedirs(temp_folder, exist_ok=True)
                 # gdown.download_folder can download a folder if shared properly
-                gdown.download_folder(f"https://drive.google.com/drive/folders/{folder_id}", output=temp_folder, quiet=False, use_cookies=False)
+                try:
+                    gdown.download_folder(f"https://drive.google.com/drive/folders/{folder_id}", output=temp_folder, quiet=False, use_cookies=False)
+                except Exception as gdown_error:
+                    error_str = str(gdown_error)
+                    if "Too many users" in error_str or "FileURLRetrievalError" in error_str:
+                        print(f"⚠️  Google Drive quota exceeded. This is a temporary limitation.")
+                        print(f"   The files may be accessible again in a few hours.")
+                        print(f"   If you have a RunPod Network Volume mounted, it should contain cached models from previous runs.")
+                        print(f"   Checking for cached files in volume...")
+                        # Check if files already exist in expected locations (volume might have them)
+                        from ..configs import CACHE_DIR_4DHUMANS
+                        cache_dir = CACHE_DIR_4DHUMANS
+                        checkpoint_path = os.path.join(cache_dir, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
+                        if os.path.exists(checkpoint_path):
+                            print(f"   ✓ Found checkpoint in volume cache: {checkpoint_path}")
+                            print(f"   Continuing with cached models...")
+                            return True  # Files exist, we're good
+                        else:
+                            print(f"   ✗ No cached checkpoint found in volume.")
+                            print(f"   Please wait a few hours for Google Drive quota to reset, or ensure volume is properly mounted.")
+                            raise  # Re-raise the error
+                    else:
+                        raise  # Re-raise other errors
                 
                 # First, find and move the target file
                 from ..configs import CACHE_DIR_4DHUMANS
@@ -722,6 +744,18 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     
     checkpoint_dest = os.path.join(folder, "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt")
     
+    # IMPORTANT: Check if checkpoint already exists before attempting download
+    # This handles cases where volume has cached models from previous runs
+    if os.path.exists(checkpoint_dest):
+        file_size_gb = os.path.getsize(checkpoint_dest) / (1024**3)
+        if file_size_gb > 2.0:  # Checkpoint should be ~2.5GB
+            print(f"✅ Checkpoint found in cache (volume working!): {checkpoint_dest} ({file_size_gb:.2f} GB)")
+            _ensure_config_files_exist(checkpoint_dest)
+            data_dir = os.path.join(_CACHE_DIR, "data")
+            _ensure_smpl_mean_params_exists(data_dir)
+            _ensure_smpl_joint_regressor_exists(data_dir)
+            return  # Skip download, use cached files
+    
     # Try Google Drive if checkpoint doesn't exist - try folder first, then individual file ID
     if not os.path.exists(checkpoint_dest) and (GOOGLE_DRIVE_FOLDER_ID or GOOGLE_DRIVE_CHECKPOINT_FILE_ID):
         # Try downloading from folder first
@@ -886,7 +920,25 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 else:
                     print(f"⚠️  Download completed but file not found at {checkpoint_dest}")
             except Exception as e:
-                print(f"⚠️  Google Drive download failed: {e}")
+                error_str = str(e)
+                if "Too many users" in error_str or "FileURLRetrievalError" in error_str:
+                    print(f"⚠️  Google Drive quota exceeded: {e}")
+                    print("   This is a temporary limitation. Checking for cached files in volume...")
+                    # Check if checkpoint exists in cache (volume might have it)
+                    if os.path.exists(checkpoint_dest):
+                        file_size_gb = os.path.getsize(checkpoint_dest) / (1024**3)
+                        if file_size_gb > 2.0:
+                            print(f"   ✓ Found checkpoint in volume cache! ({file_size_gb:.2f} GB)")
+                            print(f"   Continuing with cached models...")
+                            _ensure_config_files_exist(checkpoint_dest)
+                            data_dir = os.path.join(_CACHE_DIR, "data")
+                            _ensure_smpl_mean_params_exists(data_dir)
+                            _ensure_smpl_joint_regressor_exists(data_dir)
+                            return
+                    print("   ✗ No cached checkpoint found. Please wait for Google Drive quota to reset.")
+                    print("   Or ensure RunPod Network Volume is properly mounted with cached models.")
+                else:
+                    print(f"⚠️  Google Drive download failed: {e}")
                 print("Falling back to check other locations...")
     
     download_files = {
