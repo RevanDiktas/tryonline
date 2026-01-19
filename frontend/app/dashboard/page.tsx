@@ -227,7 +227,7 @@ export default function DashboardPage() {
         renderer.dispose();
       }
     };
-  }, []);
+  }, [passport]); // Reload when passport changes (including avatarUrl)
 
   const handleLogout = async () => {
     await logout();

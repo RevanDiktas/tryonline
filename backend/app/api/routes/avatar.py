@@ -211,7 +211,7 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                     pipeline_files=file_urls  # Store all URLs in JSONB field
                 )
                 
-                # Verify database update
+                # Verify database update and user linkage
                 if db_update_success:
                     print(f"[Avatar] ✓ Database updated successfully")
                     # Verify by reading back
@@ -220,6 +220,28 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                         print(f"[Avatar] ✓ Verification: Avatar URL in DB: {fit_passport.get('avatar_url', 'NOT SET')[:80]}...")
                         print(f"[Avatar] ✓ Verification: Status: {fit_passport.get('status')}")
                         print(f"[Avatar] ✓ Verification: Measurements count: {len([k for k in ['chest', 'waist', 'hips', 'inseam'] if fit_passport.get(k)])}")
+                        
+                        # Verify user linkage: Check that avatar_url contains user_id
+                        db_avatar_url = fit_passport.get('avatar_url', '')
+                        if request.user_id in db_avatar_url:
+                            print(f"[Avatar] ✓ USER LINKAGE VERIFIED: Avatar URL contains user_id '{request.user_id}'")
+                            print(f"[Avatar]   Storage path structure: avatars/{request.user_id}/avatar_textured.glb")
+                        else:
+                            print(f"[Avatar] ⚠ WARNING: Avatar URL does not contain user_id")
+                            print(f"[Avatar]   User ID: {request.user_id}")
+                            print(f"[Avatar]   Avatar URL: {db_avatar_url[:100]}...")
+                        
+                        # Verify pipeline_files linkage
+                        pipeline_files = fit_passport.get('pipeline_files', {})
+                        if pipeline_files:
+                            print(f"[Avatar] ✓ Pipeline files stored: {len(pipeline_files)} files")
+                            # Check that all file URLs contain user_id
+                            files_with_user_id = sum(1 for url in pipeline_files.values() if request.user_id in str(url))
+                            print(f"[Avatar]   Files linked to user: {files_with_user_id}/{len(pipeline_files)}")
+                            if files_with_user_id == len(pipeline_files):
+                                print(f"[Avatar] ✓ All pipeline files correctly linked to user_id")
+                            else:
+                                print(f"[Avatar] ⚠ Some files may not be linked correctly")
                     else:
                         print(f"[Avatar] ✗ Verification failed: Could not read back fit_passport")
                 else:

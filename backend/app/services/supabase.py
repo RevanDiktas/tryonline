@@ -143,8 +143,16 @@ class SupabaseService:
             return ""
     
     async def upload_avatar(self, user_id: str, file_data: bytes, filename: str) -> str:
-        """Upload avatar GLB to storage"""
+        """
+        Upload avatar file to storage.
+        
+        Files are organized by user_id in folders:
+        - Storage path: avatars/{user_id}/{filename}
+        - This ensures each user's files are isolated in their own folder
+        - Example: avatars/694af2e0-4b22-4cdf-801f-24dc8a731d8f/avatar_textured.glb
+        """
         file_path = f"{user_id}/{filename}"
+        print(f"[Supabase] Uploading to: avatars/{file_path} (user_id: {user_id})")
         
         # Determine content type based on extension
         content_type = "application/octet-stream"
