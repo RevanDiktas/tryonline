@@ -55,6 +55,14 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "4D-Humans-clean"))
 sys.path.insert(0, str(PROJECT_ROOT.parent / "avatar-creation-measurements"))
 
+# Import cache directory constant
+try:
+    from hmr2.configs import CACHE_DIR_4DHUMANS
+except ImportError:
+    # Fallback if import fails
+    import os
+    CACHE_DIR_4DHUMANS = os.path.join(os.path.expanduser("~"), ".cache", "4DHumans")
+
 
 def log_step(step_num: int, title: str, status: str = "start"):
     """Print formatted step header."""
@@ -328,31 +336,57 @@ def step3_extract_measurements(
     betas = betas.flatten()[:10]
     betas_tensor = torch.from_numpy(betas).float().unsqueeze(0)
     
-    print("  Creating SMPL measurer...")
-    measurer = MeasureBody("smpl")
+    # MeasureSMPL expects "data/smpl" relative to current working directory
+    # Create a symlink or change working directory to point to cache
+    import os
+    original_cwd = os.getcwd()
+    cache_data_dir = Path(CACHE_DIR_4DHUMANS) / "data"
     
-    # Set body model with betas
-    gender_upper = gender.upper() if gender.lower() in ['male', 'female'] else 'NEUTRAL'
-    measurer.from_body_model(gender=gender_upper, shape=betas_tensor)
-    
-    # Get all possible measurements
-    measurement_names = measurer.all_possible_measurements
-    print(f"  Measuring {len(measurement_names)} body dimensions...")
-    
-    measurer.measure(measurement_names)
-    
-    # Normalize to actual height
-    measurer.height_normalize_measurements(height_cm)
-    
-    # Get normalized measurements
-    measurements = measurer.height_normalized_measurements
-    
-    print(f"\n  Measurements (height-normalized to {height_cm}cm):")
-    for name, value in sorted(measurements.items()):
-        print(f"    {name}: {value:.1f} cm")
-    
-    log_step(3, "Measurement Extraction", "done")
-    return measurements
+    try:
+        # Create a temporary "data" symlink in current directory if it doesn't exist
+        temp_data_link = Path(original_cwd) / "data"
+        if not temp_data_link.exists():
+            print(f"  Creating symlink: {temp_data_link} -> {cache_data_dir}")
+            temp_data_link.symlink_to(cache_data_dir, target_is_directory=True)
+            created_symlink = True
+        else:
+            created_symlink = False
+        
+        print("  Creating SMPL measurer...")
+        measurer = MeasureBody("smpl")
+        
+        # Set body model with betas
+        gender_upper = gender.upper() if gender.lower() in ['male', 'female'] else 'NEUTRAL'
+        measurer.from_body_model(gender=gender_upper, shape=betas_tensor)
+        
+        # Get all possible measurements
+        measurement_names = measurer.all_possible_measurements
+        print(f"  Measuring {len(measurement_names)} body dimensions...")
+        
+        measurer.measure(measurement_names)
+        
+        # Normalize to actual height
+        measurer.height_normalize_measurements(height_cm)
+        
+        # Get normalized measurements
+        measurements = measurer.height_normalized_measurements
+        
+        print(f"\n  Measurements (height-normalized to {height_cm}cm):")
+        for name, value in sorted(measurements.items()):
+            print(f"    {name}: {value:.1f} cm")
+        
+        log_step(3, "Measurement Extraction", "done")
+        return measurements
+        
+    finally:
+        # Clean up symlink if we created it
+        if 'created_symlink' in locals() and created_symlink:
+            try:
+                if temp_data_link.exists() and temp_data_link.is_symlink():
+                    temp_data_link.unlink()
+                    print(f"  Cleaned up temporary symlink")
+            except Exception as e:
+                print(f"  [WARNING] Could not clean up symlink: {e}")
 
 
 def step4_create_apose(
@@ -720,7 +754,9 @@ def run_pipeline(
     output_dir.mkdir(parents=True, exist_ok=True)
     
     four_d_humans_dir = PROJECT_ROOT / "4D-Humans-clean"
-    smpl_model_path = four_d_humans_dir / "data"
+    # Use the cache directory where models are actually stored
+    # smplx.create expects a directory containing a 'smpl' subfolder
+    smpl_model_path = Path(CACHE_DIR_4DHUMANS) / "data"
     measurements_dir = PROJECT_ROOT.parent / "avatar-creation-measurements"
     
     # Verify paths exist
