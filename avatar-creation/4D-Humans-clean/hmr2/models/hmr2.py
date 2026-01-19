@@ -48,8 +48,10 @@ class HMR2(pl.LightningModule):
         # Create SMPL head
         self.smpl_head = build_smpl_head(cfg)
 
-        # Create discriminator
-        if self.cfg.LOSS_WEIGHTS.ADVERSARIAL > 0:
+        # Create discriminator (only if adversarial loss is enabled)
+        # Handle case where ADVERSARIAL might not be set (default to 0)
+        adversarial_weight = getattr(self.cfg.LOSS_WEIGHTS, 'ADVERSARIAL', 0.0)
+        if adversarial_weight > 0:
             self.discriminator = Discriminator()
 
         # Define loss functions
@@ -292,7 +294,8 @@ class HMR2(pl.LightningModule):
         disc_real_out = self.discriminator(gt_rotmat, gt_betas)
         loss_real = ((disc_real_out - 1.0) ** 2).sum() / batch_size
         loss_disc = loss_fake + loss_real
-        loss = self.cfg.LOSS_WEIGHTS.ADVERSARIAL * loss_disc
+        adversarial_weight = getattr(self.cfg.LOSS_WEIGHTS, 'ADVERSARIAL', 0.0)
+        loss = adversarial_weight * loss_disc
         optimizer.zero_grad()
         self.manual_backward(loss)
         optimizer.step()
@@ -311,7 +314,8 @@ class HMR2(pl.LightningModule):
         batch = joint_batch['img']
         mocap_batch = joint_batch['mocap']
         optimizer = self.optimizers(use_pl_optimizer=True)
-        if self.cfg.LOSS_WEIGHTS.ADVERSARIAL > 0:
+        adversarial_weight = getattr(self.cfg.LOSS_WEIGHTS, 'ADVERSARIAL', 0.0)
+        if adversarial_weight > 0:
             optimizer, optimizer_disc = optimizer
 
         batch_size = batch['img'].shape[0]
@@ -320,10 +324,11 @@ class HMR2(pl.LightningModule):
         if self.cfg.get('UPDATE_GT_SPIN', False):
             self.update_batch_gt_spin(batch, output)
         loss = self.compute_loss(batch, output, train=True)
-        if self.cfg.LOSS_WEIGHTS.ADVERSARIAL > 0:
+        adversarial_weight = getattr(self.cfg.LOSS_WEIGHTS, 'ADVERSARIAL', 0.0)
+        if adversarial_weight > 0:
             disc_out = self.discriminator(pred_smpl_params['body_pose'].reshape(batch_size, -1), pred_smpl_params['betas'].reshape(batch_size, -1))
             loss_adv = ((disc_out - 1.0) ** 2).sum() / batch_size
-            loss = loss + self.cfg.LOSS_WEIGHTS.ADVERSARIAL * loss_adv
+            loss = loss + adversarial_weight * loss_adv
 
         # Error if Nan
         if torch.isnan(loss):
@@ -336,7 +341,8 @@ class HMR2(pl.LightningModule):
             gn = torch.nn.utils.clip_grad_norm_(self.get_parameters(), self.cfg.TRAIN.GRAD_CLIP_VAL, error_if_nonfinite=True)
             self.log('train/grad_norm', gn, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         optimizer.step()
-        if self.cfg.LOSS_WEIGHTS.ADVERSARIAL > 0:
+        adversarial_weight = getattr(self.cfg.LOSS_WEIGHTS, 'ADVERSARIAL', 0.0)
+        if adversarial_weight > 0:
             loss_disc = self.training_step_discriminator(mocap_batch, pred_smpl_params['body_pose'].reshape(batch_size, -1), pred_smpl_params['betas'].reshape(batch_size, -1), optimizer_disc)
             output['losses']['loss_gen'] = loss_adv
             output['losses']['loss_disc'] = loss_disc
