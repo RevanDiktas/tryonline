@@ -16,6 +16,9 @@ from app.models.avatar import (
 )
 from app.services.supabase import supabase_service
 from app.services.runpod import runpod_service
+from app.config import get_settings
+
+settings = get_settings()
 
 router = APIRouter()
 
@@ -87,6 +90,12 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
     4. Update database with results
     """
     try:
+        print(f"[Avatar] 🚀 Starting avatar job: {job_id}")
+        print(f"[Avatar]   User ID: {request.user_id}")
+        print(f"[Avatar]   Height: {request.height} cm")
+        print(f"[Avatar]   Gender: {request.gender.value}")
+        print(f"[Avatar]   Photo URL: {request.photo_url[:100]}...")
+        
         jobs[job_id]["status"] = ProcessingStatus.processing
         jobs[job_id]["progress"] = 10
         jobs[job_id]["message"] = "Preparing photo for GPU..."
@@ -109,14 +118,28 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 signed_url = supabase_service.get_photo_signed_url(photo_path, expires_in=3600)
                 if signed_url:
                     photo_url = signed_url
-                    print(f"[Avatar] Using signed URL for photo (path: {photo_path})")
+                    print(f"[Avatar] ✓ Using signed URL for photo (path: {photo_path})")
                 else:
-                    print(f"[Avatar] Warning: Failed to create signed URL, using original: {photo_url}")
+                    print(f"[Avatar] ⚠️  Warning: Failed to create signed URL, using original: {photo_url}")
             except Exception as e:
-                print(f"[Avatar] Error creating signed URL: {e}, using original URL")
+                print(f"[Avatar] ⚠️  Error creating signed URL: {e}, using original URL")
                 # Continue with original URL - might work if bucket is public
         
-        jobs[job_id]["message"] = "Uploading to GPU..."
+        jobs[job_id]["message"] = "Submitting job to RunPod..."
+        print(f"[Avatar] 📤 Submitting job to RunPod...")
+        
+        # Check if using mock service
+        from app.services.runpod import MockRunPodService
+        service_class_name = type(runpod_service).__name__
+        print(f"[Avatar] RunPod service type: {service_class_name}")
+        
+        if service_class_name == "MockRunPodService":
+            print(f"[Avatar] ⚠️  WARNING: Using MOCK RunPod service - jobs will NOT be submitted to RunPod!")
+            print(f"[Avatar] ⚠️  Set RUNPOD_API_KEY and RUNPOD_ENDPOINT_ID environment variables in .env file")
+            print(f"[Avatar] ⚠️  Current values: API_KEY={'SET' if hasattr(settings, 'runpod_api_key') and settings.runpod_api_key else 'NOT SET'}")
+            print(f"[Avatar] ⚠️  Current values: ENDPOINT_ID={'SET' if hasattr(settings, 'runpod_endpoint_id') and settings.runpod_endpoint_id else 'NOT SET'}")
+        else:
+            print(f"[Avatar] ✓ Using real RunPod service")
         
         # Submit to RunPod
         runpod_job_id = await runpod_service.submit_avatar_job(
@@ -127,8 +150,14 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
             user_id=request.user_id
         )
         
+        print(f"[Avatar] RunPod submission response: {runpod_job_id}")
+        
         if not runpod_job_id:
-            raise Exception("Failed to submit job to GPU")
+            error_msg = "Failed to submit job to RunPod - check RunPod API key and endpoint ID configuration"
+            print(f"[Avatar] ❌ {error_msg}")
+            raise Exception(error_msg)
+        
+        print(f"[Avatar] ✅ Job submitted to RunPod: {runpod_job_id}")
         
         jobs[job_id]["runpod_job_id"] = runpod_job_id
         jobs[job_id]["progress"] = 20
