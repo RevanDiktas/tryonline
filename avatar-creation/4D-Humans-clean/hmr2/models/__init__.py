@@ -1099,12 +1099,48 @@ def check_smpl_exists():
         if not any(candidates_exist):
             raise FileNotFoundError(f"SMPL model not found. Please download it from https://smplify.is.tue.mpg.de/ and place it at data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl")
 
-    # Code expects SMPL model at CACHE_DIR_4DHUMANS/data/smpl/SMPL_NEUTRAL.pkl. Convert if needed
-    if not candidates_exist[0]:
+    # Code expects SMPL models at CACHE_DIR_4DHUMANS/data/smpl/SMPL_NEUTRAL.pkl, SMPL_MALE.pkl, SMPL_FEMALE.pkl
+    # Convert basicmodel files if needed
+    smpl_dir = os.path.join(cache_dir, "data", "smpl")
+    os.makedirs(smpl_dir, exist_ok=True)
+    
+    # Convert NEUTRAL model
+    neutral_target = os.path.join(smpl_dir, "SMPL_NEUTRAL.pkl")
+    if not os.path.exists(neutral_target):
         # Find which basicModel file exists (skip first candidate which is SMPL_NEUTRAL)
         for i in range(1, len(candidates)):
-            if candidates_exist[i]:
-                convert_pkl(candidates[i], candidates[0])
+            if candidates_exist[i] and "neutral" in candidates[i].lower():
+                convert_pkl(candidates[i], neutral_target)
+                break
+    
+    # Convert MALE model
+    male_target = os.path.join(smpl_dir, "SMPL_MALE.pkl")
+    male_sources = [
+        os.path.join(cache_dir, "data", "basicmodel_m_lbs_10_207_0_v1.1.0.pkl"),
+        os.path.join(cache_dir, "data", "basicModel_m_lbs_10_207_0_v1.1.0.pkl"),
+        os.path.join(cache_dir, "data", "basicmodel_m_lbs_10_207_0_v1.0.0.pkl"),
+        os.path.join(cache_dir, "data", "basicModel_m_lbs_10_207_0_v1.0.0.pkl"),
+    ]
+    if not os.path.exists(male_target):
+        for source in male_sources:
+            if os.path.exists(source):
+                convert_pkl(source, male_target)
+                print(f"[DEBUG check_smpl_exists] ✅ Converted MALE model: {male_target}")
+                break
+    
+    # Convert FEMALE model
+    female_target = os.path.join(smpl_dir, "SMPL_FEMALE.pkl")
+    female_sources = [
+        os.path.join(cache_dir, "data", "basicmodel_f_lbs_10_207_0_v1.1.0.pkl"),
+        os.path.join(cache_dir, "data", "basicModel_f_lbs_10_207_0_v1.1.0.pkl"),
+        os.path.join(cache_dir, "data", "basicmodel_f_lbs_10_207_0_v1.0.0.pkl"),
+        os.path.join(cache_dir, "data", "basicModel_f_lbs_10_207_0_v1.0.0.pkl"),
+    ]
+    if not os.path.exists(female_target):
+        for source in female_sources:
+            if os.path.exists(source):
+                convert_pkl(source, female_target)
+                print(f"[DEBUG check_smpl_exists] ✅ Converted FEMALE model: {female_target}")
                 break
 
     return True

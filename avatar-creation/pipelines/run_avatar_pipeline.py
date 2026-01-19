@@ -374,30 +374,42 @@ def step3_extract_measurements(
         
         print(f"  ✓ SMPL model verified: {expected_smpl_path.resolve()} exists")
         
-        # Create symlinks for gender-specific models if they don't exist
-        # smplx.create expects SMPL_MALE.pkl, SMPL_FEMALE.pkl, but we only have SMPL_NEUTRAL.pkl
+        # Verify gender-specific models exist (they should be downloaded and converted by check_smpl_exists)
+        # If not available, create symlinks as fallback
         smpl_dir = Path("data") / "smpl"
         neutral_model = smpl_dir / "SMPL_NEUTRAL.pkl"
         male_model = smpl_dir / "SMPL_MALE.pkl"
         female_model = smpl_dir / "SMPL_FEMALE.pkl"
         
         if neutral_model.exists():
-            neutral_abs = neutral_model.resolve()
-            if not male_model.exists():
-                try:
-                    # Use absolute path for symlink target
-                    os.symlink(str(neutral_abs), str(male_model.resolve()))
-                    print(f"  ✓ Created symlink: {male_model.resolve()} -> {neutral_abs}")
-                except Exception as e:
-                    print(f"  [WARNING] Could not create symlink for MALE model: {e}")
+            smpl_dir_abs = smpl_dir.resolve()
             
-            if not female_model.exists():
-                try:
-                    # Use absolute path for symlink target
-                    os.symlink(str(neutral_abs), str(female_model.resolve()))
-                    print(f"  ✓ Created symlink: {female_model.resolve()} -> {neutral_abs}")
-                except Exception as e:
-                    print(f"  [WARNING] Could not create symlink for FEMALE model: {e}")
+            # Check if actual gender-specific models exist (preferred)
+            if not male_model.exists() or not female_model.exists():
+                print(f"  [INFO] Gender-specific models not found, creating symlinks as fallback...")
+                print(f"  [INFO] For better accuracy, ensure basicmodel_m and basicmodel_f are downloaded from Google Drive")
+                
+                # Create symlink for MALE model as fallback
+                male_abs = smpl_dir_abs / "SMPL_MALE.pkl"
+                if not male_abs.exists():
+                    try:
+                        os.symlink("SMPL_NEUTRAL.pkl", str(male_abs))
+                        print(f"  ✓ Created fallback symlink: {male_abs} -> SMPL_NEUTRAL.pkl")
+                    except Exception as e:
+                        print(f"  [WARNING] Could not create fallback symlink for MALE: {e}")
+                
+                # Create symlink for FEMALE model as fallback
+                female_abs = smpl_dir_abs / "SMPL_FEMALE.pkl"
+                if not female_abs.exists():
+                    try:
+                        os.symlink("SMPL_NEUTRAL.pkl", str(female_abs))
+                        print(f"  ✓ Created fallback symlink: {female_abs} -> SMPL_NEUTRAL.pkl")
+                    except Exception as e:
+                        print(f"  [WARNING] Could not create fallback symlink for FEMALE: {e}")
+            else:
+                print(f"  ✓ Using actual gender-specific models (more accurate)")
+                print(f"    - MALE: {male_model.resolve()}")
+                print(f"    - FEMALE: {female_model.resolve()}")
         
         # Copy required face segmentation file if it doesn't exist
         face_seg_file = Path("data") / "smpl" / "smpl_body_parts_2_faces.json"
@@ -437,7 +449,10 @@ def step3_extract_measurements(
         measurer = MeasureBody("smpl")
         
         # Set body model with betas
+        # Convert to uppercase for measurement library (it expects MALE/FEMALE/NEUTRAL)
+        # but smplx.create internally converts to uppercase for filename lookup anyway
         gender_upper = gender.upper() if gender.lower() in ['male', 'female'] else 'NEUTRAL'
+        print(f"  Using gender: {gender_upper} (will look for SMPL_{gender_upper}.pkl)")
         measurer.from_body_model(gender=gender_upper, shape=betas_tensor)
         
         # Get all possible measurements
