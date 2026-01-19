@@ -1,9 +1,29 @@
 import os
 from typing import Dict
+from pathlib import Path
 from yacs.config import CfgNode as CN
 
+# Check if RunPod Network Volume is mounted
+# RunPod mounts Network Volumes at /runpod-volume (fixed path)
+RUNPOD_VOLUME_PATH = Path("/runpod-volume")
+VOLUME_CACHE_DIR = RUNPOD_VOLUME_PATH / "4DHumans"
+
+# Default cache directory (what the code expects)
 CACHE_DIR = os.path.join(os.environ.get("HOME"), ".cache")
-CACHE_DIR_4DHUMANS = os.path.join(CACHE_DIR, "4DHumans")
+DEFAULT_CACHE_DIR_4DHUMANS = os.path.join(CACHE_DIR, "4DHumans")
+
+# Use volume if it exists, otherwise use default
+# Note: The handler.py creates a symlink, so this should work either way
+if RUNPOD_VOLUME_PATH.exists() and VOLUME_CACHE_DIR.exists():
+    # Volume is mounted and has cache directory
+    CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
+    print(f"[Config] Using RunPod Network Volume cache: {CACHE_DIR_4DHUMANS}")
+else:
+    # Use default location (or symlink created by handler)
+    CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
+    if RUNPOD_VOLUME_PATH.exists():
+        print(f"[Config] Network Volume exists but cache dir not found, using default: {CACHE_DIR_4DHUMANS}")
+        print(f"[Config] Handler will create symlink to volume if needed")
 
 def to_lower(x: Dict) -> Dict:
     """

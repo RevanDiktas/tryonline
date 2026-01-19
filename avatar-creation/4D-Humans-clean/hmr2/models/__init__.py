@@ -368,6 +368,24 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     # (Python treats it as local if imported later in the function)
     from ..configs import CACHE_DIR_4DHUMANS as _CACHE_DIR
     
+    # Check if RunPod volume exists and has models
+    RUNPOD_VOLUME_PATH = Path("/runpod-volume")
+    VOLUME_CACHE_DIR = RUNPOD_VOLUME_PATH / "4DHumans"
+    
+    if RUNPOD_VOLUME_PATH.exists():
+        print(f"[DEBUG download_models] RunPod Network Volume detected at {RUNPOD_VOLUME_PATH}")
+        # Check if volume has cached models
+        volume_checkpoint = VOLUME_CACHE_DIR / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"
+        if volume_checkpoint.exists():
+            file_size_gb = volume_checkpoint.stat().st_size / (1024**3)
+            if file_size_gb > 2.0:
+                print(f"[DEBUG download_models] ✓ Found checkpoint in Network Volume: {volume_checkpoint} ({file_size_gb:.2f} GB)")
+                print(f"[DEBUG download_models]   Using volume cache (persistent across jobs)")
+                # Use volume directory directly
+                folder = str(VOLUME_CACHE_DIR)
+                _CACHE_DIR = folder
+                print(f"[DEBUG download_models]   Updated folder to: {folder}")
+    
     # CRITICAL: Print immediately to ensure we see this function is being called
     print(f"[DEBUG download_models] FUNCTION CALLED - folder={folder}")
     sys.stdout.flush()

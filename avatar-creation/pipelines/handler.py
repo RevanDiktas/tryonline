@@ -33,6 +33,46 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = SCRIPT_DIR.parent
 
+# ============================================================
+# RUNPOD NETWORK VOLUME SETUP
+# ============================================================
+# RunPod mounts Network Volumes at /runpod-volume (fixed path)
+# But our code expects /root/.cache/4DHumans
+# Solution: Create symlink from /root/.cache/4DHumans to /runpod-volume/4DHumans
+RUNPOD_VOLUME_PATH = Path("/runpod-volume")
+EXPECTED_CACHE_DIR = Path("/root/.cache/4DHumans")
+VOLUME_CACHE_DIR = RUNPOD_VOLUME_PATH / "4DHumans"
+
+if RUNPOD_VOLUME_PATH.exists():
+    print(f"[RunPod] Network Volume detected at {RUNPOD_VOLUME_PATH}")
+    # Ensure the volume cache directory exists
+    VOLUME_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Create symlink if it doesn't exist
+    if not EXPECTED_CACHE_DIR.exists():
+        EXPECTED_CACHE_DIR.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.symlink(str(VOLUME_CACHE_DIR), str(EXPECTED_CACHE_DIR))
+            print(f"[RunPod] ✓ Created symlink: {EXPECTED_CACHE_DIR} -> {VOLUME_CACHE_DIR}")
+            print(f"[RunPod] Models will be cached in Network Volume (persistent across jobs)")
+        except OSError as e:
+            if e.errno != 17:  # File exists (already linked)
+                print(f"[RunPod] ⚠️  Could not create symlink: {e}")
+                print(f"[RunPod]   Will use local cache instead (not persistent)")
+    else:
+        # Check if it's already a symlink to the volume
+        if EXPECTED_CACHE_DIR.is_symlink():
+            target = EXPECTED_CACHE_DIR.readlink()
+            if str(target) == str(VOLUME_CACHE_DIR):
+                print(f"[RunPod] ✓ Symlink already exists: {EXPECTED_CACHE_DIR} -> {VOLUME_CACHE_DIR}")
+            else:
+                print(f"[RunPod] ⚠️  Symlink exists but points elsewhere: {EXPECTED_CACHE_DIR} -> {target}")
+        else:
+            print(f"[RunPod] ⚠️  {EXPECTED_CACHE_DIR} exists but is not a symlink (may be from previous run)")
+else:
+    print(f"[RunPod] ⚠️  Network Volume not detected at {RUNPOD_VOLUME_PATH}")
+    print(f"[RunPod]   Models will be cached locally (not persistent across jobs)")
+
 # Add to Python path
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(PROJECT_ROOT))
