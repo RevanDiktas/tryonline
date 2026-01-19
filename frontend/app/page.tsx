@@ -3,23 +3,32 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getCurrentUser, hasFitPassport } from '@/lib/auth';
+import { getCurrentUser, hasFitPassport } from '@/lib/supabase-auth';
 
 export default function HomePage() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    const user = getCurrentUser();
-    if (user) {
-      if (hasFitPassport()) {
-        router.push('/dashboard');
-      } else {
-        router.push('/onboarding');
+    const checkAuth = async () => {
+      try {
+        const user = await getCurrentUser();
+        if (user) {
+          const hasPassport = await hasFitPassport(user.id);
+          if (hasPassport) {
+            router.push('/dashboard');
+          } else {
+            router.push('/onboarding');
+          }
+        } else {
+          setChecking(false);
+        }
+      } catch (error) {
+        console.error('[HomePage] Auth check error:', error);
+        setChecking(false);
       }
-    } else {
-      setChecking(false);
-    }
+    };
+    checkAuth();
   }, [router]);
 
   if (checking) {
