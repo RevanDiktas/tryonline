@@ -342,16 +342,49 @@ def step3_extract_measurements(
     original_cwd = os.getcwd()
     cache_data_dir = Path(CACHE_DIR_4DHUMANS) / "data"
     
+    # Verify cache directory exists
+    if not cache_data_dir.exists():
+        print(f"  [ERROR] Cache data directory does not exist: {cache_data_dir}")
+        return None
+    
+    smpl_path_in_cache = cache_data_dir / "smpl" / "SMPL_NEUTRAL.pkl"
+    if not smpl_path_in_cache.exists():
+        print(f"  [ERROR] SMPL model not found in cache: {smpl_path_in_cache}")
+        return None
+    
     try:
         # Create a temporary "data" symlink in current directory if it doesn't exist
         temp_data_link = Path(original_cwd) / "data"
-        if not temp_data_link.exists():
+        
+        # Remove existing symlink or directory if it exists and is wrong
+        if temp_data_link.exists():
+            if temp_data_link.is_symlink():
+                # Check if it points to the right place
+                if temp_data_link.resolve() != cache_data_dir.resolve():
+                    print(f"  Removing existing symlink pointing to wrong location")
+                    temp_data_link.unlink()
+                    created_symlink = True
+                else:
+                    print(f"  Using existing symlink: {temp_data_link} -> {temp_data_link.resolve()}")
+                    created_symlink = False
+            else:
+                # It's a directory, not a symlink - we can't use it
+                print(f"  [WARNING] 'data' exists as a directory, not a symlink. Cannot proceed.")
+                return None
+        else:
+            # Create new symlink
             print(f"  Creating symlink: {temp_data_link} -> {cache_data_dir}")
             temp_data_link.symlink_to(cache_data_dir, target_is_directory=True)
             created_symlink = True
-        else:
-            created_symlink = False
         
+        # Verify symlink works
+        expected_smpl_path = temp_data_link / "smpl" / "SMPL_NEUTRAL.pkl"
+        if not expected_smpl_path.exists():
+            print(f"  [ERROR] Symlink created but path not accessible: {expected_smpl_path}")
+            print(f"  Resolved symlink target: {temp_data_link.resolve()}")
+            return None
+        
+        print(f"  ✓ Symlink verified: {expected_smpl_path} exists")
         print("  Creating SMPL measurer...")
         measurer = MeasureBody("smpl")
         
