@@ -17,23 +17,48 @@ DEFAULT_CACHE_DIR_4DHUMANS = os.path.join(CACHE_DIR, "4DHumans")
 BUILD_CACHE_DIR = Path(DEFAULT_CACHE_DIR_4DHUMANS)
 BUILD_CHECKPOINT = BUILD_CACHE_DIR / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"
 
+# Check if volume has models (checkpoint must exist, not just directory)
+VOLUME_CHECKPOINT = VOLUME_CACHE_DIR / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"
+volume_has_models = VOLUME_CHECKPOINT.exists() and VOLUME_CHECKPOINT.stat().st_size > 2 * 1024**3  # > 2GB
+
+# PRIORITY 1: Build-time models (baked into image)
 if BUILD_CHECKPOINT.exists():
-    # Models are in the image cache (from build-time download)
-    file_size_gb = BUILD_CHECKPOINT.stat().st_size / (1024**3)
-    if file_size_gb > 2.0:
-        CACHE_DIR_4DHUMANS = str(BUILD_CACHE_DIR)
-        print(f"[Config] ✓ Using build-time models from image cache: {CACHE_DIR_4DHUMANS}")
-        print(f"[Config]   Checkpoint found: {file_size_gb:.2f} GB")
-elif RUNPOD_VOLUME_PATH.exists() and VOLUME_CACHE_DIR.exists():
-    # Volume is mounted and has cache directory (for runtime caching)
+    try:
+        file_size_gb = BUILD_CHECKPOINT.stat().st_size / (1024**3)
+        if file_size_gb > 2.0:
+            CACHE_DIR_4DHUMANS = str(BUILD_CACHE_DIR)
+            print(f"[Config] ✓ Using build-time models from image cache: {CACHE_DIR_4DHUMANS}")
+            print(f"[Config]   Checkpoint found: {file_size_gb:.2f} GB")
+        else:
+            # Checkpoint exists but is too small (corrupted or incomplete)
+            print(f"[Config] ⚠️  Build checkpoint exists but is too small ({file_size_gb:.2f} GB), checking volume...")
+            if volume_has_models:
+                CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
+                print(f"[Config] Using RunPod Network Volume cache: {CACHE_DIR_4DHUMANS}")
+            else:
+                CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
+                print(f"[Config] Using default cache (will download models): {CACHE_DIR_4DHUMANS}")
+    except Exception as e:
+        print(f"[Config] ⚠️  Error checking build checkpoint: {e}, checking volume...")
+        if volume_has_models:
+            CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
+            print(f"[Config] Using RunPod Network Volume cache: {CACHE_DIR_4DHUMANS}")
+        else:
+            CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
+            print(f"[Config] Using default cache (will download models): {CACHE_DIR_4DHUMANS}")
+# PRIORITY 2: Volume has models (runtime caching)
+elif RUNPOD_VOLUME_PATH.exists() and volume_has_models:
     CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
     print(f"[Config] Using RunPod Network Volume cache: {CACHE_DIR_4DHUMANS}")
+    print(f"[Config]   Checkpoint found in volume: {VOLUME_CHECKPOINT.stat().st_size / (1024**3):.2f} GB")
 else:
     # Use default location (or symlink created by handler)
     CACHE_DIR_4DHUMANS = DEFAULT_CACHE_DIR_4DHUMANS
     if RUNPOD_VOLUME_PATH.exists():
-        print(f"[Config] Network Volume exists but cache dir not found, using default: {CACHE_DIR_4DHUMANS}")
+        print(f"[Config] Network Volume exists but no models found, using default: {CACHE_DIR_4DHUMANS}")
         print(f"[Config] Handler will create symlink to volume if needed")
+    else:
+        print(f"[Config] Using default cache directory: {CACHE_DIR_4DHUMANS}")
 
 def to_lower(x: Dict) -> Dict:
     """

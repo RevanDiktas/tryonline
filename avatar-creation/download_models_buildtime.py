@@ -4,7 +4,7 @@ Build-time model download script for Docker builds.
 Downloads models during Docker build to avoid runtime quota issues.
 
 This script:
-1. Downloads checkpoint and SMPL models from Google Drive
+1. Downloads checkpoint and SMPL models from Dropbox
 2. Places them in the expected cache directory structure
 3. Handles quota errors gracefully (warns but doesn't fail build)
 4. Validates file sizes to ensure correct downloads
@@ -19,13 +19,7 @@ from pathlib import Path
 # Import at top level for Dropbox URLs
 import urllib.request as urlrequest
 
-# File IDs from Google Drive (fallback)
-GOOGLE_DRIVE_CHECKPOINT_ID = "1ISfMrpiiwoSzLoQXsXsX5FUcOxZY5Bzu"
-GOOGLE_DRIVE_SMPL_NEUTRAL_ID = "1A2qaP3xWZRuBOPaNx0-tovBBhtftxuSv"
-GOOGLE_DRIVE_SMPL_MALE_ID = "1MYc-Qduvki8xcvEGQSwmCiEhg3Ehs0o5"
-GOOGLE_DRIVE_SMPL_FEMALE_ID = "1Xr4UaC8job6f0UPMnwwzWRi3pxf8znoE"
-GOOGLE_DRIVE_MEAN_PARAMS_ID = "1cqbspPE9LM2ysB_YvBcRZR3JGVb3ve_I"
-GOOGLE_DRIVE_JOINT_REGRESSOR_ID = "1hoGaaioCh9bo3jNY84N3A5VB51DRqnQE"
+# Note: Google Drive IDs removed - using Dropbox URLs only
 
 # Dropbox URLs (set via environment variables - PREFERRED if available)
 # Format: https://www.dropbox.com/s/XXXXX/filename?dl=1
@@ -43,16 +37,7 @@ CHECKPOINT_PATH = CACHE_DIR / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-
 DATA_DIR = CACHE_DIR / "data"
 SMPL_DIR = DATA_DIR / "smpl"
 
-def install_gdown():
-    """Install gdown if not available"""
-    try:
-        import gdown
-        return gdown
-    except ImportError:
-        print("[Build] Installing gdown...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "gdown"])
-        import gdown
-        return gdown
+# Note: gdown no longer needed - using Dropbox URLs only
 
 def download_from_url(url, output_path, expected_size_mb_min=None, expected_size_mb_max=None, description=""):
     """
@@ -154,89 +139,29 @@ def download_from_url(url, output_path, expected_size_mb_min=None, expected_size
 
 def download_file(gdown, file_id, output_path, expected_size_mb_min=None, expected_size_mb_max=None, description="", dropbox_url=None):
     """
-    Download a file from Google Drive or Dropbox.
+    Download a file from Dropbox.
     
     Args:
-        gdown: gdown module (for Google Drive)
-        file_id: Google Drive file ID (fallback)
+        gdown: Not used (kept for compatibility)
+        file_id: Not used (kept for compatibility)
         output_path: Where to save the file
         expected_size_mb_min: Minimum expected size in MB (for validation)
         expected_size_mb_max: Maximum expected size in MB (for validation)
         description: Human-readable description of the file
-        dropbox_url: Dropbox URL (preferred if provided)
+        dropbox_url: Dropbox URL (required)
     
     Returns:
         bool: True if download succeeded, False otherwise
     """
-    # Prefer Dropbox if available
+    # Download from Dropbox (required)
     if dropbox_url:
         return download_from_url(dropbox_url, output_path, expected_size_mb_min, expected_size_mb_max, description)
     
-    # Fallback to Google Drive
-    output_path = Path(output_path)
-    
-    # Skip if already exists
-    if output_path.exists():
-        file_size_mb = output_path.stat().st_size / (1024 * 1024)
-        if expected_size_mb_min and file_size_mb < expected_size_mb_min:
-            print(f"[Build] ⚠️  Existing file {output_path.name} is too small ({file_size_mb:.1f}MB), re-downloading...")
-            output_path.unlink()
-        elif expected_size_mb_max and file_size_mb > expected_size_mb_max:
-            print(f"[Build] ⚠️  Existing file {output_path.name} is too large ({file_size_mb:.1f}MB), re-downloading...")
-            output_path.unlink()
-        else:
-            print(f"[Build] ✓ {description or output_path.name} already exists ({file_size_mb:.1f}MB)")
-            return True
-    
-    # Create parent directory
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Download from Google Drive
-    gdrive_url = f"https://drive.google.com/uc?id={file_id}"
-    print(f"[Build] Downloading {description or output_path.name} from Google Drive...")
-    print(f"[Build]   URL: {gdrive_url}")
-    print(f"[Build]   Destination: {output_path}")
-    
-    try:
-        # Download to temp file first
-        temp_file = output_path.parent / f"temp_{output_path.name}"
-        gdown.download(gdrive_url, output=str(temp_file), quiet=False)
-        
-        # Validate size
-        if temp_file.exists():
-            file_size_mb = temp_file.stat().st_size / (1024 * 1024)
-            
-            if expected_size_mb_min and file_size_mb < expected_size_mb_min:
-                print(f"[Build] ✗ Downloaded file is too small: {file_size_mb:.1f}MB (expected at least {expected_size_mb_min}MB)")
-                temp_file.unlink()
-                return False
-            
-            if expected_size_mb_max and file_size_mb > expected_size_mb_max:
-                print(f"[Build] ✗ Downloaded file is too large: {file_size_mb:.1f}MB (expected at most {expected_size_mb_max}MB)")
-                temp_file.unlink()
-                return False
-            
-            # Move to final location
-            if output_path.exists():
-                output_path.unlink()
-            shutil.move(str(temp_file), str(output_path))
-            print(f"[Build] ✓ Downloaded {description or output_path.name} ({file_size_mb:.1f}MB)")
-            return True
-        else:
-            print(f"[Build] ✗ Download failed: temp file not found")
-            return False
-            
-    except Exception as e:
-        error_str = str(e)
-        if "Too many users" in error_str or "quota" in error_str.lower() or "FileURLRetrievalError" in error_str:
-            print(f"[Build] ⚠️  Google Drive quota exceeded for {description or output_path.name}")
-            print(f"[Build]    This is expected during high-traffic periods.")
-            print(f"[Build]    Models will be downloaded at runtime if volume is empty.")
-            print(f"[Build]    Build will continue without this file.")
-            return False
-        else:
-            print(f"[Build] ✗ Download error for {description or output_path.name}: {e}")
-            return False
+    # If Dropbox URL not provided, return False (no fallback)
+    if not dropbox_url:
+        print(f"[Build] ⚠️  No Dropbox URL provided for {description or output_path.name}")
+        print(f"[Build]    Set DROPBOX_*_URL environment variables in RunPod endpoint settings.")
+        return False
 
 def main():
     """Main download function"""
@@ -249,8 +174,7 @@ def main():
     print("build will continue and models will be downloaded at runtime.")
     print()
     
-    # Install gdown
-    gdown = install_gdown()
+    # Note: gdown no longer needed - using Dropbox URLs only
     
     # Create directories
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -263,8 +187,8 @@ def main():
     print("DOWNLOADING CHECKPOINT (2.5GB)")
     print("=" * 70)
     checkpoint_success = download_file(
-        gdown,
-        GOOGLE_DRIVE_CHECKPOINT_ID,
+        None,  # gdown not needed for Dropbox
+        None,  # file_id not needed
         CHECKPOINT_PATH,
         expected_size_mb_min=2000,  # At least 2GB
         expected_size_mb_max=3000,   # At most 3GB
@@ -282,8 +206,8 @@ def main():
     smpl_female_path = DATA_DIR / "basicmodel_f_lbs_10_207_0_v1.1.0.pkl"
     
     smpl_neutral_success = download_file(
-        gdown,
-        GOOGLE_DRIVE_SMPL_NEUTRAL_ID,
+        None,
+        None,
         smpl_neutral_path,
         expected_size_mb_min=200,   # At least 200MB
         expected_size_mb_max=300,    # At most 300MB
@@ -292,8 +216,8 @@ def main():
     )
     
     smpl_male_success = download_file(
-        gdown,
-        GOOGLE_DRIVE_SMPL_MALE_ID,
+        None,
+        None,
         smpl_male_path,
         expected_size_mb_min=200,
         expected_size_mb_max=300,
@@ -302,8 +226,8 @@ def main():
     )
     
     smpl_female_success = download_file(
-        gdown,
-        GOOGLE_DRIVE_SMPL_FEMALE_ID,
+        None,
+        None,
         smpl_female_path,
         expected_size_mb_min=200,
         expected_size_mb_max=300,

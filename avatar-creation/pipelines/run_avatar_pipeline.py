@@ -853,19 +853,42 @@ def run_pipeline(
     smpl_model_path = Path(CACHE_DIR_4DHUMANS) / "data"
     measurements_dir = PROJECT_ROOT.parent / "avatar-creation-measurements"
     
-    # Volume diagnostics: Check if models are cached (volume working)
+    # Volume diagnostics: Check if models are cached (check both build cache and volume)
     cache_checkpoint = Path(CACHE_DIR_4DHUMANS) / "logs" / "train" / "multiruns" / "hmr2" / "0" / "checkpoints" / "epoch=35-step=1000000.ckpt"
     cache_smpl = Path(CACHE_DIR_4DHUMANS) / "data" / "smpl" / "SMPL_NEUTRAL.pkl"
+    
+    # Also check build cache location (where models are baked into image)
+    build_cache = Path(os.path.expanduser("~")) / ".cache" / "4DHumans"
+    build_checkpoint = build_cache / "logs" / "train" / "multiruns" / "hmr2" / "0" / "checkpoints" / "epoch=35-step=1000000.ckpt"
+    build_smpl = build_cache / "data" / "smpl" / "SMPL_NEUTRAL.pkl"
+    
     print(f"\n[Volume Diagnostics]")
     print(f"  Cache directory: {CACHE_DIR_4DHUMANS}")
-    print(f"  Checkpoint exists: {cache_checkpoint.exists()} ({cache_checkpoint.stat().st_size / (1024**3):.2f} GB)" if cache_checkpoint.exists() else f"  Checkpoint exists: False")
-    print(f"  SMPL model exists: {cache_smpl.exists()}")
-    if not cache_checkpoint.exists() or not cache_smpl.exists():
+    print(f"  Build cache: {build_cache}")
+    
+    # Check current cache location
+    checkpoint_exists = cache_checkpoint.exists()
+    smpl_exists = cache_smpl.exists()
+    
+    # Also check build cache if current cache doesn't have models
+    if not checkpoint_exists and build_checkpoint.exists():
+        try:
+            build_size = build_checkpoint.stat().st_size / (1024**3)
+            if build_size > 2.0:
+                print(f"  ⚠️  Models found in build cache ({build_size:.2f} GB) but config using different path!")
+                print(f"  Build checkpoint: {build_checkpoint}")
+                print(f"  Config cache: {CACHE_DIR_4DHUMANS}")
+        except:
+            pass
+    
+    print(f"  Checkpoint exists: {checkpoint_exists} ({cache_checkpoint.stat().st_size / (1024**3):.2f} GB)" if checkpoint_exists else f"  Checkpoint exists: False")
+    print(f"  SMPL model exists: {smpl_exists}")
+    if not checkpoint_exists or not smpl_exists:
         print(f"  [NOTE] Models not found in cache. They will be downloaded (~2.5GB, 5-15 min).")
         print(f"  [NOTE] If volume is mounted, models should persist for subsequent jobs.")
         print(f"  [NOTE] Verify RunPod volume is mounted at: {CACHE_DIR_4DHUMANS}")
     else:
-        print(f"  ✓ Models found in cache - volume appears to be working!")
+        print(f"  ✓ Models found in cache - ready to use!")
     
     # Verify paths exist
     if not four_d_humans_dir.exists():
