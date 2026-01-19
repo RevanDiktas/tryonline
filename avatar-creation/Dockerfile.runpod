@@ -49,13 +49,20 @@ RUN cd /workspace && \
     rm -rf temp-repo && \
     find /workspace -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true
 
-# Create data directories
-RUN mkdir -p /workspace/data/smpl \
+# Copy build-time model download script
+COPY download_models_buildtime.py /workspace/download_models_buildtime.py
+
+# Create cache directory structure (matches what code expects)
+RUN mkdir -p /root/.cache/4DHumans/logs/train/multiruns/hmr2/0/checkpoints \
+    && mkdir -p /root/.cache/4DHumans/data/smpl \
+    && mkdir -p /workspace/data/smpl \
     && mkdir -p /workspace/4D-Humans-clean/data/smpl \
     && mkdir -p /workspace/4D-Humans-clean/hmr2/checkpoints
 
-# Note: SMPL model files (.pkl) and HMR2 checkpoints must be mounted or downloaded at runtime
-# due to license restrictions
+# Download models during build (bake into image to avoid runtime quota issues)
+# This step may fail due to Google Drive quota, but build will continue
+# Models will be downloaded at runtime if missing (with quota risk)
+RUN python /workspace/download_models_buildtime.py || echo "⚠️  Build-time download had issues (quota or network). Models will be downloaded at runtime if volume is empty."
 
 # Set up environment
 ENV PYTHONPATH=/workspace:/workspace/pipelines:/workspace/4D-Humans-clean:/workspace/avatar-creation-measurements
