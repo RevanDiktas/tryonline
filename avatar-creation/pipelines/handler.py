@@ -446,12 +446,9 @@ try:
     print(f"[RunPod] Python path: {sys.path}")
     print(f"[RunPod] Working directory: {os.getcwd()}")
     
-    # Start handler with minimal timeout to avoid startup delays
-    # This helps prevent "context deadline exceeded" errors
-    runpod.serverless.start(
-        {"handler": runpod_handler},
-        return_aggregation_stream=False  # Disable streaming to reduce startup overhead
-    )
+    # Start handler - simple call without extra parameters
+    # (Some RunPod SDK versions don't support all parameters)
+    runpod.serverless.start({"handler": runpod_handler})
 except ImportError:
     # RunPod not installed - running locally
     print("[RunPod] RunPod not installed, skipping serverless registration")
