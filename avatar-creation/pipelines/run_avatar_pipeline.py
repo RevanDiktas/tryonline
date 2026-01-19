@@ -851,7 +851,10 @@ def run_pipeline(
     # Use the cache directory where models are actually stored
     # smplx.create expects a directory containing a 'smpl' subfolder
     smpl_model_path = Path(CACHE_DIR_4DHUMANS) / "data"
-    measurements_dir = PROJECT_ROOT.parent / "avatar-creation-measurements"
+    # Try both possible locations for avatar-creation-measurements
+    measurements_dir = PROJECT_ROOT / "avatar-creation-measurements"  # /workspace/avatar-creation-measurements (Docker)
+    if not measurements_dir.exists():
+        measurements_dir = PROJECT_ROOT.parent / "avatar-creation-measurements"  # Fallback location
     
     # Volume diagnostics: Check if models are cached (check both build cache and volume)
     cache_checkpoint = Path(CACHE_DIR_4DHUMANS) / "logs" / "train" / "multiruns" / "hmr2" / "0" / "checkpoints" / "epoch=35-step=1000000.ckpt"

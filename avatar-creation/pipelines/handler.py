@@ -62,13 +62,31 @@ if RUNPOD_VOLUME_PATH.exists():
     else:
         # Check if it's already a symlink to the volume
         if EXPECTED_CACHE_DIR.is_symlink():
-            target = EXPECTED_CACHE_DIR.readlink()
-            if str(target) == str(VOLUME_CACHE_DIR):
-                print(f"[RunPod] ✓ Symlink already exists: {EXPECTED_CACHE_DIR} -> {VOLUME_CACHE_DIR}")
-            else:
-                print(f"[RunPod] ⚠️  Symlink exists but points elsewhere: {EXPECTED_CACHE_DIR} -> {target}")
+            try:
+                target = EXPECTED_CACHE_DIR.readlink()
+                if str(target) == str(VOLUME_CACHE_DIR):
+                    print(f"[RunPod] ✓ Symlink already exists: {EXPECTED_CACHE_DIR} -> {VOLUME_CACHE_DIR}")
+                else:
+                    print(f"[RunPod] ⚠️  Symlink exists but points elsewhere: {EXPECTED_CACHE_DIR} -> {target}")
+                    print(f"[RunPod]   Removing old symlink and creating new one...")
+                    EXPECTED_CACHE_DIR.unlink()
+                    os.symlink(str(VOLUME_CACHE_DIR), str(EXPECTED_CACHE_DIR))
+                    print(f"[RunPod] ✓ Recreated symlink: {EXPECTED_CACHE_DIR} -> {VOLUME_CACHE_DIR}")
+            except Exception as e:
+                print(f"[RunPod] ⚠️  Error checking symlink: {e}")
         else:
-            print(f"[RunPod] ⚠️  {EXPECTED_CACHE_DIR} exists but is not a symlink (may be from previous run)")
+            # Directory exists but is not a symlink - might have models from build
+            # Check if it has the checkpoint (build-time models)
+            build_checkpoint = EXPECTED_CACHE_DIR / "logs" / "train" / "multiruns" / "hmr2" / "0" / "checkpoints" / "epoch=35-step=1000000.ckpt"
+            if build_checkpoint.exists():
+                build_size_gb = build_checkpoint.stat().st_size / (1024**3)
+                if build_size_gb > 2.0:
+                    print(f"[RunPod] ✓ Build-time models found in {EXPECTED_CACHE_DIR} ({build_size_gb:.2f} GB)")
+                    print(f"[RunPod]   Using build cache (no symlink needed)")
+                else:
+                    print(f"[RunPod] ⚠️  {EXPECTED_CACHE_DIR} exists but checkpoint too small ({build_size_gb:.2f} GB)")
+            else:
+                print(f"[RunPod] ⚠️  {EXPECTED_CACHE_DIR} exists but is not a symlink and has no models")
 else:
     print(f"[RunPod] ⚠️  Network Volume not detected at {RUNPOD_VOLUME_PATH}")
     print(f"[RunPod]   Models will be cached locally (not persistent across jobs)")
@@ -77,7 +95,9 @@ else:
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "4D-Humans-clean"))
-sys.path.insert(0, str(PROJECT_ROOT.parent / "avatar-creation-measurements"))
+# Try both possible locations for avatar-creation-measurements
+sys.path.insert(0, str(PROJECT_ROOT / "avatar-creation-measurements"))  # /workspace/avatar-creation-measurements (Docker)
+sys.path.insert(0, str(PROJECT_ROOT.parent / "avatar-creation-measurements"))  # Fallback location
 
 # Try to import httpx, fallback to requests
 try:
@@ -87,8 +107,8 @@ except ImportError:
     import requests
     USE_HTTPX = False
 
-# Import the pipeline (after path setup)
-from run_avatar_pipeline import run_pipeline
+# Don't import pipeline yet - lazy load in handler function to speed up container startup
+# This prevents heavy dependencies (PyTorch, models) from loading during container initialization
 
 
 # Measurement name mapping: pipeline output -> API expected
@@ -229,6 +249,9 @@ def handler(event: dict) -> dict:
         print(f"[RunPod] Running avatar pipeline...")
         
         try:
+            # Lazy import - only load heavy dependencies when actually processing a job
+            from run_avatar_pipeline import run_pipeline
+            
             results = run_pipeline(
                 image_path=str(photo_path),
                 height_cm=float(height),
@@ -366,26 +389,31 @@ def handler(event: dict) -> dict:
             verification_results["models_cached"] = {"error": str(e)}
             print(f"  ✗ Model verification failed: {e}")
         
-        # 2. Verify all expected files are generated
-        expected_files = ["avatar_glb", "measurements"]
-        optional_files = ["skin_texture", "original_mesh", "smpl_params", "tpose_mesh", "apose_mesh", "face_crop"]
-        
-        files_generated = {
-            "required": {f: f in files_base64 for f in expected_files},
-            "optional": {f: f in files_base64 for f in optional_files}
-        }
-        
-        verification_results["files_generated"] = files_generated
-        
-        all_required = all(files_generated["required"].values())
-        if all_required:
-            print(f"  ✓ All required files generated")
-        else:
-            missing = [f for f, exists in files_generated["required"].items() if not exists]
-            print(f"  ✗ Missing required files: {missing}")
-        
-        optional_count = sum(files_generated["optional"].values())
-        print(f"  Optional files: {optional_count}/{len(optional_files)}")
+        # 2. Verify all expected files are generated (lazy import here too)
+        try:
+            from hmr2.configs import CACHE_DIR_4DHUMANS
+            expected_files = ["avatar_glb", "measurements"]
+            optional_files = ["skin_texture", "original_mesh", "smpl_params", "tpose_mesh", "apose_mesh", "face_crop"]
+            
+            files_generated = {
+                "required": {f: f in files_base64 for f in expected_files},
+                "optional": {f: f in files_base64 for f in optional_files}
+            }
+            
+            verification_results["files_generated"] = files_generated
+            
+            all_required = all(files_generated["required"].values())
+            if all_required:
+                print(f"  ✓ All required files generated")
+            else:
+                missing = [f for f, exists in files_generated["required"].items() if not exists]
+                print(f"  ✗ Missing required files: {missing}")
+            
+            optional_count = sum(files_generated["optional"].values())
+            print(f"  Optional files: {optional_count}/{len(optional_files)}")
+        except ImportError:
+            print(f"  ⚠ Could not verify files (import error)")
+            verification_results["files_generated"] = {"error": "import_failed"}
         
         # 3. Verify measurements are valid
         measurements_valid = len(standardized_measurements) > 0 and "height" in standardized_measurements
@@ -440,14 +468,17 @@ def runpod_handler(event):
 
 # For RunPod serverless - register the handler
 # Always try to start (RunPod imports the module)
+# Optimize startup: don't import heavy dependencies here
 try:
     import runpod
     print("[RunPod] Starting serverless handler...")
     print(f"[RunPod] Python path: {sys.path}")
     print(f"[RunPod] Working directory: {os.getcwd()}")
+    print("[RunPod] ✓ Handler ready (heavy imports will load on first job)")
     
     # Start handler - simple call without extra parameters
     # (Some RunPod SDK versions don't support all parameters)
+    # Lazy loading ensures container starts quickly
     runpod.serverless.start({"handler": runpod_handler})
 except ImportError:
     # RunPod not installed - running locally

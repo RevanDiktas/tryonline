@@ -201,9 +201,14 @@ def main():
     print("DOWNLOADING SMPL MODELS (~247MB each)")
     print("=" * 70)
     
+    # Download to data/ directory (check_smpl_exists will convert to data/smpl/SMPL_*.pkl)
     smpl_neutral_path = DATA_DIR / "basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl"
     smpl_male_path = DATA_DIR / "basicmodel_m_lbs_10_207_0_v1.1.0.pkl"
     smpl_female_path = DATA_DIR / "basicmodel_f_lbs_10_207_0_v1.1.0.pkl"
+    
+    # Also ensure smpl subdirectory exists for converted files
+    SMPL_DIR = DATA_DIR / "smpl"
+    SMPL_DIR.mkdir(parents=True, exist_ok=True)
     
     smpl_neutral_success = download_file(
         None,
@@ -240,9 +245,10 @@ def main():
     print("DOWNLOADING SUPPORTING FILES")
     print("=" * 70)
     
+    # Download supporting files - mean params goes to data/ directory
     mean_params_success = download_file(
-        gdown,
-        GOOGLE_DRIVE_MEAN_PARAMS_ID,
+        None,  # gdown not needed for Dropbox
+        None,  # file_id not needed
         DATA_DIR / "smpl_mean_params.npz",
         expected_size_mb_min=0.1,   # Small file
         expected_size_mb_max=50,    # But not huge
@@ -250,6 +256,7 @@ def main():
         dropbox_url=DROPBOX_MEAN_PARAMS_URL
     )
     
+    # Joint regressor goes to data/ directory
     joint_regressor_success = download_file(
         None,
         None,
@@ -259,6 +266,10 @@ def main():
         description="SMPL Joint Regressor",
         dropbox_url=DROPBOX_JOINT_REGRESSOR_URL
     )
+    
+    # Note: After download, check_smpl_exists() in models/__init__.py will:
+    # 1. Convert basicmodel_*.pkl files to data/smpl/SMPL_NEUTRAL.pkl, SMPL_MALE.pkl, SMPL_FEMALE.pkl
+    # 2. Handle file renaming/conversion automatically at runtime
     
     print()
     print("=" * 70)
