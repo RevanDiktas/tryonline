@@ -120,9 +120,15 @@ def _ensure_smpl_mean_params_exists(data_dir):
     print(f"⚠️  Cannot download from Dropbox, creating default smpl_mean_params.npz...")
     print(f"  To download it, set DROPBOX_MEAN_PARAMS_URL environment variable.")
     
+    # CRITICAL: pose dimension must match checkpoint requirements
+    # Checkpoint uses JOINT_REP='6d' (6d rotation representation)
+    # 24 joints (23 body + 1 root) × 6 dims = 144 dimensions
+    # This MUST match the checkpoint's training config or we get dimension mismatch
+    pose_dim = 144  # 6d representation: 24 joints × 6 = 144
+    
     # Fall back to creating default mean parameters
     mean_params = {
-        'pose': np.zeros(72, dtype=np.float32),  # Neutral pose (all zeros)
+        'pose': np.zeros(pose_dim, dtype=np.float32),  # Neutral pose (all zeros, 6d format)
         'shape': np.zeros(10, dtype=np.float32),  # Mean shape (all zeros)
         'cam': np.array([0.0, 0.0, 1.0], dtype=np.float32)  # Default camera: no translation, scale=1
     }
