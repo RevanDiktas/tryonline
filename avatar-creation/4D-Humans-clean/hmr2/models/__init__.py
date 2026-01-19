@@ -103,8 +103,26 @@ def _ensure_smpl_mean_params_exists(data_dir):
     
     mean_params_path = os.path.join(data_dir, "smpl_mean_params.npz")
     
+    # CRITICAL: Check if existing file has correct dimension (144, not 72)
+    # The checkpoint requires 144 dimensions (6d representation: 24 joints × 6)
     if os.path.exists(mean_params_path):
-        return  # File already exists
+        try:
+            existing_params = np.load(mean_params_path)
+            if 'pose' in existing_params:
+                existing_pose_dim = existing_params['pose'].shape[0] if len(existing_params['pose'].shape) > 0 else len(existing_params['pose'])
+                if existing_pose_dim == 144:
+                    return  # File exists and has correct dimension
+                else:
+                    print(f"⚠️  Existing smpl_mean_params.npz has wrong dimension ({existing_pose_dim}, expected 144)")
+                    print(f"  Regenerating with correct dimension...")
+                    os.remove(mean_params_path)  # Delete old file
+            else:
+                print(f"⚠️  Existing smpl_mean_params.npz missing 'pose' key, regenerating...")
+                os.remove(mean_params_path)
+        except Exception as e:
+            print(f"⚠️  Error checking existing smpl_mean_params.npz: {e}, regenerating...")
+            if os.path.exists(mean_params_path):
+                os.remove(mean_params_path)
     
     os.makedirs(data_dir, exist_ok=True)
     

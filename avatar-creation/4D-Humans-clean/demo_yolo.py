@@ -71,11 +71,20 @@ def load_hmr2_no_renderer(checkpoint_path):
     model_cfg = str(Path(checkpoint_path).parent.parent / 'model_config.yaml')
     model_cfg = get_config(model_cfg, update_cachedir=True)
     
+    # CRITICAL: Ensure JOINT_REP='6d' is set to match checkpoint (144 dims: 24 joints × 6)
+    # The checkpoint was trained with 6d representation, so we MUST match it
+    from yacs.config import CfgNode as CN
+    model_cfg.defrost()
+    if not hasattr(model_cfg.MODEL, 'SMPL_HEAD'):
+        model_cfg.MODEL.SMPL_HEAD = CN(new_allowed=True)
+    if not hasattr(model_cfg.MODEL.SMPL_HEAD, 'JOINT_REP') or model_cfg.MODEL.SMPL_HEAD.JOINT_REP != '6d':
+        print(f"[4D-Humans] ⚠️  JOINT_REP not set or incorrect in config, fixing to '6d' (required for checkpoint)")
+        model_cfg.MODEL.SMPL_HEAD.JOINT_REP = '6d'
+    
     if (model_cfg.MODEL.BACKBONE.TYPE == 'vit') and ('BBOX_SHAPE' not in model_cfg.MODEL):
-        model_cfg.defrost()
         assert model_cfg.MODEL.IMAGE_SIZE == 256
         model_cfg.MODEL.BBOX_SHAPE = [192,256]
-        model_cfg.freeze()
+    model_cfg.freeze()
     
     check_smpl_exists()
     model = HMR2.load_from_checkpoint(checkpoint_path, strict=False, cfg=model_cfg, init_renderer=False)
