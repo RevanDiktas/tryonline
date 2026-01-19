@@ -52,15 +52,19 @@ from run_avatar_pipeline import run_pipeline
 
 
 # Measurement name mapping: pipeline output -> API expected
+# Supports variations and partial matches
 MEASUREMENT_MAPPING = {
     "height": "height",
     "chest circumference": "chest",
     "waist circumference": "waist",
     "hip circumference": "hips",
+    "hip circumference max height": "hips",  # Variation
     "inside leg height": "inseam",
     "shoulder breadth": "shoulder_width",
     "arm left length": "arm_length",
     "arm right length": "arm_length",  # Use either arm
+    "arm length (shoulder to elbow)": "arm_length",  # Variation
+    "arm length (spine to wrist)": "arm_length",  # Variation
     "neck circumference": "neck",
     "thigh left circumference": "thigh",
     "thigh right circumference": "thigh",  # Use either thigh
@@ -110,11 +114,28 @@ def standardize_measurements(raw_measurements: dict) -> dict:
     standardized = {}
     
     for raw_name, value in raw_measurements.items():
-        mapped_name = MEASUREMENT_MAPPING.get(raw_name.lower())
+        raw_name_lower = raw_name.lower()
+        
+        # Try exact match first
+        mapped_name = MEASUREMENT_MAPPING.get(raw_name_lower)
+        
+        # If no exact match, try partial matching for variations
+        if not mapped_name:
+            for key, mapped in MEASUREMENT_MAPPING.items():
+                if key in raw_name_lower or raw_name_lower in key:
+                    mapped_name = mapped
+                    break
+        
         if mapped_name:
             # Only set if not already set (prefer first match)
             if mapped_name not in standardized:
-                standardized[mapped_name] = round(float(value), 1)
+                try:
+                    standardized[mapped_name] = round(float(value), 1)
+                except (ValueError, TypeError):
+                    print(f"[Handler] Warning: Could not convert measurement '{raw_name}': {value}")
+        else:
+            # Log unmapped measurements for debugging
+            print(f"[Handler] Unmapped measurement: '{raw_name}' = {value}")
     
     return standardized
 

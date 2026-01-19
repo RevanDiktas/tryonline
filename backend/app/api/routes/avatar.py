@@ -156,6 +156,20 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 output = status_result.get("output", {})
                 measurements = output.get("measurements", {})
                 
+                print(f"[Avatar] ✓ RunPod job completed successfully")
+                print(f"[Avatar]   Measurements received: {len(measurements)} values")
+                print(f"[Avatar]   Files in output: {list(output.get('files_bytes', {}).keys())}")
+                
+                # Ensure measurements is a dict and has required fields
+                if not isinstance(measurements, dict):
+                    print(f"[Avatar] ⚠ WARNING: Measurements is not a dict: {type(measurements)}")
+                    measurements = {}
+                
+                # Ensure height is always present
+                if "height" not in measurements:
+                    measurements["height"] = float(request.height)
+                    print(f"[Avatar] Added height from request: {measurements['height']} cm")
+                
                 # Upload all pipeline files to Supabase storage
                 jobs[job_id]["progress"] = 95
                 jobs[job_id]["message"] = "Saving your avatar files..."
@@ -168,33 +182,44 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 
                 if files_bytes:
                     print(f"[Avatar] Uploading {len(files_bytes)} files to Supabase...")
-                    file_urls = await supabase_service.upload_pipeline_files(
-                        user_id=request.user_id,
-                        files_bytes=files_bytes
-                    )
-                    
-                    # Verify uploads
-                    print(f"[Avatar] Upload verification:")
-                    print(f"  Files to upload: {len(files_bytes)}")
-                    print(f"  Files uploaded: {len(file_urls)}")
-                    
-                    for file_key in files_bytes.keys():
-                        if file_key in file_urls:
-                            print(f"    ✓ {file_key}: {file_urls[file_key][:80]}...")
-                        else:
-                            print(f"    ✗ {file_key}: Upload failed")
-                            upload_errors.append(file_key)
+                    try:
+                        file_urls = await supabase_service.upload_pipeline_files(
+                            user_id=request.user_id,
+                            files_bytes=files_bytes
+                        )
+                        
+                        # Verify uploads
+                        print(f"[Avatar] Upload verification:")
+                        print(f"  Files to upload: {len(files_bytes)}")
+                        print(f"  Files uploaded: {len(file_urls)}")
+                        
+                        for file_key in files_bytes.keys():
+                            if file_key in file_urls:
+                                print(f"    ✓ {file_key}: {file_urls[file_key][:80]}...")
+                            else:
+                                print(f"    ✗ {file_key}: Upload failed")
+                                upload_errors.append(file_key)
+                    except Exception as upload_error:
+                        print(f"[Avatar] ✗ Upload error: {upload_error}")
+                        import traceback
+                        traceback.print_exc()
+                        # Continue anyway - try to save what we can
                 else:
+                    print(f"[Avatar] ⚠ WARNING: No files_bytes in output")
+                    print(f"[Avatar]   Output keys: {list(output.keys())}")
                     # Fallback: try old format (single GLB)
                     glb_bytes = output.get("avatar_glb_bytes")
                     if glb_bytes:
-                        avatar_url = await supabase_service.upload_avatar(
-                            user_id=request.user_id,
-                            file_data=glb_bytes,
-                            filename="avatar_textured.glb"
-                        )
-                        file_urls["avatar_glb"] = avatar_url
-                        print(f"[Avatar] Uploaded single GLB: {avatar_url[:80]}...")
+                        try:
+                            avatar_url = await supabase_service.upload_avatar(
+                                user_id=request.user_id,
+                                file_data=glb_bytes,
+                                filename="avatar_textured.glb"
+                            )
+                            file_urls["avatar_glb"] = avatar_url
+                            print(f"[Avatar] Uploaded single GLB: {avatar_url[:80]}...")
+                        except Exception as e:
+                            print(f"[Avatar] ✗ Failed to upload GLB: {e}")
                 
                 # Get main avatar URL (prioritize GLB)
                 avatar_url = file_urls.get("avatar_glb") or file_urls.get("apose_mesh") or "/models/avatar_with_tshirt_m.glb"
@@ -204,49 +229,55 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 
                 # Update database with all file URLs stored in JSONB
                 print(f"[Avatar] Updating database with results...")
-                db_update_success = await supabase_service.update_fit_passport_with_results(
-                    user_id=request.user_id,
-                    avatar_url=avatar_url,
-                    measurements=measurements,
-                    pipeline_files=file_urls  # Store all URLs in JSONB field
-                )
-                
-                # Verify database update and user linkage
-                if db_update_success:
-                    print(f"[Avatar] ✓ Database updated successfully")
-                    # Verify by reading back
-                    fit_passport = await supabase_service.get_fit_passport(request.user_id)
-                    if fit_passport:
-                        print(f"[Avatar] ✓ Verification: Avatar URL in DB: {fit_passport.get('avatar_url', 'NOT SET')[:80]}...")
-                        print(f"[Avatar] ✓ Verification: Status: {fit_passport.get('status')}")
-                        print(f"[Avatar] ✓ Verification: Measurements count: {len([k for k in ['chest', 'waist', 'hips', 'inseam'] if fit_passport.get(k)])}")
-                        
-                        # Verify user linkage: Check that avatar_url contains user_id
-                        db_avatar_url = fit_passport.get('avatar_url', '')
-                        if request.user_id in db_avatar_url:
-                            print(f"[Avatar] ✓ USER LINKAGE VERIFIED: Avatar URL contains user_id '{request.user_id}'")
-                            print(f"[Avatar]   Storage path structure: avatars/{request.user_id}/avatar_textured.glb")
-                        else:
-                            print(f"[Avatar] ⚠ WARNING: Avatar URL does not contain user_id")
-                            print(f"[Avatar]   User ID: {request.user_id}")
-                            print(f"[Avatar]   Avatar URL: {db_avatar_url[:100]}...")
-                        
-                        # Verify pipeline_files linkage
-                        pipeline_files = fit_passport.get('pipeline_files', {})
-                        if pipeline_files:
-                            print(f"[Avatar] ✓ Pipeline files stored: {len(pipeline_files)} files")
-                            # Check that all file URLs contain user_id
-                            files_with_user_id = sum(1 for url in pipeline_files.values() if request.user_id in str(url))
-                            print(f"[Avatar]   Files linked to user: {files_with_user_id}/{len(pipeline_files)}")
-                            if files_with_user_id == len(pipeline_files):
-                                print(f"[Avatar] ✓ All pipeline files correctly linked to user_id")
+                try:
+                    db_update_success = await supabase_service.update_fit_passport_with_results(
+                        user_id=request.user_id,
+                        avatar_url=avatar_url,
+                        measurements=measurements,
+                        pipeline_files=file_urls  # Store all URLs in JSONB field
+                    )
+                    
+                    # Verify database update and user linkage
+                    if db_update_success:
+                        print(f"[Avatar] ✓ Database updated successfully")
+                        # Verify by reading back
+                        fit_passport = await supabase_service.get_fit_passport(request.user_id)
+                        if fit_passport:
+                            print(f"[Avatar] ✓ Verification: Avatar URL in DB: {fit_passport.get('avatar_url', 'NOT SET')[:80]}...")
+                            print(f"[Avatar] ✓ Verification: Status: {fit_passport.get('status')}")
+                            print(f"[Avatar] ✓ Verification: Measurements count: {len([k for k in ['chest', 'waist', 'hips', 'inseam'] if fit_passport.get(k)])}")
+                            
+                            # Verify user linkage: Check that avatar_url contains user_id
+                            db_avatar_url = fit_passport.get('avatar_url', '')
+                            if request.user_id in db_avatar_url:
+                                print(f"[Avatar] ✓ USER LINKAGE VERIFIED: Avatar URL contains user_id '{request.user_id}'")
+                                print(f"[Avatar]   Storage path structure: avatars/{request.user_id}/avatar_textured.glb")
                             else:
-                                print(f"[Avatar] ⚠ Some files may not be linked correctly")
+                                print(f"[Avatar] ⚠ WARNING: Avatar URL does not contain user_id")
+                                print(f"[Avatar]   User ID: {request.user_id}")
+                                print(f"[Avatar]   Avatar URL: {db_avatar_url[:100]}...")
+                            
+                            # Verify pipeline_files linkage
+                            pipeline_files = fit_passport.get('pipeline_files', {})
+                            if pipeline_files:
+                                print(f"[Avatar] ✓ Pipeline files stored: {len(pipeline_files)} files")
+                                # Check that all file URLs contain user_id
+                                files_with_user_id = sum(1 for url in pipeline_files.values() if request.user_id in str(url))
+                                print(f"[Avatar]   Files linked to user: {files_with_user_id}/{len(pipeline_files)}")
+                                if files_with_user_id == len(pipeline_files):
+                                    print(f"[Avatar] ✓ All pipeline files correctly linked to user_id")
+                                else:
+                                    print(f"[Avatar] ⚠ Some files may not be linked correctly")
+                        else:
+                            print(f"[Avatar] ✗ Verification failed: Could not read back fit_passport")
                     else:
-                        print(f"[Avatar] ✗ Verification failed: Could not read back fit_passport")
-                else:
-                    print(f"[Avatar] ✗ Database update failed")
-                    raise Exception("Failed to update database")
+                        print(f"[Avatar] ✗ Database update failed")
+                        raise Exception("Failed to update database")
+                except Exception as db_error:
+                    print(f"[Avatar] ✗ Database update error: {db_error}")
+                    import traceback
+                    traceback.print_exc()
+                    raise
                 
                 jobs[job_id]["status"] = ProcessingStatus.completed
                 jobs[job_id]["progress"] = 100
@@ -254,6 +285,10 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 jobs[job_id]["avatar_url"] = avatar_url
                 jobs[job_id]["measurements"] = measurements
                 jobs[job_id]["completed_at"] = datetime.utcnow()
+                
+                print(f"[Avatar] ✓ Job {job_id} marked as completed")
+                print(f"[Avatar]   Avatar URL: {avatar_url[:80]}...")
+                print(f"[Avatar]   Measurements: {len(measurements)} values")
                 
                 return
                 
