@@ -8,14 +8,24 @@ from yacs.config import CfgNode as CN
 RUNPOD_VOLUME_PATH = Path("/runpod-volume")
 VOLUME_CACHE_DIR = RUNPOD_VOLUME_PATH / "4DHumans"
 
-# Default cache directory (what the code expects)
+# Default cache directory (what the code expects - where build-time models are saved)
 CACHE_DIR = os.path.join(os.environ.get("HOME"), ".cache")
 DEFAULT_CACHE_DIR_4DHUMANS = os.path.join(CACHE_DIR, "4DHumans")
 
-# Use volume if it exists, otherwise use default
-# Note: The handler.py creates a symlink, so this should work either way
-if RUNPOD_VOLUME_PATH.exists() and VOLUME_CACHE_DIR.exists():
-    # Volume is mounted and has cache directory
+# PRIORITY: Check if models exist in DEFAULT location first (from build-time download)
+# This is where models are baked into the Docker image
+BUILD_CACHE_DIR = Path(DEFAULT_CACHE_DIR_4DHUMANS)
+BUILD_CHECKPOINT = BUILD_CACHE_DIR / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"
+
+if BUILD_CHECKPOINT.exists():
+    # Models are in the image cache (from build-time download)
+    file_size_gb = BUILD_CHECKPOINT.stat().st_size / (1024**3)
+    if file_size_gb > 2.0:
+        CACHE_DIR_4DHUMANS = str(BUILD_CACHE_DIR)
+        print(f"[Config] ✓ Using build-time models from image cache: {CACHE_DIR_4DHUMANS}")
+        print(f"[Config]   Checkpoint found: {file_size_gb:.2f} GB")
+elif RUNPOD_VOLUME_PATH.exists() and VOLUME_CACHE_DIR.exists():
+    # Volume is mounted and has cache directory (for runtime caching)
     CACHE_DIR_4DHUMANS = str(VOLUME_CACHE_DIR)
     print(f"[Config] Using RunPod Network Volume cache: {CACHE_DIR_4DHUMANS}")
 else:

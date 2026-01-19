@@ -368,11 +368,24 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
     # (Python treats it as local if imported later in the function)
     from ..configs import CACHE_DIR_4DHUMANS as _CACHE_DIR
     
-    # Check if RunPod volume exists and has models
+    # PRIORITY 1: Check if models exist in DEFAULT location (from build-time download in image)
+    DEFAULT_CACHE = Path(os.path.join(os.environ.get("HOME"), ".cache", "4DHumans"))
+    default_checkpoint = DEFAULT_CACHE / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"
+    
+    if default_checkpoint.exists():
+        file_size_gb = default_checkpoint.stat().st_size / (1024**3)
+        if file_size_gb > 2.0:
+            print(f"[DEBUG download_models] ✓ Found checkpoint in image cache (from build): {default_checkpoint} ({file_size_gb:.2f} GB)")
+            print(f"[DEBUG download_models]   Using build-time models (baked into image)")
+            folder = str(DEFAULT_CACHE)
+            _CACHE_DIR = folder
+            print(f"[DEBUG download_models]   Updated folder to: {folder}")
+    
+    # PRIORITY 2: Check if RunPod volume exists and has models (for runtime caching)
     RUNPOD_VOLUME_PATH = Path("/runpod-volume")
     VOLUME_CACHE_DIR = RUNPOD_VOLUME_PATH / "4DHumans"
     
-    if RUNPOD_VOLUME_PATH.exists():
+    if RUNPOD_VOLUME_PATH.exists() and folder == _CACHE_DIR:  # Only check volume if we didn't find build-time models
         print(f"[DEBUG download_models] RunPod Network Volume detected at {RUNPOD_VOLUME_PATH}")
         # Check if volume has cached models
         volume_checkpoint = VOLUME_CACHE_DIR / "logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt"
