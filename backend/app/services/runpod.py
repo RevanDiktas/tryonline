@@ -45,20 +45,41 @@ class RunPodService:
             }
         }
         
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/run",
-                json=payload,
-                headers=self._get_headers(),
-                timeout=30.0
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("id")
-            else:
-                print(f"RunPod submit error: {response.status_code} - {response.text}")
-                return None
+        url = f"{self.base_url}/run"
+        print(f"[RunPod] Submitting job to: {url}")
+        print(f"[RunPod] Payload: {payload}")
+        print(f"[RunPod] Headers: Authorization={'SET' if self.api_key else 'NOT SET'}")
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    json=payload,
+                    headers=self._get_headers(),
+                    timeout=30.0
+                )
+                
+                print(f"[RunPod] Response status: {response.status_code}")
+                print(f"[RunPod] Response body: {response.text[:500]}")
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    job_id = data.get("id")
+                    if job_id:
+                        print(f"[RunPod] ✅ Job submitted successfully: {job_id}")
+                        return job_id
+                    else:
+                        print(f"[RunPod] ⚠️  Response missing 'id' field: {data}")
+                        return None
+                else:
+                    print(f"[RunPod] ❌ Submit error: {response.status_code}")
+                    print(f"[RunPod] Response: {response.text}")
+                    return None
+        except Exception as e:
+            print(f"[RunPod] ❌ Exception submitting job: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
     
     async def get_job_status(self, job_id: str) -> Dict[str, Any]:
         """
@@ -179,10 +200,22 @@ class MockRunPodService:
 
 # Use mock service if RunPod not configured
 def get_runpod_service():
-    if settings.runpod_api_key and settings.runpod_endpoint_id:
-        return RunPodService()
+    api_key = settings.runpod_api_key
+    endpoint_id = settings.runpod_endpoint_id
+    
+    print(f"[RunPod Service] Initializing...")
+    print(f"[RunPod Service] API Key: {'SET' if api_key else 'NOT SET (using mock)'}")
+    print(f"[RunPod Service] Endpoint ID: {endpoint_id if endpoint_id else 'NOT SET (using mock)'}")
+    
+    if api_key and endpoint_id:
+        service = RunPodService()
+        print(f"[RunPod Service] ✅ Using real RunPod service")
+        print(f"[RunPod Service] Base URL: {service.base_url}")
+        return service
     else:
-        print("⚠️  RunPod not configured, using mock service")
+        print("[RunPod Service] ⚠️  RunPod not configured - using MOCK service")
+        print("[RunPod Service] ⚠️  Jobs will NOT be submitted to RunPod!")
+        print("[RunPod Service] ⚠️  Set RUNPOD_API_KEY and RUNPOD_ENDPOINT_ID environment variables")
         return MockRunPodService()
 
 
