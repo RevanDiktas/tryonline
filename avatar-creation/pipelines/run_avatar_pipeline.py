@@ -371,6 +371,24 @@ def step3_extract_measurements(
             return None
         
         print(f"  ✓ SMPL model verified: {expected_smpl_path.resolve()} exists")
+        
+        # Copy required face segmentation file if it doesn't exist
+        face_seg_file = Path("data") / "smpl" / "smpl_body_parts_2_faces.json"
+        if not face_seg_file.exists():
+            print(f"  Face segmentation file missing, copying from measurements package...")
+            measurements_dir = PROJECT_ROOT.parent / "avatar-creation-measurements"
+            source_file = measurements_dir / "data" / "smpl" / "smpl_body_parts_2_faces.json"
+            
+            if source_file.exists():
+                import shutil
+                # Ensure directory exists
+                face_seg_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_file, face_seg_file)
+                print(f"  ✓ Copied face segmentation file to: {face_seg_file.resolve()}")
+            else:
+                print(f"  [WARNING] Source file not found: {source_file}")
+                print(f"  [WARNING] Measurements may fail without this file")
+        
         print("  Creating SMPL measurer...")
         measurer = MeasureBody("smpl")
         

@@ -18,7 +18,11 @@ def load_face_segmentation(path: str):
             with open(path, 'r') as f:
                 face_segmentation = json.load(f)
         except FileNotFoundError:
-            sys.exit(f"No such file - {path}")
+            # Don't use sys.exit() - it crashes the whole process
+            # Instead, raise an exception that can be caught
+            raise FileNotFoundError(f"Face segmentation file not found: {path}. "
+                                  f"This file is required for measurement extraction. "
+                                  f"Please ensure it exists at: {path}")
 
         return face_segmentation
 
