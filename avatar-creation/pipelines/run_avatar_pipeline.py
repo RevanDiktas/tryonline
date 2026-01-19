@@ -53,7 +53,9 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "4D-Humans-clean"))
-sys.path.insert(0, str(PROJECT_ROOT.parent / "avatar-creation-measurements"))
+# Try both possible locations for avatar-creation-measurements
+sys.path.insert(0, str(PROJECT_ROOT / "avatar-creation-measurements"))  # /workspace/avatar-creation-measurements
+sys.path.insert(0, str(PROJECT_ROOT.parent / "avatar-creation-measurements"))  # /avatar-creation-measurements (fallback)
 
 # Import cache directory constant
 try:
@@ -376,18 +378,35 @@ def step3_extract_measurements(
         face_seg_file = Path("data") / "smpl" / "smpl_body_parts_2_faces.json"
         if not face_seg_file.exists():
             print(f"  Face segmentation file missing, copying from measurements package...")
-            measurements_dir = PROJECT_ROOT.parent / "avatar-creation-measurements"
-            source_file = measurements_dir / "data" / "smpl" / "smpl_body_parts_2_faces.json"
+            # Try multiple possible locations for the measurements package
+            possible_dirs = [
+                PROJECT_ROOT / "avatar-creation-measurements",  # /workspace/avatar-creation-measurements
+                PROJECT_ROOT.parent / "avatar-creation-measurements",  # /avatar-creation-measurements (fallback)
+                Path("/workspace/avatar-creation-measurements"),  # Explicit workspace path
+            ]
             
-            if source_file.exists():
+            source_file = None
+            for measurements_dir in possible_dirs:
+                candidate = measurements_dir / "data" / "smpl" / "smpl_body_parts_2_faces.json"
+                print(f"  [DEBUG] Checking: {candidate} (exists: {candidate.exists()})")
+                if candidate.exists():
+                    source_file = candidate
+                    print(f"  ✓ Found source file at: {source_file}")
+                    break
+            
+            if source_file and source_file.exists():
                 import shutil
                 # Ensure directory exists
                 face_seg_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_file, face_seg_file)
                 print(f"  ✓ Copied face segmentation file to: {face_seg_file.resolve()}")
             else:
-                print(f"  [WARNING] Source file not found: {source_file}")
-                print(f"  [WARNING] Measurements may fail without this file")
+                print(f"  [ERROR] Source file not found in any of these locations:")
+                for measurements_dir in possible_dirs:
+                    candidate = measurements_dir / "data" / "smpl" / "smpl_body_parts_2_faces.json"
+                    print(f"    - {candidate}")
+                print(f"  [ERROR] Measurements will fail without this file")
+                raise FileNotFoundError(f"Could not find smpl_body_parts_2_faces.json in any expected location")
         
         print("  Creating SMPL measurer...")
         measurer = MeasureBody("smpl")
