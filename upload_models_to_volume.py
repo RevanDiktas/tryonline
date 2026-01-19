@@ -68,20 +68,42 @@ REQUIRED_FILES = {
 }
 
 def get_s3_client():
-    """Create S3 client using RunPod API key"""
-    RUNPOD_API_KEY = os.environ.get("RUNPOD_API_KEY")
-    if not RUNPOD_API_KEY:
-        print("❌ ERROR: RUNPOD_API_KEY environment variable not set!")
-        print("   Set it with: export RUNPOD_API_KEY='your-api-key'")
+    """Create S3 client using RunPod S3 API credentials"""
+    # RunPod S3 API requires:
+    # - AWS_ACCESS_KEY_ID = Your RunPod User ID (e.g., user_XXXXX)
+    # - AWS_SECRET_ACCESS_KEY = S3 API Key Secret (generated in Settings > S3 API Keys)
+    
+    AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("RUNPOD_USER_ID")
+    AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("RUNPOD_S3_SECRET")
+    
+    if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
+        print("❌ ERROR: S3 API credentials not set!")
+        print()
+        print("RunPod S3 API requires SEPARATE credentials from REST API:")
+        print("1. Go to: https://www.runpod.io/console/user/settings")
+        print("2. Find 'S3 API Keys' section")
+        print("3. Generate new S3 API key (or use existing)")
+        print("4. Get your User ID (usually shown as 'user_XXXXX')")
+        print()
+        print("Then set these environment variables:")
+        print("   export AWS_ACCESS_KEY_ID='your-user-id'  # e.g., user_XXXXX")
+        print("   export AWS_SECRET_ACCESS_KEY='your-s3-api-secret'")
+        print()
+        print("OR use these variable names:")
+        print("   export RUNPOD_USER_ID='your-user-id'")
+        print("   export RUNPOD_S3_SECRET='your-s3-api-secret'")
         sys.exit(1)
     
     s3_client = boto3.client(
         's3',
         endpoint_url=ENDPOINT_URL,
         region_name=REGION,
-        aws_access_key_id=RUNPOD_API_KEY,
-        aws_secret_access_key=RUNPOD_API_KEY,
-        config=Config(signature_version='s3v4')
+        aws_access_key_id=AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+        config=Config(
+            signature_version='s3v4',
+            s3={'addressing_style': 'path'}  # Use path-style addressing
+        )
     )
     return s3_client
 
@@ -129,21 +151,44 @@ def upload_file(s3_client, local_path, s3_key, description, expected_size_mb):
     print(f"   To: s3://{BUCKET_NAME}/{s3_key}")
     
     try:
-        # Upload with progress callback
-        def progress_callback(bytes_transferred):
-            if bytes_transferred % (100 * 1024 * 1024) == 0:  # Every 100MB
-                mb_transferred = bytes_transferred / (1024 * 1024)
-                percent = (bytes_transferred / local_path.stat().st_size) * 100
-                print(f"   Progress: {mb_transferred:.1f}MB / {file_size_mb:.1f}MB ({percent:.1f}%)")
+        # Upload with optimized settings for speed
+        # Use larger multipart chunk size (64MB instead of default 8MB) for faster uploads
+        from boto3.s3.transfer import TransferConfig
         
-        # Use upload_fileobj for better progress tracking on large files
-        with open(local_path, 'rb') as f:
-            s3_client.upload_fileobj(
-                f,
-                BUCKET_NAME,
-                s3_key,
-                Callback=progress_callback
-            )
+        config = TransferConfig(
+            multipart_threshold=1024 * 25,  # Use multipart for files > 25MB
+            multipart_chunksize=1024 * 1024 * 64,  # 64MB chunks (larger = faster)
+            max_concurrency=10,  # Upload 10 parts concurrently
+            use_threads=True
+        )
+        
+        # Progress callback
+        class ProgressTracker:
+            def __init__(self, total_size):
+                self.total_size = total_size
+                self.transferred = 0
+                self.last_reported = 0
+            
+            def __call__(self, bytes_transferred):
+                self.transferred = bytes_transferred
+                # Report every 200MB or at completion
+                if bytes_transferred - self.last_reported >= 200 * 1024 * 1024 or bytes_transferred == self.total_size:
+                    mb_transferred = bytes_transferred / (1024 * 1024)
+                    mb_total = self.total_size / (1024 * 1024)
+                    percent = (bytes_transferred / self.total_size) * 100
+                    print(f"   Progress: {mb_transferred:.1f}MB / {mb_total:.1f}MB ({percent:.1f}%)")
+                    self.last_reported = bytes_transferred
+        
+        progress = ProgressTracker(local_path.stat().st_size)
+        
+        # Use upload_file with optimized config for better performance
+        s3_client.upload_file(
+            str(local_path),
+            BUCKET_NAME,
+            s3_key,
+            Config=config,
+            Callback=progress
+        )
         
         print(f"✅ {description} uploaded successfully!")
         return True
