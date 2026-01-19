@@ -353,38 +353,24 @@ def step3_extract_measurements(
         return None
     
     try:
-        # Create a temporary "data" symlink in current directory if it doesn't exist
-        temp_data_link = Path(original_cwd) / "data"
+        # MeasureSMPL expects "data/smpl" relative to current working directory
+        # Best strategy: Change working directory to cache directory parent (/root/.cache/4DHumans)
+        # so that "data/smpl" relative path points directly to the actual cache data
+        cache_dir = Path(CACHE_DIR_4DHUMANS)  # /root/.cache/4DHumans
         
-        # Remove existing symlink or directory if it exists and is wrong
-        if temp_data_link.exists():
-            if temp_data_link.is_symlink():
-                # Check if it points to the right place
-                if temp_data_link.resolve() != cache_data_dir.resolve():
-                    print(f"  Removing existing symlink pointing to wrong location")
-                    temp_data_link.unlink()
-                    created_symlink = True
-                else:
-                    print(f"  Using existing symlink: {temp_data_link} -> {temp_data_link.resolve()}")
-                    created_symlink = False
-            else:
-                # It's a directory, not a symlink - we can't use it
-                print(f"  [WARNING] 'data' exists as a directory, not a symlink. Cannot proceed.")
-                return None
-        else:
-            # Create new symlink
-            print(f"  Creating symlink: {temp_data_link} -> {cache_data_dir}")
-            temp_data_link.symlink_to(cache_data_dir, target_is_directory=True)
-            created_symlink = True
+        # Change working directory to cache directory so "data" relative path works directly
+        os.chdir(str(cache_dir))
+        print(f"  Changed working directory to: {os.getcwd()}")
+        print(f"  Now 'data/smpl' will resolve to: {Path('data/smpl').resolve()}")
         
-        # Verify symlink works
-        expected_smpl_path = temp_data_link / "smpl" / "SMPL_NEUTRAL.pkl"
+        # Verify the path works
+        expected_smpl_path = Path("data") / "smpl" / "SMPL_NEUTRAL.pkl"
         if not expected_smpl_path.exists():
-            print(f"  [ERROR] Symlink created but path not accessible: {expected_smpl_path}")
-            print(f"  Resolved symlink target: {temp_data_link.resolve()}")
+            print(f"  [ERROR] SMPL model not accessible at: {expected_smpl_path.resolve()}")
+            print(f"  Expected absolute path: {cache_data_dir / 'smpl' / 'SMPL_NEUTRAL.pkl'}")
             return None
         
-        print(f"  ✓ Symlink verified: {expected_smpl_path} exists")
+        print(f"  ✓ SMPL model verified: {expected_smpl_path.resolve()} exists")
         print("  Creating SMPL measurer...")
         measurer = MeasureBody("smpl")
         
@@ -412,14 +398,12 @@ def step3_extract_measurements(
         return measurements
         
     finally:
-        # Clean up symlink if we created it
-        if 'created_symlink' in locals() and created_symlink:
-            try:
-                if temp_data_link.exists() and temp_data_link.is_symlink():
-                    temp_data_link.unlink()
-                    print(f"  Cleaned up temporary symlink")
-            except Exception as e:
-                print(f"  [WARNING] Could not clean up symlink: {e}")
+        # Restore original working directory
+        try:
+            os.chdir(str(original_cwd))
+            print(f"  Restored working directory to: {original_cwd}")
+        except Exception as e:
+            print(f"  [WARNING] Could not restore working directory: {e}")
 
 
 def step4_create_apose(
@@ -791,6 +775,20 @@ def run_pipeline(
     # smplx.create expects a directory containing a 'smpl' subfolder
     smpl_model_path = Path(CACHE_DIR_4DHUMANS) / "data"
     measurements_dir = PROJECT_ROOT.parent / "avatar-creation-measurements"
+    
+    # Volume diagnostics: Check if models are cached (volume working)
+    cache_checkpoint = Path(CACHE_DIR_4DHUMANS) / "logs" / "train" / "multiruns" / "hmr2" / "0" / "checkpoints" / "epoch=35-step=1000000.ckpt"
+    cache_smpl = Path(CACHE_DIR_4DHUMANS) / "data" / "smpl" / "SMPL_NEUTRAL.pkl"
+    print(f"\n[Volume Diagnostics]")
+    print(f"  Cache directory: {CACHE_DIR_4DHUMANS}")
+    print(f"  Checkpoint exists: {cache_checkpoint.exists()} ({cache_checkpoint.stat().st_size / (1024**3):.2f} GB)" if cache_checkpoint.exists() else f"  Checkpoint exists: False")
+    print(f"  SMPL model exists: {cache_smpl.exists()}")
+    if not cache_checkpoint.exists() or not cache_smpl.exists():
+        print(f"  [NOTE] Models not found in cache. They will be downloaded (~2.5GB, 5-15 min).")
+        print(f"  [NOTE] If volume is mounted, models should persist for subsequent jobs.")
+        print(f"  [NOTE] Verify RunPod volume is mounted at: {CACHE_DIR_4DHUMANS}")
+    else:
+        print(f"  ✓ Models found in cache - volume appears to be working!")
     
     # Verify paths exist
     if not four_d_humans_dir.exists():
