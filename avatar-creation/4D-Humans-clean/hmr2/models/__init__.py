@@ -1121,6 +1121,30 @@ def check_smpl_exists():
         os.path.join(cache_dir, "data", "basicmodel_m_lbs_10_207_0_v1.0.0.pkl"),
         os.path.join(cache_dir, "data", "basicModel_m_lbs_10_207_0_v1.0.0.pkl"),
     ]
+    # Also check temp folders where files might have been downloaded
+    checkpoint_dir = os.path.join(cache_dir, "logs/train/multiruns/hmr2/0/checkpoints")
+    if os.path.exists(checkpoint_dir):
+        for temp_dir_name in os.listdir(checkpoint_dir):
+            if "temp_gdrive_folder" in temp_dir_name:
+                temp_dir = os.path.join(checkpoint_dir, temp_dir_name)
+                if os.path.isdir(temp_dir):
+                    # Search for basicmodel_m files in temp folder
+                    for root, dirs, files in os.walk(temp_dir):
+                        for f in files:
+                            if ("basicmodel_m" in f.lower() or "male" in f.lower()) and f.endswith(".pkl"):
+                                temp_file = os.path.join(root, f)
+                                # Move to data directory if not already there
+                                data_file = os.path.join(cache_dir, "data", f)
+                                if not os.path.exists(data_file):
+                                    os.makedirs(os.path.dirname(data_file), exist_ok=True)
+                                    try:
+                                        shutil.move(temp_file, data_file)
+                                        print(f"[DEBUG check_smpl_exists] ✅ Moved MALE model from temp folder: {data_file}")
+                                    except Exception as e:
+                                        print(f"[DEBUG check_smpl_exists] ⚠️  Could not move MALE model: {e}")
+                                male_sources.insert(0, data_file)  # Prioritize moved file
+                                break
+    
     if not os.path.exists(male_target):
         for source in male_sources:
             if os.path.exists(source):
@@ -1136,6 +1160,30 @@ def check_smpl_exists():
         os.path.join(cache_dir, "data", "basicmodel_f_lbs_10_207_0_v1.0.0.pkl"),
         os.path.join(cache_dir, "data", "basicModel_f_lbs_10_207_0_v1.0.0.pkl"),
     ]
+    # Also check temp folders where files might have been downloaded
+    checkpoint_dir = os.path.join(cache_dir, "logs/train/multiruns/hmr2/0/checkpoints")
+    if os.path.exists(checkpoint_dir):
+        for temp_dir_name in os.listdir(checkpoint_dir):
+            if "temp_gdrive_folder" in temp_dir_name:
+                temp_dir = os.path.join(checkpoint_dir, temp_dir_name)
+                if os.path.isdir(temp_dir):
+                    # Search for basicmodel_f files in temp folder
+                    for root, dirs, files in os.walk(temp_dir):
+                        for f in files:
+                            if ("basicmodel_f" in f.lower() or "female" in f.lower()) and f.endswith(".pkl"):
+                                temp_file = os.path.join(root, f)
+                                # Move to data directory if not already there
+                                data_file = os.path.join(cache_dir, "data", f)
+                                if not os.path.exists(data_file):
+                                    os.makedirs(os.path.dirname(data_file), exist_ok=True)
+                                    try:
+                                        shutil.move(temp_file, data_file)
+                                        print(f"[DEBUG check_smpl_exists] ✅ Moved FEMALE model from temp folder: {data_file}")
+                                    except Exception as e:
+                                        print(f"[DEBUG check_smpl_exists] ⚠️  Could not move FEMALE model: {e}")
+                                female_sources.insert(0, data_file)  # Prioritize moved file
+                                break
+    
     if not os.path.exists(female_target):
         for source in female_sources:
             if os.path.exists(source):
