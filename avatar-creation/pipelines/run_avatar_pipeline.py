@@ -7,9 +7,10 @@ Complete pipeline for avatar creation from body photo:
 1. 4D-Humans: Extract SMPL parameters from body image
 2. T-Pose: Generate T-pose mesh for measurements
 3. SMPL-Anthropometry: Extract body measurements
-4. A-Pose: Generate A-pose mesh for visualization
+4. A-Pose: Generate A-pose mesh for visualization (meters)
+4b. Scale for CLO 3D: Convert to mm for garment compatibility
 5. Skin Extraction: Extract skin color from body image
-6. Texture Mapping: Apply skin to avatar and export GLB
+6. Texture Mapping: Apply skin to scaled avatar and export GLB
 
 Usage:
     python run_avatar_pipeline.py --image body.jpg --height 175 --gender male --output ./output
@@ -51,6 +52,7 @@ from typing import Dict, Optional, Tuple
 # Add parent directories to path for imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = SCRIPT_DIR.parent
+sys.path.insert(0, str(SCRIPT_DIR))  # pipelines/ for scale_avatar_for_clo3d
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "4D-Humans-clean"))
 # Try both possible locations for avatar-creation-measurements
@@ -563,6 +565,36 @@ def step4_create_apose(
     return output_path
 
 
+def step4b_scale_for_clo3d(
+    input_path: Path,
+    output_path: Path,
+    target_height_cm: float
+) -> Optional[Path]:
+    """
+    Step 4b: Scale avatar from meters to mm for CLO 3D / garment compatibility.
+    Garments from CLO 3D are in mm; avatar must match for correct viewer sizing.
+    """
+    log_step(4, "Scale for CLO 3D (meters → mm)")
+    
+    try:
+        from scale_avatar_for_clo3d import scale_avatar_for_clo3d
+    except ImportError:
+        print("  [ERROR] scale_avatar_for_clo3d module not found")
+        return None
+    
+    result = scale_avatar_for_clo3d(
+        str(input_path),
+        str(output_path),
+        target_height_cm=target_height_cm
+    )
+    if not result:
+        return None
+    
+    print(f"  [OK] Scaled to {result.get('scaled_height_mm', 0):.0f} mm")
+    log_step(4, "Scale for CLO 3D", "done")
+    return output_path
+
+
 def step5_extract_skin(
     body_image_path: Path,
     output_dir: Path
@@ -983,15 +1015,22 @@ def run_pipeline(
         results["outputs"]["measurements"] = str(measurements_path)
         results["measurements"] = measurements
         
-        # Step 4: A-pose for visualization
+        # Step 4: A-pose for visualization (meters)
         apose_path = output_dir / "body_apose.obj"
         apose_result = step4_create_apose(params_path, apose_path, smpl_model_path)
         if not apose_result:
             results["error"] = "Step 4 failed: A-pose generation"
             return results
-        
-        results["outputs"]["apose_mesh"] = str(apose_path)
-        
+
+        # Step 4b: Scale for CLO 3D (meters → mm) so avatar matches garment coordinate system
+        apose_clo3d_path = output_dir / "body_apose_clo3d.obj"
+        scale_result = step4b_scale_for_clo3d(apose_path, apose_clo3d_path, height_cm)
+        if not scale_result:
+            results["error"] = "Step 4b failed: Scale for CLO 3D"
+            return results
+
+        results["outputs"]["apose_mesh"] = str(apose_clo3d_path)
+
         # Step 5: Extract skin from body image
         skin_result = step5_extract_skin(image_path, output_dir)
         if not skin_result:
@@ -1002,9 +1041,9 @@ def run_pipeline(
         
         results["outputs"]["skin_texture"] = str(output_dir / "skin_texture.png")
         
-        # Step 6: Create textured GLB
+        # Step 6: Create textured GLB (from CLO-scaled mesh for correct viewer sizing)
         glb_path = output_dir / "avatar_textured.glb"
-        glb_result = step6_create_textured_glb(apose_path, skin_color, glb_path)
+        glb_result = step6_create_textured_glb(apose_clo3d_path, skin_color, glb_path)
         if not glb_result:
             results["error"] = "Step 6 failed: GLB export"
             return results
