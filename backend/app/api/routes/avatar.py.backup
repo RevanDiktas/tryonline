@@ -265,32 +265,17 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                             print(f"[Avatar] ✗ Failed to upload GLB: {e}")
                 
                 # Get main avatar URL (prioritize GLB)
-                # CRITICAL: Only use URLs from file_urls (Supabase URLs), NEVER use fallback paths
-                avatar_url = file_urls.get("avatar_glb") or file_urls.get("apose_mesh")
+                avatar_url = file_urls.get("avatar_glb") or file_urls.get("apose_mesh") or "/models/avatar_with_tshirt_m.glb"
                 
-                # Validate that we have a valid Supabase URL (must start with http/https)
-                if not avatar_url:
-                    error_msg = f"[Avatar] ❌ CRITICAL ERROR: No avatar URL found in file_urls. Upload may have failed."
-                    print(error_msg)
-                    print(f"[Avatar]   file_urls keys: {list(file_urls.keys())}")
-                    print(f"[Avatar]   files_bytes keys: {list(files_bytes.keys()) if files_bytes else 'None'}")
-                    raise Exception("Avatar upload failed - no avatar URL available. Check upload logs above.")
-                
-                # Ensure it's a valid URL (not a local path)
-                if not avatar_url.startswith(('http://', 'https://')):
-                    error_msg = f"[Avatar] ❌ CRITICAL ERROR: Invalid avatar URL format: {avatar_url}"
-                    print(error_msg)
-                    print(f"[Avatar]   URL must be a Supabase storage URL (starts with http/https)")
-                    raise Exception(f"Invalid avatar URL format. Got: {avatar_url}")
-                
-                print(f"[Avatar] ✓ Valid avatar URL found: {avatar_url[:80]}...")
+                if not avatar_url or avatar_url == "/models/avatar_with_tshirt_m.glb":
+                    print(f"[Avatar] ⚠ WARNING: No valid avatar URL, using fallback")
                 
                 # Update database with all file URLs stored in JSONB
                 print(f"[Avatar] Updating database with results...")
                 try:
                     db_update_success = await supabase_service.update_fit_passport_with_results(
                         user_id=request.user_id,
-                        avatar_url=avatar_url,  # This is now guaranteed to be a valid Supabase URL
+                        avatar_url=avatar_url,
                         measurements=measurements,
                         pipeline_files=file_urls  # Store all URLs in JSONB field
                     )

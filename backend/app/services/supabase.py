@@ -60,28 +60,43 @@ class SupabaseService:
         self,
         user_id: str,
         avatar_url: str,
-        measurements: Dict[str, int],
+        measurements: Dict[str, Any],  # Accept both int and float
         thumbnail_url: Optional[str] = None,
         pipeline_files: Optional[Dict[str, str]] = None
     ) -> bool:
-        """Update fit passport with avatar and measurements"""
+        """Update fit passport with avatar and measurements
+        
+        CRITICAL: All measurements MUST be integers (database columns are INTEGER type)
+        """
+        def to_int(value):
+            """Convert value to integer, return None if invalid"""
+            if value is None:
+                return None
+            try:
+                return int(round(float(value)))
+            except (ValueError, TypeError):
+                return None
+        
         update_data = {
             "avatar_url": avatar_url,
             "avatar_thumbnail_url": thumbnail_url,
             "status": "completed",
             "processing_completed_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
-            # Measurements
-            "chest": measurements.get("chest"),
-            "waist": measurements.get("waist"),
-            "hips": measurements.get("hips"),
-            "inseam": measurements.get("inseam"),
-            "shoulder_width": measurements.get("shoulder_width"),
-            "arm_length": measurements.get("arm_length"),
-            "neck": measurements.get("neck"),
-            "thigh": measurements.get("thigh"),
-            "torso_length": measurements.get("torso_length"),
+            # Measurements - convert all to integers
+            "chest": to_int(measurements.get("chest")),
+            "waist": to_int(measurements.get("waist")),
+            "hips": to_int(measurements.get("hips")),
+            "inseam": to_int(measurements.get("inseam")),
+            "shoulder_width": to_int(measurements.get("shoulder_width")),
+            "arm_length": to_int(measurements.get("arm_length")),
+            "neck": to_int(measurements.get("neck")),
+            "thigh": to_int(measurements.get("thigh")),
+            "torso_length": to_int(measurements.get("torso_length")),
         }
+        
+        # Remove None values
+        update_data = {k: v for k, v in update_data.items() if v is not None}
         
         # Store all pipeline file URLs in JSONB field (if column exists)
         if pipeline_files:
@@ -95,13 +110,28 @@ class SupabaseService:
     async def update_measurements(
         self,
         user_id: str,
-        measurements: Dict[str, int]
+        measurements: Dict[str, Any]  # Accept both int and float
     ) -> bool:
-        """Update only measurements (user-corrected)"""
-        update_data = {
-            "updated_at": datetime.utcnow().isoformat(),
-            **measurements
-        }
+        """Update only measurements (user-corrected)
+        
+        CRITICAL: All measurements MUST be integers (database columns are INTEGER type)
+        """
+        def to_int(value):
+            """Convert value to integer, return None if invalid"""
+            if value is None:
+                return None
+            try:
+                return int(round(float(value)))
+            except (ValueError, TypeError):
+                return None
+        
+        update_data = {"updated_at": datetime.utcnow().isoformat()}
+        
+        # Convert all measurements to integers
+        for key, value in measurements.items():
+            int_value = to_int(value)
+            if int_value is not None:
+                update_data[key] = int_value
         
         response = self.client.table("fit_passports").update(update_data).eq("user_id", user_id).execute()
         return len(response.data) > 0
