@@ -397,16 +397,26 @@ async def get_avatar_status(job_id: str):
 @router.get("/{user_id}", response_model=AvatarResponse)
 async def get_avatar(user_id: str):
     """
-    Get user's avatar and measurements
+    Get user's avatar and measurements.
+    ALWAYS returns avatar_textured.glb URL — canonical path from Supabase storage.
+    Never returns OBJ; widget must load GLB for correct scale (mm) + texture.
     """
     fit_passport = await supabase_service.get_fit_passport(user_id)
     
     if not fit_passport:
         raise HTTPException(status_code=404, detail="Avatar not found")
     
+    # Canonical GLB URL — avatars/{user_id}/avatar_textured.glb in storage
+    # Bypasses DB confusion; RunPod pipeline always outputs this file
+    from app.config import get_settings
+    _s = get_settings()
+    base = _s.supabase_url.rstrip("/")
+    bucket = getattr(_s, "avatars_bucket", "avatars")
+    avatar_url = f"{base}/storage/v1/object/public/{bucket}/{user_id}/avatar_textured.glb"
+    
     return AvatarResponse(
         user_id=user_id,
-        avatar_url=fit_passport.get("avatar_url"),
+        avatar_url=avatar_url,
         avatar_thumbnail_url=fit_passport.get("avatar_thumbnail_url"),
         measurements=Measurements(
             height=fit_passport.get("height", 0),

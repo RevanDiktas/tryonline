@@ -26,6 +26,7 @@ python-dotenv>=1.0.0
 
 # Utilities
 python-dateutil>=2.8.0
+PyJWT>=2.8.0
 
 # RunPod SDK
 runpod>=1.6.0

@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.config import get_settings
-from app.api.routes import avatar, measurements, events, health
+from app.api.routes import avatar, measurements, events, health, webhooks, analytics, products, addresses, checkout_profile
 
 
 settings = get_settings()
@@ -49,6 +49,11 @@ app.include_router(health.router, tags=["Health"])
 app.include_router(avatar.router, prefix="/api/avatar", tags=["Avatar"])
 app.include_router(measurements.router, prefix="/api/measurements", tags=["Measurements"])
 app.include_router(events.router, prefix="/api/events", tags=["Events"])
+app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(products.router, prefix="/api/products", tags=["Products"])
+app.include_router(addresses.router, prefix="/api/addresses", tags=["Addresses"])
+app.include_router(checkout_profile.router, prefix="/api/checkout-profile", tags=["Checkout Profile"])
 
 
 @app.get("/")

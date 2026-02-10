@@ -59,6 +59,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "4D-Humans-clean"))
 sys.path.insert(0, str(PROJECT_ROOT / "avatar-creation-measurements"))  # /workspace/avatar-creation-measurements
 sys.path.insert(0, str(PROJECT_ROOT.parent / "avatar-creation-measurements"))  # /avatar-creation-measurements (fallback)
 
+# CLO 3D default body height (cm) — garments are draped on this; avatar scaled to match for correct viewer fit
+CLO_DEFAULT_HEIGHT_CM = 180.0
+
 # Import cache directory constant
 try:
     from hmr2.configs import CACHE_DIR_4DHUMANS
@@ -1023,8 +1026,9 @@ def run_pipeline(
             return results
 
         # Step 4b: Scale for CLO 3D (meters → mm) so avatar matches garment coordinate system
+        # Use CLO default height so avatar matches demo garments (fit algo still uses user height)
         apose_clo3d_path = output_dir / "body_apose_clo3d.obj"
-        scale_result = step4b_scale_for_clo3d(apose_path, apose_clo3d_path, height_cm)
+        scale_result = step4b_scale_for_clo3d(apose_path, apose_clo3d_path, CLO_DEFAULT_HEIGHT_CM)
         if not scale_result:
             results["error"] = "Step 4b failed: Scale for CLO 3D"
             return results

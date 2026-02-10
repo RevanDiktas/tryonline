@@ -105,4 +105,5 @@ async def get_measurements(user_id: str):
         "neck": fit_passport.get("neck"),
         "thigh": fit_passport.get("thigh"),
         "torso_length": fit_passport.get("torso_length"),
+        "preferred_fit": fit_passport.get("preferred_fit"),
     }

@@ -3,7 +3,7 @@ Supabase service for database and storage operations
 """
 from supabase import create_client, Client
 from functools import lru_cache
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
 
 from app.config import get_settings
@@ -153,6 +153,111 @@ class SupabaseService:
         return response.data[0] if response.data else None
     
     # ==========================================
+    # USER ADDRESSES (Shopper Passport)
+    # ==========================================
+    
+    async def get_addresses(self, user_id: str) -> list:
+        """List all addresses for a user, default first."""
+        response = (
+            self.client.table("user_addresses")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("is_default", desc=True)
+            .order("created_at", desc=False)
+            .execute()
+        )
+        return list(response.data) if response.data else []
+
+    async def get_default_address(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get the default shipping address for a user, or the first address if none is default."""
+        addresses = await self.get_addresses(user_id)
+        if not addresses:
+            return None
+        default = next((a for a in addresses if a.get("is_default")), addresses[0])
+        return default
+    
+    async def create_address(
+        self,
+        user_id: str,
+        label: str,
+        name: str,
+        line1: str,
+        city: str,
+        postal_code: str,
+        country: str,
+        line2: Optional[str] = None,
+        state: Optional[str] = None,
+        is_default: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Create address. If is_default=True, unsets other defaults for this user."""
+        if is_default:
+            self.client.table("user_addresses").update({"is_default": False}).eq("user_id", user_id).execute()
+        row = {
+            "user_id": user_id,
+            "label": label,
+            "name": name,
+            "line1": line1,
+            "line2": line2 or None,
+            "city": city,
+            "state": state or None,
+            "postal_code": postal_code,
+            "country": country,
+            "is_default": is_default,
+        }
+        response = self.client.table("user_addresses").insert(row).execute()
+        return response.data[0] if response.data else None
+    
+    async def update_address(
+        self,
+        address_id: str,
+        user_id: str,
+        label: Optional[str] = None,
+        name: Optional[str] = None,
+        line1: Optional[str] = None,
+        line2: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        postal_code: Optional[str] = None,
+        country: Optional[str] = None,
+        is_default: Optional[bool] = None,
+    ) -> bool:
+        """Update address. Verifies user_id owns the address. If is_default=True, unsets others."""
+        # Verify ownership
+        check = self.client.table("user_addresses").select("id").eq("id", address_id).eq("user_id", user_id).execute()
+        if not check.data:
+            return False
+        update_data = {}
+        if label is not None:
+            update_data["label"] = label
+        if name is not None:
+            update_data["name"] = name
+        if line1 is not None:
+            update_data["line1"] = line1
+        if line2 is not None:
+            update_data["line2"] = line2
+        if city is not None:
+            update_data["city"] = city
+        if state is not None:
+            update_data["state"] = state
+        if postal_code is not None:
+            update_data["postal_code"] = postal_code
+        if country is not None:
+            update_data["country"] = country
+        if is_default is not None:
+            update_data["is_default"] = is_default
+            if is_default:
+                self.client.table("user_addresses").update({"is_default": False}).eq("user_id", user_id).execute()
+        if not update_data:
+            return True
+        response = self.client.table("user_addresses").update(update_data).eq("id", address_id).eq("user_id", user_id).execute()
+        return len(response.data) > 0
+    
+    async def delete_address(self, address_id: str, user_id: str) -> bool:
+        """Delete address. Verifies user_id owns the address."""
+        response = self.client.table("user_addresses").delete().eq("id", address_id).eq("user_id", user_id).execute()
+        return len(response.data) > 0
+    
+    # ==========================================
     # STORAGE OPERATIONS
     # ==========================================
     
@@ -254,30 +359,162 @@ class SupabaseService:
         return uploaded_urls
     
     # ==========================================
-    # ANALYTICS OPERATIONS
+    # ANALYTICS OPERATIONS (Category A schema)
     # ==========================================
-    
+
+    async def create_tryon_session(
+        self,
+        user_id: Optional[str] = None,
+        shop_domain: Optional[str] = None,
+        product_id: Optional[str] = None,
+        product_name: Optional[str] = None,
+        variant_id: Optional[str] = None,
+        brand_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Create try-on session, return session_id for attribution"""
+        import uuid
+        session_token = str(uuid.uuid4())
+        row = {
+            "session_token": session_token,
+            "user_id": user_id,
+            "shop_domain": shop_domain,
+            "product_id": product_id,
+            "product_name": product_name,
+            "variant_id": variant_id,
+            "action": "opened",
+        }
+        response = self.client.table("tryon_sessions").insert(row).execute()
+        if response.data and len(response.data) > 0:
+            session_id = response.data[0]["id"]
+            return {"session_id": str(session_id), "session_token": session_token}
+        return None
+
+    async def _get_preferred_fit(self, user_id: str) -> Optional[str]:
+        """Fetch preferred_fit from fit_passports when user_id present. Used for enrichment."""
+        try:
+            r = self.client.table("fit_passports").select("preferred_fit").eq("user_id", user_id).single().execute()
+            if r.data and r.data.get("preferred_fit"):
+                return str(r.data["preferred_fit"])
+        except Exception:
+            pass
+        return None
+
+    async def _get_user_region(self, user_id: str) -> Tuple[Optional[str], Optional[str]]:
+        """Get country and city for a user: from users table, else from default user_addresses. Returns (country, city)."""
+        try:
+            r = self.client.table("users").select("country, city").eq("id", user_id).single().execute()
+            if r.data:
+                uc, ucity = r.data.get("country"), r.data.get("city")
+                if uc or ucity:
+                    return (uc, ucity)
+        except Exception:
+            pass
+        try:
+            addr = await self.get_default_address(user_id)
+            if addr:
+                return (addr.get("country"), addr.get("city"))
+        except Exception:
+            pass
+        return (None, None)
+
+    def _resolve_brand_id(self, shop_domain: str) -> Optional[str]:
+        """Resolve brand_id from brands.shopify_domain. Returns brand id (str) or None."""
+        if not shop_domain or not shop_domain.strip():
+            return None
+        try:
+            r = self.client.table("brands").select("id").eq("shopify_domain", shop_domain.strip()).limit(1).execute()
+            if r.data and len(r.data) > 0:
+                return str(r.data[0]["id"])
+        except Exception:
+            pass
+        return None
+
     async def track_event(
         self,
-        user_id: str,
         event_type: str,
-        brand_id: Optional[str] = None,
-        garment_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         session_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        brand_id: Optional[str] = None,
+        shop_domain: Optional[str] = None,
+        product_id: Optional[str] = None,
+        variant_id: Optional[str] = None,
+        country: Optional[str] = None,
+        city: Optional[str] = None,
+        preferred_fit: Optional[str] = None,
+        event_data: Optional[Dict[str, Any]] = None,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
     ) -> Optional[str]:
-        """Track analytics event"""
-        event_data = {
-            "user_id": user_id,
+        """Track analytics event — aligned to analytics_events schema. Enriches preferred_fit, country/city (user profile), brand_id (shop_domain)."""
+        # Enrich preferred_fit from fit_passports when user_id present
+        if user_id:
+            db_preferred_fit = await self._get_preferred_fit(user_id)
+            preferred_fit = db_preferred_fit if db_preferred_fit is not None else preferred_fit
+        # Enrich country/city from user profile (users or default address) when user_id present and not already set
+        if user_id and (country is None or city is None):
+            region_country, region_city = await self._get_user_region(user_id)
+            if country is None and region_country:
+                country = region_country
+            if city is None and region_city:
+                city = region_city
+        # Resolve brand_id from shop_domain when not already set
+        if shop_domain and brand_id is None:
+            resolved_brand_id = self._resolve_brand_id(shop_domain)
+            if resolved_brand_id:
+                brand_id = resolved_brand_id
+        row = {
             "event_type": event_type,
-            "brand_id": brand_id,
-            "garment_id": garment_id,
+            "user_id": user_id,
             "session_id": session_id,
-            "metadata": metadata or {},
+            "brand_id": brand_id,
+            "shop_domain": shop_domain,
+            "product_id": product_id,
+            "variant_id": variant_id,
+            "country": country,
+            "city": city,
+            "preferred_fit": preferred_fit,
+            "event_data": event_data or {},
+            "user_agent": user_agent,
+            "ip_address": ip_address,
         }
-        
-        response = self.client.table("analytics_events").insert(event_data).execute()
-        return response.data[0]["id"] if response.data else None
+        # Drop None values so DB uses defaults
+        row = {k: v for k, v in row.items() if v is not None}
+        response = self.client.table("analytics_events").insert(row).execute()
+        return str(response.data[0]["id"]) if response.data else None
+
+    async def track_purchase(
+        self,
+        order_id: str,
+        session_id: Optional[str] = None,
+        shop_domain: Optional[str] = None,
+        amount: float = 0,
+        currency: str = "USD",
+        event_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """
+        Insert purchase event. Idempotent by order_id.
+        Returns event_id or None if duplicate (already processed).
+        """
+        payload = event_data or {}
+        payload["order_id"] = order_id
+        payload["amount"] = amount
+        payload["currency"] = currency
+
+        row = {
+            "event_type": "purchase",
+            "session_id": session_id,
+            "shop_domain": shop_domain,
+            "event_data": payload,
+        }
+        row = {k: v for k, v in row.items() if v is not None}
+
+        try:
+            response = self.client.table("analytics_events").insert(row).execute()
+            return str(response.data[0]["id"]) if response.data else None
+        except Exception as e:
+            if "duplicate" in str(e).lower() or "unique" in str(e).lower():
+                return None  # Idempotent: already processed
+            raise
 
 
 # Singleton instance

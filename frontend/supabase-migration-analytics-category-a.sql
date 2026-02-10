@@ -1,8 +1,14 @@
 -- =============================================
 -- Migration: Analytics Category A
 -- Run in Supabase SQL Editor
--- Adds columns to analytics_events, creates analytics_daily
 -- =============================================
+
+-- 0. OPTIONAL: Clear test data (run this first if you want a fresh start)
+-- Uncomment and run separately, or run the whole file
+/*
+DELETE FROM public.analytics_events;
+DELETE FROM public.tryon_sessions;
+*/
 
 -- 1. Add columns to analytics_events (Category A schema)
 ALTER TABLE public.analytics_events
@@ -43,3 +49,8 @@ CREATE INDEX IF NOT EXISTS idx_analytics_events_country ON public.analytics_even
 -- 4. Indexes for analytics_daily
 CREATE INDEX IF NOT EXISTS idx_analytics_daily_date ON public.analytics_daily(date);
 CREATE INDEX IF NOT EXISTS idx_analytics_daily_brand_id ON public.analytics_daily(brand_id);
+
+-- 5. Purchase idempotency: prevent duplicate purchase events per order
+CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_events_purchase_order_id
+  ON public.analytics_events ((event_data->>'order_id'))
+  WHERE event_type = 'purchase' AND event_data->>'order_id' IS NOT NULL;

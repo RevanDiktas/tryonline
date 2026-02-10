@@ -14,6 +14,33 @@
 
 ---
 
+## Widget Architecture — Variables, Not Constants
+
+**The widget is designed for many products and many people.** Current GLBs and avatars are **test data only**. At launch, these must be variables:
+
+| Variable | Source | How it's determined |
+|----------|--------|----------------------|
+| **Avatar** | Supabase (fit_passports, avatars) | `user_id` or `fit_passport_id` → correct avatar GLB for that shopper. Guest = default/placeholder avatar. |
+| **Garment GLBs** | Product → garment mapping (DB or config) | `product_id`, `variant_id` → correct garment GLB(s) for that product. |
+| **Measurements** | fit_passports or guest input | Drives size recommendation. Stored or passed per session. |
+
+**Implications for analytics:**
+- Never hardcode `product_id`, `variant_id`, `shop`, or `user_id`. They come from the page/context.
+- Every event must carry `product_id`, `variant_id`, `shop` so metrics are per-product and attributable.
+- Schema already supports this. Widget must receive these as URL params or config and pass them into every `trackEvent` call.
+
+**Current state:** `test-viewer.html` uses fixed NPC t-shirt GLBs and one avatar as a demo. That is the **UI/layout** we keep; the **data sources** (avatar URL, garment URLs, product context) become dynamic when we wire to live product pages and logged-in users.
+
+### Avatar + Garment Loading (Production)
+
+- **Storage:** Brand garments in Supabase `garments` bucket (one set per product, all sizes). User avatars per `fit_passport`.
+- **No combined files:** Avatar and garment are always separate GLBs. Mapping happens at runtime — no 10k × N × sizes stored.
+- **On widget open:** Fetch logged-in user avatar + product garments (all sizes). Preload all in parallel.
+- **Mapping:** Map all garment sizes onto avatar at open. Cache per size.
+- **Size switching:** Instant — swap from pre-mapped cache.
+
+---
+
 ## Category A — ROI & Attribution
 
 **Data points we use:** `session_id`, `event_type` (widget_opened, tryon_started, add_to_cart, purchase), `amount`, `currency`, `order_id`, `created_at`, `country`, `city`, `preferred_fit`.
