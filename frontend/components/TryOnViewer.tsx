@@ -6,6 +6,7 @@ import { OrbitControls, useGLTF, Environment, ContactShadows } from '@react-thre
 import { motion, AnimatePresence } from 'framer-motion'
 import * as THREE from 'three'
 import { Check, ChevronDown, Ruler, Sparkles, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
+import { recommendSize, type PreferredFit } from '@/lib/sizeRecommendation'
 
 // Types
 interface FitResult {
@@ -32,6 +33,14 @@ interface TryOnViewerProps {
   productName?: string
   onSizeSelect?: (size: string) => void
   onAddToCart?: (size: string) => void
+  /** Fired when try-on has loaded and is ready (for analytics: tryon_started) */
+  onTryonReady?: () => void
+  /** Fired when recommended size is determined (for analytics: size_recommended) */
+  onSizeRecommended?: (size: string) => void
+  /** Preferred fit — biases recommendation (slim = tighter, loose = roomier) */
+  preferredFit?: PreferredFit
+  /** Theme for viewer background — syncs with day/night mode */
+  theme?: 'light' | 'dark'
 }
 
 // Avatar Model Component
@@ -40,14 +49,9 @@ function AvatarModel({ url }: { url: string }) {
   const groupRef = useRef<THREE.Group>(null)
 
   useEffect(() => {
-    // Apply skin material
+    // Preserve texture — only set shadow; do NOT replace material
     scene.traverse((child) => {
       if (child instanceof THREE.Mesh) {
-        child.material = new THREE.MeshStandardMaterial({
-          color: new THREE.Color('#e8beac'),
-          roughness: 0.7,
-          metalness: 0.0,
-        })
         child.castShadow = true
         child.receiveShadow = true
       }
@@ -75,14 +79,11 @@ function GarmentModel({ url, bodyMaskEnabled = true }: { url: string; bodyMaskEn
   useEffect(() => {
     scene.traverse((child) => {
       if (child instanceof THREE.Mesh) {
-        // Enable proper rendering order for transparency
-        child.renderOrder = 1
         child.castShadow = true
-        
-        // Apply garment material
         if (child.material) {
-          const mat = child.material as THREE.MeshStandardMaterial
+          const mat = (child.material as THREE.MeshStandardMaterial).clone()
           mat.side = THREE.DoubleSide
+          child.material = mat
         }
       }
     })
@@ -299,15 +300,32 @@ export default function TryOnViewer({
   productName = 'Essential Cotton Tee',
   onSizeSelect,
   onAddToCart,
+  onTryonReady,
+  onSizeRecommended,
+  preferredFit = 'regular',
+  theme: themeProp,
 }: TryOnViewerProps) {
   const [selectedSize, setSelectedSize] = useState<string>('M')
+  const hasSetInitialSize = useRef(false)
   const [resetCamera, setResetCamera] = useState(0)
   const [showMeasurements, setShowMeasurements] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
-  // Calculate fit for each size
+  // Preload avatar + all garments when widget opens (instant size switching)
+  useEffect(() => {
+    const urls: string[] = []
+    if (avatarUrl) urls.push(avatarUrl)
+    if (garmentUrls) urls.push(...Object.values(garmentUrls).filter(Boolean))
+    urls.forEach((url) => useGLTF.preload(url))
+  }, [avatarUrl, garmentUrls])
+
+  // Calculate fit for each size (handle case variations)
+  const getChart = (size: string) =>
+    sizeChart[size] ?? sizeChart[size.toLowerCase()] ?? sizeChart[size.toUpperCase()]
+
   const calculateFit = (size: string): FitResult => {
-    const chart = sizeChart[size]
+    const chart = getChart(size)
+    if (!chart) return { size, fit: 'recommended', measurements: { chest: { user: 0, garment: 0, diff: 0 }, waist: { user: 0, garment: 0, diff: 0 }, hips: { user: 0, garment: 0, diff: 0 } } }
     const chestDiff = chart.chest - userMeasurements.chest
     const waistDiff = chart.waist - userMeasurements.waist
     const hipsDiff = chart.hips - userMeasurements.hips
@@ -331,9 +349,13 @@ export default function TryOnViewer({
     }
   }
 
-  // Find recommended size
+  // Find recommended size — use algo with preferred_fit when available
   const allFits = Object.keys(sizeChart).map(calculateFit)
-  const recommendedSize = allFits.find((f) => f.fit === 'recommended')?.size || 'M'
+  const recommendedSize = recommendSize(
+    { chest: userMeasurements.chest, waist: userMeasurements.waist, hips: userMeasurements.hips },
+    sizeChart,
+    preferredFit
+  )
   const currentFit = calculateFit(selectedSize)
 
   const handleSizeSelect = (size: string) => {
@@ -341,25 +363,48 @@ export default function TryOnViewer({
     onSizeSelect?.(size)
   }
 
-  // Simulate loading
+  // Simulate loading; fire tryon_started when ready
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 1500)
+    const timer = setTimeout(() => {
+      setIsLoading(false)
+      onTryonReady?.()
+    }, 1500)
     return () => clearTimeout(timer)
-  }, [])
+  }, [onTryonReady])
+
+  // Set initial selected size to recommended when ready
+  useEffect(() => {
+    if (!isLoading && recommendedSize && !hasSetInitialSize.current) {
+      hasSetInitialSize.current = true
+      setSelectedSize(recommendedSize)
+    }
+  }, [isLoading, recommendedSize])
+
+  // Fire size_recommended once when we have it
+  const hasFiredRecommended = useRef(false)
+  useEffect(() => {
+    if (!isLoading && recommendedSize && !hasFiredRecommended.current) {
+      hasFiredRecommended.current = true
+      onSizeRecommended?.(recommendedSize)
+    }
+  }, [isLoading, recommendedSize, onSizeRecommended])
 
   return (
     <div className="relative w-full h-full min-h-[600px] flex flex-col lg:flex-row">
-      {/* 3D Viewer - Transparent Background */}
-      <div className="flex-1 relative">
+      {/* 3D Viewer - background matches theme when provided */}
+      <div
+        className="flex-1 relative"
+        style={themeProp ? { background: themeProp === 'dark' ? '#0a0a0a' : '#f9fafb' } : undefined}
+      >
         <Canvas
           className="viewer-canvas"
           gl={{ 
-            alpha: true, 
+            alpha: !themeProp, 
             antialias: true,
             powerPreference: 'high-performance',
           }}
           camera={{ position: [0, 0, 2.5], fov: 45 }}
-          style={{ background: 'transparent' }}
+          style={{ background: themeProp ? (themeProp === 'dark' ? '#0a0a0a' : '#f9fafb') : 'transparent' }}
         >
           {/* Lighting */}
           <ambientLight intensity={0.6} />
@@ -392,8 +437,8 @@ export default function TryOnViewer({
             )}
 
             {/* Garment */}
-            {garmentUrls?.[selectedSize] ? (
-              <GarmentModel url={garmentUrls[selectedSize]} />
+            {garmentUrls && (garmentUrls[selectedSize] ?? garmentUrls[selectedSize.toLowerCase()] ?? garmentUrls[selectedSize.toUpperCase()]) ? (
+              <GarmentModel url={garmentUrls[selectedSize] ?? garmentUrls[selectedSize.toLowerCase()] ?? garmentUrls[selectedSize.toUpperCase()]!} />
             ) : (
               <PlaceholderGarment />
             )}

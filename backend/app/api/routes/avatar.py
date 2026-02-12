@@ -194,10 +194,24 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                     print(f"[Avatar] ⚠ WARNING: Measurements is not a dict: {type(measurements)}")
                     measurements = {}
                 
-                # Ensure height is always present
-                if "height" not in measurements:
-                    measurements["height"] = float(request.height)
-                    print(f"[Avatar] Added height from request: {measurements['height']} cm")
+                # CRITICAL: Convert all float measurements to integers (database expects INTEGER)
+                # Pipeline returns floats like 57.6, 58.7 but Supabase columns are INTEGER
+                measurements_int = {}
+                for key, value in measurements.items():
+                    if value is not None:
+                        try:
+                            measurements_int[key] = int(round(float(value)))
+                        except (ValueError, TypeError):
+                            print(f"[Avatar] ⚠ WARNING: Could not convert '{key}': {value}")
+                
+                # Ensure height is always present (as integer)
+                if "height" not in measurements_int:
+                    measurements_int["height"] = int(round(float(request.height)))
+                else:
+                    measurements_int["height"] = int(round(float(measurements_int["height"])))
+                
+                measurements = measurements_int
+                print(f"[Avatar] Converted {len(measurements)} measurements to integers")
                 
                 # Upload all pipeline files to Supabase storage
                 jobs[job_id]["progress"] = 95
@@ -251,17 +265,32 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                             print(f"[Avatar] ✗ Failed to upload GLB: {e}")
                 
                 # Get main avatar URL (prioritize GLB)
-                avatar_url = file_urls.get("avatar_glb") or file_urls.get("apose_mesh") or "/models/avatar_with_tshirt_m.glb"
+                # CRITICAL: Only use URLs from file_urls (Supabase URLs), NEVER use fallback paths
+                avatar_url = file_urls.get("avatar_glb") or file_urls.get("apose_mesh")
                 
-                if not avatar_url or avatar_url == "/models/avatar_with_tshirt_m.glb":
-                    print(f"[Avatar] ⚠ WARNING: No valid avatar URL, using fallback")
+                # Validate that we have a valid Supabase URL (must start with http/https)
+                if not avatar_url:
+                    error_msg = f"[Avatar] ❌ CRITICAL ERROR: No avatar URL found in file_urls. Upload may have failed."
+                    print(error_msg)
+                    print(f"[Avatar]   file_urls keys: {list(file_urls.keys())}")
+                    print(f"[Avatar]   files_bytes keys: {list(files_bytes.keys()) if files_bytes else 'None'}")
+                    raise Exception("Avatar upload failed - no avatar URL available. Check upload logs above.")
+                
+                # Ensure it's a valid URL (not a local path)
+                if not avatar_url.startswith(('http://', 'https://')):
+                    error_msg = f"[Avatar] ❌ CRITICAL ERROR: Invalid avatar URL format: {avatar_url}"
+                    print(error_msg)
+                    print(f"[Avatar]   URL must be a Supabase storage URL (starts with http/https)")
+                    raise Exception(f"Invalid avatar URL format. Got: {avatar_url}")
+                
+                print(f"[Avatar] ✓ Valid avatar URL found: {avatar_url[:80]}...")
                 
                 # Update database with all file URLs stored in JSONB
                 print(f"[Avatar] Updating database with results...")
                 try:
                     db_update_success = await supabase_service.update_fit_passport_with_results(
                         user_id=request.user_id,
-                        avatar_url=avatar_url,
+                        avatar_url=avatar_url,  # This is now guaranteed to be a valid Supabase URL
                         measurements=measurements,
                         pipeline_files=file_urls  # Store all URLs in JSONB field
                     )
@@ -368,16 +397,26 @@ async def get_avatar_status(job_id: str):
 @router.get("/{user_id}", response_model=AvatarResponse)
 async def get_avatar(user_id: str):
     """
-    Get user's avatar and measurements
+    Get user's avatar and measurements.
+    ALWAYS returns avatar_textured.glb URL — canonical path from Supabase storage.
+    Never returns OBJ; widget must load GLB for correct scale (mm) + texture.
     """
     fit_passport = await supabase_service.get_fit_passport(user_id)
     
     if not fit_passport:
         raise HTTPException(status_code=404, detail="Avatar not found")
     
+    # Canonical GLB URL — avatars/{user_id}/avatar_textured.glb in storage
+    # Bypasses DB confusion; RunPod pipeline always outputs this file
+    from app.config import get_settings
+    _s = get_settings()
+    base = _s.supabase_url.rstrip("/")
+    bucket = getattr(_s, "avatars_bucket", "avatars")
+    avatar_url = f"{base}/storage/v1/object/public/{bucket}/{user_id}/avatar_textured.glb"
+    
     return AvatarResponse(
         user_id=user_id,
-        avatar_url=fit_passport.get("avatar_url"),
+        avatar_url=avatar_url,
         avatar_thumbnail_url=fit_passport.get("avatar_thumbnail_url"),
         measurements=Measurements(
             height=fit_passport.get("height", 0),

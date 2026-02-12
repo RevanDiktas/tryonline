@@ -80,6 +80,8 @@ python scale_avatar_for_clo3d.py \
 
 Scale step added to RunPod pipeline as Step 4b. Flow: body_apose.obj → scale → body_apose_clo3d.obj → texture → avatar_textured.glb.
 
+**Update:** Avatar is scaled to CLO default height (180 cm) so it matches demo CLO garments. Fit algo still uses user's actual height for size recommendation.
+
 ---
 
 ## Implementation Plan (Reference)

@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.config import get_settings
-from app.api.routes import avatar, measurements, events, health
+from app.api.routes import avatar, measurements, events, health, webhooks, analytics, products, addresses, checkout_profile
 
 
 settings = get_settings()
@@ -30,15 +30,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS
+# Configure CORS from environment (comma-separated); production sets CORS_ORIGINS
+def _cors_origins() -> list[str]:
+    raw = (settings.cors_origins or "").strip()
+    if not raw:
+        return ["http://localhost:3000", "http://localhost:3001"]
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://*.vercel.app",
-        "https://tryon.com",
-    ],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,6 +51,11 @@ app.include_router(health.router, tags=["Health"])
 app.include_router(avatar.router, prefix="/api/avatar", tags=["Avatar"])
 app.include_router(measurements.router, prefix="/api/measurements", tags=["Measurements"])
 app.include_router(events.router, prefix="/api/events", tags=["Events"])
+app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(products.router, prefix="/api/products", tags=["Products"])
+app.include_router(addresses.router, prefix="/api/addresses", tags=["Addresses"])
+app.include_router(checkout_profile.router, prefix="/api/checkout-profile", tags=["Checkout Profile"])
 
 
 @app.get("/")
@@ -66,6 +73,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=8000,
-        reload=settings.debug
+        port=settings.port,
+        reload=settings.debug,
     )

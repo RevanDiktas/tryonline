@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     # Supabase
     supabase_url: str
     supabase_service_key: str  # Service role key for backend operations
+    supabase_jwt_secret: str = ""  # JWT secret (Project Settings → API → JWT Secret) for verifying access tokens
     
     # Redis (for Celery)
     redis_url: str = "redis://localhost:6379/0"
@@ -30,7 +31,16 @@ class Settings(BaseSettings):
     
     # Processing
     avatar_processing_timeout: int = 300  # 5 minutes
-    
+
+    # Shopify (optional)
+    shopify_webhook_secret: str = ""  # For HMAC verification of orders/paid
+
+    # Server (Railway/Render set PORT at runtime)
+    port: int = 8000
+
+    # CORS: comma-separated origins, e.g. https://app.yourdomain.com,https://yourapp.vercel.app
+    cors_origins: str = "http://localhost:3000,http://localhost:3001"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

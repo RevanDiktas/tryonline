@@ -1,67 +1,68 @@
 """
-Analytics event tracking endpoints
+Analytics event tracking endpoints — Category A
 """
-from fastapi import APIRouter, HTTPException
-from datetime import datetime
+from fastapi import APIRouter, HTTPException, Request
 
-from app.models.events import AnalyticsEvent, AnalyticsEventResponse
+from app.models.events import (
+    AnalyticsEvent,
+    AnalyticsEventResponse,
+    CreateTryonSessionRequest,
+    CreateTryonSessionResponse,
+)
 from app.services.supabase import supabase_service
 
 router = APIRouter()
 
 
+def _get_client_info(request: Request) -> tuple[str | None, str | None]:
+    """Extract user_agent and ip from request"""
+    user_agent = request.headers.get("user-agent")
+    forwarded = request.headers.get("x-forwarded-for")
+    ip = forwarded.split(",")[0].strip() if forwarded else request.client.host if request.client else None
+    return user_agent, ip
+
+
 @router.post("/track", response_model=AnalyticsEventResponse)
-async def track_event(event: AnalyticsEvent):
+async def track_event(request: Request, event: AnalyticsEvent):
     """
-    Track an analytics event
-    
-    Used to track user actions for analytics:
-    - Avatar creation
-    - Try-on sessions
-    - Size changes
-    - Add to cart
-    - Purchases
+    Track an analytics event (Category A).
+    Events: widget_opened, tryon_started, size_recommended, size_selected, add_to_cart, purchase, etc.
     """
+    user_agent, ip_address = _get_client_info(request)
     event_id = await supabase_service.track_event(
-        user_id=event.user_id,
         event_type=event.event_type.value,
-        brand_id=event.brand_id,
-        garment_id=event.garment_id,
+        user_id=event.user_id,
         session_id=event.session_id,
-        metadata=event.metadata
+        brand_id=event.brand_id,
+        shop_domain=event.shop_domain,
+        product_id=event.product_id,
+        variant_id=event.variant_id,
+        country=event.country,
+        city=event.city,
+        preferred_fit=event.preferred_fit,
+        event_data=event.metadata,
+        user_agent=user_agent,
+        ip_address=ip_address,
     )
-    
     if not event_id:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to track event"
-        )
-    
-    return AnalyticsEventResponse(
-        success=True,
-        event_id=event_id,
-        message="Event tracked successfully"
+        raise HTTPException(status_code=500, detail="Failed to track event")
+    return AnalyticsEventResponse(success=True, event_id=event_id, message="Event tracked successfully")
+
+
+@router.post("/tryon-session", response_model=CreateTryonSessionResponse)
+async def create_tryon_session(body: CreateTryonSessionRequest):
+    """
+    Create a try-on session when widget opens. Returns session_id for attribution.
+    Frontend uses session_id in all subsequent track_event calls and in cart attributes.
+    """
+    result = await supabase_service.create_tryon_session(
+        user_id=body.user_id,
+        shop_domain=body.shop_domain,
+        product_id=body.product_id,
+        product_name=body.product_name,
+        variant_id=body.variant_id,
+        brand_id=body.brand_id,
     )
-
-
-@router.post("/tryon-session")
-async def create_tryon_session(
-    user_id: str,
-    brand_id: str,
-    garment_id: str
-):
-    """
-    Create a new try-on session
-    
-    Called when user opens the try-on widget
-    """
-    # TODO: Implement tryon_sessions table operations
-    session_id = f"session-{datetime.utcnow().timestamp()}"
-    
-    return {
-        "session_id": session_id,
-        "user_id": user_id,
-        "brand_id": brand_id,
-        "garment_id": garment_id,
-        "started_at": datetime.utcnow().isoformat()
-    }
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to create try-on session")
+    return CreateTryonSessionResponse(session_id=result["session_id"], session_token=result["session_token"])

@@ -400,9 +400,44 @@
         border-radius: 0;
       }
     }
+    /* Add to Cart button */
+    .add-to-cart-btn {
+      margin-top: 20px;
+      padding: 14px 24px;
+      width: 100%;
+      background: #1a1a1a;
+      color: white;
+      border: none;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      border-radius: 10px;
+      transition: opacity 0.2s;
+    }
+
+    .add-to-cart-btn:hover {
+      opacity: 0.9;
+    }
   </style>
 </head>
 <body>
+  <!-- Config from URL params. When logged in, pass user_id (and optionally preferred_fit) for attribution. -->
+  <script>
+    (function() {
+      var p = new URLSearchParams(location.search);
+      var isLocal = /^localhost$|^127\.0\.0\.1$/i.test(location.hostname);
+      var defaultApiUrl = isLocal ? 'http://localhost:8000' : '';
+      window.TRYON_CONFIG = {
+        apiUrl: p.get('api_url') ?? defaultApiUrl,
+        productId: p.get('product_id') || 'demo-npc-tshirt',
+        variantId: p.get('variant_id') || 'demo-variant-m',
+        shopDomain: p.get('shop') || 'demo.myshopify.com',
+        userId: p.get('user_id') || null,
+        preferredFit: p.get('preferred_fit') || null
+      };
+    })();
+  </script>
   <!-- Preload status -->
   <div class="preload-status" id="preload-status">⏳ Preloading models...</div>
 
@@ -444,19 +479,19 @@
             <div class="measurements">
               <div class="measurement-item">
                 <div class="measurement-label">HEIGHT</div>
-                <div class="measurement-value">192CM</div>
+                <div class="measurement-value" id="val-height">—</div>
               </div>
               <div class="measurement-item">
                 <div class="measurement-label">CHEST</div>
-                <div class="measurement-value">102CM</div>
+                <div class="measurement-value" id="val-chest">—</div>
               </div>
               <div class="measurement-item">
                 <div class="measurement-label">HIPS</div>
-                <div class="measurement-value">96CM</div>
+                <div class="measurement-value" id="val-hips">—</div>
               </div>
               <div class="measurement-item">
                 <div class="measurement-label">WAIST</div>
-                <div class="measurement-value">83CM</div>
+                <div class="measurement-value" id="val-waist">—</div>
               </div>
             </div>
 
@@ -473,6 +508,7 @@
               <div class="fit-text" id="fit-text">
                 FITS VERY WELL, NOT TOO TIGHT, NOT TOO BAGGY, GREAT FOR A <em>RECOMMENDED FIT</em>
               </div>
+              <button class="add-to-cart-btn" id="add-to-cart">ADD TO CART</button>
             </div>
           </div>
         </div>
@@ -504,24 +540,196 @@
     const sizeButtons = document.querySelectorAll('.size-btn');
     const fitText = document.getElementById('fit-text');
     const preloadStatus = document.getElementById('preload-status');
+    const addToCartBtn = document.getElementById('add-to-cart');
 
-    // GLB paths
-    const modelPaths = {
+    // Config (from URL params: product_id, variant_id, shop, user_id, preferred_fit)
+    const isLocal = /^localhost$|^127\.0\.0\.1$/i.test(window.location.hostname);
+    const config = window.TRYON_CONFIG || {
+      apiUrl: isLocal ? 'http://localhost:8000' : '',
+      productId: 'demo-npc-tshirt',
+      variantId: 'demo-variant-m',
+      shopDomain: 'demo.myshopify.com',
+      userId: null,
+      preferredFit: null
+    };
+
+    // Session for attribution
+    let sessionId = null;
+    let tryonStartTime = null;
+    let hasTrackedTryonStarted = false;
+
+    // ============================================
+    // ANALYTICS API
+    // ============================================
+    async function createTryonSession() {
+      try {
+        const res = await fetch(config.apiUrl + '/api/events/tryon-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: config.userId || undefined,
+            shop_domain: config.shopDomain,
+            product_id: config.productId,
+            product_name: 'NPC Oversized T-Shirt',
+            variant_id: config.variantId
+          })
+        });
+        const data = await res.json();
+        if (data.session_id) {
+          sessionId = data.session_id;
+          return sessionId;
+        }
+      } catch (e) {
+        console.warn('[TryOn] Session creation failed:', e);
+      }
+      return null;
+    }
+
+    function track(eventType, metadata = {}) {
+      const payload = {
+        event_type: eventType,
+        session_id: sessionId || undefined,
+        user_id: config.userId || undefined,
+        shop_domain: config.shopDomain,
+        product_id: config.productId,
+        variant_id: config.variantId,
+        preferred_fit: config.preferredFit || undefined,
+        metadata: Object.keys(metadata).length ? metadata : undefined
+      };
+      fetch(config.apiUrl + '/api/events/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(e => console.warn('[TryOn] Track failed:', e));
+    }
+
+    // Mutable config — filled from API when user_id / product_id present
+    let modelPaths = {
       xs: 'models/avatar_with_tshirt_xs.glb',
       s: 'models/avatar_with_tshirt_s.glb',
       m: 'models/avatar_with_tshirt_m.glb',
       l: 'models/avatar_with_tshirt_l.glb',
       xl: 'models/avatar_with_tshirt_xl.glb',
     };
+    let sizeChart = {
+      xs: { chest: 88, waist: 72, hips: 86 },
+      s: { chest: 92, waist: 76, hips: 90 },
+      m: { chest: 100, waist: 84, hips: 98 },
+      l: { chest: 108, waist: 92, hips: 106 },
+      xl: { chest: 116, waist: 100, hips: 114 }
+    };
+    let userMeasurements = { chest: 102, waist: 83, hips: 96, height: 192 };
+    let avatarUrl = null;
+    let modelType = 'combined'; // 'combined' | 'garment_only'
+
+    // Fetch user data (avatar, measurements) when user_id present
+    async function fetchUserData() {
+      if (!config.userId) return {};
+      try {
+        const r = await fetch(config.apiUrl + '/api/avatar/' + config.userId);
+        if (!r.ok) return {};
+        const d = await r.json();
+        const m = d.measurements || {};
+        return {
+          avatarUrl: d.avatar_url || null,
+          measurements: {
+            chest: m.chest || 102,
+            waist: m.waist || 83,
+            hips: m.hips || 96,
+            height: m.height || d.measurements?.height || 192
+          }
+        };
+      } catch (e) {
+        console.warn('[TryOn] Fetch user failed:', e);
+        return {};
+      }
+    }
+
+    // Fetch product config (model URLs, size chart) from API
+    // Backend resolves relative paths to full Supabase URLs
+    async function fetchProductConfig() {
+      try {
+        const r = await fetch(config.apiUrl + '/api/products/' + encodeURIComponent(config.productId) + '/tryon-config');
+        if (!r.ok) return null;
+        const d = await r.json();
+        const base = window.location.origin;
+        const urls = {};
+        for (const [k, v] of Object.entries(d.model_urls || {})) {
+          urls[k] = (v && v.startsWith('http')) ? v : (base + (v.startsWith('/') ? v : '/' + v));
+        }
+        return { modelUrls: urls, sizeChart: d.size_chart || {}, modelType: d.model_type || 'combined' };
+      } catch (e) {
+        console.warn('[TryOn] Fetch product config failed:', e);
+        return null;
+      }
+    }
+
+    // Initialize: fetch user + product, then preload
+    async function initConfig() {
+      const [userData, productConfig] = await Promise.all([
+        fetchUserData(),
+        fetchProductConfig()
+      ]);
+      if (userData.measurements) {
+        userMeasurements = userData.measurements;
+        avatarUrl = userData.avatarUrl;
+        if (avatarUrl) {
+          if (!/\.glb$/i.test(avatarUrl)) {
+            avatarUrl = avatarUrl.replace(/\/[^/]*\.(obj|ply)$/i, '/avatar_textured.glb');
+            console.log('[TryOn] Forced GLB (was OBJ):', avatarUrl);
+          }
+          console.log('[TryOn] Loading avatar_textured.glb from:', avatarUrl);
+        } else if (config.userId) {
+          console.warn('[TryOn] No avatar_url from API');
+        }
+        const vh = document.getElementById('val-height');
+        const vc = document.getElementById('val-chest');
+        const vp = document.getElementById('val-hips');
+        const vw = document.getElementById('val-waist');
+        if (vh) vh.textContent = (userMeasurements.height || '—') + 'CM';
+        if (vc) vc.textContent = (userMeasurements.chest || '—') + 'CM';
+        if (vp) vp.textContent = (userMeasurements.hips || '—') + 'CM';
+        if (vw) vw.textContent = (userMeasurements.waist || '—') + 'CM';
+      }
+      if (productConfig && Object.keys(productConfig.modelUrls || {}).length) {
+        modelPaths = productConfig.modelUrls;
+        console.log('[TryOn] Garment URLs (GLB):', modelPaths);
+        if (Object.keys(productConfig.sizeChart || {}).length) {
+          sizeChart = productConfig.sizeChart;
+        }
+        modelType = productConfig.modelType || 'combined';
+      }
+      preloadAllModels();
+    }
 
     // ============================================
     // MODEL CACHE - Store loaded models for instant switching
+    // garment_only: avatarCache + garmentCache[size]
+    // combined: modelCache[size] (full model per size)
     // ============================================
     const modelCache = {};
+    let avatarCache = null;
+    const garmentCache = {};
     let currentSize = 'm';
     let currentModel = null;
     let scene, camera, renderer, controls, loader;
     let initialized = false;
+    const SIZE_ORDER = ['xs','s','m','l','xl'];
+    function recommendSize(preferredFit) {
+      preferredFit = preferredFit || 'regular';
+      const sizes = SIZE_ORDER.slice();
+      const withEase = sizes.map(function(size) {
+        const c = sizeChart[size];
+        const avgEase = (c.chest - userMeasurements.chest + c.waist - userMeasurements.waist + c.hips - userMeasurements.hips) / 3;
+        return { size: size, avgEase: avgEase };
+      });
+      const idealMid = preferredFit === 'slim' ? 2.5 : preferredFit === 'loose' ? 12 : 7;
+      withEase.sort(function(a, b) { return Math.abs(a.avgEase - idealMid) - Math.abs(b.avgEase - idealMid); });
+      let idx = sizes.indexOf(withEase[0].size);
+      if (preferredFit === 'slim') idx = Math.max(0, idx - 1);
+      else if (preferredFit === 'loose') idx = Math.min(sizes.length - 1, idx + 1);
+      return sizes[idx];
+    }
 
     // Fit data
     const fitData = {
@@ -533,71 +741,130 @@
     };
 
     // ============================================
-    // PRELOAD ALL MODELS ON PAGE LOAD
+    // PRELOAD ALL MODELS ON WIDGET OPEN — avatar + all garments in parallel
     // ============================================
     const gltfLoader = new GLTFLoader();
+    gltfLoader.setCrossOrigin('anonymous');
     let modelsLoaded = 0;
-    const totalModels = Object.keys(modelPaths).length;
 
-    function preloadAllModels() {
-      Object.entries(modelPaths).forEach(([size, path]) => {
-        gltfLoader.load(
-          path,
-          (gltf) => {
-            // Clone and store in cache
-            modelCache[size] = gltf.scene.clone();
-            
-            // Prepare materials
-            modelCache[size].traverse((child) => {
-              if (child.isMesh) {
-                child.castShadow = false;
-                child.receiveShadow = false;
-                if (child.material) {
-                  child.material = child.material.clone();
-                  child.material.needsUpdate = true;
-                }
-              }
-            });
+    // Avatar: GLB only — fresh loader per load (like dashboard), preserve all materials/textures
+    function loadAvatarGlb(url, onSuccess, onError) {
+      if (!/\.glb$/i.test(url)) {
+        console.error('[TryOn] Avatar must be GLB, got:', url);
+        onError(new Error('Avatar URL must be .glb'));
+        return;
+      }
+      const loadUrl = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+      const loader = new GLTFLoader();
+      loader.setCrossOrigin('anonymous');
+      loader.load(loadUrl, (gltf) => {
+        const s = gltf.scene;
+        s.traverse(c => { if (c.isMesh) c.visible = true; });
+        onSuccess(s);
+      }, undefined, onError);
+    }
 
-            modelsLoaded++;
-            preloadStatus.textContent = `⏳ Preloading models... ${modelsLoaded}/${totalModels}`;
-            
-            if (modelsLoaded === totalModels) {
-              preloadStatus.textContent = '✓ All models ready';
-              setTimeout(() => {
-                preloadStatus.classList.add('done');
-              }, 1000);
-              console.log('✅ All models preloaded and cached!');
-            }
-          },
-          undefined,
-          (error) => {
-            console.error(`Failed to preload ${size}:`, error);
-            modelsLoaded++;
+    function prepareGarment(scene) {
+      scene.traverse((child) => {
+        if (child.isMesh) {
+          child.visible = true;
+          if (child.material) {
+            const mats = Array.isArray(child.material) ? child.material : [child.material];
+            child.material = Array.isArray(child.material)
+              ? mats.map(m => { const c = m.clone(); c.side = THREE.DoubleSide; return c; })
+              : (() => { const c = mats[0].clone(); c.side = THREE.DoubleSide; return c; })();
           }
-        );
+        }
       });
     }
 
-    // Start preloading immediately
-    preloadAllModels();
+    function onPreloadDone() {
+      modelsLoaded++;
+      const useSeparate = modelType === 'garment_only' && avatarUrl;
+      const total = useSeparate
+        ? 1 + Object.keys(modelPaths).length
+        : Object.keys(modelPaths).length;
+      preloadStatus.textContent = `⏳ Preloading... ${modelsLoaded}/${total}`;
+      if (modelsLoaded >= total) {
+        preloadStatus.textContent = '✓ All models ready';
+        setTimeout(() => preloadStatus.classList.add('done'), 1000);
+        console.log('✅ All models preloaded — instant size switching');
+      }
+    }
+
+    function preloadAllModels() {
+      const useSeparate = modelType === 'garment_only' && avatarUrl;
+      console.log('[TryOn] Preload mode:', useSeparate ? 'garment_only (avatar+garments)' : 'combined', 'avatarUrl:', avatarUrl ? 'set' : 'none', 'modelPaths:', Object.keys(modelPaths));
+      if (useSeparate) {
+        // Separate: avatar (GLB only) + garments — both in same mm coords, textures preserved
+        loadAvatarGlb(avatarUrl, (scene) => {
+          // Store raw scene (no clone) — same as dashboard, textures intact
+          let meshCount = 0;
+          scene.traverse(c => { if (c.isMesh) { meshCount++; c.visible = true; } });
+          if (meshCount === 0) {
+            console.warn('[TryOn] Avatar has 0 meshes:', avatarUrl);
+            avatarCache = null;
+          } else {
+            avatarCache = scene;
+            console.log('[TryOn] Avatar GLB loaded:', meshCount, 'meshes');
+          }
+          onPreloadDone();
+        }, (err) => {
+          console.error('[TryOn] Avatar load failed:', avatarUrl, err);
+          avatarCache = null;
+          onPreloadDone();
+        });
+        Object.entries(modelPaths).forEach(([size, path]) => {
+          gltfLoader.load(path, (gltf) => {
+            garmentCache[size] = gltf.scene.clone();
+            prepareGarment(garmentCache[size]);
+            onPreloadDone();
+          }, undefined, (err) => {
+            console.error('[TryOn] Garment load failed:', size, path, err);
+            onPreloadDone();
+          });
+        });
+      } else {
+        Object.entries(modelPaths).forEach(([size, path]) => {
+          gltfLoader.load(path, (gltf) => {
+            modelCache[size] = gltf.scene.clone();
+            prepareGarment(modelCache[size]);
+            onPreloadDone();
+          }, undefined, (err) => {
+            console.error('[TryOn] Model load failed:', size, path, err);
+            onPreloadDone();
+          });
+        });
+      }
+    }
+
+    // Start: fetch config (user + product) then preload models
+    initConfig();
 
     // ============================================
     // EVENT LISTENERS
     // ============================================
-    openBtn.addEventListener('click', () => {
+    openBtn.addEventListener('click', async () => {
       overlay.classList.add('active');
-      initScene();
-      // Show model instantly from cache
-      showModel(currentSize);
-    });
-
-    closeBtn.addEventListener('click', () => {
-      overlay.classList.remove('active');
+      // Compute recommended size from algo (measurements + size chart + preferred_fit)
+      currentSize = recommendSize(config.preferredFit || 'regular');
+      sizeButtons.forEach(function(b) {
+        b.classList.toggle('active', b.dataset.size === currentSize);
+      });
+      fitText.innerHTML = fitData[currentSize];
+      // Create session + track widget_opened (before 3D loads)
+      sessionId = await createTryonSession();
+      track('widget_opened');
+      tryonStartTime = Date.now();
+      // Defer init so overlay has dimensions (container was hidden before)
+      requestAnimationFrame(() => {
+        initScene(() => showModel(currentSize));
+      });
     });
 
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) {
+        track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
         overlay.classList.remove('active');
       }
     });
@@ -605,7 +872,33 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && overlay.classList.contains('active')) {
         overlay.classList.remove('active');
+        track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
       }
+    });
+
+    // Add to Cart
+    addToCartBtn.addEventListener('click', () => {
+      track('add_to_cart', { size: currentSize });
+      track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
+      // Shopify: tell parent to add item with session_id for attribution
+      if (window.parent !== window) {
+        window.parent.postMessage({
+          type: 'TRYON_ADD_TO_CART',
+          payload: {
+            productId: config.productId,
+            variantId: config.variantId,
+            size: currentSize,
+            shop: config.shopDomain,
+            session_id: sessionId
+          }
+        }, '*');
+      }
+      overlay.classList.remove('active');
+    });
+
+    closeBtn.addEventListener('click', () => {
+      track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
+      overlay.classList.remove('active');
     });
 
     // Size button clicks - INSTANT switching
@@ -619,6 +912,8 @@
         fitText.innerHTML = fitData[size];
         currentSize = size;
 
+        track('size_selected', { size: size });
+
         // INSTANT switch from cache
         showModel(size);
       });
@@ -627,13 +922,22 @@
     // ============================================
     // THREE.JS SCENE
     // ============================================
-    function initScene() {
-      if (initialized) return;
+    function initScene(onReady) {
+      if (initialized) {
+        if (onReady) onReady();
+        return;
+      }
+      let w = container.clientWidth;
+      let h = container.clientHeight;
+      if (w < 10 || h < 10) {
+        requestAnimationFrame(() => initScene(onReady));
+        return;
+      }
       initialized = true;
 
       scene = new THREE.Scene();
 
-      const aspect = container.clientWidth / container.clientHeight;
+      const aspect = w / h;
       camera = new THREE.PerspectiveCamera(28, aspect, 0.1, 100);
       camera.position.set(0, 1.0, 4.5);
 
@@ -643,11 +947,9 @@
         premultipliedAlpha: false
       });
       renderer.setClearColor(0x000000, 0);
-      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setSize(w, h);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.8;
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      // Match dashboard: no aggressive tone mapping (preserves textures)
       container.appendChild(renderer.domElement);
 
       // Controls
@@ -698,54 +1000,85 @@
 
       animate();
       window.addEventListener('resize', onResize);
+      if (onReady) onReady();
     }
 
     // ============================================
-    // SHOW MODEL - INSTANT from cache
+    // SHOW MODEL — INSTANT from cache (all preloaded at open)
     // ============================================
     function showModel(size) {
-      // Check if model is in cache
-      if (!modelCache[size]) {
-        // Not cached yet, show loading
+      const key = size.toLowerCase();
+      const hasCombined = modelCache[key];
+      const hasSeparate = (modelType === 'garment_only') && garmentCache[key];
+      if (!hasCombined && !hasSeparate) {
         loading.classList.remove('hidden');
-        
-        // Load and wait
-        gltfLoader.load(modelPaths[size], (gltf) => {
-          modelCache[size] = gltf.scene.clone();
-          displayModel(size);
-          loading.classList.add('hidden');
-        });
         return;
       }
-
-      // INSTANT - model is cached
+      loading.classList.add('hidden');
       displayModel(size);
     }
 
     function displayModel(size) {
-      // Remove previous model
+      if (!scene || !camera || !controls) return;
       if (currentModel) {
         scene.remove(currentModel);
+        currentModel = null;
       }
 
-      // Clone from cache (so we don't modify the cached version)
-      currentModel = modelCache[size].clone();
+      const key = size.toLowerCase();
+      let group;
 
-      // Center model
-      const box = new THREE.Box3().setFromObject(currentModel);
-      const center = box.getCenter(new THREE.Vector3());
-      const modelSize = box.getSize(new THREE.Vector3());
-      
+      if (modelType === 'garment_only' && garmentCache[key]) {
+        group = new THREE.Group();
+        const garmentClone = garmentCache[key].clone();
+        const avatarClone = avatarCache ? avatarCache.clone() : null;
+        if (avatarClone) group.add(avatarClone);
+        group.add(garmentClone);
+        group.updateMatrixWorld(true);
+        const gbox = new THREE.Box3().setFromObject(group);
+        const gsize = gbox.getSize(new THREE.Vector3());
+        const scale = gsize.y > 0.001 ? 1.8 / gsize.y : 1;
+        group.scale.setScalar(scale);
+      } else if (modelCache[key]) {
+        group = modelCache[key].clone();
+      } else {
+        console.warn('[TryOn] No model in cache for size:', key);
+        return;
+      }
+
+      currentModel = group;
+      currentModel.updateMatrixWorld(true);
+      let box = new THREE.Box3().setFromObject(currentModel);
+      let center = box.getCenter(new THREE.Vector3());
+      let modelSize = box.getSize(new THREE.Vector3());
+
+      // CLO3D/OBJ/GLB units vary (cm, m, mm) — normalize to ~1.8m height
+      const targetHeight = 1.8;
+      if (modelSize.y > 0.001 && (modelSize.y < 0.5 || modelSize.y > 50)) {
+        const s = targetHeight / modelSize.y;
+        currentModel.scale.setScalar(s);
+        box.setFromObject(currentModel);
+        center = box.getCenter(new THREE.Vector3());
+        modelSize = box.getSize(new THREE.Vector3());
+      }
+
       currentModel.position.x = -center.x;
       currentModel.position.y = -center.y + modelSize.y / 2;
       currentModel.position.z = -center.z;
 
       scene.add(currentModel);
-      
       controls.target.set(0, modelSize.y / 2, 0);
       controls.update();
 
-      console.log(`✓ Showing ${size.toUpperCase()} (from cache)`);
+      if (!hasTrackedTryonStarted) {
+        hasTrackedTryonStarted = true;
+        track('tryon_started');
+        track('size_recommended', { size: size });
+      }
+
+      let meshCount = 0;
+      currentModel.traverse(c => { if (c.isMesh) meshCount++; });
+      console.log(`✓ Showing ${size.toUpperCase()} | bbox: ${modelSize.x.toFixed(2)}×${modelSize.y.toFixed(2)}×${modelSize.z.toFixed(2)} | meshes: ${meshCount}`);
     }
 
     function animate() {
