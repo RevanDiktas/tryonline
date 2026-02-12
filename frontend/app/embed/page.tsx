@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
+import { useTheme } from '@/contexts/ThemeContext'
 import { api, isBackendAvailable } from '@/lib/api'
 
 const TryOnViewer = dynamic(() => import('@/components/TryOnViewer'), {

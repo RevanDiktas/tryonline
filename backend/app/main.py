@@ -30,15 +30,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS
+# Configure CORS from environment (comma-separated); production sets CORS_ORIGINS
+def _cors_origins() -> list[str]:
+    raw = (settings.cors_origins or "").strip()
+    if not raw:
+        return ["http://localhost:3000", "http://localhost:3001"]
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://*.vercel.app",
-        "https://tryon.com",
-    ],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -71,6 +73,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=8000,
-        reload=settings.debug
+        port=settings.port,
+        reload=settings.debug,
     )

@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # Shopify (optional)
     shopify_webhook_secret: str = ""  # For HMAC verification of orders/paid
 
+    # Server (Railway/Render set PORT at runtime)
+    port: int = 8000
+
+    # CORS: comma-separated origins, e.g. https://app.yourdomain.com,https://yourapp.vercel.app
+    cors_origins: str = "http://localhost:3000,http://localhost:3001"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

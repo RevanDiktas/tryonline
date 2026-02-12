@@ -303,6 +303,7 @@ export default function TryOnViewer({
   onTryonReady,
   onSizeRecommended,
   preferredFit = 'regular',
+  theme: themeProp,
 }: TryOnViewerProps) {
   const [selectedSize, setSelectedSize] = useState<string>('M')
   const hasSetInitialSize = useRef(false)

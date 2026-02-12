@@ -6,6 +6,7 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['three'],
   images: {
+    // Add your Supabase project host (e.g. 'xxxxx.supabase.co') for storage images in production
     domains: ['localhost', 'supabase.co'],
   },
   async rewrites() {

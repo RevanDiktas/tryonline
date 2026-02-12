@@ -76,7 +76,7 @@ export function ConversionFunnelChart({
           <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fontWeight: 500, fill: dark ? 'rgba(255,255,255,0.55)' : '#475569' }} />
           <Tooltip
             contentStyle={dark ? tooltipDark : tooltipLight}
-            formatter={(value: number) => [value, '']}
+            formatter={(value: number | undefined) => [value ?? 0, '']}
             labelStyle={{ color: dark ? 'rgba(255,255,255,0.8)' : undefined }}
           />
           <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={32}>
@@ -106,7 +106,7 @@ export function VelocityChart({ velocity, dark }: { velocity: { tryon_velocity_7
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? gridDark : '#e2e8f0'} vertical={false} />
           <XAxis dataKey="period" tick={{ fontSize: 11, fontWeight: 500, fill: dark ? 'rgba(255,255,255,0.55)' : '#475569' }} />
           <YAxis tick={{ fontSize: 11, fontWeight: 500, fill: dark ? 'rgba(255,255,255,0.55)' : '#475569' }} allowDecimals={false} />
-          <Tooltip contentStyle={dark ? tooltipDark : tooltipLight} formatter={(value: number) => [value, '']} />
+          <Tooltip contentStyle={dark ? tooltipDark : tooltipLight} formatter={(value: number | undefined) => [value ?? 0, '']} />
           <Legend wrapperStyle={{ fontSize: 11 }} formatter={(value) => <span style={{ color: dark ? 'rgba(255,255,255,0.6)' : undefined }}>{value}</span>} />
           <Bar dataKey="TryOn" fill={colors.tryon} radius={[6, 6, 0, 0]} name="Try-on" />
           <Bar dataKey="Purchase" fill={colors.purchase} radius={[6, 6, 0, 0]} name="Purchase" />
@@ -130,7 +130,7 @@ export function SizeDistributionChart({
 }) {
   const colors = dark ? CHART_COLORS_DARK : CHART_COLORS;
   const defaultSizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
-  const allSizes = [...new Set([...defaultSizes, ...Object.keys(recommended), ...Object.keys(selected), ...Object.keys(purchased)])];
+  const allSizes = Array.from(new Set([...defaultSizes, ...Object.keys(recommended), ...Object.keys(selected), ...Object.keys(purchased)]));
   const sizes = allSizes.sort((a, b) => defaultSizes.indexOf(a) - defaultSizes.indexOf(b) || a.localeCompare(b));
   const data = sizes
     .filter((s) => recommended[s] || selected[s] || purchased[s])
@@ -187,7 +187,7 @@ export function ExplorationTrendChart({ data, dark }: { data: { week_start: stri
           <YAxis tick={{ fontSize: 11, fontWeight: 500, fill: dark ? 'rgba(255,255,255,0.55)' : '#475569' }} allowDecimals />
           <Tooltip
             contentStyle={dark ? tooltipDark : tooltipLight}
-            formatter={(value: number) => [value.toFixed(1), 'Avg sizes/session']}
+            formatter={(value: number | undefined) => [(value ?? 0).toFixed(1), 'Avg sizes/session']}
             labelFormatter={(label) => `Week ${label}`}
           />
           <Area
@@ -231,7 +231,7 @@ export function RegionalSizeChart({ by_country, dark }: { by_country: Record<str
           <YAxis type="category" dataKey="country" width={80} tick={{ fontSize: 11, fontWeight: 500, fill: dark ? 'rgba(255,255,255,0.55)' : '#475569' }} />
           <Tooltip
             contentStyle={dark ? tooltipDark : tooltipLight}
-            formatter={(value: number) => [`${value}%`, '']}
+            formatter={(value: number | undefined) => [`${value ?? 0}%`, '']}
           />
           <Legend wrapperStyle={{ fontSize: 11 }} formatter={(value) => <span style={{ color: dark ? 'rgba(255,255,255,0.6)' : undefined }}>{value}</span>} />
           {sizes.map((s, i) => (

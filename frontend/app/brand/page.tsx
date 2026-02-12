@@ -253,15 +253,15 @@ export default function BrandDashboardPage() {
                   <MetricCell label="Sessions" value={metrics.unique_sessions} dark={dark} />
                   <MetricCell label="ATC %" value={metrics.tryon_atc_rate != null ? `${(metrics.tryon_atc_rate * 100).toFixed(1)}%` : '—'} highlight dark={dark} />
                   <MetricCell label="Purchase %" value={metrics.tryon_purchase_rate != null ? `${(metrics.tryon_purchase_rate * 100).toFixed(1)}%` : '—'} highlight dark={dark} />
-                  <MetricCell label="Revenue" value={`€${metrics.revenue_attributed.toFixed(2)}`} dark={dark} />
+                  <MetricCell label="Revenue" value={`€${(metrics.revenue_attributed ?? 0).toFixed(2)}`} dark={dark} />
                   <MetricCell label="Rev/Tryon" value={metrics.revenue_per_tryon != null ? `€${metrics.revenue_per_tryon.toFixed(2)}` : '—'} dark={dark} />
                   <MetricCell label="AOV" value={metrics.aov_tryon != null ? `€${metrics.aov_tryon.toFixed(2)}` : '—'} dark={dark} />
                 </div>
                 <div className={`${panelClass} p-5`} style={chartPanelMinH}>
                   <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-4 ${dark ? 'text-white/45' : 'text-black/45'}`}>Conversion funnel</p>
-                  <div style={{ height: CHART_HEIGHT }}><ConversionFunnelChart tryons={metrics.tryons_started} atc={metrics.add_to_carts} purchases={metrics.purchases} dark={dark} /></div>
+                  <div style={{ height: CHART_HEIGHT }}><ConversionFunnelChart tryons={metrics.tryons_started ?? 0} atc={metrics.add_to_carts ?? 0} purchases={metrics.purchases ?? 0} dark={dark} /></div>
                 </div>
-                {metricsByProduct && metricsByProduct.products.length > 0 && (
+                {metricsByProduct && (metricsByProduct.products?.length ?? 0) > 0 && (
                   <div className={`${panelClass} overflow-hidden`}>
                     <div className="overflow-x-auto">
                       <table className="w-full">
@@ -274,14 +274,14 @@ export default function BrandDashboardPage() {
                           <th className={`${tableHeaderClass} text-right`}>AOV</th>
                         </tr></thead>
                         <tbody>
-                          {metricsByProduct.products.slice(0, 10).map((p, i) => (
+                          {((metricsByProduct.products ?? []) as Array<{ product_id: string; tryons_started?: number; add_to_carts?: number; purchases?: number; revenue_attributed?: number; aov_tryon?: number | null }>).slice(0, 10).map((p, i) => (
                             <tr key={p.product_id} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
                               <td className={`${tableCellClass} font-medium`}>{p.product_id}</td>
                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.tryons_started}</td>
                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.add_to_carts}</td>
                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.purchases}</td>
-                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>€{p.revenue_attributed.toFixed(2)}</td>
-                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.aov_tryon != null ? `€${p.aov_tryon.toFixed(2)}` : '—'}</td>
+<td className={`${tableCellClass} text-right font-mono tabular-nums`}>€{(p.revenue_attributed ?? 0).toFixed(2)}</td>
+                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.aov_tryon != null ? `€${p.aov_tryon.toFixed(2)}` : '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -303,22 +303,22 @@ export default function BrandDashboardPage() {
             ) : fitMetrics ? (
               <>
                 <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
-                  <MetricCell label="Acceptance" value={fitMetrics.acceptance_rate != null ? `${(fitMetrics.acceptance_rate * 100).toFixed(1)}%` : '—'} highlight dark={dark} />
-                  <MetricCell label="Size up" value={fitMetrics.size_up_rate != null ? `${(fitMetrics.size_up_rate * 100).toFixed(1)}%` : '—'} dark={dark} />
-                  <MetricCell label="Size down" value={fitMetrics.size_down_rate != null ? `${(fitMetrics.size_down_rate * 100).toFixed(1)}%` : '—'} dark={dark} />
-                  <MetricCell label="MASE" value={fitMetrics.mase != null ? fitMetrics.mase.toFixed(2) : '—'} dark={dark} />
-                  <MetricCell label="Sess w/ rec" value={fitMetrics.sessions_with_recommendation} dark={dark} />
-                  <MetricCell label="Purch+size" value={fitMetrics.sessions_with_purchase_and_size} dark={dark} />
+                  <MetricCell label="Acceptance" value={fitMetrics.acceptance_rate != null ? `${(Number(fitMetrics.acceptance_rate) * 100).toFixed(1)}%` : '—'} highlight dark={dark} />
+                  <MetricCell label="Size up" value={fitMetrics.size_up_rate != null ? `${(Number(fitMetrics.size_up_rate) * 100).toFixed(1)}%` : '—'} dark={dark} />
+                  <MetricCell label="Size down" value={fitMetrics.size_down_rate != null ? `${(Number(fitMetrics.size_down_rate) * 100).toFixed(1)}%` : '—'} dark={dark} />
+                  <MetricCell label="MASE" value={fitMetrics.mase != null ? Number(fitMetrics.mase).toFixed(2) : '—'} dark={dark} />
+                  <MetricCell label="Sess w/ rec" value={String(fitMetrics.sessions_with_recommendation ?? '—')} dark={dark} />
+                  <MetricCell label="Purch+size" value={String(fitMetrics.sessions_with_purchase_and_size ?? '—')} dark={dark} />
                 </div>
                 <div className={`${panelClass} p-5`} style={chartPanelMinH}>
                   <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-2 ${dark ? 'text-white/45' : 'text-black/45'}`}>Size distribution</p>
                   <p className={`text-xs mb-4 ${dark ? 'text-white/40' : 'text-black/40'}`}>Recommended = what we suggested · Selected = what they chose · Purchased = what they bought</p>
-                  <div style={{ height: CHART_HEIGHT }}><SizeDistributionChart recommended={fitMetrics.size_distribution_recommended} selected={fitMetrics.size_distribution_selected} purchased={fitMetrics.size_distribution_purchased} dark={dark} /></div>
+                  <div style={{ height: CHART_HEIGHT }}><SizeDistributionChart recommended={(fitMetrics.size_distribution_recommended ?? {}) as Record<string, number>} selected={(fitMetrics.size_distribution_selected ?? {}) as Record<string, number>} purchased={(fitMetrics.size_distribution_purchased ?? {}) as Record<string, number>} dark={dark} /></div>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
-                  <SizeCell label="Recommended" data={fitMetrics.size_distribution_recommended} dark={dark} />
-                  <SizeCell label="Selected" data={fitMetrics.size_distribution_selected} dark={dark} />
-                  <SizeCell label="Purchased" data={fitMetrics.size_distribution_purchased} dark={dark} />
+                  <SizeCell label="Recommended" data={(fitMetrics.size_distribution_recommended ?? {}) as Record<string, number>} dark={dark} />
+                  <SizeCell label="Selected" data={(fitMetrics.size_distribution_selected ?? {}) as Record<string, number>} dark={dark} />
+                  <SizeCell label="Purchased" data={(fitMetrics.size_distribution_purchased ?? {}) as Record<string, number>} dark={dark} />
                 </div>
               </>
             ) : (
@@ -334,26 +334,26 @@ export default function BrandDashboardPage() {
             ) : (
               <>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                  <MetricCell label="Tryon 7d" value={velocity?.tryon_velocity_7d ?? '—'} dark={dark} />
-                  <MetricCell label="Tryon 30d" value={velocity?.tryon_velocity_30d ?? '—'} dark={dark} />
-                  <MetricCell label="Purch 7d" value={velocity?.purchase_velocity_7d ?? '—'} dark={dark} />
-                  <MetricCell label="Purch 30d" value={velocity?.purchase_velocity_30d ?? '—'} dark={dark} />
-                  <MetricCell label="Ratio 7d" value={velocity?.velocity_ratio_7d != null ? velocity.velocity_ratio_7d.toFixed(2) : '—'} dark={dark} />
-                  <MetricCell label="Ratio 30d" value={velocity?.velocity_ratio_30d != null ? velocity.velocity_ratio_30d.toFixed(2) : '—'} dark={dark} />
+                  <MetricCell label="Tryon 7d" value={String(velocity?.tryon_velocity_7d ?? '—')} dark={dark} />
+                  <MetricCell label="Tryon 30d" value={String(velocity?.tryon_velocity_30d ?? '—')} dark={dark} />
+                  <MetricCell label="Purch 7d" value={String(velocity?.purchase_velocity_7d ?? '—')} dark={dark} />
+                  <MetricCell label="Purch 30d" value={String(velocity?.purchase_velocity_30d ?? '—')} dark={dark} />
+                  <MetricCell label="Ratio 7d" value={velocity?.velocity_ratio_7d != null ? Number(velocity.velocity_ratio_7d).toFixed(2) : '—'} dark={dark} />
+                  <MetricCell label="Ratio 30d" value={velocity?.velocity_ratio_30d != null ? Number(velocity.velocity_ratio_30d).toFixed(2) : '—'} dark={dark} />
                 </div>
-                {velocity && <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><VelocityChart velocity={velocity} dark={dark} /></div></div>}
+                {velocity && <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><VelocityChart velocity={{ tryon_velocity_7d: Number(velocity.tryon_velocity_7d), tryon_velocity_30d: Number(velocity.tryon_velocity_30d), purchase_velocity_7d: Number(velocity.purchase_velocity_7d), purchase_velocity_30d: Number(velocity.purchase_velocity_30d) }} dark={dark} /></div></div>}
                 <div>
                   <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>At-risk SKUs</p>
-                  {atRisk && atRisk.products.length > 0 ? (
+                  {atRisk && Array.isArray(atRisk.products) && (atRisk.products as Array<{ product_id: string; tryons: number; purchases: number; conversion?: number | null; severity: string }>).length > 0 ? (
                     <div className={`${panelClass} overflow-hidden`}>
                       <table className="w-full">
                         <thead><tr className={`border-b ${borderCl}`}><th className={tableHeaderClass}>Product</th><th className={`${tableHeaderClass} text-right`}>Tryons</th><th className={`${tableHeaderClass} text-right`}>Purch</th><th className={`${tableHeaderClass} text-right`}>Conv</th><th className={tableHeaderClass}>Severity</th></tr></thead>
-                        <tbody>{atRisk.products.slice(0, 8).map((p, i) => (
+                        <tbody>{(atRisk.products as Array<{ product_id: string; tryons: number; purchases: number; conversion?: number | null; severity: string }>).slice(0, 8).map((p, i) => (
                           <tr key={p.product_id} className={`border-b ${borderCl} last:border-0 ${rowHover} ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
                             <td className={`${tableCellClass} font-medium`}>{p.product_id}</td>
                             <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.tryons}</td>
                             <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.purchases}</td>
-                            <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.conversion != null ? `${(p.conversion * 100).toFixed(1)}%` : '0%'}</td>
+                            <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.conversion != null ? `${(Number(p.conversion) * 100).toFixed(1)}%` : '0%'}</td>
                             <td className={tableCellClass}><span className={`px-2 py-0.5 rounded text-[10px] font-medium ${p.severity === 'critical' ? 'bg-white/20 text-white' : p.severity === 'warning' ? 'bg-white/15 text-white/90' : 'bg-white/10 text-white/60'}`}>{p.severity}</span></td>
                           </tr>
                         ))}</tbody>
@@ -365,15 +365,15 @@ export default function BrandDashboardPage() {
                   <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>Rising size exploration</p>
                   {explorationTrend.length > 0 ? (
                     <>
-                      <div className={`${panelClass} p-5 mb-4`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><ExplorationTrendChart data={explorationTrend} dark={dark} /></div></div>
+                      <div className={`${panelClass} p-5 mb-4`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><ExplorationTrendChart data={explorationTrend as Array<{ week_start: string; avg_sizes_per_session: number }>} dark={dark} /></div></div>
                       <div className={`${panelClass} overflow-hidden`}>
                         <table className="w-full">
                           <thead><tr className={`border-b ${borderCl}`}><th className={tableHeaderClass}>Week</th><th className={`${tableHeaderClass} text-right`}>Sessions</th><th className={`${tableHeaderClass} text-right`}>Avg sizes</th></tr></thead>
-                          <tbody>{explorationTrend.slice(-8).map((p, i) => (
+                          <tbody>{(explorationTrend as Array<{ week_start: string; sessions_count: number; avg_sizes_per_session: number }>).slice(-8).map((p, i) => (
                             <tr key={p.week_start} className={`border-b ${borderCl} last:border-0 ${rowHover} ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
                               <td className={tableCellClass}>{p.week_start}</td>
                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.sessions_count}</td>
-                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.avg_sizes_per_session.toFixed(1)}</td>
+                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{Number(p.avg_sizes_per_session).toFixed(1)}</td>
                             </tr>
                           ))}</tbody>
                         </table>
@@ -387,13 +387,13 @@ export default function BrandDashboardPage() {
                     <div className={`${panelClass} overflow-hidden`}>
                       <table className="w-full">
                         <thead><tr className={`border-b ${borderCl}`}><th className={tableHeaderClass}>Product</th><th className={tableHeaderClass}>Size</th><th className={`${tableHeaderClass} text-right`}>Views</th><th className={`${tableHeaderClass} text-right`}>Purch</th><th className={`${tableHeaderClass} text-right`}>Stress</th></tr></thead>
-                        <tbody>{sizeStress.slice(0, 8).map((s, i) => (
+                        <tbody>{(sizeStress as Array<{ product_id: string; size: string; views: number; purchases: number; stress_score: number }>).slice(0, 8).map((s, i) => (
                           <tr key={`${s.product_id}-${s.size}-${i}`} className={`border-b ${borderCl} last:border-0 ${rowHover} ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
                             <td className={`${tableCellClass} font-medium`}>{s.product_id}</td>
                             <td className={tableCellClass}>{s.size}</td>
                             <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{s.views}</td>
                             <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{s.purchases}</td>
-                            <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{s.stress_score.toFixed(1)}×</td>
+                            <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{Number(s.stress_score).toFixed(1)}×</td>
                           </tr>
                         ))}</tbody>
                       </table>
@@ -403,21 +403,21 @@ export default function BrandDashboardPage() {
                 <div>
                   <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-2 ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size</p>
                   <p className={`text-xs mb-3 ${dark ? 'text-white/40' : 'text-black/40'}`}>Size mix by region (recommended, selected & purchased)</p>
-                  {regionalSize && Object.keys(regionalSize.by_country).length > 0 ? (
+                  {regionalSize && typeof regionalSize.by_country === 'object' && regionalSize.by_country !== null && Object.keys(regionalSize.by_country as Record<string, unknown>).length > 0 ? (
                     <>
-                      {regionalSize.top_size_by_country && Object.keys(regionalSize.top_size_by_country).length > 0 && (
+                      {regionalSize.top_size_by_country && typeof regionalSize.top_size_by_country === 'object' && Object.keys(regionalSize.top_size_by_country as Record<string, unknown>).length > 0 && (
                         <div className={`flex flex-wrap gap-2 mb-4 ${dark ? 'text-white/70' : 'text-black/70'}`}>
                           <span className="text-xs font-medium">Typical size per region:</span>
-                          {Object.entries(regionalSize.top_size_by_country)
+                          {Object.entries(regionalSize.top_size_by_country as Record<string, string>)
                             .sort(([a], [b]) => a.localeCompare(b))
                             .map(([country, size]) => (
                               <span key={country} className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium ${dark ? 'bg-white/10' : 'bg-black/10'}`}>
-                                {country}: <strong className="ml-1">{size}</strong>
+                                {country}: <strong className="ml-1">{String(size)}</strong>
                               </span>
                             ))}
                         </div>
                       )}
-                      <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><RegionalSizeChart by_country={regionalSize.by_country} dark={dark} /></div></div>
+                      <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><RegionalSizeChart by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
                     </>
                   ) : <div className={panelClass} style={chartPanelMinH}><EmptyState message="No regional data" sub="Country may be missing from events" dark={dark} /></div>}
                 </div>

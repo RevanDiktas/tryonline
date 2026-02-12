@@ -149,7 +149,9 @@ export default function OnboardingPage() {
       });
       
       // Store full measurements for display
-      setMeasurementsResult(result.measurements || null);
+      const m = result.measurements as { height?: number; chest?: number; waist?: number; hips?: number; inseam?: number; shoulder_width?: number; arm_length?: number; neck?: number; thigh?: number; torso_length?: number } | null | undefined;
+      const defaultH = parseInt(height, 10) || 175;
+      setMeasurementsResult(m ? { height: m.height ?? defaultH, ...m } : null);
       
       setStep('complete');
     } catch (err) {

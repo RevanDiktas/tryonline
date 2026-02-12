@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import type { WebGLRenderer } from 'three';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, getFitPassport, logout, updateFitPassport, User, FitPassport } from '@/lib/supabase-auth';
 import { api, type UserAddress, type AddressCreatePayload } from '@/lib/api';
@@ -133,15 +134,15 @@ export default function DashboardPage() {
       const h = fitPassport?.height || 175;
       setMeasurements({
         height: h,
-        chest: fitPassport?.measurements?.chest || Math.round(h * 0.53),
-        waist: fitPassport?.measurements?.waist || Math.round(h * 0.43),
-        hips: fitPassport?.measurements?.hips || Math.round(h * 0.50),
-        inseam: fitPassport?.measurements?.inseam || Math.round(h * 0.45),
-        shoulder_width: fitPassport?.measurements?.shoulder_width || Math.round(h * 0.24),
-        arm_length: fitPassport?.measurements?.arm_length || Math.round(h * 0.32),
-        neck: fitPassport?.measurements?.neck || Math.round(h * 0.21),
-        thigh: fitPassport?.measurements?.thigh || Math.round(h * 0.32),
-        torso_length: fitPassport?.measurements?.torso_length || Math.round(h * 0.30),
+        chest: fitPassport?.chest ?? Math.round(h * 0.53),
+        waist: fitPassport?.waist ?? Math.round(h * 0.43),
+        hips: fitPassport?.hips ?? Math.round(h * 0.50),
+        inseam: fitPassport?.inseam ?? Math.round(h * 0.45),
+        shoulder_width: fitPassport?.shoulder_width ?? Math.round(h * 0.24),
+        arm_length: fitPassport?.arm_length ?? Math.round(h * 0.32),
+        neck: fitPassport?.neck ?? Math.round(h * 0.21),
+        thigh: fitPassport?.thigh ?? Math.round(h * 0.32),
+        torso_length: fitPassport?.torso_length ?? Math.round(h * 0.30),
       });
     } catch (err) {
       console.error('[Dashboard] Load error:', err);
@@ -288,7 +289,7 @@ export default function DashboardPage() {
 
     let animationId: number;
     let rotation = 0;
-    let renderer: ReturnType<typeof import('three').WebGLRenderer.prototype.constructor> | null = null;
+    let renderer: WebGLRenderer | null = null;
     let currentModel: any = null;
 
     const initThreeJS = async () => {
@@ -374,7 +375,7 @@ export default function DashboardPage() {
       console.log('[Dashboard] Passport data:', { 
         hasAvatarUrl: !!passport?.avatarUrl, 
         avatarUrl: passport?.avatarUrl,
-        userId: passport?.userId
+        userId: passport?.user_id
       });
       console.log('[Dashboard] ============================================');
       
@@ -517,7 +518,7 @@ export default function DashboardPage() {
 
   const handlePreferredFitChange = async (fit: 'slim' | 'regular' | 'loose') => {
     if (!user) return;
-    setPassport((p) => (p ? { ...p, preferredFit: fit } : p)); // optimistic — link/button update immediately
+    setPassport((p) => (p ? { ...p, preferred_fit: fit } : p)); // optimistic — link/button update immediately
     setSaving(true);
     try {
       const updated = await updateFitPassport(user.id, { preferredFit: fit });
@@ -629,7 +630,7 @@ export default function DashboardPage() {
             Open the widget with your account so events are attributed to you.
           </p>
           <a
-            href={`/test-viewer.html?user_id=${user.id}${passport?.preferredFit ? `&preferred_fit=${passport.preferredFit}` : ''}&product_id=demo-npc-tshirt&shop=demo.myshopify.com`}
+            href={`/test-viewer.html?user_id=${user.id}${passport?.preferred_fit ? `&preferred_fit=${passport.preferred_fit}` : ''}&product_id=demo-npc-tshirt&shop=demo.myshopify.com`}
             target="_blank"
             rel="noopener noreferrer"
             className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition ${dark ? 'text-black bg-white hover:bg-white/90' : 'text-white bg-slate-900 hover:bg-slate-800'}`}
@@ -728,7 +729,7 @@ export default function DashboardPage() {
                     onClick={() => handlePreferredFitChange(fit)}
                     disabled={saving}
                     className={`px-4 py-2 text-sm font-medium rounded-lg transition capitalize ${
-                      passport?.preferredFit === fit
+                      passport?.preferred_fit === fit
                         ? dark ? 'bg-white text-black' : 'bg-black text-white'
                         : dark ? 'bg-white/10 text-white/80 hover:bg-white/20' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     } disabled:opacity-50`}
@@ -940,7 +941,7 @@ export default function DashboardPage() {
                 <div key={label} className={`p-4 rounded-xl ${dark ? 'bg-white/5' : 'bg-gray-50'}`}>
                   <p className={`text-xs uppercase tracking-wider mb-1 ${dark ? 'text-white/50' : 'text-gray-400'}`}>{label}</p>
                   <p className={`font-medium ${dark ? 'text-white' : 'text-black'}`}>
-                    {label === 'Name' ? user.name : label === 'Email' ? user.email : label === 'Member since' ? new Date(user.createdAt).toLocaleDateString() : (passport?.gender || 'Not set')}
+                    {label === 'Name' ? user.name : label === 'Email' ? user.email : label === 'Member since' ? new Date(user.created_at ?? '').toLocaleDateString() : (passport?.gender || 'Not set')}
                   </p>
                 </div>
               ))}

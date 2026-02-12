@@ -426,8 +426,10 @@
   <script>
     (function() {
       var p = new URLSearchParams(location.search);
+      var isLocal = /^localhost$|^127\.0\.0\.1$/i.test(location.hostname);
+      var defaultApiUrl = isLocal ? 'http://localhost:8000' : '';
       window.TRYON_CONFIG = {
-        apiUrl: p.get('api_url') || 'http://localhost:8000',
+        apiUrl: p.get('api_url') ?? defaultApiUrl,
         productId: p.get('product_id') || 'demo-npc-tshirt',
         variantId: p.get('variant_id') || 'demo-variant-m',
         shopDomain: p.get('shop') || 'demo.myshopify.com',
@@ -541,8 +543,9 @@
     const addToCartBtn = document.getElementById('add-to-cart');
 
     // Config (from URL params: product_id, variant_id, shop, user_id, preferred_fit)
+    const isLocal = /^localhost$|^127\.0\.0\.1$/i.test(window.location.hostname);
     const config = window.TRYON_CONFIG || {
-      apiUrl: 'http://localhost:8000',
+      apiUrl: isLocal ? 'http://localhost:8000' : '',
       productId: 'demo-npc-tshirt',
       variantId: 'demo-variant-m',
       shopDomain: 'demo.myshopify.com',
