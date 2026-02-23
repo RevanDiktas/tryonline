@@ -1,0 +1,142 @@
+{% comment %}
+  TryOn — "Try On" button app block for product pages.
+  Renders a button that opens the TryOn widget in a modal iframe.
+  Widget URL: https://tryonline.vercel.app/test-viewer.html
+{% endcomment %}
+{% liquid
+  assign widget_base = 'https://tryonline.vercel.app'
+  assign shop_domain = shop.permanent_domain
+  assign product_id = product.id
+  assign variant = product.selected_or_first_available_variant
+  assign variant_id = variant.id
+  assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&open=1&v=2'
+%}
+
+<div class="tryon-app-block" {{ block.shopify_attributes }}>
+  <style>
+    .tryon-app-block { margin: 1rem 0; }
+    .tryon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 24px;
+      background: #0a0a0a;
+      color: #fff;
+      border: none;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      border-radius: 6px;
+      transition: opacity 0.2s;
+    }
+    .tryon-btn:hover { opacity: 0.9; }
+    .tryon-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 999999;
+      background: rgba(0,0,0,0.5);
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .tryon-modal.open { display: flex; }
+    .tryon-modal-inner {
+      width: 100%;
+      max-width: 900px;
+      height: 90vh;
+      background: #fff;
+      border-radius: 12px;
+      overflow: hidden;
+      position: relative;
+    }
+    .tryon-modal-close {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 10;
+      width: 36px;
+      height: 36px;
+      border: none;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1;
+    }
+    .tryon-modal-close:hover { background: rgba(0,0,0,0.8); }
+    .tryon-modal-inner iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+  </style>
+
+  <button type="button" class="tryon-btn" data-tryon-open aria-label="Try on with TryOn">
+    {{ block.settings.button_label }}
+  </button>
+
+  <div class="tryon-modal" id="tryon-modal-{{ block.id }}" role="dialog" aria-label="TryOn virtual fitting">
+    <div class="tryon-modal-inner">
+      <button type="button" class="tryon-modal-close" data-tryon-close aria-label="Close">×</button>
+      <iframe
+        src=""
+        title="TryOn — Virtual try-on"
+        data-tryon-src="{{ widget_url }}"
+        loading="lazy"
+      ></iframe>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var block = document.querySelector('[data-tryon-open]');
+      if (!block) return;
+      var modal = document.getElementById('tryon-modal-{{ block.id }}');
+      var iframe = modal && modal.querySelector('iframe');
+      var closeBtn = modal && modal.querySelector('[data-tryon-close]');
+      var src = iframe && iframe.getAttribute('data-tryon-src');
+      if (!modal || !iframe || !src) return;
+
+      block.addEventListener('click', function() {
+        iframe.src = src;
+        modal.classList.add('open');
+        document.body.style.overflow = 'hidden';
+      });
+
+      function closeModal() {
+        modal.classList.remove('open');
+        document.body.style.overflow = '';
+        iframe.src = '';
+      }
+
+      if (closeBtn) closeBtn.addEventListener('click', closeModal);
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeModal();
+      });
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
+      });
+    })();
+  </script>
+</div>
+
+{% schema %}
+{
+  "name": "Try On",
+  "target": "section",
+  "enabled_on": {
+    "templates": ["product"]
+  },
+  "settings": [
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "Button label",
+      "default": "Try On"
+    }
+  ]
+}
+{% endschema %}
