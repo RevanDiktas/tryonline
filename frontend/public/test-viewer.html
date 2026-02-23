@@ -524,7 +524,7 @@
             <div id="canvas-container"></div>
             <div class="loading-overlay hidden" id="loading">
               <div class="loader"></div>
-              <div class="loading-text" id="loading-text">Loading...</div>
+              <div class="loading-text" id="loading-text">Loading your size...</div>
             </div>
             <div class="controls-hint">Drag to rotate • Scroll to zoom • Right-drag to move</div>
           </div>
@@ -870,23 +870,27 @@
       }
     }
 
+    function onFirstModelReady() {
+      if (typeof showModel === 'function' && currentSize) {
+        showModel(currentSize);
+        var key = currentSize.toLowerCase();
+        var hasAny = modelCache[key] || ((modelType === 'garment_only') && garmentCache[key]);
+        if (!hasAny && typeof showLoadError === 'function') showLoadError();
+      }
+    }
+
     function preloadAllModels() {
       const useSeparate = modelType === 'garment_only' && avatarUrl;
+      const firstSize = (currentSize && modelPaths[currentSize]) ? currentSize : Object.keys(modelPaths)[0];
       console.log('[TryOn] Preload mode:', useSeparate ? 'garment_only (avatar+garments)' : 'combined', 'avatarUrl:', avatarUrl ? 'set' : 'none', 'modelPaths:', Object.keys(modelPaths));
       if (useSeparate) {
-        // Separate: avatar (GLB only) + garments — both in same mm coords, textures preserved
+        // Load avatar first, then current size garment — show as soon as that's ready (faster first paint)
         loadAvatarGlb(avatarUrl, (scene) => {
-          // Store raw scene (no clone) — same as dashboard, textures intact
           let meshCount = 0;
           scene.traverse(c => { if (c.isMesh) { meshCount++; c.visible = true; } });
-          if (meshCount === 0) {
-            console.warn('[TryOn] Avatar has 0 meshes:', avatarUrl);
-            avatarCache = null;
-          } else {
-            avatarCache = scene;
-            console.log('[TryOn] Avatar GLB loaded:', meshCount, 'meshes');
-          }
+          if (meshCount === 0) { avatarCache = null; } else { avatarCache = scene; }
           onPreloadDone();
+          if (firstSize && garmentCache[firstSize]) onFirstModelReady();
         }, (err) => {
           console.error('[TryOn] Avatar load failed:', avatarUrl, err);
           avatarCache = null;
@@ -897,6 +901,7 @@
             garmentCache[size] = gltf.scene.clone();
             prepareGarment(garmentCache[size]);
             onPreloadDone();
+            if (size === firstSize && avatarCache) onFirstModelReady();
           }, undefined, (err) => {
             console.error('[TryOn] Garment load failed:', size, path, err);
             onPreloadDone();
@@ -908,6 +913,7 @@
             modelCache[size] = gltf.scene.clone();
             prepareGarment(modelCache[size]);
             onPreloadDone();
+            if (size === firstSize) onFirstModelReady();
           }, undefined, (err) => {
             console.error('[TryOn] Model load failed:', size, path, err);
             onPreloadDone();
