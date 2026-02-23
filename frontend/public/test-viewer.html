@@ -482,7 +482,7 @@
     <div class="tryon-login-gate-inner">
       <div class="tryon-login-gate-logo">TRYON</div>
       <p class="tryon-login-gate-text">Sign in to get your size and try on with your avatar.</p>
-      <button type="button" class="tryon-login-gate-btn" id="tryon-signin-btn">Sign in</button>
+      <a href="#" class="tryon-login-gate-btn" id="tryon-signin-btn" role="button">Sign in</a>
       <p class="tryon-login-gate-hint">Sign in here, then the try-on will open.</p>
     </div>
   </div>
@@ -495,12 +495,12 @@
   </div>
   <style>
   .tryon-login-gate{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:20px;}
-  .tryon-login-gate-inner{background:#fff;border-radius:16px;padding:40px;max-width:380px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
-  .tryon-login-gate-logo{font-size:20px;font-weight:600;letter-spacing:0.1em;margin-bottom:16px;}
-  .tryon-login-gate-text{color:#333;font-size:16px;line-height:1.5;margin-bottom:24px;}
-  .tryon-login-gate-btn{padding:14px 28px;background:#0a0a0a;color:#fff;border:none;font-size:14px;font-weight:500;border-radius:8px;cursor:pointer;}
+  .tryon-login-gate-inner{background:#fff;border-radius:12px;padding:24px;max-width:300px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,0.15);}
+  .tryon-login-gate-logo{font-size:16px;font-weight:600;letter-spacing:0.08em;margin-bottom:12px;}
+  .tryon-login-gate-text{color:#333;font-size:14px;line-height:1.45;margin-bottom:18px;}
+  .tryon-login-gate-btn{display:inline-block;text-decoration:none;padding:12px 22px;background:#0a0a0a;color:#fff;border:none;font-size:13px;font-weight:500;border-radius:8px;cursor:pointer;width:100%;box-sizing:border-box;}
   .tryon-login-gate-btn:hover{opacity:0.9;}
-  .tryon-login-gate-hint{color:#666;font-size:12px;margin-top:16px;}
+  .tryon-login-gate-hint{color:#666;font-size:11px;margin-top:12px;}
   body.open-direct .tryon-login-gate{background:transparent;}
   .tryon-error-state{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;padding:20px;}
   .tryon-error-state-inner{background:#fff;border-radius:16px;padding:32px;max-width:360px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
@@ -923,13 +923,19 @@
     }
     function showLoginGate() {
       if (loginGate) loginGate.style.display = 'flex';
+      var btn = document.getElementById('tryon-signin-btn');
+      if (btn) btn.href = buildWidgetSignInUrl();
     }
     function hideLoginGate() {
       if (loginGate) loginGate.style.display = 'none';
     }
     if (signinBtn) {
-      signinBtn.addEventListener('click', function() {
-        window.location.href = buildWidgetSignInUrl();
+      signinBtn.href = buildWidgetSignInUrl();
+      signinBtn.addEventListener('click', function(e) {
+        if (!signinBtn.href || signinBtn.href === '#' || signinBtn.href === '') {
+          e.preventDefault();
+          window.location.href = buildWidgetSignInUrl();
+        }
       });
     }
 

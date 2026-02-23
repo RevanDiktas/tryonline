@@ -10,17 +10,19 @@
    - The **deployed** `test-viewer.html` was an older build (cache or wrong deploy).
    - **API/env**: backend URL or Supabase isn’t set correctly, so the widget gets 404 and you might be seeing cached or old behavior.
 
-## Vercel env vars (required for widget)
+## Vercel env vars (required for widget and sign-in)
 
-In **Vercel → Project → Settings → Environment Variables** set:
+Your **backend** `.env` (Railway) uses `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_JWT_SECRET` — that’s for the API only.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `NEXT_PUBLIC_API_URL` | **Yes** (production) | Backend base URL (e.g. `https://your-app.railway.app`). Used by Next.js rewrites so `/api/*` is proxied to the backend. If missing, requests go to `127.0.0.1:8000` and fail. |
-| `NEXT_PUBLIC_SUPABASE_URL` | **Yes** | Supabase project URL (e.g. `https://xxxx.supabase.co`). |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **Yes** | Supabase anon/public key. |
+The **frontend** (Vercel) needs **different** variables so the browser can call your API and Supabase Auth. In **Vercel → Project → Settings → Environment Variables** set:
 
-After changing env vars, **redeploy** (Deployments → ⋯ → Redeploy).
+| Variable | Example / where to get it |
+|----------|---------------------------|
+| `NEXT_PUBLIC_API_URL` | Your **Railway** backend URL, e.g. `https://heroic-celebration-production-9f72.up.railway.app` (no trailing slash). Required so `/api/*` is proxied to the backend; if missing, sign-in and try-on API calls fail. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Your **Supabase** project URL, e.g. `https://cykwthsbrylonconqlfz.supabase.co` (same as `SUPABASE_URL` in backend .env). |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Your **Supabase anon (public) key** from Dashboard → Project Settings → API. This is a long JWT starting with `eyJ...`. **Not** the service_role key — the frontend must use the **anon** key. |
+
+If `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` is missing or wrong, the “Sign in” page will show “Sign-in is not configured” or login will fail. After changing env vars, **redeploy** (Deployments → ⋯ → Redeploy).
 
 ## Deploy and verify
 
