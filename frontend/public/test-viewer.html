@@ -524,7 +524,7 @@
             <div id="canvas-container"></div>
             <div class="loading-overlay hidden" id="loading">
               <div class="loader"></div>
-              <div class="loading-text">Loading...</div>
+              <div class="loading-text" id="loading-text">Loading...</div>
             </div>
             <div class="controls-hint">Drag to rotate • Scroll to zoom • Right-drag to move</div>
           </div>
@@ -861,6 +861,12 @@
         preloadStatus.textContent = '✓ All models ready';
         setTimeout(() => preloadStatus.classList.add('done'), 1000);
         console.log('✅ All models preloaded — instant size switching');
+        if (typeof showModel === 'function' && currentSize) {
+          showModel(currentSize);
+          var key = currentSize.toLowerCase();
+          var hasAny = modelCache[key] || ((modelType === 'garment_only') && garmentCache[key]);
+          if (!hasAny && typeof showLoadError === 'function') showLoadError();
+        }
       }
     }
 
@@ -1149,10 +1155,18 @@
       const hasSeparate = (modelType === 'garment_only') && garmentCache[key];
       if (!hasCombined && !hasSeparate) {
         loading.classList.remove('hidden');
+        var loadingText = document.getElementById('loading-text');
+        if (loadingText) loadingText.textContent = 'Loading...';
         return;
       }
       loading.classList.add('hidden');
       displayModel(size);
+    }
+
+    function showLoadError() {
+      loading.classList.remove('hidden');
+      var loadingText = document.getElementById('loading-text');
+      if (loadingText) loadingText.textContent = 'Avatar or garment failed to load. Check browser console (F12).';
     }
 
     function displayModel(size) {
