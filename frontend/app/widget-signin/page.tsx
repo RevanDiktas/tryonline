@@ -1,46 +1,69 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { login, getCurrentUser } from '@/lib/supabase-auth';
 
+const SUPABASE_CONFIGURED =
+  typeof process.env.NEXT_PUBLIC_SUPABASE_URL === 'string' &&
+  process.env.NEXT_PUBLIC_SUPABASE_URL?.length > 0 &&
+  typeof process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY === 'string' &&
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.length > 0;
+
 /**
- * Sign-in for the TryOn widget (opened in a popup from the store).
- * When the user signs in, we post their user_id to the opener (the widget iframe)
- * so it can reload with user_id and show the GLB viewer with their avatar.
+ * Sign-in for the TryOn widget.
+ * - If opened in iframe with ?return=<widget URL>: after sign-in, redirect iframe to return URL + user_id (stays on product page).
+ * - If opened in popup (window.opener): after sign-in, post user_id to opener and close.
  */
 export default function WidgetSignInPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnUrl = searchParams.get('return');
+
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
 
   const isPopup = typeof window !== 'undefined' && !!window.opener;
+  const isIframeReturn = typeof window !== 'undefined' && !!returnUrl;
 
   useEffect(() => {
     const run = async () => {
-      if (!isPopup) {
+      if (!SUPABASE_CONFIGURED) {
         setChecking(false);
         return;
       }
       try {
         const user = await getCurrentUser();
         if (user) {
-          try {
-            window.opener?.postMessage({ type: 'TRYON_USER_ID', user_id: user.id }, '*');
-          } catch (_) {}
-          window.close();
+          if (isPopup && window.opener) {
+            try {
+              window.opener.postMessage({ type: 'TRYON_USER_ID', user_id: user.id }, '*');
+            } catch (_) {}
+            window.close();
+            return;
+          }
+          if (returnUrl) {
+            const sep = returnUrl.includes('?') ? '&' : '?';
+            window.location.href = returnUrl + sep + 'user_id=' + encodeURIComponent(user.id);
+            return;
+          }
+          router.push('/dashboard');
           return;
         }
       } catch (_) {}
       setChecking(false);
     };
     run();
-  }, [isPopup]);
+  }, [returnUrl, isPopup, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!SUPABASE_CONFIGURED) {
+      setErrors({ form: 'Sign-in is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.' });
+      return;
+    }
     if (!formData.email.trim() || !formData.password) {
       setErrors({ form: 'Email and password are required' });
       return;
@@ -61,17 +84,38 @@ export default function WidgetSignInPage() {
         window.close();
         return;
       }
+      if (user && returnUrl) {
+        const sep = returnUrl.includes('?') ? '&' : '?';
+        window.location.href = returnUrl + sep + 'user_id=' + encodeURIComponent(user.id);
+        return;
+      }
       if (user) {
         router.push('/dashboard');
       }
     } catch (err) {
-      setErrors({ form: 'Something went wrong. Please try again.' });
+      const msg = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
+      setErrors({ form: msg });
     } finally {
       setLoading(false);
     }
   };
 
-  if (!isPopup) {
+  if (!SUPABASE_CONFIGURED) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center p-4">
+        <div className="w-full max-w-sm text-center">
+          <p className="text-red-600 font-medium mb-2">Sign-in not configured</p>
+          <p className="text-gray-600 text-sm mb-4">
+            Set <code className="bg-gray-100 px-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code> and{' '}
+            <code className="bg-gray-100 px-1 rounded">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in your Vercel project environment variables, then redeploy.
+          </p>
+          <a href="/login" className="text-black font-medium underline">Go to Sign In</a>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isPopup && !returnUrl) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center p-4">
         <div className="text-center">
@@ -130,7 +174,7 @@ export default function WidgetSignInPage() {
           </button>
         </form>
         <p className="text-center text-gray-500 text-xs mt-4">
-          After signing in, this window will close and the try-on will open.
+          After signing in, the try-on will open.
         </p>
       </div>
     </div>

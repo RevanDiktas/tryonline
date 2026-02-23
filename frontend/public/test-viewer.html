@@ -455,7 +455,17 @@
     </div>
   </div>
   <script>
-  (function(){ var p=new URLSearchParams(location.search); if(p.get('open')==='1'){ var el=document.getElementById('pdp-background'); if(el)el.style.display='none'; } })();
+  (function(){
+    var p=new URLSearchParams(location.search);
+    if(p.get('open')==='1'){
+      var el=document.getElementById('pdp-background');
+      if(el)el.style.display='none';
+      document.documentElement.style.background='transparent';
+      document.body.style.background='transparent';
+      var preload=document.getElementById('preload-status');
+      if(preload)preload.style.display='none';
+    }
+  })();
   </script>
 
   <!-- Login gate: shown when open=1 and no user_id (store PDP). Sign in to get size & avatar. -->
@@ -464,11 +474,11 @@
       <div class="tryon-login-gate-logo">TRYON</div>
       <p class="tryon-login-gate-text">Sign in to get your size and try on with your avatar.</p>
       <button type="button" class="tryon-login-gate-btn" id="tryon-signin-btn">Sign in</button>
-      <p class="tryon-login-gate-hint">You’ll open TryOn in a new window, then return here.</p>
+      <p class="tryon-login-gate-hint">Sign in here, then the try-on will open.</p>
     </div>
   </div>
   <style>
-  .tryon-login-gate{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;padding:20px;}
+  .tryon-login-gate{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:20px;}
   .tryon-login-gate-inner{background:#fff;border-radius:16px;padding:40px;max-width:380px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
   .tryon-login-gate-logo{font-size:20px;font-weight:600;letter-spacing:0.1em;margin-bottom:16px;}
   .tryon-login-gate-text{color:#333;font-size:16px;line-height:1.5;margin-bottom:24px;}
@@ -881,18 +891,9 @@
     }
     if (signinBtn) {
       signinBtn.addEventListener('click', function() {
-        var w = window.open(buildWidgetSignInUrl(), 'tryon-signin', 'width=420,height=520,scrollbars=yes');
-        if (w) w.focus();
+        window.location.href = buildWidgetSignInUrl();
       });
     }
-    window.addEventListener('message', function(e) {
-      if (e.data && e.data.type === 'TRYON_USER_ID' && e.data.user_id) {
-        hideLoginGate();
-        var url = new URL(window.location.href);
-        url.searchParams.set('user_id', e.data.user_id);
-        window.location.href = url.toString();
-      }
-    });
 
     async function openViewer() {
       overlay.classList.add('active');
