@@ -434,15 +434,16 @@
         variantId: p.get('variant_id') || 'demo-variant-m',
         shopDomain: p.get('shop') || 'demo.myshopify.com',
         userId: p.get('user_id') || null,
-        preferredFit: p.get('preferred_fit') || null
+        preferredFit: p.get('preferred_fit') || null,
+        openDirect: p.get('open') === '1'
       };
     })();
   </script>
   <!-- Preload status -->
   <div class="preload-status" id="preload-status">⏳ Preloading models...</div>
 
-  <!-- Simulated PDP -->
-  <div class="pdp-background">
+  <!-- Simulated PDP (hidden when open=1 — never show on real store PDP) -->
+  <div class="pdp-background" id="pdp-background">
     <div class="pdp-image-col">
       <div class="product-img">👕</div>
     </div>
@@ -453,6 +454,28 @@
       <button class="tryon-trigger-btn" id="open-tryon">TRY ON</button>
     </div>
   </div>
+  <script>
+  (function(){ var p=new URLSearchParams(location.search); if(p.get('open')==='1'){ var el=document.getElementById('pdp-background'); if(el)el.style.display='none'; } })();
+  </script>
+
+  <!-- Login gate: shown when open=1 and no user_id (store PDP). Sign in to get size & avatar. -->
+  <div class="tryon-login-gate" id="tryon-login-gate" style="display:none;">
+    <div class="tryon-login-gate-inner">
+      <div class="tryon-login-gate-logo">TRYON</div>
+      <p class="tryon-login-gate-text">Sign in to get your size and try on with your avatar.</p>
+      <button type="button" class="tryon-login-gate-btn" id="tryon-signin-btn">Sign in</button>
+      <p class="tryon-login-gate-hint">You’ll open TryOn in a new window, then return here.</p>
+    </div>
+  </div>
+  <style>
+  .tryon-login-gate{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;padding:20px;}
+  .tryon-login-gate-inner{background:#fff;border-radius:16px;padding:40px;max-width:380px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
+  .tryon-login-gate-logo{font-size:20px;font-weight:600;letter-spacing:0.1em;margin-bottom:16px;}
+  .tryon-login-gate-text{color:#333;font-size:16px;line-height:1.5;margin-bottom:24px;}
+  .tryon-login-gate-btn{padding:14px 28px;background:#0a0a0a;color:#fff;border:none;font-size:14px;font-weight:500;border-radius:8px;cursor:pointer;}
+  .tryon-login-gate-btn:hover{opacity:0.9;}
+  .tryon-login-gate-hint{color:#666;font-size:12px;margin-top:16px;}
+  </style>
 
   <!-- TryOn Overlay -->
   <div class="overlay" id="overlay">
@@ -550,7 +573,8 @@
       variantId: 'demo-variant-m',
       shopDomain: 'demo.myshopify.com',
       userId: null,
-      preferredFit: null
+      preferredFit: null,
+      openDirect: false
     };
 
     // Session for attribution
@@ -838,29 +862,68 @@
       }
     }
 
-    // Start: fetch config (user + product) then preload models
-    initConfig();
+    // When open=1 (e.g. from store PDP), hide fake PDP and either show login gate or open viewer
+    const pdpBg = document.getElementById('pdp-background');
+    const loginGate = document.getElementById('tryon-login-gate');
+    const signinBtn = document.getElementById('tryon-signin-btn');
+    if (config.openDirect && pdpBg) pdpBg.style.display = 'none';
 
-    // ============================================
-    // EVENT LISTENERS
-    // ============================================
-    openBtn.addEventListener('click', async () => {
+    function buildWidgetSignInUrl() {
+      var u = new URL(window.location.href);
+      u.searchParams.set('open', '1');
+      return (window.location.origin || 'https://tryonline.vercel.app') + '/widget-signin?return=' + encodeURIComponent(u.toString());
+    }
+    function showLoginGate() {
+      if (loginGate) loginGate.style.display = 'flex';
+    }
+    function hideLoginGate() {
+      if (loginGate) loginGate.style.display = 'none';
+    }
+    if (signinBtn) {
+      signinBtn.addEventListener('click', function() {
+        var w = window.open(buildWidgetSignInUrl(), 'tryon-signin', 'width=420,height=520,scrollbars=yes');
+        if (w) w.focus();
+      });
+    }
+    window.addEventListener('message', function(e) {
+      if (e.data && e.data.type === 'TRYON_USER_ID' && e.data.user_id) {
+        hideLoginGate();
+        var url = new URL(window.location.href);
+        url.searchParams.set('user_id', e.data.user_id);
+        window.location.href = url.toString();
+      }
+    });
+
+    async function openViewer() {
       overlay.classList.add('active');
-      // Compute recommended size from algo (measurements + size chart + preferred_fit)
       currentSize = recommendSize(config.preferredFit || 'regular');
       sizeButtons.forEach(function(b) {
         b.classList.toggle('active', b.dataset.size === currentSize);
       });
       fitText.innerHTML = fitData[currentSize];
-      // Create session + track widget_opened (before 3D loads)
       sessionId = await createTryonSession();
       track('widget_opened');
       tryonStartTime = Date.now();
-      // Defer init so overlay has dimensions (container was hidden before)
       requestAnimationFrame(() => {
         initScene(() => showModel(currentSize));
       });
-    });
+    }
+
+    // Start: when open=1, either show login gate (no user_id) or fetch config and open viewer
+    if (config.openDirect) {
+      if (!config.userId) {
+        showLoginGate();
+      } else {
+        initConfig().then(() => openViewer());
+      }
+    } else {
+      initConfig().then(() => {});
+    }
+
+    // ============================================
+    // EVENT LISTENERS
+    // ============================================
+    openBtn.addEventListener('click', () => openViewer());
 
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) {
@@ -882,6 +945,10 @@
       track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
       // Shopify: tell parent to add item with session_id for attribution
       if (window.parent !== window) {
+        var targetOrigin = '*';
+        try {
+          if (document.referrer) targetOrigin = new URL(document.referrer).origin;
+        } catch (e) {}
         window.parent.postMessage({
           type: 'TRYON_ADD_TO_CART',
           payload: {
@@ -891,7 +958,7 @@
             shop: config.shopDomain,
             session_id: sessionId
           }
-        }, '*');
+        }, targetOrigin);
       }
       overlay.classList.remove('active');
     });
