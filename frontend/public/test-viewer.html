@@ -85,7 +85,7 @@
       opacity: 0.8;
     }
 
-    /* Dark overlay */
+    /* Dark overlay (transparent when embedded with open=1 so no grey square) */
     .overlay {
       position: fixed;
       inset: 0;
@@ -97,6 +97,9 @@
       opacity: 0;
       visibility: hidden;
       transition: all 0.3s ease;
+    }
+    body.open-direct .overlay {
+      background: transparent;
     }
 
     .overlay.active {
@@ -422,20 +425,23 @@
   </style>
 </head>
 <body>
+  <!-- tryon-widget v3: transparent overlay + Supabase-only avatar/garment -->
   <!-- Config from URL params. When logged in, pass user_id (and optionally preferred_fit) for attribution. -->
   <script>
     (function() {
       var p = new URLSearchParams(location.search);
       var isLocal = /^localhost$|^127\.0\.0\.1$/i.test(location.hostname);
       var defaultApiUrl = isLocal ? 'http://localhost:8000' : '';
+      var openParam = p.get('open') === '1';
+      var inIframe = typeof window !== 'undefined' && window.self !== window.top;
       window.TRYON_CONFIG = {
         apiUrl: p.get('api_url') ?? defaultApiUrl,
-        productId: p.get('product_id') || 'demo-npc-tshirt',
-        variantId: p.get('variant_id') || 'demo-variant-m',
+        productId: p.get('product_id') || '',
+        variantId: p.get('variant_id') || '',
         shopDomain: p.get('shop') || 'demo.myshopify.com',
         userId: p.get('user_id') || null,
         preferredFit: p.get('preferred_fit') || null,
-        openDirect: p.get('open') === '1'
+        openDirect: openParam || inIframe
       };
     })();
   </script>
@@ -457,7 +463,10 @@
   <script>
   (function(){
     var p=new URLSearchParams(location.search);
-    if(p.get('open')==='1'){
+    var open=p.get('open')==='1';
+    var inIframe=typeof window!=='undefined'&&window.self!==window.top;
+    if(open||inIframe){
+      document.body.classList.add('open-direct');
       var el=document.getElementById('pdp-background');
       if(el)el.style.display='none';
       document.documentElement.style.background='transparent';
@@ -468,13 +477,20 @@
   })();
   </script>
 
-  <!-- Login gate: shown when open=1 and no user_id (store PDP). Sign in to get size & avatar. -->
+  <!-- Login gate: shown when open=1 and no session (store PDP). Sign in to get size & avatar. -->
   <div class="tryon-login-gate" id="tryon-login-gate" style="display:none;">
     <div class="tryon-login-gate-inner">
       <div class="tryon-login-gate-logo">TRYON</div>
       <p class="tryon-login-gate-text">Sign in to get your size and try on with your avatar.</p>
       <button type="button" class="tryon-login-gate-btn" id="tryon-signin-btn">Sign in</button>
       <p class="tryon-login-gate-hint">Sign in here, then the try-on will open.</p>
+    </div>
+  </div>
+  <!-- Error state: avatar or product not available from Supabase (no demo GLBs). -->
+  <div class="tryon-error-state" id="tryon-error-state" style="display:none;">
+    <div class="tryon-error-state-inner">
+      <h3 id="tryon-error-title">Try-on unavailable</h3>
+      <p id="tryon-error-message"></p>
     </div>
   </div>
   <style>
@@ -485,6 +501,11 @@
   .tryon-login-gate-btn{padding:14px 28px;background:#0a0a0a;color:#fff;border:none;font-size:14px;font-weight:500;border-radius:8px;cursor:pointer;}
   .tryon-login-gate-btn:hover{opacity:0.9;}
   .tryon-login-gate-hint{color:#666;font-size:12px;margin-top:16px;}
+  body.open-direct .tryon-login-gate{background:transparent;}
+  .tryon-error-state{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;padding:20px;}
+  .tryon-error-state-inner{background:#fff;border-radius:16px;padding:32px;max-width:360px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
+  .tryon-error-state-inner h3{font-size:16px;margin-bottom:12px;color:#1a1a1a;}
+  .tryon-error-state-inner p{color:#555;font-size:14px;}
   </style>
 
   <!-- TryOn Overlay -->
@@ -637,22 +658,10 @@
       }).catch(e => console.warn('[TryOn] Track failed:', e));
     }
 
-    // Mutable config — filled from API when user_id / product_id present
-    let modelPaths = {
-      xs: 'models/avatar_with_tshirt_xs.glb',
-      s: 'models/avatar_with_tshirt_s.glb',
-      m: 'models/avatar_with_tshirt_m.glb',
-      l: 'models/avatar_with_tshirt_l.glb',
-      xl: 'models/avatar_with_tshirt_xl.glb',
-    };
-    let sizeChart = {
-      xs: { chest: 88, waist: 72, hips: 86 },
-      s: { chest: 92, waist: 76, hips: 90 },
-      m: { chest: 100, waist: 84, hips: 98 },
-      l: { chest: 108, waist: 92, hips: 106 },
-      xl: { chest: 116, waist: 100, hips: 114 }
-    };
-    let userMeasurements = { chest: 102, waist: 83, hips: 96, height: 192 };
+    // Mutable config — only from Supabase/API (no pre-stored demo GLBs)
+    let modelPaths = {};
+    let sizeChart = {};
+    let userMeasurements = {};
     let avatarUrl = null;
     let modelType = 'combined'; // 'combined' | 'garment_only'
 
@@ -698,24 +707,36 @@
       }
     }
 
-    // Initialize: fetch user + product, then preload
+    function showErrorState(title, message) {
+      const el = document.getElementById('tryon-error-state');
+      const titleEl = document.getElementById('tryon-error-title');
+      const msgEl = document.getElementById('tryon-error-message');
+      if (el && titleEl && msgEl) {
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        el.style.display = 'flex';
+      }
+    }
+
+    // Initialize: fetch user + product from API only (no demo fallbacks). Then preload or show error.
     async function initConfig() {
       const [userData, productConfig] = await Promise.all([
         fetchUserData(),
         fetchProductConfig()
       ]);
-      if (userData.measurements) {
-        userMeasurements = userData.measurements;
-        avatarUrl = userData.avatarUrl;
-        if (avatarUrl) {
-          if (!/\.glb$/i.test(avatarUrl)) {
-            avatarUrl = avatarUrl.replace(/\/[^/]*\.(obj|ply)$/i, '/avatar_textured.glb');
-            console.log('[TryOn] Forced GLB (was OBJ):', avatarUrl);
-          }
-          console.log('[TryOn] Loading avatar_textured.glb from:', avatarUrl);
-        } else if (config.userId) {
-          console.warn('[TryOn] No avatar_url from API');
+      // Require avatar from Supabase when user_id is present
+      if (config.userId) {
+        if (!userData.avatarUrl) {
+          showErrorState('Avatar not ready', 'Your avatar is not ready yet. Complete onboarding to generate it.');
+          return;
         }
+        userMeasurements = userData.measurements || {};
+        avatarUrl = userData.avatarUrl;
+        if (!/\.glb$/i.test(avatarUrl)) {
+          avatarUrl = avatarUrl.replace(/\/[^/]*\.(obj|ply)$/i, '/avatar_textured.glb');
+          console.log('[TryOn] Forced GLB (was OBJ):', avatarUrl);
+        }
+        console.log('[TryOn] Avatar from Supabase:', avatarUrl);
         const vh = document.getElementById('val-height');
         const vc = document.getElementById('val-chest');
         const vp = document.getElementById('val-hips');
@@ -724,15 +745,25 @@
         if (vc) vc.textContent = (userMeasurements.chest || '—') + 'CM';
         if (vp) vp.textContent = (userMeasurements.hips || '—') + 'CM';
         if (vw) vw.textContent = (userMeasurements.waist || '—') + 'CM';
+      } else {
+        const vh = document.getElementById('val-height');
+        const vc = document.getElementById('val-chest');
+        const vp = document.getElementById('val-hips');
+        const vw = document.getElementById('val-waist');
+        if (vh) vh.textContent = '—';
+        if (vc) vc.textContent = '—';
+        if (vp) vp.textContent = '—';
+        if (vw) vw.textContent = '—';
       }
-      if (productConfig && Object.keys(productConfig.modelUrls || {}).length) {
-        modelPaths = productConfig.modelUrls;
-        console.log('[TryOn] Garment URLs (GLB):', modelPaths);
-        if (Object.keys(productConfig.sizeChart || {}).length) {
-          sizeChart = productConfig.sizeChart;
-        }
-        modelType = productConfig.modelType || 'combined';
+      // Require product tryon config from API (no pre-stored garments)
+      if (!productConfig || !Object.keys(productConfig.modelUrls || {}).length) {
+        showErrorState('Product try-on not available', 'This product does not have try-on data yet.');
+        return;
       }
+      modelPaths = productConfig.modelUrls;
+      if (Object.keys(productConfig.sizeChart || {}).length) sizeChart = productConfig.sizeChart;
+      modelType = productConfig.modelType || 'combined';
+      console.log('[TryOn] Garment from Supabase:', Object.keys(modelPaths));
       preloadAllModels();
     }
 
@@ -750,12 +781,19 @@
     let initialized = false;
     const SIZE_ORDER = ['xs','s','m','l','xl'];
     function recommendSize(preferredFit) {
+      const available = SIZE_ORDER.filter(s => modelPaths[s]);
+      if (available.length === 0) return 'm';
+      const hasMeasurements = userMeasurements && (userMeasurements.chest != null || userMeasurements.waist != null);
+      if (!hasMeasurements || !sizeChart || Object.keys(sizeChart).length === 0) {
+        return available.includes('m') ? 'm' : available[0];
+      }
       preferredFit = preferredFit || 'regular';
-      const sizes = SIZE_ORDER.slice();
+      const sizes = SIZE_ORDER.filter(s => sizeChart[s]);
+      if (sizes.length === 0) return available.includes('m') ? 'm' : available[0];
       const withEase = sizes.map(function(size) {
         const c = sizeChart[size];
         const avgEase = (c.chest - userMeasurements.chest + c.waist - userMeasurements.waist + c.hips - userMeasurements.hips) / 3;
-        return { size: size, avgEase: avgEase };
+        return { size: size, avgEase: isNaN(avgEase) ? 0 : avgEase };
       });
       const idealMid = preferredFit === 'slim' ? 2.5 : preferredFit === 'loose' ? 12 : 7;
       withEase.sort(function(a, b) { return Math.abs(a.avgEase - idealMid) - Math.abs(b.avgEase - idealMid); });
@@ -910,15 +948,25 @@
       });
     }
 
-    // Start: when open=1, either show login gate (no user_id) or fetch config and open viewer
+    // Start: when open=1, check session first (memory) so returning users don't have to log in again
     if (config.openDirect) {
       if (!config.userId) {
-        showLoginGate();
+        fetch('/auth/me', { credentials: 'include' })
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(data) {
+            if (data && data.user_id) {
+              config.userId = data.user_id;
+              initConfig().then(function() { openViewer(); });
+            } else {
+              showLoginGate();
+            }
+          })
+          .catch(function() { showLoginGate(); });
       } else {
-        initConfig().then(() => openViewer());
+        initConfig().then(function() { openViewer(); });
       }
     } else {
-      initConfig().then(() => {});
+      initConfig().then(function() {});
     }
 
     // ============================================

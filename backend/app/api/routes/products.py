@@ -10,26 +10,6 @@ from app.services.supabase import supabase_service
 
 router = APIRouter()
 
-# Demo fallback for NPC t-shirt (when no garment in DB)
-DEMO_NPC_TSHIRT = {
-    "product_id": "demo-npc-tshirt",
-    "model_urls": {
-        "xs": "/models/avatar_with_tshirt_xs.glb",
-        "s": "/models/avatar_with_tshirt_s.glb",
-        "m": "/models/avatar_with_tshirt_m.glb",
-        "l": "/models/avatar_with_tshirt_l.glb",
-        "xl": "/models/avatar_with_tshirt_xl.glb",
-    },
-    "size_chart": {
-        "xs": {"chest": 88, "waist": 72, "hips": 86},
-        "s": {"chest": 92, "waist": 76, "hips": 90},
-        "m": {"chest": 100, "waist": 84, "hips": 98},
-        "l": {"chest": 108, "waist": 92, "hips": 106},
-        "xl": {"chest": 116, "waist": 100, "hips": 114},
-    },
-}
-
-
 class TryonConfigResponse(BaseModel):
     product_id: str
     model_urls: dict[str, str]
@@ -56,16 +36,6 @@ async def get_tryon_config(
         ).limit(1).execute()
 
         if not r.data or len(r.data) == 0:
-            if product_id == "demo-npc-tshirt":
-                urls = dict(DEMO_NPC_TSHIRT["model_urls"])
-                if base_url:
-                    urls = {k: f"{base_url.rstrip('/')}{v}" if v.startswith("/") else v for k, v in urls.items()}
-                return TryonConfigResponse(
-                    product_id=product_id,
-                    model_urls=urls,
-                    size_chart=DEMO_NPC_TSHIRT["size_chart"],
-                    model_type="combined",
-                )
             raise HTTPException(status_code=404, detail="Garment not found")
 
         row = r.data[0]

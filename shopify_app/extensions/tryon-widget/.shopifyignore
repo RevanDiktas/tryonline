@@ -1,0 +1,3 @@
+# Exclude macOS AppleDouble/resource fork files (CLI validation fails on these)
+._*
+**/._*

@@ -15,6 +15,20 @@ const nextConfig = {
       { source: '/health', destination: `${API_BASE}/health` },
     ];
   },
+  // Allow widget to be embedded in iframes (e.g. Shopify store product pages)
+  async headers() {
+    return [
+      {
+        source: '/test-viewer.html',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: 'frame-ancestors *',
+          },
+        ],
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;

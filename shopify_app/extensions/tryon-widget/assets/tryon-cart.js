@@ -1,15 +1,6 @@
 /**
- * TryOn Session in Cart — Shopify theme snippet
- * =============================================
- * Add this script to your Shopify theme (e.g. theme.liquid or a section)
- * so the session_id from the TryOn widget is stored in cart attributes.
- *
- * When the widget fires TRYON_ADD_TO_CART, this listener adds the item
- * to cart WITH the session_id as a line item property. That flows to
- * checkout and becomes a note_attribute on the order, which our webhook
- * reads for attribution.
- *
- * Usage: Include this file or paste the code into your theme.
+ * TryOn Session in Cart — Shopify theme app extension asset
+ * Listens for TRYON_ADD_TO_CART from the widget; adds item to cart with tryon_session_id when present.
  */
 (function () {
   const ATTR_KEY = 'tryon_session_id';
@@ -17,16 +8,19 @@
   window.addEventListener('message', function (e) {
     if (e.data?.type !== 'TRYON_ADD_TO_CART' || !e.data?.payload) return;
     const { productId, variantId, size, shop, session_id } = e.data.payload;
+
     if (!variantId) {
       console.warn('[TryOn] Add to cart skipped: missing variantId');
       return;
     }
-    const variantIdNum = parseInt(variantId, 10);
+
+    var variantIdNum = parseInt(variantId, 10);
     if (Number.isNaN(variantIdNum)) {
       console.warn('[TryOn] Add to cart skipped: invalid variantId', variantId);
       return;
     }
-    const properties = { _tryon_size: size || '' };
+
+    var properties = { _tryon_size: size || '' };
     if (session_id) properties[ATTR_KEY] = session_id;
 
     fetch('/cart/add.js', {

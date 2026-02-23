@@ -9,7 +9,7 @@
   assign product_id = product.id
   assign variant = product.selected_or_first_available_variant
   assign variant_id = variant.id
-  assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&open=1&v=2'
+  assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&open=1&v=3'
 %}
 
 <div class="tryon-app-block" {{ block.shopify_attributes }}>
@@ -36,7 +36,7 @@
       position: fixed;
       inset: 0;
       z-index: 999999;
-      background: rgba(0,0,0,0.5);
+      background: transparent;
       align-items: center;
       justify-content: center;
       padding: 16px;
