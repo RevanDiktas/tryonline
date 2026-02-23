@@ -24,6 +24,12 @@ The **frontend** (Vercel) needs **different** variables so the browser can call 
 
 If `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` is missing or wrong, the “Sign in” page will show “Sign-in is not configured” or login will fail. After changing env vars, **redeploy** (Deployments → ⋯ → Redeploy).
 
+**Backend .env vs Vercel:** Your backend `.env` has `SUPABASE_SERVICE_KEY` (the `sb_secret_...` key). That is for the API only; never use it in the frontend. On Vercel use `NEXT_PUBLIC_SUPABASE_ANON_KEY` = the **anon (public)** key from Supabase Dashboard → API. Backend and Vercel use different keys on purpose.
+
+**If sign-in fails or redirect fails:** In Supabase Dashboard → Authentication → URL Configuration, set Site URL to your Vercel domain and add to Redirect URLs: `https://tryonline.vercel.app/**` and `https://tryonline-cx1g.vercel.app/**`.
+
+**Sign-in on PDP (Shopify product page):** When the widget runs inside an iframe on the store, the app opens sign-in in a **popup** instead of in the iframe. That avoids third-party cookie blocking so Supabase can set the session. After you sign in, the popup closes and the iframe reloads with your user so the try-on opens.
+
 ## Deploy and verify
 
 ### 1. Push and deploy

@@ -916,28 +916,43 @@
     const signinBtn = document.getElementById('tryon-signin-btn');
     if (config.openDirect && pdpBg) pdpBg.style.display = 'none';
 
-    function buildWidgetSignInUrl() {
+    function buildWidgetSignInUrl(popup) {
       var u = new URL(window.location.href);
       u.searchParams.set('open', '1');
-      return (window.location.origin || 'https://tryonline.vercel.app') + '/widget-signin?return=' + encodeURIComponent(u.toString());
+      var url = (window.location.origin || 'https://tryonline.vercel.app') + '/widget-signin?return=' + encodeURIComponent(u.toString());
+      if (popup) url += '&popup=1';
+      return url;
     }
     function showLoginGate() {
       if (loginGate) loginGate.style.display = 'flex';
       var btn = document.getElementById('tryon-signin-btn');
-      if (btn) btn.href = buildWidgetSignInUrl();
+      if (btn) btn.href = buildWidgetSignInUrl(false);
     }
     function hideLoginGate() {
       if (loginGate) loginGate.style.display = 'none';
     }
+    var inIframe = typeof window !== 'undefined' && window.self !== window.top;
     if (signinBtn) {
-      signinBtn.href = buildWidgetSignInUrl();
+      signinBtn.href = buildWidgetSignInUrl(false);
       signinBtn.addEventListener('click', function(e) {
+        if (inIframe) {
+          e.preventDefault();
+          window.open(buildWidgetSignInUrl(true), 'tryon_signin', 'width=420,height=520,scrollbars=yes,resizable=yes');
+          return;
+        }
         if (!signinBtn.href || signinBtn.href === '#' || signinBtn.href === '') {
           e.preventDefault();
-          window.location.href = buildWidgetSignInUrl();
+          window.location.href = buildWidgetSignInUrl(false);
         }
       });
     }
+    window.addEventListener('message', function(event) {
+      if (event.data && event.data.type === 'TRYON_USER_ID' && event.data.user_id) {
+        var u = new URL(window.location.href);
+        u.searchParams.set('user_id', event.data.user_id);
+        window.location.href = u.toString();
+      }
+    });
 
     async function openViewer() {
       overlay.classList.add('active');

@@ -163,7 +163,10 @@ export default function WidgetSignInPage() {
             />
           </div>
           {errors.form && (
-            <p className="text-red-600 text-sm">{errors.form}</p>
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+              <p className="text-red-700 text-sm font-medium">{errors.form}</p>
+              <p className="text-red-600 text-xs mt-1">Check email/password, or Supabase Auth → URL Configuration (Redirect URLs).</p>
+            </div>
           )}
           <button
             type="submit"
