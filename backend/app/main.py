@@ -69,6 +69,19 @@ async def root():
     }
 
 
+@app.get("/routes")
+async def list_routes():
+    """Debug: list all registered routes (confirm /api/shopify/* is present)."""
+    routes = []
+    for r in app.routes:
+        path = getattr(r, "path", None)
+        if path is None:
+            continue
+        methods = list(r.methods) if getattr(r, "methods", None) else []
+        routes.append({"path": path, "methods": methods or ["GET"]})
+    return {"routes": routes, "shopify_ok": any("/api/shopify" in (r.get("path") or "") for r in routes)}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

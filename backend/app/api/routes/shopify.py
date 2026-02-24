@@ -37,6 +37,12 @@ def _verify_hmac(params: dict, secret: str, received_hmac: str) -> bool:
     return hmacc.compare_digest(expected, received_hmac)
 
 
+@router.get("")
+async def shopify_router_ping():
+    """Confirm Shopify router is mounted (GET /api/shopify)."""
+    return {"status": "ok", "message": "Shopify OAuth routes are available. Use GET /api/shopify/auth?shop=xxx.myshopify.com to start install."}
+
+
 @router.get("/auth")
 async def shopify_auth(
     request: Request,

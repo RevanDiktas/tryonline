@@ -1,0 +1,12 @@
+# Railway backend service
+# In Railway dashboard: set Root Directory to "backend" for this service.
+# This file is used when Root Directory = backend (path from repo root: backend/railway.toml).
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
