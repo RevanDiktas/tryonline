@@ -2,6 +2,7 @@
 Configuration settings for TryOn Backend API
 """
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from functools import lru_cache
 
 
@@ -28,7 +29,12 @@ class Settings(BaseSettings):
     # Storage Buckets
     photos_bucket: str = "photos"
     avatars_bucket: str = "avatars"
-    garments_bucket: str = "garments"  # garments/{brand_id}/{product_id}/... for GLBs etc.
+    garments_bucket: str = "garments"
+
+    @field_validator("photos_bucket", "avatars_bucket", "garments_bucket", mode="after")
+    @classmethod
+    def strip_bucket_names(cls, v: str) -> str:
+        return v.strip()
     
     # Processing
     avatar_processing_timeout: int = 300  # 5 minutes
