@@ -79,6 +79,7 @@ async def shopify_auth_callback(
     state: str = Query(None),
 ):
     """Exchange code for access token, upsert brand, redirect to frontend /app."""
+    print(f"[Shopify callback] hit: shop={shop!r} code={'yes' if code else 'no'} state_cookie={'yes' if request.cookies.get(STATE_COOKIE) else 'no'}")
     if not code or not shop or not hmac or not state:
         return RedirectResponse(
             url=f"{settings.frontend_app_url.rstrip('/')}/app?error=missing_params",
@@ -90,8 +91,12 @@ async def shopify_auth_callback(
             url=f"{settings.frontend_app_url.rstrip('/')}/app?error=invalid_shop",
             status_code=302,
         )
+    # State cookie is set when WE redirect to OAuth (embedded app flow). When the user
+    # uses the custom INSTALL LINK, they never hit /auth, so we never set the cookie.
+    # In that case we rely on HMAC (proves Shopify sent the request). If cookie is
+    # present, verify it; if missing (install link flow), skip state check.
     state_cookie = request.cookies.get(STATE_COOKIE)
-    if not state_cookie or not secrets.compare_digest(state_cookie, state):
+    if state_cookie and not secrets.compare_digest(state_cookie, state):
         return RedirectResponse(
             url=f"{settings.frontend_app_url.rstrip('/')}/app?error=invalid_state",
             status_code=302,
@@ -127,10 +132,12 @@ async def shopify_auth_callback(
         )
     brand_id = supabase.upsert_brand_for_shop(shop, access_token)
     if not brand_id:
+        print(f"[Shopify callback] db_failed: shop={shop!r}")
         return RedirectResponse(
             url=f"{settings.frontend_app_url.rstrip('/')}/app?error=db_failed",
             status_code=302,
         )
+    print(f"[Shopify callback] brand created: shop={shop!r} brand_id={brand_id}")
     app_url = f"{settings.frontend_app_url.rstrip('/')}/app?shop={shop}"
     resp = RedirectResponse(url=app_url, status_code=302)
     resp.delete_cookie(STATE_COOKIE)
