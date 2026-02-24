@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     # Storage Buckets
     photos_bucket: str = "photos"
     avatars_bucket: str = "avatars"
+    garments_bucket: str = "garments"  # garments/{brand_id}/{product_id}/... for GLBs etc.
     
     # Processing
     avatar_processing_timeout: int = 300  # 5 minutes

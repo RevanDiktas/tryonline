@@ -357,6 +357,38 @@ class SupabaseService:
                 # Continue with other files
         
         return uploaded_urls
+
+    def ensure_garments_bucket(self) -> bool:
+        """
+        Ensure the shared garments bucket exists (for structure garments/{brand_id}/{product_id}/...).
+        Idempotent: safe to call on every brand signup. Creates bucket only if missing.
+        """
+        try:
+            self.client.storage.create_bucket(
+                settings.garments_bucket,
+                options={"public": True}
+            )
+            print(f"[Supabase] Created bucket: {settings.garments_bucket}")
+            return True
+        except Exception as e:
+            msg = str(e).lower()
+            if "already exists" in msg or "duplicate" in msg or "409" in msg:
+                return True
+            print(f"[Supabase] ensure_garments_bucket: {e}")
+            return False
+
+    @staticmethod
+    def garment_storage_path(brand_id: str, product_id: str, filename: str) -> str:
+        """
+        Path inside the garments bucket: brand_id/product_id/filename.
+        Use for uploads and for storing in garments.sizes (relative path).
+        """
+        return f"{brand_id}/{product_id}/{filename}".replace("//", "/")
+
+    def get_garment_public_url(self, brand_id: str, product_id: str, filename: str) -> str:
+        """Public URL for a file in garments bucket at brand_id/product_id/filename."""
+        path = self.garment_storage_path(brand_id, product_id, filename)
+        return self.client.storage.from_(settings.garments_bucket).get_public_url(path)
     
     # ==========================================
     # ANALYTICS OPERATIONS (Category A schema)
@@ -443,6 +475,8 @@ class SupabaseService:
                     "updated_at": datetime.utcnow().isoformat(),
                 }).eq("id", brand_id).execute()
                 return brand_id
+            # Ensure garments bucket exists (garments/{brand_id}/{product_id}/...)
+            self.ensure_garments_bucket()
             # Insert new brand (name/email required by schema)
             ins = self.client.table("brands").insert({
                 "name": shop,
