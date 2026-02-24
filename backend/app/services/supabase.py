@@ -287,6 +287,22 @@ class SupabaseService:
             print(f"[Supabase] Error creating signed URL for {photo_path}: {e}")
             return ""
     
+    def ensure_avatars_bucket(self) -> bool:
+        """Create the avatars storage bucket if it doesn't exist."""
+        try:
+            self.client.storage.create_bucket(
+                settings.avatars_bucket,
+                options={"public": True}
+            )
+            print(f"[Supabase] Created bucket: {settings.avatars_bucket}")
+            return True
+        except Exception as e:
+            msg = str(e).lower()
+            if "already exists" in msg or "duplicate" in msg or "409" in msg:
+                return True
+            print(f"[Supabase] ensure_avatars_bucket error: {e}")
+            return False
+    
     async def upload_avatar(self, user_id: str, file_data: bytes, filename: str) -> str:
         """
         Upload avatar file to storage (upsert — overwrites if already exists).
@@ -306,17 +322,24 @@ class SupabaseService:
         
         bucket = self.client.storage.from_(settings.avatars_bucket)
         
+        # Strategy: try upload with upsert header, fall back to remove+upload, fall back to update
         try:
             bucket.upload(
                 file_path, file_data,
                 {"content-type": content_type, "x-upsert": "true"}
             )
-        except Exception as upload_err:
-            err_msg = str(upload_err).lower()
-            if "duplicate" in err_msg or "already" in err_msg or "409" in err_msg:
-                bucket.update(file_path, file_data, {"content-type": content_type})
-            else:
-                raise
+        except Exception as first_err:
+            print(f"[Supabase] Upload attempt 1 failed for {file_path}: {first_err}")
+            try:
+                bucket.remove([file_path])
+                bucket.upload(file_path, file_data, {"content-type": content_type})
+            except Exception as second_err:
+                print(f"[Supabase] Upload attempt 2 (remove+upload) failed: {second_err}")
+                try:
+                    bucket.update(file_path, file_data, {"content-type": content_type})
+                except Exception as third_err:
+                    print(f"[Supabase] Upload attempt 3 (update) failed: {third_err}")
+                    raise
         
         return bucket.get_public_url(file_path)
     
@@ -330,6 +353,8 @@ class SupabaseService:
         Upload all pipeline output files to Supabase storage.
         Returns: Dict of {file_key: public_url}
         """
+        self.ensure_avatars_bucket()
+        
         if file_key_to_filename is None:
             file_key_to_filename = {
                 "avatar_glb": "avatar_textured.glb",
@@ -361,7 +386,7 @@ class SupabaseService:
                 uploaded_urls[file_key] = url
                 print(f"[Supabase] Uploaded {file_key} -> {filename} ({len(file_data) / 1024:.1f} KB)")
             except Exception as e:
-                print(f"[Supabase] Failed to upload {file_key}: {e}")
+                print(f"[Supabase] FAILED to upload {file_key} -> {filename}: {e}")
                 import traceback
                 traceback.print_exc()
         
