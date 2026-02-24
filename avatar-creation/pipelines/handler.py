@@ -75,17 +75,25 @@ if RUNPOD_VOLUME_PATH.exists():
             except Exception as e:
                 print(f"[RunPod] ⚠️  Error checking symlink: {e}")
         else:
-            # Directory exists but is not a symlink - might have models from build
-            # Defer expensive size check - just note that directory exists
-            # Detailed check will happen when config is loaded
+            # Directory exists but is not a symlink - might have models from build, or empty from image
             build_checkpoint = EXPECTED_CACHE_DIR / "logs" / "train" / "multiruns" / "hmr2" / "0" / "checkpoints" / "epoch=35-step=1000000.ckpt"
             if build_checkpoint.exists():
                 # Quick check only (no size check to avoid slow startup)
                 print(f"[RunPod] ✓ Build-time models directory found in {EXPECTED_CACHE_DIR}")
                 print(f"[RunPod]   Using build cache (size verification will happen on first use)")
             else:
+                # No checkpoint in existing dir - replace with symlink to volume so jobs use volume (persistent)
                 print(f"[RunPod] ⚠️  {EXPECTED_CACHE_DIR} exists but is not a symlink and checkpoint not found")
-                print(f"[RunPod]   Will check for models on first job")
+                try:
+                    import shutil
+                    backup = EXPECTED_CACHE_DIR.parent / "4DHumans_backup"
+                    if backup.exists():
+                        shutil.rmtree(backup, ignore_errors=True)
+                    EXPECTED_CACHE_DIR.rename(backup)
+                    os.symlink(str(VOLUME_CACHE_DIR), str(EXPECTED_CACHE_DIR))
+                    print(f"[RunPod] ✓ Replaced with symlink: {EXPECTED_CACHE_DIR} -> {VOLUME_CACHE_DIR} (models will load from volume or download on first job)")
+                except Exception as e:
+                    print(f"[RunPod]   Could not replace with symlink: {e}. Will check for models on first job.")
 else:
     print(f"[RunPod] ⚠️  Network Volume not detected at {RUNPOD_VOLUME_PATH}")
     print(f"[RunPod]   Models will be cached locally (not persistent across jobs)")
