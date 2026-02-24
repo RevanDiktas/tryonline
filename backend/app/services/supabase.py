@@ -429,6 +429,46 @@ class SupabaseService:
             pass
         return None
 
+    def upsert_brand_for_shop(self, shop_domain: str, shopify_access_token: str) -> Optional[str]:
+        """Create or update brand by shopify_domain; set shopify_access_token. Returns brand id or None."""
+        if not shop_domain or not shop_domain.strip() or not shopify_access_token:
+            return None
+        shop = shop_domain.strip()
+        try:
+            r = self.client.table("brands").select("id").eq("shopify_domain", shop).limit(1).execute()
+            if r.data and len(r.data) > 0:
+                brand_id = str(r.data[0]["id"])
+                self.client.table("brands").update({
+                    "shopify_access_token": shopify_access_token,
+                    "updated_at": datetime.utcnow().isoformat(),
+                }).eq("id", brand_id).execute()
+                return brand_id
+            # Insert new brand (name/email required by schema)
+            ins = self.client.table("brands").insert({
+                "name": shop,
+                "email": f"{shop.replace('.', '-')}@tryon-placeholder.local",
+                "shopify_domain": shop,
+                "shopify_access_token": shopify_access_token,
+                "status": "active",
+            }).execute()
+            if ins.data and len(ins.data) > 0:
+                return str(ins.data[0]["id"])
+        except Exception:
+            pass
+        return None
+
+    def has_shopify_session(self, shop_domain: str) -> bool:
+        """Return True if we have a non-empty shopify_access_token for this shop."""
+        if not shop_domain or not shop_domain.strip():
+            return False
+        try:
+            r = self.client.table("brands").select("shopify_access_token").eq("shopify_domain", shop_domain.strip()).limit(1).execute()
+            if r.data and len(r.data) > 0 and r.data[0].get("shopify_access_token"):
+                return True
+        except Exception:
+            pass
+        return False
+
     async def track_event(
         self,
         event_type: str,

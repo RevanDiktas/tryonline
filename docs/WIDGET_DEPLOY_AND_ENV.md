@@ -1,5 +1,13 @@
 # Widget deploy verification and env vars
 
+## Product ID mismatch (\"Product try-on not available\" or wrong product)
+
+The widget sends **Shopify's numeric product ID** (`product.id` from Liquid) in the URL. The backend looks up the **`garments`** table by **`shopify_product_id`**. If there is no row with that ID, you get 404 and \"Product try-on not available\".
+
+- **Fix:** In Supabase **Table Editor → garments**, set **`shopify_product_id`** to the **numeric product ID** of the Shopify product (e.g. `82345678901`), not `demo-npc-tshirt` or the product handle.
+- **How to get the ID:** In Shopify Admin go to **Products** → open the product → look at the URL: `.../products/12345678901` (the number is the product ID). Or use the Shopify API. Use that number (as text is fine) in `garments.shopify_product_id`.
+- **`brand_id`:** The try-on config API does **not** filter by `brand_id`. NULL is fine for the widget to load. Set `brand_id` only if you use it elsewhere (e.g. analytics or brand dashboard).
+
 ## Why the grey square and wrong avatar/tshirt?
 
 1. **Grey square when signing in (picture 2)**  

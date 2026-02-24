@@ -44,6 +44,6 @@ export COPYFILE_DISABLE=1
 
 # 6. Force CLI to use this copy (not the original project path) so the bundle is built in /tmp
 echo "Deploying from $DEPLOY_DIR ..."
-shopify app deploy --path "$DEPLOY_DIR"
+shopify app deploy --path "$DEPLOY_DIR" --allow-updates
 
 echo "Done. You can remove $DEPLOY_DIR later if you want (rm -rf $DEPLOY_DIR)."

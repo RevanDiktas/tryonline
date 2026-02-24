@@ -34,6 +34,10 @@ class Settings(BaseSettings):
 
     # Shopify (optional)
     shopify_webhook_secret: str = ""  # For HMAC verification of orders/paid
+    shopify_client_id: str = ""  # From Partners app (API key)
+    shopify_client_secret: str = ""  # From Partners app (Client secret)
+    frontend_app_url: str = "https://tryonline.vercel.app"  # Base URL of Next.js app for OAuth redirect
+    backend_public_url: str = ""  # Public URL of this API (e.g. https://api.railway.app) for OAuth callback
 
     # Server (Railway/Render set PORT at runtime)
     port: int = 8000
