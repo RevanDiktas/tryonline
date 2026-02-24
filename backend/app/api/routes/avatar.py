@@ -407,6 +407,57 @@ async def get_avatar_status(job_id: str):
     )
 
 
+@router.get("/debug/test-upload")
+async def debug_test_upload():
+    """Diagnostic: test if Supabase storage upload works."""
+    results = {}
+    try:
+        from app.config import get_settings
+        s = get_settings()
+        results["avatars_bucket"] = s.avatars_bucket
+        results["supabase_url"] = s.supabase_url
+        
+        bucket = supabase_service.client.storage.from_(s.avatars_bucket)
+        test_data = b'{"test": true}'
+        test_path = "_debug/upload_test.json"
+        
+        # Try upload
+        try:
+            bucket.upload(test_path, test_data, {"content-type": "application/json", "x-upsert": "true"})
+            results["upload_upsert"] = "OK"
+        except Exception as e1:
+            results["upload_upsert"] = str(e1)
+            try:
+                bucket.remove([test_path])
+                bucket.upload(test_path, test_data, {"content-type": "application/json"})
+                results["upload_remove_retry"] = "OK"
+            except Exception as e2:
+                results["upload_remove_retry"] = str(e2)
+                try:
+                    bucket.update(test_path, test_data, {"content-type": "application/json"})
+                    results["upload_update"] = "OK"
+                except Exception as e3:
+                    results["upload_update"] = str(e3)
+        
+        url = bucket.get_public_url(test_path)
+        results["public_url"] = url
+        results["status"] = "success" if any(v == "OK" for v in results.values()) else "all_failed"
+        
+        # List buckets
+        try:
+            buckets = supabase_service.client.storage.list_buckets()
+            results["buckets"] = [b.name for b in buckets]
+        except Exception as eb:
+            results["buckets_error"] = str(eb)
+        
+    except Exception as e:
+        import traceback
+        results["error"] = str(e)
+        results["traceback"] = traceback.format_exc()
+    
+    return results
+
+
 @router.get("/{user_id}", response_model=AvatarResponse)
 async def get_avatar(user_id: str):
     """
