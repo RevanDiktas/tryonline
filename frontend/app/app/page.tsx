@@ -13,15 +13,52 @@ function AppPageContent() {
   const shop = searchParams.get('shop') ?? '';
   const host = searchParams.get('host') ?? '';
   const error = searchParams.get('error') ?? '';
-  const [status, setStatus] = useState<'loading' | 'ready' | 'redirecting'>('loading');
+  const [status, setStatus] = useState<'loading' | 'ready' | 'redirecting' | 'completing'>('loading');
+
+  const code = searchParams.get('code') ?? '';
+  const hmac = searchParams.get('hmac') ?? '';
+  const state = searchParams.get('state') ?? '';
 
   useEffect(() => {
+    // If we have OAuth params (e.g. redirect to backend was blocked and Shopify sent user here)
+    if (code && shop && hmac && state) {
+      setStatus('completing');
+      const apiBase = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || '');
+      fetch(`${apiBase}/api/shopify/complete-install`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, shop, hmac, state }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.ok) {
+            // Brand created; replace URL to remove OAuth params and reload
+            if (typeof window !== 'undefined') {
+              window.history.replaceState({}, '', `${window.location.pathname}?shop=${encodeURIComponent(shop)}`);
+              window.location.reload();
+            }
+          } else {
+            setStatus('ready');
+            window.history.replaceState({}, '', `${window.location.pathname}?shop=${encodeURIComponent(shop)}&error=${data.error || 'complete_failed'}`);
+            window.location.reload();
+          }
+        })
+        .catch(() => {
+          setStatus('ready');
+          window.history.replaceState({}, '', `${window.location.pathname}?shop=${encodeURIComponent(shop)}&error=complete_failed`);
+          window.location.reload();
+        });
+      return;
+    }
+
     if (!shop) {
       setStatus('ready');
       return;
     }
     // Check if we have a session for this shop (backend has access token)
     const apiBase = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || '');
+    const authUrl = `${apiBase || (typeof window !== 'undefined' ? window.location.origin : '')}/api/shopify/auth?shop=${encodeURIComponent(shop)}`;
+
     fetch(`${apiBase}/api/shopify/session?shop=${encodeURIComponent(shop)}`)
       .then((res) => {
         if (res.ok) {
@@ -29,19 +66,32 @@ function AppPageContent() {
           return;
         }
         // No session: redirect to backend OAuth (breaks out of iframe)
-        const authUrl = `${apiBase || window.location.origin}/api/shopify/auth?shop=${encodeURIComponent(shop)}`;
         setStatus('redirecting');
         if (typeof window !== 'undefined' && window.top) {
           window.top.location.href = authUrl;
         }
       })
-      .catch(() => setStatus('ready'));
-  }, [shop]);
+      .catch(() => {
+        // Network/API error: redirect to OAuth so we create the brand (don't show false "ready")
+        setStatus('redirecting');
+        if (typeof window !== 'undefined' && window.top) {
+          window.top.location.href = authUrl;
+        }
+      });
+  }, [shop, code, hmac, state]);
 
   if (status === 'redirecting') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-6">
         <p className="text-gray-600 dark:text-gray-400">Redirecting to install…</p>
+      </div>
+    );
+  }
+
+  if (status === 'completing') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-6">
+        <p className="text-gray-600 dark:text-gray-400">Completing install…</p>
       </div>
     );
   }

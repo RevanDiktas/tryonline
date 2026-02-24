@@ -16,10 +16,11 @@ optional_scopes = [ ]
 use_legacy_install_flow = false
 
 [auth]
-# OAuth callback must be your backend URL (where you exchange code for token)
+# Backend callback FIRST so install link / OAuth redirect hits backend (we exchange code → create brand).
+# Frontend second for any other redirect needs.
 redirect_urls = [
-  "https://tryonline.vercel.app",
-  "https://heroic-celebration-production-9f72.up.railway.app/api/shopify/auth/callback"
+  "https://heroic-celebration-production-9f72.up.railway.app/api/shopify/auth/callback",
+  "https://tryonline.vercel.app/app"
 ]
 
 [pos]

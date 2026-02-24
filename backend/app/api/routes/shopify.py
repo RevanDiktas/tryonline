@@ -10,6 +10,7 @@ import secrets
 import re
 from urllib.parse import urlencode, parse_qsl
 
+from pydantic import BaseModel
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import RedirectResponse, JSONResponse
 
@@ -142,6 +143,49 @@ async def shopify_auth_callback(
     resp = RedirectResponse(url=app_url, status_code=302)
     resp.delete_cookie(STATE_COOKIE)
     return resp
+
+
+class CompleteInstallBody(BaseModel):
+    code: str
+    shop: str
+    hmac: str
+    state: str
+
+
+@router.post("/complete-install")
+async def shopify_complete_install(body: CompleteInstallBody):
+    """
+    Fallback when redirect to callback is blocked: frontend lands on /app?code=... and calls this
+    with the OAuth params. We exchange code and create brand, return { ok: true } or { error }.
+    """
+    import httpx
+    shop = body.shop.strip().lower()
+    if not SHOP_PATTERN.match(shop):
+        return JSONResponse(content={"ok": False, "error": "invalid_shop"}, status_code=400)
+    params = {"code": body.code, "shop": body.shop, "hmac": body.hmac, "state": body.state}
+    if not _verify_hmac(params, settings.shopify_client_secret or "", body.hmac):
+        return JSONResponse(content={"ok": False, "error": "hmac_failed"}, status_code=400)
+    token_url = f"https://{shop}/admin/oauth/access_token"
+    payload = {
+        "client_id": settings.shopify_client_id,
+        "client_secret": settings.shopify_client_secret,
+        "code": body.code,
+    }
+    async with httpx.AsyncClient() as client:
+        r = await client.post(token_url, data=payload)
+    if r.status_code != 200:
+        print(f"[Shopify complete-install] token exchange failed: {r.status_code}")
+        return JSONResponse(content={"ok": False, "error": "token_exchange"}, status_code=400)
+    data = r.json()
+    access_token = data.get("access_token")
+    if not access_token:
+        return JSONResponse(content={"ok": False, "error": "no_token"}, status_code=400)
+    brand_id = supabase.upsert_brand_for_shop(shop, access_token)
+    if not brand_id:
+        print(f"[Shopify complete-install] db_failed: shop={shop!r}")
+        return JSONResponse(content={"ok": False, "error": "db_failed"}, status_code=500)
+    print(f"[Shopify complete-install] brand created: shop={shop!r} brand_id={brand_id}")
+    return {"ok": True, "shop": shop}
 
 
 @router.get("/session")
