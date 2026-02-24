@@ -85,66 +85,62 @@ class RunPodService:
         """
         Get status of a RunPod job
         Returns: {status, output, error}
-        
-        Output contains:
-        - avatar_glb_base64: Base64-encoded GLB file
-        - measurements: Standardized measurements dict
-        - processing_time_seconds: Time taken
         """
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.base_url}/status/{job_id}",
-                headers=self._get_headers(),
-                timeout=30.0
-            )
-            
-            if response.status_code == 200:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.base_url}/status/{job_id}",
+                    headers=self._get_headers(),
+                    timeout=120.0  # large timeout — RunPod returns ~12MB of base64 files
+                )
+                
+                if response.status_code != 200:
+                    print(f"[RunPod] Status check failed: HTTP {response.status_code}")
+                    return {"status": "ERROR", "error": f"HTTP {response.status_code}"}
+                
                 data = response.json()
                 status = data.get("status", "UNKNOWN")
-                output = data.get("output", {})
+                output = data.get("output") or {}
                 error = data.get("error")
                 
-                # Debug logging
                 print(f"[RunPod] Job {job_id} status: {status}")
                 if error:
                     print(f"[RunPod] Job {job_id} error: {error}")
                 
-                # Transform output to expected format
-                processed_output = None
-                if output:
-                    processed_output = {
-                        "measurements": output.get("measurements", {}),
-                        "processing_time": output.get("processing_time_seconds"),
-                        # All files as decoded bytes dict
-                        "files_bytes": {},
-                        "file_sizes": output.get("file_sizes", {}),
-                    }
-                    
-                    # Decode all base64 files
-                    files_base64 = output.get("files_base64", {})
-                    if not files_base64:
-                        # Fallback to old format (single GLB)
-                        if output.get("avatar_glb_base64"):
-                            files_base64 = {"avatar_glb": output["avatar_glb_base64"]}
-                    
-                    for file_key, file_base64 in files_base64.items():
-                        try:
-                            processed_output["files_bytes"][file_key] = base64.b64decode(
-                                file_base64
-                            )
-                        except Exception as e:
-                            print(f"Failed to decode {file_key} base64: {e}")
+                if status != "COMPLETED" or not output:
+                    return {"status": status, "output": output, "error": error}
                 
-                return {
-                    "status": data.get("status", "UNKNOWN"),
-                    "output": processed_output,
-                    "error": data.get("error"),
+                # Pipeline error (handler returned {"error": "..."})
+                if output.get("error"):
+                    return {"status": "COMPLETED", "output": output, "error": output["error"]}
+                
+                # Decode base64 files into bytes
+                processed_output = {
+                    "measurements": output.get("measurements", {}),
+                    "processing_time": output.get("processing_time_seconds"),
+                    "files_bytes": {},
+                    "file_sizes": output.get("file_sizes", {}),
                 }
-            else:
-                return {
-                    "status": "ERROR",
-                    "error": f"Failed to get status: {response.status_code}"
-                }
+                
+                files_base64 = output.get("files_base64", {})
+                if not files_base64 and output.get("avatar_glb_base64"):
+                    files_base64 = {"avatar_glb": output["avatar_glb_base64"]}
+                
+                print(f"[RunPod] Decoding {len(files_base64)} files from base64...")
+                for file_key, file_b64 in files_base64.items():
+                    try:
+                        processed_output["files_bytes"][file_key] = base64.b64decode(file_b64)
+                    except Exception as e:
+                        print(f"[RunPod] Failed to decode {file_key}: {e}")
+                
+                print(f"[RunPod] Decoded {len(processed_output['files_bytes'])} files, measurements: {len(processed_output['measurements'])} values")
+                
+                return {"status": "COMPLETED", "output": processed_output, "error": None}
+        except Exception as e:
+            print(f"[RunPod] get_job_status exception: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"status": "IN_PROGRESS", "output": None, "error": None}
     
     async def cancel_job(self, job_id: str) -> bool:
         """Cancel a running job"""

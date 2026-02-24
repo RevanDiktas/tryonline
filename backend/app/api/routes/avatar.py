@@ -168,17 +168,16 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
         jobs[job_id]["progress"] = 20
         jobs[job_id]["message"] = "Processing on GPU..."
         
-        # Poll for completion (in real scenario, use webhooks or celery)
         import asyncio
         max_attempts = 60  # 5 minutes with 5 second intervals
         
         for attempt in range(max_attempts):
             await asyncio.sleep(5)
             
+            print(f"[Avatar] Poll #{attempt+1}/{max_attempts} for RunPod job {runpod_job_id}")
             status_result = await runpod_service.get_job_status(runpod_job_id)
             runpod_status = status_result.get("status", "")
             
-            # Update progress based on RunPod status
             if runpod_status == "IN_QUEUE":
                 jobs[job_id]["progress"] = 25
                 jobs[job_id]["message"] = "Waiting in GPU queue..."
@@ -366,15 +365,20 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
         raise Exception("Avatar creation timed out")
         
     except Exception as e:
-        print(f"Avatar processing error: {e}")
+        import traceback
+        print(f"[Avatar] ❌ PROCESS FAILED: {e}")
+        traceback.print_exc()
         jobs[job_id]["status"] = ProcessingStatus.failed
         jobs[job_id]["error"] = str(e)
         jobs[job_id]["message"] = "Avatar creation failed"
         
-        await supabase_service.update_fit_passport_status(
-            user_id=request.user_id,
-            status="failed"
-        )
+        try:
+            await supabase_service.update_fit_passport_status(
+                user_id=request.user_id,
+                status="failed"
+            )
+        except Exception:
+            pass
 
 
 @router.get("/status/{job_id}", response_model=AvatarStatusResponse)

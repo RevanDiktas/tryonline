@@ -98,14 +98,19 @@ class SupabaseService:
         # Remove None values
         update_data = {k: v for k, v in update_data.items() if v is not None}
         
-        # Store all pipeline file URLs in JSONB field (if column exists)
         if pipeline_files:
-            # Try to update pipeline_files column if it exists
-            # If column doesn't exist, files are still in storage and can be accessed via URLs
             update_data["pipeline_files"] = pipeline_files
         
-        response = self.client.table("fit_passports").update(update_data).eq("user_id", user_id).execute()
-        return len(response.data) > 0
+        try:
+            response = self.client.table("fit_passports").update(update_data).eq("user_id", user_id).execute()
+            return len(response.data) > 0
+        except Exception as e:
+            if "pipeline_files" in str(e) and pipeline_files:
+                print(f"[Supabase] pipeline_files column missing, retrying without it")
+                update_data.pop("pipeline_files", None)
+                response = self.client.table("fit_passports").update(update_data).eq("user_id", user_id).execute()
+                return len(response.data) > 0
+            raise
     
     async def update_measurements(
         self,
@@ -284,38 +289,36 @@ class SupabaseService:
     
     async def upload_avatar(self, user_id: str, file_data: bytes, filename: str) -> str:
         """
-        Upload avatar file to storage.
+        Upload avatar file to storage (upsert — overwrites if already exists).
         
-        Files are organized by user_id in folders:
-        - Storage path: avatars/{user_id}/{filename}
-        - This ensures each user's files are isolated in their own folder
-        - Example: avatars/694af2e0-4b22-4cdf-801f-24dc8a731d8f/avatar_textured.glb
+        Storage path: avatars/{user_id}/{filename}
         """
         file_path = f"{user_id}/{filename}"
-        print(f"[Supabase] Uploading to: avatars/{file_path} (user_id: {user_id})")
         
-        # Determine content type based on extension
-        content_type = "application/octet-stream"
-        if filename.endswith(".glb"):
-            content_type = "model/gltf-binary"
-        elif filename.endswith(".obj"):
-            content_type = "model/obj"
-        elif filename.endswith(".png"):
-            content_type = "image/png"
-        elif filename.endswith(".json"):
-            content_type = "application/json"
-        elif filename.endswith(".npz"):
-            content_type = "application/octet-stream"
+        content_types = {
+            ".glb": "model/gltf-binary",
+            ".obj": "model/obj",
+            ".png": "image/png",
+            ".json": "application/json",
+        }
+        ext = "." + filename.rsplit(".", 1)[-1] if "." in filename else ""
+        content_type = content_types.get(ext, "application/octet-stream")
         
-        self.client.storage.from_(settings.avatars_bucket).upload(
-            file_path,
-            file_data,
-            {"content-type": content_type}
-        )
+        bucket = self.client.storage.from_(settings.avatars_bucket)
         
-        # Get public URL
-        public_url = self.client.storage.from_(settings.avatars_bucket).get_public_url(file_path)
-        return public_url
+        try:
+            bucket.upload(
+                file_path, file_data,
+                {"content-type": content_type, "x-upsert": "true"}
+            )
+        except Exception as upload_err:
+            err_msg = str(upload_err).lower()
+            if "duplicate" in err_msg or "already" in err_msg or "409" in err_msg:
+                bucket.update(file_path, file_data, {"content-type": content_type})
+            else:
+                raise
+        
+        return bucket.get_public_url(file_path)
     
     async def upload_pipeline_files(
         self, 
@@ -325,19 +328,12 @@ class SupabaseService:
     ) -> dict:
         """
         Upload all pipeline output files to Supabase storage.
-        
-        Args:
-            user_id: User ID for folder organization
-            files_bytes: Dict of {file_key: bytes_data}
-            file_key_to_filename: Optional mapping of file_key to filename
-        
-        Returns:
-            Dict of {file_key: public_url}
+        Returns: Dict of {file_key: public_url}
         """
         if file_key_to_filename is None:
-            # Default filename mapping
             file_key_to_filename = {
                 "avatar_glb": "avatar_textured.glb",
+                "avatar_glb_alt": "avatar_textured.glb",
                 "skin_texture": "skin_texture.png",
                 "original_mesh": "body_original.obj",
                 "smpl_params": "smpl_params.npz",
@@ -349,17 +345,25 @@ class SupabaseService:
                 "skin_detection_mask": "skin_detection_mask.png",
             }
         
+        SKIP_KEYS = {"skin_detection_mask"}
+        
         uploaded_urls = {}
         
         for file_key, file_data in files_bytes.items():
+            if file_key in SKIP_KEYS:
+                print(f"[Supabase] Skipping {file_key} ({len(file_data)/1024:.0f} KB, debug-only)")
+                continue
+            if file_key == "avatar_glb_alt" and "avatar_glb" in files_bytes:
+                continue
             filename = file_key_to_filename.get(file_key, f"{file_key}.bin")
             try:
                 url = await self.upload_avatar(user_id, file_data, filename)
                 uploaded_urls[file_key] = url
-                print(f"Uploaded {file_key} -> {filename} ({len(file_data) / 1024:.1f} KB)")
+                print(f"[Supabase] Uploaded {file_key} -> {filename} ({len(file_data) / 1024:.1f} KB)")
             except Exception as e:
-                print(f"Failed to upload {file_key}: {e}")
-                # Continue with other files
+                print(f"[Supabase] Failed to upload {file_key}: {e}")
+                import traceback
+                traceback.print_exc()
         
         return uploaded_urls
 
