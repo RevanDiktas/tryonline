@@ -14,6 +14,7 @@ function AppPageContent() {
   const host = searchParams.get('host') ?? '';
   const error = searchParams.get('error') ?? '';
   const [status, setStatus] = useState<'loading' | 'ready' | 'redirecting' | 'completing'>('loading');
+  const [showRedirectFallback, setShowRedirectFallback] = useState(false);
 
   const code = searchParams.get('code') ?? '';
   const hmac = searchParams.get('hmac') ?? '';
@@ -70,20 +71,40 @@ function AppPageContent() {
         if (typeof window !== 'undefined' && window.top) {
           window.top.location.href = authUrl;
         }
+        // If redirect is blocked (e.g. in iframe), show button after 2s
+        const t = setTimeout(() => setShowRedirectFallback(true), 2000);
+        return () => clearTimeout(t);
       })
       .catch(() => {
-        // Network/API error: redirect to OAuth so we create the brand (don't show false "ready")
         setStatus('redirecting');
         if (typeof window !== 'undefined' && window.top) {
           window.top.location.href = authUrl;
         }
+        const t = setTimeout(() => setShowRedirectFallback(true), 2000);
+        return () => clearTimeout(t);
       });
+    return () => {};
   }, [shop, code, hmac, state]);
 
   if (status === 'redirecting') {
+    const authUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}/api/shopify/auth?shop=${encodeURIComponent(shop)}`
+      : '';
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-6">
-        <p className="text-gray-600 dark:text-gray-400">Redirecting to install…</p>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 p-6 gap-4">
+        <p className="text-gray-600 dark:text-gray-400">
+          {showRedirectFallback ? 'Redirect was blocked. Click the button below to complete install:' : 'Redirecting to install…'}
+        </p>
+        {showRedirectFallback && authUrl && (
+          <a
+            href={authUrl}
+            target="_top"
+            rel="noopener noreferrer"
+            className="px-4 py-2 bg-gray-900 text-white rounded-md font-medium hover:opacity-90"
+          >
+            Complete install
+          </a>
+        )}
       </div>
     );
   }
