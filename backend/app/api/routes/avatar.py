@@ -100,30 +100,35 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
         jobs[job_id]["progress"] = 10
         jobs[job_id]["message"] = "Preparing photo for GPU..."
         
-        # Convert photo URL to signed URL (required for private buckets)
-        # Extract path from public URL: https://xxx.supabase.co/storage/v1/object/public/photos/user_id/file.jpg
-        # -> user_id/file.jpg (path within bucket, not including bucket name)
+        # photos bucket is PRIVATE — public URLs return 400.
+        # We MUST create a signed URL for RunPod to download the photo.
         photo_url = request.photo_url
-        if "/storage/v1/object/public/photos/" in photo_url:
-            # Extract the path after /photos/ (this is the path within the bucket)
-            path_start = photo_url.find("/photos/") + len("/photos/")
-            photo_path = photo_url[path_start:]
-            
-            # Remove query parameters if any
-            if "?" in photo_path:
-                photo_path = photo_path.split("?")[0]
-            
-            # Create signed URL (valid for 1 hour)
+        print(f"[Avatar] Original photo URL: {photo_url[:120]}...")
+        
+        # Extract storage path from any Supabase photos URL
+        photo_path = None
+        for marker in ["/storage/v1/object/public/photos/", "/storage/v1/object/sign/photos/"]:
+            if marker in photo_url:
+                path_start = photo_url.find(marker) + len(marker)
+                photo_path = photo_url[path_start:]
+                if "?" in photo_path:
+                    photo_path = photo_path.split("?")[0]
+                break
+        
+        if photo_path:
             try:
                 signed_url = supabase_service.get_photo_signed_url(photo_path, expires_in=3600)
                 if signed_url:
                     photo_url = signed_url
-                    print(f"[Avatar] ✓ Using signed URL for photo (path: {photo_path})")
+                    print(f"[Avatar] ✓ Signed URL created (path: {photo_path})")
                 else:
-                    print(f"[Avatar] ⚠️  Warning: Failed to create signed URL, using original: {photo_url}")
+                    print(f"[Avatar] ❌ Signed URL empty! photo_path={photo_path}")
             except Exception as e:
-                print(f"[Avatar] ⚠️  Error creating signed URL: {e}, using original URL")
-                # Continue with original URL - might work if bucket is public
+                print(f"[Avatar] ❌ Signed URL error: {e}")
+        else:
+            print(f"[Avatar] ⚠️  URL does not match Supabase photos pattern, using as-is")
+        
+        print(f"[Avatar] Final photo URL for RunPod: {photo_url[:120]}...")
         
         jobs[job_id]["message"] = "Submitting job to RunPod..."
         print(f"[Avatar] 📤 Submitting job to RunPod...")

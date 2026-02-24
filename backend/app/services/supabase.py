@@ -262,17 +262,22 @@ class SupabaseService:
     # ==========================================
     
     def get_photo_signed_url(self, photo_path: str, expires_in: int = 3600) -> str:
-        """Get signed URL for private photo"""
+        """Get signed URL for private photo (photos bucket is NOT public)."""
         try:
             response = self.client.storage.from_(settings.photos_bucket).create_signed_url(
                 photo_path, 
                 expires_in
             )
+            url = ""
             if isinstance(response, dict):
-                return response.get("signedURL", "")
+                url = response.get("signedURL") or response.get("signedUrl") or ""
             elif hasattr(response, "signedURL"):
-                return response.signedURL
-            return ""
+                url = response.signedURL or ""
+            elif hasattr(response, "signedUrl"):
+                url = response.signedUrl or ""
+            if not url:
+                print(f"[Supabase] Signed URL response has no URL: {response}")
+            return url
         except Exception as e:
             print(f"[Supabase] Error creating signed URL for {photo_path}: {e}")
             return ""
