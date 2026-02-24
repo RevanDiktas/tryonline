@@ -181,8 +181,12 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 jobs[job_id]["progress"] = min(50 + attempt, 90)
                 jobs[job_id]["message"] = "Creating your 3D avatar..."
             elif runpod_status == "COMPLETED":
-                # Success!
                 output = status_result.get("output", {})
+                # RunPod marks job COMPLETED even when handler returns {"error": "..."}
+                if output.get("error"):
+                    error_msg = output.get("error", "Unknown pipeline error")
+                    print(f"[Avatar] ❌ RunPod job returned error: {error_msg}")
+                    raise Exception(f"Avatar pipeline failed: {error_msg}")
                 measurements = output.get("measurements", {})
                 
                 print(f"[Avatar] ✓ RunPod job completed successfully")
