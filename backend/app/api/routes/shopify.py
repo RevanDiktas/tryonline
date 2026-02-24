@@ -66,12 +66,14 @@ async def shopify_auth(
     }
     auth_url = f"https://{shop}/admin/oauth/authorize?{urlencode(params)}"
     resp = RedirectResponse(url=auth_url, status_code=302)
+    # SameSite=None; Secure so the cookie is sent when Shopify redirects back (cross-site)
     resp.set_cookie(
         STATE_COOKIE,
         state,
         max_age=600,
         httponly=True,
-        samesite="lax",
+        samesite="none",
+        secure=True,
     )
     return resp
 
@@ -147,7 +149,7 @@ async def shopify_auth_callback(
     print(f"[Shopify callback] brand created: shop={shop!r} brand_id={brand_id}")
     app_url = f"{settings.frontend_app_url.rstrip('/')}/app?shop={shop}"
     resp = RedirectResponse(url=app_url, status_code=302)
-    resp.delete_cookie(STATE_COOKIE)
+    resp.delete_cookie(STATE_COOKIE, samesite="none", secure=True)
     return resp
 
 
