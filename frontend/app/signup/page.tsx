@@ -188,7 +188,12 @@ function SignupContent() {
         }
       }
 
-      router.push('/login');
+      // Route directly — Supabase signup auto-signs in the user
+      if (userType === 'brand') {
+        router.push('/brand');
+      } else {
+        router.push('/onboarding');
+      }
     } catch {
       setErrors({ form: 'Something went wrong. Please try again.' });
     } finally {

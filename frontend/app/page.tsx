@@ -1,36 +1,29 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getCurrentUser, hasFitPassport } from '@/lib/supabase-auth';
+import { getCurrentUser, type User } from '@/lib/supabase-auth';
 import { isShopifyMode } from '@/lib/app-mode';
+import { useRouter } from 'next/navigation';
 
 export default function HomePage() {
   const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
   const [checking, setChecking] = useState(true);
   const shopifyMode = isShopifyMode();
 
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const user = await getCurrentUser();
-        if (user) {
-          if (user.user_type === 'brand') {
-            router.push('/brand');
-          } else {
-            const hasPassport = await hasFitPassport(user.id);
-            router.push(hasPassport ? '/dashboard' : '/onboarding');
-          }
-        } else {
-          if (shopifyMode) {
-            router.push('/signup');
-            return;
-          }
-          setChecking(false);
+        const u = await getCurrentUser();
+        if (shopifyMode && !u) {
+          router.push('/signup');
+          return;
         }
+        setUser(u);
       } catch (error) {
         console.error('[HomePage] Auth check error:', error);
+      } finally {
         setChecking(false);
       }
     };
@@ -45,6 +38,8 @@ export default function HomePage() {
     );
   }
 
+  const dashboardUrl = user?.user_type === 'brand' ? '/brand' : '/dashboard';
+
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
@@ -52,12 +47,27 @@ export default function HomePage() {
         <div className="max-w-6xl mx-auto px-6 py-6 flex items-center justify-between">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/tryon-logo.jpg" alt="TRYON" className="h-14 w-auto" />
-          <Link
-            href="/login"
-            className="px-6 py-2.5 bg-black text-white font-medium rounded-xl hover:bg-gray-800 transition text-sm"
-          >
-            Sign In
-          </Link>
+
+          {user ? (
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-600 hidden sm:inline">
+                {user.name || user.email}
+              </span>
+              <Link
+                href={dashboardUrl}
+                className="px-6 py-2.5 bg-black text-white font-medium rounded-xl hover:bg-gray-800 transition text-sm"
+              >
+                {user.user_type === 'brand' ? 'Brand Dashboard' : 'My Dashboard'}
+              </Link>
+            </div>
+          ) : (
+            <Link
+              href="/login"
+              className="px-6 py-2.5 bg-black text-white font-medium rounded-xl hover:bg-gray-800 transition text-sm"
+            >
+              Sign In
+            </Link>
+          )}
         </div>
       </header>
 
@@ -75,24 +85,33 @@ export default function HomePage() {
             One platform, powered by your 3D avatar.
           </p>
 
-          {/* Two CTAs */}
-          <div className="flex flex-col sm:flex-row gap-4 justify-center max-w-lg mx-auto">
+          {/* Two CTAs — show signup buttons when logged out, dashboard when logged in */}
+          {user ? (
             <Link
-              href="/signup?type=shopper"
-              className="flex-1 group relative overflow-hidden px-8 py-5 bg-black text-white font-semibold rounded-2xl hover:bg-gray-800 transition text-center"
+              href={dashboardUrl}
+              className="inline-block px-8 py-5 bg-black text-white font-semibold rounded-2xl hover:bg-gray-800 transition text-lg"
             >
-              <span className="block text-lg">Create Your Fit Passport</span>
-              <span className="block text-sm font-normal text-white/60 mt-1">I&apos;m a shopper</span>
+              {user.user_type === 'brand' ? 'Go to Brand Dashboard' : 'Go to My Dashboard'}
             </Link>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-4 justify-center max-w-lg mx-auto">
+              <Link
+                href="/signup?type=shopper"
+                className="flex-1 group relative overflow-hidden px-8 py-5 bg-black text-white font-semibold rounded-2xl hover:bg-gray-800 transition text-center"
+              >
+                <span className="block text-lg">Create Your Fit Passport</span>
+                <span className="block text-sm font-normal text-white/60 mt-1">I&apos;m a shopper</span>
+              </Link>
 
-            <Link
-              href="/signup?type=brand"
-              className="flex-1 group relative overflow-hidden px-8 py-5 bg-white text-black font-semibold rounded-2xl border-2 border-black hover:bg-gray-50 transition text-center"
-            >
-              <span className="block text-lg">Launch Your Brand</span>
-              <span className="block text-sm font-normal text-gray-500 mt-1">I&apos;m a brand</span>
-            </Link>
-          </div>
+              <Link
+                href="/signup?type=brand"
+                className="flex-1 group relative overflow-hidden px-8 py-5 bg-white text-black font-semibold rounded-2xl border-2 border-black hover:bg-gray-50 transition text-center"
+              >
+                <span className="block text-lg">Launch Your Brand</span>
+                <span className="block text-sm font-normal text-gray-500 mt-1">I&apos;m a brand</span>
+              </Link>
+            </div>
+          )}
 
           {/* Features */}
           <div className="grid md:grid-cols-3 gap-6 mt-20">

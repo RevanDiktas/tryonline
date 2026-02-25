@@ -170,7 +170,7 @@ export default function OnboardingPage() {
       <div className="w-full max-w-lg">
         {/* Logo */}
         <div className="text-center mb-8">
-          <a href="/">
+          <a href="/" onClick={(e) => { e.preventDefault(); window.location.href = '/'; }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img 
             src="/tryon-logo.jpg" 
