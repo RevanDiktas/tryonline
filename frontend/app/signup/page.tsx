@@ -69,6 +69,7 @@ function SignupContent() {
 
   // Determine initial state from query param or APP_MODE
   const typeParam = searchParams.get('type');
+  const shopParam = searchParams.get('shop') ?? '';
   const preselected = shopifyMode ? 'brand' : (typeParam === 'brand' ? 'brand' : typeParam === 'shopper' ? 'shopper' : null);
   const skipSelection = shopifyMode || preselected !== null;
 
@@ -180,7 +181,7 @@ function SignupContent() {
           email: formData.email,
           phone: fullPhone,
           country: formData.country,
-          shopify_domain: formData.shopifyDomain || undefined,
+          shopify_domain: formData.shopifyDomain || shopParam || undefined,
         });
         if (!brandRes.ok) {
           setErrors({ form: brandRes.error || 'Failed to create brand record' });

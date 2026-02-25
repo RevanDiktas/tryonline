@@ -106,7 +106,7 @@ export async function signup(options: SignupOptions): Promise<{ user: User | nul
     },
   });
   if (authError) return { user: null, error: authError.message };
-  if (!authData.user) return { user: null, error: 'Signup failed' };
+  if (!authData.user) return { user: null, error: 'This email may already be registered. Try signing in instead.' };
   await supabase.from('users').upsert({
     id: authData.user.id,
     email: authData.user.email!,

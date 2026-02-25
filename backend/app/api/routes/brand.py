@@ -27,12 +27,27 @@ async def register_brand(body: BrandRegisterBody):
     """
     Create a brand record linked to the authenticated user.
     Called after Supabase auth signup when user_type='brand'.
+    If a brand already exists for this shopify_domain (created by OAuth install),
+    we link it to this user instead of creating a duplicate.
     """
     existing = supabase.get_brand_by_user_id(body.user_id)
     if existing:
         supabase.ensure_garments_bucket()
         supabase._create_brand_folder(existing["id"])
         return {"ok": True, "brand_id": existing["id"], "existing": True}
+
+    # Check if a brand was already created by Shopify OAuth (has shopify_domain but no user_id)
+    if body.shopify_domain:
+        oauth_brand = supabase.get_brand_by_shopify_domain(body.shopify_domain)
+        if oauth_brand and not oauth_brand.get("user_id"):
+            brand_id = supabase.link_user_to_brand(
+                brand_id=str(oauth_brand["id"]),
+                user_id=body.user_id,
+                name=body.brand_name,
+                email=body.email,
+            )
+            if brand_id:
+                return {"ok": True, "brand_id": brand_id, "existing": True}
 
     brand_id = supabase.create_brand_for_user(
         user_id=body.user_id,

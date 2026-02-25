@@ -539,6 +539,35 @@ class SupabaseService:
             print(f"[Supabase] get_brand_by_user_id error: {e}")
         return None
 
+    def get_brand_by_shopify_domain(self, shopify_domain: str) -> Optional[Dict[str, Any]]:
+        """Return the brand record matching this shopify_domain, or None."""
+        if not shopify_domain or not shopify_domain.strip():
+            return None
+        try:
+            r = self.client.table("brands").select("*").eq("shopify_domain", shopify_domain.strip()).limit(1).execute()
+            if r.data and len(r.data) > 0:
+                return r.data[0]
+        except Exception as e:
+            print(f"[Supabase] get_brand_by_shopify_domain error: {e}")
+        return None
+
+    def link_user_to_brand(self, brand_id: str, user_id: str, name: str, email: str) -> Optional[str]:
+        """Update an existing brand (created by OAuth) with the user_id, real name, and email."""
+        try:
+            self.client.table("brands").update({
+                "user_id": user_id,
+                "name": name,
+                "email": email,
+                "updated_at": datetime.utcnow().isoformat(),
+            }).eq("id", brand_id).execute()
+            self.ensure_garments_bucket()
+            self._create_brand_folder(brand_id)
+            print(f"[Supabase] Linked user {user_id} to brand {brand_id}")
+            return brand_id
+        except Exception as e:
+            print(f"[Supabase] link_user_to_brand error: {e}")
+            return None
+
     def _create_brand_folder(self, brand_id: str) -> bool:
         """Create a folder for this brand inside the garments bucket by uploading a placeholder."""
         try:
