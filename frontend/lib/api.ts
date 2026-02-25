@@ -1,8 +1,14 @@
 /**
  * Frontend API client — calls backend via /api/* (Next.js rewrites to NEXT_PUBLIC_API_URL).
  */
-const getBase = () =>
-  typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || '');
+const getBase = () => {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+  if (typeof window !== 'undefined') {
+    // In the browser: use the API URL directly if set, otherwise fall back to same-origin rewrite
+    return apiUrl || '';
+  }
+  return apiUrl;
+};
 
 async function fetchApi<T>(
   path: string,
