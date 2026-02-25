@@ -2,9 +2,10 @@
  * Frontend API client — calls backend via /api/* (Next.js rewrites to NEXT_PUBLIC_API_URL).
  */
 const getBase = () => {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+  let apiUrl = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '');
+  // Strip trailing /api so callers can always use /api/... paths
+  if (apiUrl.endsWith('/api')) apiUrl = apiUrl.slice(0, -4);
   if (typeof window !== 'undefined') {
-    // In the browser: use the API URL directly if set, otherwise fall back to same-origin rewrite
     return apiUrl || '';
   }
   return apiUrl;
