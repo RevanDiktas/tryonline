@@ -520,7 +520,9 @@ class SupabaseService:
                 "status": "active",
             }).execute()
             if ins.data and len(ins.data) > 0:
-                return str(ins.data[0]["id"])
+                new_brand_id = str(ins.data[0]["id"])
+                self._create_brand_folder(new_brand_id)
+                return new_brand_id
         except Exception:
             pass
         return None
@@ -536,6 +538,25 @@ class SupabaseService:
         except Exception as e:
             print(f"[Supabase] get_brand_by_user_id error: {e}")
         return None
+
+    def _create_brand_folder(self, brand_id: str) -> bool:
+        """Create a folder for this brand inside the garments bucket by uploading a placeholder."""
+        try:
+            bucket = self.client.storage.from_(settings.garments_bucket)
+            placeholder_path = f"{brand_id}/.folder"
+            bucket.upload(
+                placeholder_path,
+                b"",
+                {"content-type": "application/octet-stream", "x-upsert": "true"},
+            )
+            print(f"[Supabase] Created garments folder: {settings.garments_bucket}/{brand_id}/")
+            return True
+        except Exception as e:
+            msg = str(e).lower()
+            if "already exists" in msg or "duplicate" in msg:
+                return True
+            print(f"[Supabase] _create_brand_folder error: {e}")
+            return False
 
     def create_brand_for_user(
         self,
@@ -557,7 +578,9 @@ class SupabaseService:
         try:
             ins = self.client.table("brands").insert(row).execute()
             if ins.data and len(ins.data) > 0:
-                return str(ins.data[0]["id"])
+                brand_id = str(ins.data[0]["id"])
+                self._create_brand_folder(brand_id)
+                return brand_id
         except Exception as e:
             print(f"[Supabase] create_brand_for_user error: {e}")
         return None

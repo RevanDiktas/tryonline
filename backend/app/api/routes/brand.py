@@ -30,6 +30,8 @@ async def register_brand(body: BrandRegisterBody):
     """
     existing = supabase.get_brand_by_user_id(body.user_id)
     if existing:
+        supabase.ensure_garments_bucket()
+        supabase._create_brand_folder(existing["id"])
         return {"ok": True, "brand_id": existing["id"], "existing": True}
 
     brand_id = supabase.create_brand_for_user(
