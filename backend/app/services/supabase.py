@@ -525,6 +525,43 @@ class SupabaseService:
             pass
         return None
 
+    def get_brand_by_user_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Return the brand record owned by this user, or None."""
+        if not user_id:
+            return None
+        try:
+            r = self.client.table("brands").select("*").eq("user_id", user_id).limit(1).execute()
+            if r.data and len(r.data) > 0:
+                return r.data[0]
+        except Exception as e:
+            print(f"[Supabase] get_brand_by_user_id error: {e}")
+        return None
+
+    def create_brand_for_user(
+        self,
+        user_id: str,
+        name: str,
+        email: str,
+        shopify_domain: Optional[str] = None,
+    ) -> Optional[str]:
+        """Create a brand record linked to a user. Returns brand_id or None."""
+        self.ensure_garments_bucket()
+        row: Dict[str, Any] = {
+            "user_id": user_id,
+            "name": name,
+            "email": email,
+            "status": "active",
+        }
+        if shopify_domain and shopify_domain.strip():
+            row["shopify_domain"] = shopify_domain.strip()
+        try:
+            ins = self.client.table("brands").insert(row).execute()
+            if ins.data and len(ins.data) > 0:
+                return str(ins.data[0]["id"])
+        except Exception as e:
+            print(f"[Supabase] create_brand_for_user error: {e}")
+        return None
+
     def has_shopify_session(self, shop_domain: str) -> bool:
         """Return True if we have a non-empty shopify_access_token for this shop."""
         if not shop_domain or not shop_domain.strip():

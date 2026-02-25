@@ -1,102 +1,95 @@
-# Status Report — Monday 24 Feb 2026
+# Status Report — 2026-02-24 (Evening)
 
-## Summary
+## What Happened Today
 
-Spent the day fixing Shopify app install flow, backend deployment, and RunPod avatar pipeline. Multiple issues surfaced and were resolved. By end of day: Shopify OAuth flow works, backend and frontend deploy from `feature/analytics`, RunPod image reverted to last known working version and rebuilding.
+### Avatar Pipeline: FULLY WORKING
+The entire avatar creation pipeline now works end-to-end:
 
----
+1. **Shopper onboarding** — sign up, enter height/gender, upload photo
+2. **Photo upload** — stored in Supabase `photos` bucket
+3. **RunPod GPU pipeline** — 6-step process completes in ~20 seconds:
+   - 4D-Humans body extraction
+   - T-pose generation
+   - SMPL measurements (21 body dimensions)
+   - A-pose + CLO 3D scaling
+   - Skin color extraction
+   - UV texture mapping + GLB export
+4. **File upload to Supabase** — avatar GLB, meshes, textures, measurements saved to `avatars` bucket
+5. **Database update** — fit_passports table updated with measurements
+6. **Frontend display** — Fit Passport shows all measurements correctly
 
-## What was done
+### Root Cause of Upload Failures
+The `AVATARS_BUCKET` environment variable on Railway had an invisible **tab character** (`\t`) prepended to the value. The Railway UI displayed it as `avatars` but the actual stored value was `\tavatars`. Every Supabase storage upload was rejected with "Bucket name invalid."
 
-### 1. Shopify app install — "Redirecting to install..." fix
-- **Problem**: App showed "Redirecting to install..." forever in the Shopify iframe.
-- **Fix**: Added a **"Complete install"** button that appears immediately (no 2s delay). Button links to backend OAuth with `target="_top"` so it works inside the iframe.
+**Fix applied**: Pydantic `field_validator` in `config.py` strips whitespace/tabs from all bucket name env vars on load.
 
-### 2. Frontend OAuth URL pointed at wrong server (404)
-- **Problem**: "Complete install" button linked to `tryonline.vercel.app/api/shopify/auth` — the frontend. Shopify OAuth routes live on the **backend** (Railway). Got **404 Not Found**.
-- **Root cause**: `apiBase` was set to `''` in the browser, so all Shopify API calls went to the frontend origin instead of `NEXT_PUBLIC_API_URL` (backend).
-- **Fix**: All Shopify calls (session check, complete-install, auth link) now use `process.env.NEXT_PUBLIC_API_URL` directly (the Railway backend URL). Added clear error message if the env var is missing.
+### Other Fixes Applied Today
+| Fix | File(s) | Description |
+|-----|---------|-------------|
+| RunPod status timeout | `backend/app/services/runpod.py` | Increased from 30s to 120s (response is ~12MB) |
+| Duplicate file uploads | `backend/app/services/supabase.py` | Upsert + remove+reupload + update fallback chain |
+| Avatars bucket creation | `backend/app/services/supabase.py` | `ensure_avatars_bucket()` called before uploads |
+| Pipeline files column | `backend/app/services/supabase.py` | Graceful fallback if column missing |
+| Skip large debug files | `backend/app/services/supabase.py` | Skip 10MB skin_detection_mask upload |
+| Bucket name sanitization | `backend/app/config.py` | Strip whitespace/tabs from bucket env vars |
+| Debug endpoint | `backend/app/api/routes/avatar.py` | `/api/avatar/debug/test-upload` for diagnosing storage issues |
 
-### 3. Railway deploying wrong branch (404 on all Shopify routes)
-- **Problem**: Railway was deploying from `feature/analytics`, which didn't have the Shopify router code. All Shopify routes returned **404** even though the backend was running.
-- **Root cause**: Shopify OAuth work was done on `main`. Railway was connected to `feature/analytics` which was many commits behind.
-- **Fix**: Merged `main` into `feature/analytics` and pushed. All Shopify routes now present on `feature/analytics`. Confirmed with `/routes` endpoint (shows `shopify_ok: true`).
+## Current State of Services
 
-### 4. OAuth cookie error (`oauth_error=same_site_cookies`)
-- **Problem**: After OAuth redirect, Shopify showed "De app kon niet worden geladen" (app could not be loaded) with `oauth_error=same_site_cookies`.
-- **Root cause**: The OAuth state cookie was set with `SameSite=Lax`, which browsers don't send on cross-site redirects from Shopify back to our backend.
-- **Fix**: Changed cookie to `SameSite=None; Secure=True`. The callback already accepted missing state cookies (HMAC-only verification) as a fallback.
+| Service | Status | Branch | URL |
+|---------|--------|--------|-----|
+| **RunPod (GPU)** | WORKING | `main` | RunPod serverless endpoint |
+| **Backend (Railway)** | WORKING | `feature/analytics` | https://heroic-celebration-production-9f72.up.railway.app |
+| **Frontend (Vercel)** | WORKING | `feature/analytics` | https://tryonline.vercel.app |
+| **Supabase** | WORKING | — | https://cykwthsbrylonconqlfz.supabase.co |
 
-### 5. Garments storage bucket on brand signup
-- **Problem**: No organized storage for garment files (GLBs per brand/product).
-- **Fix**: Added `ensure_garments_bucket()` in `SupabaseService` — creates a shared `garments` bucket (public) on first brand signup. Path convention: `garments/{brand_id}/{product_id}/{filename}`. Added helpers: `garment_storage_path()`, `get_garment_public_url()`.
-
-### 6. RunPod avatar pipeline broken — container won't start
-- **Problem**: Avatar creation failed. RunPod logs showed `error creating container: container create: exit status 1` in a loop. No worker could start.
-- **Investigation**: Between the last working commit (`db6f6ac`, Feb 3) and current (`40320ae`), only `handler.py` changed (added shutil symlink logic). The Dockerfile, requirements, and pipeline code were identical.
-- **Fix**: Reverted `handler.py` on `main` to the exact working version (`db6f6ac`). Pushed to `main` so RunPod rebuilds the image from known-good code. Build completed; worker initializing at end of day.
-
-### 7. Deploy branch alignment
-- **Problem**: Kept pushing to `main` but Railway and Vercel deploy from `feature/analytics`. RunPod deploys from `main`.
-- **Fix**: 
-  - **Railway** (backend): `feature/analytics`
-  - **Vercel** (frontend): `feature/analytics` (deploy hook created)
-  - **RunPod** (avatar GPU): `main`
-  - Created `docs/DEPLOY_BRANCH.md` documenting this.
-
----
-
-## What went wrong (lessons)
-
-1. **Branch mismatch** was the #1 time waster. Code was on `main`, Railway deployed `feature/analytics`. Should have checked the deploy branch first.
-2. **Frontend using relative API paths** for Shopify OAuth — worked locally (Next.js rewrites) but not in production (Shopify iframe blocks cross-origin redirects differently).
-3. **Cookie SameSite=Lax** doesn't survive cross-site OAuth redirects. Should always use `SameSite=None; Secure` for OAuth state cookies.
-4. **RunPod container creation failures** appear to be infrastructure-related (exit status 1 on container create, not on code execution). Reverting to known-good code was the right call.
+## Deployment Rule
+**Always push to `feature/analytics`** for frontend and backend changes. RunPod deploys from `main`.
 
 ---
 
-## Current state
+## Tomorrow's Plan (2026-02-25)
 
-| Service | Branch | Status |
-|---------|--------|--------|
-| **Backend (Railway)** | `feature/analytics` | Running, Shopify routes work |
-| **Frontend (Vercel)** | `feature/analytics` | Deploy triggered via hook |
-| **RunPod (avatar GPU)** | `main` | Image rebuilt, worker initializing |
-| **Supabase** | — | brands table empty (no successful install yet), garments bucket not yet created (created on first brand signup) |
-| **Shopify app** | tryon-9 (active) | Installed on dev store, "Complete install" button works, OAuth flow reaches backend |
+### Priority 1: Brand Onboarding + Shopify App Launch
 
----
+#### 1. Redesign Frontend Login/Signup
+- The website must support **two types of users**: shoppers and brands
+- Separate sign-up flows:
+  - **Shoppers**: current flow (already working perfectly — height, gender, photo, avatar)
+  - **Brands**: new flow (company name, contact info, Shopify store URL, etc.)
+- Login page must allow both user types to log in
 
-## Still to do tonight / next session
+#### 2. Brand Onboarding Flow
+- When a brand signs up:
+  - Create brand record in `brands` table
+  - Create folder structure in Supabase storage: `garments/{brand_id}/`
+  - Each product gets a subfolder: `garments/{brand_id}/{product_id}/`
+  - Brand dashboard for managing garments/products
+- This storage structure already has backend support (`ensure_garments_bucket`, `garment_storage_path` helpers)
 
-1. **Confirm RunPod worker starts** — check Workers tab, run a test avatar creation.
-2. **Complete Shopify install flow** — uninstall app, reinstall, click "Complete install", verify brand row in Supabase + garments bucket in Storage.
-3. **Add garments for dev store** — upload GLBs to `garments/{brand_id}/{product_id}/`, insert `garments` rows.
-4. **Test widget on product page** — confirm Try On button loads and try-on works.
-5. **Deep links and App Store** — add onboarding steps in the embedded app (from COMPLETE_STEPS_WALKTHROUGH.md).
+#### 3. Shopify App
+- The Shopify app is for **brands only** (not shoppers)
+- Brands install the app from the Shopify App Store
+- Brand onboarding can happen through:
+  - The Shopify app (OAuth install flow — already built)
+  - The website directly (sign up on tryonline.vercel.app)
+- After onboarding, brands can:
+  - Add garments (upload GLB/OBJ files organized by product)
+  - Place the try-on widget on their product pages
 
----
+#### 4. Shopper Dashboard Cleanup
+- Remove/hide features that aren't ready
+- Keep it clean and functional for the launch
 
-## Files changed today
+### What This Achieves
+Once brand onboarding + Shopify app works:
+- Brands install the Shopify app → register → upload garments → widget on product pages
+- Shoppers visit brand stores → use try-on widget → create avatar → virtual try-on
+- **The full product loop is complete.**
 
-### Backend
-- `backend/app/api/routes/shopify.py` — SameSite=None cookie, ping endpoint
-- `backend/app/main.py` — `/routes` debug endpoint
-- `backend/app/config.py` — `garments_bucket` config
-- `backend/app/services/supabase.py` — `ensure_garments_bucket()`, `garment_storage_path()`, `get_garment_public_url()`, called from `upsert_brand_for_shop()`
-- `backend/app/api/routes/avatar.py` — treat RunPod `output.error` as failure
-- `backend/railway.toml` — Railway build config
-
-### Frontend
-- `frontend/app/app/page.tsx` — use `NEXT_PUBLIC_API_URL` for all Shopify calls, show "Complete install" button, error when env var missing
-
-### Avatar pipeline
-- `avatar-creation/pipelines/handler.py` — reverted to db6f6ac (working version)
-
-### Docs
-- `docs/DEPLOY_BRANCH.md`
-- `docs/FRESH_ONBOARDING_STEPS.md`
-- `docs/GARMENTS_STORAGE_LAYOUT.md`
-- `docs/RAILWAY_404_SHOPIFY_AUTH.md`
-- `docs/ONBOARDING_AND_GARMENTS_FLOW.md`
-- `docs/SHOP_DOMAIN_AND_SESSIONS_EXPLAINED.md`
+### Files to Prepare
+- `frontend/app/signup/page.tsx` — dual signup (shopper vs brand)
+- `frontend/app/login/page.tsx` — unified login
+- `frontend/app/brand/` — brand dashboard, garment management
+- `backend/app/api/routes/brand.py` — brand API endpoints (if needed)
+- `shopify_app/` — finalize for App Store submission

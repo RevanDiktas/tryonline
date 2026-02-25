@@ -104,6 +104,11 @@ export default function DashboardPage() {
         return;
       }
 
+      if (currentUser.user_type === 'brand') {
+        router.push('/brand');
+        return;
+      }
+
       setUser(currentUser);
 
       // Force fresh fetch - add timestamp to bypass any caching
@@ -600,9 +605,6 @@ export default function DashboardPage() {
             <img src="/tryon-logo.jpg" alt="TRYON" className="h-12 w-auto cursor-pointer hover:opacity-90 transition-opacity" />
           </Link>
           <div className="flex items-center gap-6">
-            <Link href="/brand" className={`text-sm transition-colors ${dark ? 'text-white/60 hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}>
-              Brand analytics →
-            </Link>
             <span className={`text-sm hidden sm:inline ${dark ? 'text-white/60' : 'text-slate-500'}`}>{user.email}</span>
             <button onClick={toggleTheme} className={`p-2 rounded-lg border transition-colors ${dark ? 'border-white/10 text-white/70 hover:bg-white/5' : 'border-slate-200 text-slate-600 hover:bg-slate-100'}`} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}>
               {dark ? <SunIcon /> : <MoonIcon />}
@@ -622,21 +624,6 @@ export default function DashboardPage() {
           <p className={dark ? 'text-white/60' : 'text-gray-500'}>
             Your Fit Passport is ready. Try on clothes from any brand.
           </p>
-        </div>
-
-        <div className={`mb-6 p-5 rounded-2xl transition-all duration-300 ${dark ? 'bg-white/[0.03]' : 'bg-white shadow-sm'}`}>
-          <h3 className={`text-sm font-semibold mb-2 ${dark ? 'text-white' : 'text-slate-900'}`}>Test TryOn Widget</h3>
-          <p className={`text-sm mb-3 ${dark ? 'text-white/60' : 'text-slate-500'}`}>
-            Open the widget with your account so events are attributed to you.
-          </p>
-          <a
-            href={`/test-viewer.html?user_id=${user.id}${passport?.preferred_fit ? `&preferred_fit=${passport.preferred_fit}` : ''}&product_id=demo-npc-tshirt&shop=demo.myshopify.com`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition ${dark ? 'text-black bg-white hover:bg-white/90' : 'text-white bg-slate-900 hover:bg-slate-800'}`}
-          >
-            Open widget with my account →
-          </a>
         </div>
 
         <div className="grid lg:grid-cols-2 gap-6">

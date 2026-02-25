@@ -4,64 +4,46 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { login, hasAvatarFiles, getCurrentUser } from '@/lib/supabase-auth';
+import { isShopifyMode } from '@/lib/app-mode';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-  });
+  const shopifyMode = isShopifyMode();
+  const [formData, setFormData] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
-
     if (!formData.email.trim()) {
       newErrors.email = 'Email is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = 'Please enter a valid email address';
     }
-
-    if (!formData.password) {
-      newErrors.password = 'Password is required';
-    }
-
+    if (!formData.password) newErrors.password = 'Password is required';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
+    if (!validateForm()) return;
 
     setLoading(true);
-
     try {
       const { user, error } = await login(formData.email, formData.password);
-      
-      if (error) {
-        setErrors({ form: error });
-        return;
-      }
+      if (error) { setErrors({ form: error }); return; }
+      if (!user) { setErrors({ form: 'Invalid email or password' }); return; }
 
-      if (user) {
-        // Check if user has completed avatar creation with output files
-        const hasAvatar = await hasAvatarFiles(user.id);
-        if (hasAvatar) {
-          // User has avatar files, go directly to dashboard
-          router.push('/dashboard');
-        } else {
-          // No avatar files yet, go to onboarding
-          router.push('/onboarding');
-        }
+      // Route based on user_type
+      if (user.user_type === 'brand') {
+        router.push('/brand');
       } else {
-        setErrors({ form: 'Invalid email or password' });
+        // Shopper flow: check avatar → dashboard or onboarding
+        const hasAvatar = await hasAvatarFiles(user.id);
+        router.push(hasAvatar ? '/dashboard' : '/onboarding');
       }
-    } catch (err) {
+    } catch {
       setErrors({ form: 'Something went wrong. Please try again.' });
     } finally {
       setLoading(false);
@@ -73,20 +55,16 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img 
-            src="/tryon-logo.jpg" 
-            alt="TRYON" 
-              className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition"
-          />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/tryon-logo.jpg" alt="TRYON" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
           </Link>
-          <p className="text-gray-500">Welcome back</p>
+          <p className="text-gray-500">
+            {shopifyMode ? 'Sign in to your brand account' : 'Welcome back'}
+          </p>
         </div>
 
-        {/* Card */}
         <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
           <h2 className="text-xl font-semibold text-black mb-6">Sign In</h2>
 
@@ -103,13 +81,9 @@ export default function LoginPage() {
                   setFormData({ ...formData, email: e.target.value });
                   if (errors.email) setErrors({ ...errors, email: '' });
                 }}
-                className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
-                  errors.email ? 'border-red-500' : 'border-gray-200'
-                }`}
+                className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${errors.email ? 'border-red-500' : 'border-gray-200'}`}
               />
-              {errors.email && (
-                <p className="text-red-500 text-xs mt-1">{errors.email}</p>
-              )}
+              {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
             </div>
 
             <div>
@@ -124,13 +98,9 @@ export default function LoginPage() {
                   setFormData({ ...formData, password: e.target.value });
                   if (errors.password) setErrors({ ...errors, password: '' });
                 }}
-                className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
-                  errors.password ? 'border-red-500' : 'border-gray-200'
-                }`}
+                className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${errors.password ? 'border-red-500' : 'border-gray-200'}`}
               />
-              {errors.password && (
-                <p className="text-red-500 text-xs mt-1">{errors.password}</p>
-              )}
+              {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
             </div>
 
             {errors.form && (
@@ -150,9 +120,7 @@ export default function LoginPage() {
 
           <p className="text-center text-gray-500 text-sm mt-6">
             Don&apos;t have an account?{' '}
-            <Link href="/signup" className="text-black font-medium hover:underline">
-              Create one
-            </Link>
+            <Link href="/signup" className="text-black font-medium hover:underline">Create one</Link>
           </p>
         </div>
       </div>

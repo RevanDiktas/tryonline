@@ -4,8 +4,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { signup } from '@/lib/supabase-auth';
+import { registerBrand } from '@/lib/api';
+import { isShopifyMode } from '@/lib/app-mode';
 
-// Country codes for phone number picker
 const countryCodes = [
   { code: '+31', country: 'Netherlands', flag: '🇳🇱' },
   { code: '+1', country: 'United States', flag: '🇺🇸' },
@@ -49,42 +50,52 @@ const countryCodes = [
   { code: '+63', country: 'Philippines', flag: '🇵🇭' },
 ];
 
+const countries = [
+  'Netherlands', 'United States', 'United Kingdom', 'Germany', 'France',
+  'Spain', 'Italy', 'Belgium', 'Switzerland', 'Austria', 'Denmark',
+  'Sweden', 'Norway', 'Poland', 'Portugal', 'Ireland', 'Finland',
+  'Greece', 'Hungary', 'Czech Republic', 'Australia', 'New Zealand',
+  'Japan', 'South Korea', 'China', 'India', 'Singapore', 'UAE',
+  'Saudi Arabia', 'Brazil', 'Mexico', 'South Africa', 'Turkey',
+  'Russia', 'Ukraine', 'Indonesia', 'Malaysia', 'Thailand', 'Vietnam', 'Philippines'
+];
+
 export default function SignupPage() {
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const [step, setStep] = useState<'user_type' | 'details'>('user_type');
-  const [userType, setUserType] = useState<'shopper' | 'brand' | null>(null);
-  const [phoneCode, setPhoneCode] = useState('+31'); // Default to Netherlands
+  const countryDropdownRef = useRef<HTMLDivElement>(null);
+  const shopifyMode = isShopifyMode();
+
+  // In shopify mode, skip type selection — always brand
+  const [step, setStep] = useState<'user_type' | 'details'>(shopifyMode ? 'details' : 'user_type');
+  const [userType, setUserType] = useState<'shopper' | 'brand'>(shopifyMode ? 'brand' : 'shopper');
+
+  const [phoneCode, setPhoneCode] = useState('+31');
   const [showCodeDropdown, setShowCodeDropdown] = useState(false);
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
+
   const [formData, setFormData] = useState({
-    name: '',
+    // Shared
     email: '',
-    phone: '',
-    dateOfBirth: '',
-    country: '',
-    city: '',
     password: '',
     confirmPassword: '',
+    phone: '',
+    country: '',
+    // Shopper-only
+    name: '',
+    dateOfBirth: '',
+    city: '',
+    // Brand-only
+    brandName: '',
+    contactName: '',
+    shopifyDomain: '',
   });
-  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
-  const countryDropdownRef = useRef<HTMLDivElement>(null);
 
-  // List of countries for dropdown
-  const countries = [
-    'Netherlands', 'United States', 'United Kingdom', 'Germany', 'France',
-    'Spain', 'Italy', 'Belgium', 'Switzerland', 'Austria', 'Denmark',
-    'Sweden', 'Norway', 'Poland', 'Portugal', 'Ireland', 'Finland',
-    'Greece', 'Hungary', 'Czech Republic', 'Australia', 'New Zealand',
-    'Japan', 'South Korea', 'China', 'India', 'Singapore', 'UAE',
-    'Saudi Arabia', 'Brazil', 'Mexico', 'South Africa', 'Turkey',
-    'Russia', 'Ukraine', 'Indonesia', 'Malaysia', 'Thailand', 'Vietnam', 'Philippines'
-  ];
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
   const selectedCountry = countryCodes.find(c => c.code === phoneCode) || countryCodes[0];
 
-  // Close dropdowns when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -101,8 +112,12 @@ export default function SignupPage() {
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    if (!formData.name.trim()) {
-      newErrors.name = 'Full name is required';
+    if (userType === 'brand') {
+      if (!formData.brandName.trim()) newErrors.brandName = 'Brand name is required';
+      if (!formData.contactName.trim()) newErrors.contactName = 'Contact name is required';
+    } else {
+      if (!formData.name.trim()) newErrors.name = 'Full name is required';
+      if (!formData.city.trim()) newErrors.city = 'City is required';
     }
 
     if (!formData.email.trim()) {
@@ -111,24 +126,14 @@ export default function SignupPage() {
       newErrors.email = 'Please enter a valid email address';
     }
 
-    if (!formData.phone.trim()) {
-      newErrors.phone = 'Phone number is required';
-    }
-
-    if (!formData.country.trim()) {
-      newErrors.country = 'Country is required';
-    }
-
-    if (!formData.city.trim()) {
-      newErrors.city = 'City is required';
-    }
+    if (!formData.phone.trim()) newErrors.phone = 'Phone number is required';
+    if (!formData.country.trim()) newErrors.country = 'Country is required';
 
     if (!formData.password) {
       newErrors.password = 'Password is required';
     } else if (formData.password.length < 6) {
       newErrors.password = 'Password must be at least 6 characters';
     }
-
     if (!formData.confirmPassword) {
       newErrors.confirmPassword = 'Please confirm your password';
     } else if (formData.password !== formData.confirmPassword) {
@@ -141,75 +146,71 @@ export default function SignupPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
+    if (!validateForm()) return;
 
     setLoading(true);
-
     try {
-      // Combine country code with phone number
       const fullPhone = `${phoneCode}${formData.phone}`;
-      
+      const displayName = userType === 'brand' ? formData.contactName : formData.name;
+
       const { user, error } = await signup({
         email: formData.email,
         password: formData.password,
-        name: formData.name,
+        name: displayName,
         phone: fullPhone,
-        dateOfBirth: formData.dateOfBirth || undefined,
+        dateOfBirth: userType === 'shopper' ? formData.dateOfBirth || undefined : undefined,
         country: formData.country,
-        city: formData.city,
-        userType: userType || 'shopper',
+        city: userType === 'shopper' ? formData.city : undefined,
+        userType,
       });
 
-      if (error) {
-        setErrors({ form: error });
-        return;
+      if (error) { setErrors({ form: error }); return; }
+      if (!user) { setErrors({ form: 'Signup failed' }); return; }
+
+      // For brands, create the brand record in the brands table
+      if (userType === 'brand') {
+        const brandRes = await registerBrand({
+          user_id: user.id,
+          brand_name: formData.brandName,
+          email: formData.email,
+          phone: fullPhone,
+          country: formData.country,
+          shopify_domain: formData.shopifyDomain || undefined,
+        });
+        if (!brandRes.ok) {
+          setErrors({ form: brandRes.error || 'Failed to create brand record' });
+          return;
+        }
       }
 
-      if (user) {
-        // Redirect to login immediately (email verification disabled)
-        router.push('/login');
-      }
-    } catch (err) {
+      router.push('/login');
+    } catch {
       setErrors({ form: 'Something went wrong. Please try again.' });
     } finally {
       setLoading(false);
     }
   };
 
-
-  // User Type Selection Screen
+  // --- User type selection screen ---
   if (step === 'user_type') {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center p-4">
         <div className="w-full max-w-md">
-            {/* Logo */}
-            <div className="text-center mb-8">
-              <Link href="/">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img 
-                  src="/tryon-logo.jpg" 
-                  alt="TRYON" 
-                  className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition"
-                />
-              </Link>
-              <p className="text-gray-500">Join the future of fashion</p>
-            </div>
+          <div className="text-center mb-8">
+            <Link href="/">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/tryon-logo.jpg" alt="TRYON" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
+            </Link>
+            <p className="text-gray-500">Join the future of fashion</p>
+          </div>
 
-          {/* Card */}
           <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
             <h2 className="text-xl font-semibold text-black mb-2 text-center">How will you use TryOn?</h2>
             <p className="text-gray-500 text-sm text-center mb-8">Select your account type to get started</p>
 
             <div className="space-y-4">
-              {/* Shopper Option */}
               <button
-                onClick={() => {
-                  setUserType('shopper');
-                  setStep('details');
-                }}
+                onClick={() => { setUserType('shopper'); setStep('details'); }}
                 className="w-full p-6 border-2 border-gray-200 rounded-2xl hover:border-black hover:bg-gray-50 transition-all group text-left"
               >
                 <div className="flex items-start gap-4">
@@ -220,19 +221,13 @@ export default function SignupPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-black text-lg group-hover:text-black">I&apos;m a Shopper</h3>
-                    <p className="text-gray-500 text-sm mt-1">
-                      Create your Fit Passport and try on clothes virtually before you buy
-                    </p>
+                    <p className="text-gray-500 text-sm mt-1">Create your Fit Passport and try on clothes virtually before you buy</p>
                   </div>
                 </div>
               </button>
 
-              {/* Brand Option */}
               <button
-                onClick={() => {
-                  setUserType('brand');
-                  setStep('details');
-                }}
+                onClick={() => { setUserType('brand'); setStep('details'); }}
                 className="w-full p-6 border-2 border-gray-200 rounded-2xl hover:border-black hover:bg-gray-50 transition-all group text-left"
               >
                 <div className="flex items-start gap-4">
@@ -243,80 +238,61 @@ export default function SignupPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-black text-lg group-hover:text-black">I&apos;m a Brand</h3>
-                    <p className="text-gray-500 text-sm mt-1">
-                      Add virtual try-on to your store and reduce returns by up to 40%
-                    </p>
+                    <p className="text-gray-500 text-sm mt-1">Add virtual try-on to your store and reduce returns by up to 40%</p>
                   </div>
                 </div>
               </button>
             </div>
           </div>
 
-          {/* Footer */}
           <p className="text-center text-gray-500 text-sm mt-6">
             Already have an account?{' '}
-            <Link href="/login" className="text-black font-medium hover:underline">
-              Sign in
-            </Link>
+            <Link href="/login" className="text-black font-medium hover:underline">Sign in</Link>
           </p>
         </div>
       </div>
     );
   }
 
-  const isFormValid = 
-    formData.name.trim() && 
-    formData.email.trim() && 
-    formData.phone.trim() &&
-    formData.country.trim() &&
-    formData.city.trim() &&
-    formData.password && 
-    formData.confirmPassword &&
-    formData.password === formData.confirmPassword &&
-    formData.password.length >= 6;
+  // --- Details form ---
+  const isBrand = userType === 'brand';
 
-  // Details Form (Step 2)
+  const isFormValid = isBrand
+    ? formData.brandName.trim() && formData.contactName.trim() && formData.email.trim() && formData.phone.trim() && formData.country.trim() && formData.password && formData.confirmPassword && formData.password === formData.confirmPassword && formData.password.length >= 6
+    : formData.name.trim() && formData.email.trim() && formData.phone.trim() && formData.country.trim() && formData.city.trim() && formData.password && formData.confirmPassword && formData.password === formData.confirmPassword && formData.password.length >= 6;
+
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img 
-            src="/tryon-logo.jpg" 
-            alt="TRYON" 
-              className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition"
-          />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/tryon-logo.jpg" alt="TRYON" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
           </Link>
           <p className="text-gray-500">
-            {userType === 'brand' ? 'Set up your brand account' : 'Create your Fit Passport'}
+            {isBrand ? 'Set up your brand account' : 'Create your Fit Passport'}
           </p>
         </div>
 
-        {/* Card */}
         <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
-          {/* Back button */}
-          <button
-            onClick={() => {
-              setStep('user_type');
-              setUserType(null);
-            }}
-            className="flex items-center gap-2 text-gray-500 hover:text-black mb-4 transition"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back
-          </button>
+          {/* Back button (only on website mode where user chose type) */}
+          {!shopifyMode && (
+            <button
+              onClick={() => { setStep('user_type'); setUserType('shopper'); }}
+              className="flex items-center gap-2 text-gray-500 hover:text-black mb-4 transition"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Back
+            </button>
+          )}
 
           <div className="flex items-center gap-3 mb-6">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              userType === 'brand' 
-                ? 'bg-gradient-to-br from-orange-500 to-pink-600' 
-                : 'bg-gradient-to-br from-blue-500 to-purple-600'
+              isBrand ? 'bg-gradient-to-br from-orange-500 to-pink-600' : 'bg-gradient-to-br from-blue-500 to-purple-600'
             }`}>
-              {userType === 'brand' ? (
+              {isBrand ? (
                 <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
@@ -328,39 +304,79 @@ export default function SignupPage() {
             </div>
             <div>
               <h2 className="text-xl font-semibold text-black">
-                {userType === 'brand' ? 'Brand Account' : 'Shopper Account'}
+                {isBrand ? 'Brand Account' : 'Shopper Account'}
               </h2>
               <p className="text-gray-500 text-sm">Enter your details below</p>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Full Name */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Full Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.name}
-                onChange={(e) => {
-                  setFormData({ ...formData, name: e.target.value });
-                  if (errors.name) setErrors({ ...errors, name: '' });
-                }}
-                className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
-                  errors.name ? 'border-red-500' : 'border-gray-200'
-                }`}
-              />
-              {errors.name && (
-                <p className="text-red-500 text-xs mt-1">{errors.name}</p>
-              )}
-            </div>
+            {/* === BRAND FIELDS === */}
+            {isBrand && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Brand / Company Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Moncler"
+                    value={formData.brandName}
+                    onChange={(e) => {
+                      setFormData({ ...formData, brandName: e.target.value });
+                      if (errors.brandName) setErrors({ ...errors, brandName: '' });
+                    }}
+                    className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${errors.brandName ? 'border-red-500' : 'border-gray-200'}`}
+                  />
+                  {errors.brandName && <p className="text-red-500 text-xs mt-1">{errors.brandName}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Contact Person Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.contactName}
+                    onChange={(e) => {
+                      setFormData({ ...formData, contactName: e.target.value });
+                      if (errors.contactName) setErrors({ ...errors, contactName: '' });
+                    }}
+                    className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${errors.contactName ? 'border-red-500' : 'border-gray-200'}`}
+                  />
+                  {errors.contactName && <p className="text-red-500 text-xs mt-1">{errors.contactName}</p>}
+                </div>
+              </>
+            )}
+
+            {/* === SHOPPER FIELDS === */}
+            {!isBrand && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Full Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) => {
+                    setFormData({ ...formData, name: e.target.value });
+                    if (errors.name) setErrors({ ...errors, name: '' });
+                  }}
+                  className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${errors.name ? 'border-red-500' : 'border-gray-200'}`}
+                />
+                {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
+              </div>
+            )}
+
+            {/* === SHARED FIELDS === */}
 
             {/* Email */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email <span className="text-red-500">*</span>
+                {isBrand ? 'Business Email' : 'Email'} <span className="text-red-500">*</span>
               </label>
               <input
                 type="email"
@@ -370,13 +386,9 @@ export default function SignupPage() {
                   setFormData({ ...formData, email: e.target.value });
                   if (errors.email) setErrors({ ...errors, email: '' });
                 }}
-                className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
-                  errors.email ? 'border-red-500' : 'border-gray-200'
-                }`}
+                className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${errors.email ? 'border-red-500' : 'border-gray-200'}`}
               />
-              {errors.email && (
-                <p className="text-red-500 text-xs mt-1">{errors.email}</p>
-              )}
+              {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
             </div>
 
             {/* Phone */}
@@ -385,14 +397,11 @@ export default function SignupPage() {
                 Phone Number <span className="text-red-500">*</span>
               </label>
               <div className="flex gap-2">
-                {/* Country Code Picker */}
                 <div className="relative" ref={dropdownRef}>
                   <button
                     type="button"
                     onClick={() => setShowCodeDropdown(!showCodeDropdown)}
-                    className={`flex items-center gap-2 px-3 py-3 bg-gray-50 border rounded-xl text-black hover:bg-gray-100 transition min-w-[110px] ${
-                      errors.phone ? 'border-red-500' : 'border-gray-200'
-                    }`}
+                    className={`flex items-center gap-2 px-3 py-3 bg-gray-50 border rounded-xl text-black hover:bg-gray-100 transition min-w-[110px] ${errors.phone ? 'border-red-500' : 'border-gray-200'}`}
                   >
                     <span className="text-lg">{selectedCountry.flag}</span>
                     <span className="font-medium">{phoneCode}</span>
@@ -400,69 +409,74 @@ export default function SignupPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   </button>
-                  
-                  {/* Dropdown */}
                   {showCodeDropdown && (
                     <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-60 overflow-y-auto">
-                      {countryCodes.map((country) => (
+                      {countryCodes.map((c) => (
                         <button
-                          key={country.code}
+                          key={c.code}
                           type="button"
-                          onClick={() => {
-                            setPhoneCode(country.code);
-                            setShowCodeDropdown(false);
-                          }}
-                          className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition text-left ${
-                            phoneCode === country.code ? 'bg-gray-100' : ''
-                          }`}
+                          onClick={() => { setPhoneCode(c.code); setShowCodeDropdown(false); }}
+                          className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition text-left ${phoneCode === c.code ? 'bg-gray-100' : ''}`}
                         >
-                          <span className="text-lg">{country.flag}</span>
-                          <span className="text-black flex-1">{country.country}</span>
-                          <span className="text-gray-500 text-sm">{country.code}</span>
+                          <span className="text-lg">{c.flag}</span>
+                          <span className="text-black flex-1">{c.country}</span>
+                          <span className="text-gray-500 text-sm">{c.code}</span>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
-                
-                {/* Phone Input */}
-              <input
-                type="tel"
-                required
+                <input
+                  type="tel"
+                  required
                   placeholder="6 12345678"
-                value={formData.phone}
-                onChange={(e) => {
-                    // Only allow numbers and remove leading zeros
+                  value={formData.phone}
+                  onChange={(e) => {
                     const value = e.target.value.replace(/[^0-9]/g, '');
                     setFormData({ ...formData, phone: value });
-                  if (errors.phone) setErrors({ ...errors, phone: '' });
-                }}
-                  className={`flex-1 px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
-                  errors.phone ? 'border-red-500' : 'border-gray-200'
-                }`}
-              />
+                    if (errors.phone) setErrors({ ...errors, phone: '' });
+                  }}
+                  className={`flex-1 px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${errors.phone ? 'border-red-500' : 'border-gray-200'}`}
+                />
               </div>
-              {errors.phone && (
-                <p className="text-red-500 text-xs mt-1">{errors.phone}</p>
-              )}
+              {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone}</p>}
             </div>
 
-            {/* Date of Birth */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Date of Birth
-              </label>
-              <input
-                type="date"
-                value={formData.dateOfBirth}
-                onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition"
-              />
-            </div>
+            {/* Date of birth — shopper only */}
+            {!isBrand && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Date of Birth</label>
+                <input
+                  type="date"
+                  value={formData.dateOfBirth}
+                  onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition"
+                />
+              </div>
+            )}
 
-            {/* Location Row */}
-            <div className="grid grid-cols-2 gap-3">
-              {/* Country Dropdown */}
+            {/* Shopify domain — brand only, optional */}
+            {isBrand && !shopifyMode && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Shopify Store URL <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <div className="flex items-center gap-0">
+                  <input
+                    type="text"
+                    placeholder="your-store"
+                    value={formData.shopifyDomain}
+                    onChange={(e) => setFormData({ ...formData, shopifyDomain: e.target.value.replace(/\s/g, '').toLowerCase() })}
+                    className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-l-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition"
+                  />
+                  <span className="px-3 py-3 bg-gray-100 border border-l-0 border-gray-200 rounded-r-xl text-gray-500 text-sm whitespace-nowrap">.myshopify.com</span>
+                </div>
+                <p className="text-gray-400 text-xs mt-1">You can connect your store later from the dashboard</p>
+              </div>
+            )}
+
+            {/* Country (+ City for shoppers) */}
+            <div className={!isBrand ? 'grid grid-cols-2 gap-3' : ''}>
               <div className="relative" ref={countryDropdownRef}>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Country <span className="text-red-500">*</span>
@@ -470,9 +484,7 @@ export default function SignupPage() {
                 <button
                   type="button"
                   onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                  className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-left flex items-center justify-between hover:bg-gray-100 transition ${
-                    errors.country ? 'border-red-500' : 'border-gray-200'
-                  }`}
+                  className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-left flex items-center justify-between hover:bg-gray-100 transition ${errors.country ? 'border-red-500' : 'border-gray-200'}`}
                 >
                   <span className={formData.country ? 'text-black' : 'text-gray-400'}>
                     {formData.country || 'Select country'}
@@ -481,51 +493,45 @@ export default function SignupPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
-                
                 {showCountryDropdown && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-60 overflow-y-auto">
-                    {countries.map((country) => (
+                    {countries.map((c) => (
                       <button
-                        key={country}
+                        key={c}
                         type="button"
                         onClick={() => {
-                          setFormData({ ...formData, country });
+                          setFormData({ ...formData, country: c });
                           setShowCountryDropdown(false);
                           if (errors.country) setErrors({ ...errors, country: '' });
                         }}
                         className="w-full px-4 py-2 text-left hover:bg-gray-50 text-black text-sm"
                       >
-                        {country}
+                        {c}
                       </button>
                     ))}
                   </div>
                 )}
-                {errors.country && (
-                  <p className="text-red-500 text-xs mt-1">{errors.country}</p>
-                )}
+                {errors.country && <p className="text-red-500 text-xs mt-1">{errors.country}</p>}
               </div>
 
-              {/* City */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  City <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.city}
-                  onChange={(e) => {
-                    setFormData({ ...formData, city: e.target.value });
-                    if (errors.city) setErrors({ ...errors, city: '' });
-                  }}
-                  className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
-                    errors.city ? 'border-red-500' : 'border-gray-200'
-                  }`}
-                />
-                {errors.city && (
-                  <p className="text-red-500 text-xs mt-1">{errors.city}</p>
-                )}
-              </div>
+              {!isBrand && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    City <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.city}
+                    onChange={(e) => {
+                      setFormData({ ...formData, city: e.target.value });
+                      if (errors.city) setErrors({ ...errors, city: '' });
+                    }}
+                    className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${errors.city ? 'border-red-500' : 'border-gray-200'}`}
+                  />
+                  {errors.city && <p className="text-red-500 text-xs mt-1">{errors.city}</p>}
+                </div>
+              )}
             </div>
 
             {/* Password */}
@@ -541,16 +547,11 @@ export default function SignupPage() {
                   setFormData({ ...formData, password: e.target.value });
                   if (errors.password) setErrors({ ...errors, password: '' });
                 }}
-                className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
-                  errors.password ? 'border-red-500' : 'border-gray-200'
-                }`}
+                className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${errors.password ? 'border-red-500' : 'border-gray-200'}`}
               />
-              {errors.password && (
-                <p className="text-red-500 text-xs mt-1">{errors.password}</p>
-              )}
+              {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
             </div>
 
-            {/* Confirm Password */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Confirm Password <span className="text-red-500">*</span>
@@ -563,13 +564,9 @@ export default function SignupPage() {
                   setFormData({ ...formData, confirmPassword: e.target.value });
                   if (errors.confirmPassword) setErrors({ ...errors, confirmPassword: '' });
                 }}
-                className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
-                  errors.confirmPassword ? 'border-red-500' : 'border-gray-200'
-                }`}
+                className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${errors.confirmPassword ? 'border-red-500' : 'border-gray-200'}`}
               />
-              {errors.confirmPassword && (
-                <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>
-              )}
+              {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>}
             </div>
 
             {errors.form && (
@@ -589,13 +586,10 @@ export default function SignupPage() {
 
           <p className="text-center text-gray-500 text-sm mt-6">
             Already have an account?{' '}
-            <Link href="/login" className="text-black font-medium hover:underline">
-              Sign in
-            </Link>
+            <Link href="/login" className="text-black font-medium hover:underline">Sign in</Link>
           </p>
         </div>
 
-        {/* Footer */}
         <p className="text-center text-gray-400 text-xs mt-6">
           By signing up, you agree to our Terms of Service and Privacy Policy
         </p>

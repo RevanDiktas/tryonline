@@ -27,6 +27,33 @@ async function fetchApi<T>(
   return res.json() as Promise<T>;
 }
 
+// --- Brand registration ---
+export interface BrandRegisterPayload {
+  user_id: string;
+  brand_name: string;
+  email: string;
+  phone?: string;
+  country?: string;
+  shopify_domain?: string;
+}
+
+export async function registerBrand(payload: BrandRegisterPayload): Promise<{ ok: boolean; brand_id?: string; error?: string }> {
+  try {
+    return await fetchApi('/api/brand/register', { method: 'POST', body: JSON.stringify(payload) });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Brand registration failed' };
+  }
+}
+
+export async function getMyBrand(userId: string): Promise<Record<string, unknown> | null> {
+  try {
+    const res: { ok: boolean; brand: Record<string, unknown> } = await fetchApi('/api/brand/me', { params: { user_id: userId } });
+    return res.brand ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function isBackendAvailable(): Promise<boolean> {
   try {
     const base = getBase();

@@ -2,8 +2,10 @@
 
 import dynamic from 'next/dynamic';
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTheme } from '@/contexts/ThemeContext';
+import { getCurrentUser, logout, type User } from '@/lib/supabase-auth';
 import { api, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse } from '@/lib/api';
 
 const CHART_HEIGHT = 200;
@@ -97,8 +99,11 @@ function EmptyState({ message, sub, dark }: { message: string; sub?: string; dar
 }
 
 export default function BrandDashboardPage() {
+  const router = useRouter();
   const { theme, toggleTheme } = useTheme();
   const dark = theme === 'dark';
+  const [user, setUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [tab, setTab] = useState<Tab>('roi');
   const [metrics, setMetrics] = useState<AnalyticsMetrics | null>(null);
   const [fitMetrics, setFitMetrics] = useState<FitMetrics | null>(null);
@@ -155,6 +160,34 @@ export default function BrandDashboardPage() {
   }, [metricsRange, metricsShop]);
 
   useEffect(() => { fetchMetrics(); }, [fetchMetrics]);
+
+  useEffect(() => {
+    getCurrentUser().then((u) => {
+      if (!u) {
+        router.push('/login');
+        return;
+      }
+      if (u.user_type !== 'brand') {
+        router.push('/dashboard');
+        return;
+      }
+      setUser(u);
+      setAuthChecked(true);
+    }).catch(() => router.push('/login'));
+  }, [router]);
+
+  const handleLogout = async () => {
+    await logout();
+    router.push('/login');
+  };
+
+  if (!authChecked) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${dark ? 'bg-black' : 'bg-white'}`}>
+        <div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-white' : 'border-black/20 border-t-black'}`} />
+      </div>
+    );
+  }
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'roi', label: 'ROI & Attribution' },
@@ -227,7 +260,8 @@ export default function BrandDashboardPage() {
             >
               {metricsLoading ? '⋯' : 'Refresh'}
             </button>
-            <Link href="/" className={`${dark ? 'text-white/50 hover:text-white/80' : 'text-black/50 hover:text-black/80'} text-xs ml-1 transition-colors`}>← Home</Link>
+            {user && <span className={`${dark ? 'text-white/50' : 'text-black/50'} text-xs hidden sm:inline`}>{user.email}</span>}
+            <button onClick={handleLogout} className={`${dark ? 'text-white/50 hover:text-white/80' : 'text-black/50 hover:text-black/80'} text-xs ml-1 transition-colors`}>Sign out</button>
           </div>
         </div>
       </header>
