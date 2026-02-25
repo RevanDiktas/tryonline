@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getCurrentUser, type User } from '@/lib/supabase-auth';
+import { getMyBrand } from '@/lib/api';
 import { isShopifyMode } from '@/lib/app-mode';
 import { useRouter } from 'next/navigation';
 
 export default function HomePage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const [brandName, setBrandName] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
   const shopifyMode = isShopifyMode();
 
@@ -21,6 +23,10 @@ export default function HomePage() {
           return;
         }
         setUser(u);
+        if (u?.user_type === 'brand') {
+          const brand = await getMyBrand(u.id);
+          if (brand?.name) setBrandName(brand.name as string);
+        }
       } catch (error) {
         console.error('[HomePage] Auth check error:', error);
       } finally {
@@ -51,7 +57,7 @@ export default function HomePage() {
           {user ? (
             <div className="flex items-center gap-4">
               <span className="text-sm text-gray-600 hidden sm:inline">
-                {user.name || user.email}
+                {user.user_type === 'brand' ? (brandName || user.name || user.email) : (user.name || user.email)}
               </span>
               <Link
                 href={dashboardUrl}
