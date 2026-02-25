@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { getCurrentUser } from '@/lib/supabase-auth';
 
 /** Backend (Railway) base URL — Shopify OAuth and session live here, not on Vercel. */
 const getApiBase = () => (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
@@ -10,9 +11,11 @@ const getApiBase = () => (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, 
  * Embedded Shopify app — onboarding entry.
  * Open from Shopify Admin → Apps → Tryon.
  * When no session: redirects to backend OAuth; after OAuth, Shopify redirects back here.
+ * Once store is connected: checks if brand is logged in and routes accordingly.
  */
 function AppPageContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const shop = searchParams.get('shop') ?? '';
   const host = searchParams.get('host') ?? '';
   const error = searchParams.get('error') ?? '';
@@ -23,7 +26,6 @@ function AppPageContent() {
   const state = searchParams.get('state') ?? '';
 
   useEffect(() => {
-    // If we have OAuth params (e.g. redirect to backend was blocked and Shopify sent user here)
     if (code && shop && hmac && state) {
       setStatus('completing');
       const apiBase = getApiBase();
@@ -35,7 +37,6 @@ function AppPageContent() {
         .then((res) => res.json())
         .then((data) => {
           if (data.ok) {
-            // Brand created; replace URL to remove OAuth params and reload
             if (typeof window !== 'undefined') {
               window.history.replaceState({}, '', `${window.location.pathname}?shop=${encodeURIComponent(shop)}`);
               window.location.reload();
@@ -58,12 +59,11 @@ function AppPageContent() {
       setStatus('ready');
       return;
     }
-    // Shopify OAuth and session live on the backend (Railway). Must use backend URL, not frontend.
     const apiBase = getApiBase();
     const authUrl = apiBase ? `${apiBase}/api/shopify/auth?shop=${encodeURIComponent(shop)}` : '';
 
     if (!apiBase) {
-      setStatus('redirecting'); // will show "Backend URL not set" below
+      setStatus('redirecting');
       return;
     }
     fetch(`${apiBase}/api/shopify/session?shop=${encodeURIComponent(shop)}`)
@@ -72,7 +72,6 @@ function AppPageContent() {
           setStatus('ready');
           return;
         }
-        // No session: try redirect to backend OAuth (often blocked in iframe — so we show button too)
         setStatus('redirecting');
         if (typeof window !== 'undefined' && window.top) {
           window.top.location.href = authUrl;
@@ -85,6 +84,22 @@ function AppPageContent() {
         }
       });
   }, [shop, code, hmac, state]);
+
+  // Once store is connected (status=ready), check auth and route
+  useEffect(() => {
+    if (status !== 'ready' || !shop) return;
+    getCurrentUser()
+      .then((user) => {
+        if (user && user.user_type === 'brand') {
+          router.push('/brand');
+        } else {
+          router.push(`/signup?type=brand&shop=${encodeURIComponent(shop)}`);
+        }
+      })
+      .catch(() => {
+        router.push(`/signup?type=brand&shop=${encodeURIComponent(shop)}`);
+      });
+  }, [status, shop, router]);
 
   if (status === 'redirecting') {
     const apiBase = getApiBase();
@@ -144,27 +159,9 @@ function AppPageContent() {
     );
   }
 
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-6">
-        <p className="text-gray-600 dark:text-gray-400">Loading…</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
-      <div className="max-w-xl mx-auto">
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
-          Welcome to Try On
-        </h1>
-        <p className="mt-2 text-gray-600 dark:text-gray-400">
-          Your store is connected. Next steps: add the Try On button and enable the cart embed (onboarding steps will go here).
-        </p>
-        <p className="mt-4 text-sm text-gray-500 dark:text-gray-500">
-          Shop: {shop}
-        </p>
-      </div>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-6">
+      <p className="text-gray-600 dark:text-gray-400">Setting up your account…</p>
     </div>
   );
 }
