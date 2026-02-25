@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { signup } from '@/lib/supabase-auth';
 import { registerBrand } from '@/lib/api';
@@ -60,15 +60,20 @@ const countries = [
   'Russia', 'Ukraine', 'Indonesia', 'Malaysia', 'Thailand', 'Vietnam', 'Philippines'
 ];
 
-export default function SignupPage() {
+function SignupContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const countryDropdownRef = useRef<HTMLDivElement>(null);
   const shopifyMode = isShopifyMode();
 
-  // In shopify mode, skip type selection — always brand
-  const [step, setStep] = useState<'user_type' | 'details'>(shopifyMode ? 'details' : 'user_type');
-  const [userType, setUserType] = useState<'shopper' | 'brand'>(shopifyMode ? 'brand' : 'shopper');
+  // Determine initial state from query param or APP_MODE
+  const typeParam = searchParams.get('type');
+  const preselected = shopifyMode ? 'brand' : (typeParam === 'brand' ? 'brand' : typeParam === 'shopper' ? 'shopper' : null);
+  const skipSelection = shopifyMode || preselected !== null;
+
+  const [step, setStep] = useState<'user_type' | 'details'>(skipSelection ? 'details' : 'user_type');
+  const [userType, setUserType] = useState<'shopper' | 'brand'>(preselected || 'shopper');
 
   const [phoneCode, setPhoneCode] = useState('+31');
   const [showCodeDropdown, setShowCodeDropdown] = useState(false);
@@ -595,5 +600,17 @@ export default function SignupPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-gray-400">Loading...</div>
+      </div>
+    }>
+      <SignupContent />
+    </Suspense>
   );
 }
