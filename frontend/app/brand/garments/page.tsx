@@ -148,7 +148,108 @@ export default function GarmentsPage() {
     }
   };
 
+  // --- Size Chart Editor ---
+  const MEASUREMENTS = ['chest', 'waist', 'hips', 'length'];
+  const [sizeChartGarmentId, setSizeChartGarmentId] = useState<string | null>(null);
+  const [sizeChartData, setSizeChartData] = useState<Record<string, Record<string, string>>>({});
+  const [savingSizeChart, setSavingSizeChart] = useState(false);
+  const csvInputRef = useRef<HTMLInputElement>(null);
+
+  const openSizeChart = (g: Garment) => {
+    const chart: Record<string, Record<string, string>> = {};
+    for (const sz of SIZES) {
+      chart[sz] = {};
+      for (const m of MEASUREMENTS) {
+        chart[sz][m] = String((g.size_chart?.[sz] as Record<string, number> | undefined)?.[m] ?? '');
+      }
+    }
+    setSizeChartData(chart);
+    setSizeChartGarmentId(g.id);
+  };
+
+  const updateSizeChartCell = (size: string, measurement: string, value: string) => {
+    setSizeChartData((prev) => ({
+      ...prev,
+      [size]: { ...prev[size], [measurement]: value },
+    }));
+  };
+
+  const saveSizeChart = async () => {
+    if (!sizeChartGarmentId) return;
+    setSavingSizeChart(true);
+    try {
+      const chart: Record<string, Record<string, number>> = {};
+      for (const sz of SIZES) {
+        const row = sizeChartData[sz];
+        if (!row) continue;
+        const vals: Record<string, number> = {};
+        let hasValue = false;
+        for (const m of MEASUREMENTS) {
+          const v = parseFloat(row[m]);
+          if (!isNaN(v) && v > 0) { vals[m] = v; hasValue = true; }
+        }
+        if (hasValue) chart[sz] = vals;
+      }
+      await garmentApi.update(sizeChartGarmentId, { size_chart: chart });
+      if (brandId) await loadGarments(brandId);
+      setSizeChartGarmentId(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to save size chart');
+    } finally {
+      setSavingSizeChart(false);
+    }
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const text = ev.target?.result as string;
+        let parsed: Record<string, Record<string, number>> = {};
+
+        if (file.name.endsWith('.json')) {
+          parsed = JSON.parse(text);
+        } else {
+          // CSV: first column = size, header row = measurement names
+          const lines = text.trim().split('\n').map((l) => l.split(',').map((c) => c.trim()));
+          if (lines.length < 2) { alert('CSV must have a header row and at least one data row'); return; }
+          const headers = lines[0].slice(1).map((h) => h.toLowerCase());
+          for (let i = 1; i < lines.length; i++) {
+            const row = lines[i];
+            const sz = row[0].toLowerCase();
+            if (!SIZES.includes(sz)) continue;
+            const vals: Record<string, number> = {};
+            headers.forEach((h, idx) => {
+              const v = parseFloat(row[idx + 1]);
+              if (!isNaN(v)) vals[h] = v;
+            });
+            parsed[sz] = vals;
+          }
+        }
+
+        // Merge into editor
+        const updated = { ...sizeChartData };
+        for (const sz of SIZES) {
+          if (!updated[sz]) updated[sz] = {};
+          if (parsed[sz]) {
+            for (const m of MEASUREMENTS) {
+              if (parsed[sz][m] !== undefined) updated[sz][m] = String(parsed[sz][m]);
+            }
+          }
+        }
+        setSizeChartData(updated);
+      } catch {
+        alert('Failed to parse file. Use JSON format like {"xs": {"chest": 86, ...}} or CSV with size,chest,waist,hips,length columns.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const sizeCount = (g: Garment) => Object.keys(g.sizes || {}).length;
+  const sizeChartCount = (g: Garment) => Object.keys(g.size_chart || {}).length;
 
   if (loading) {
     return (
@@ -367,8 +468,125 @@ export default function GarmentsPage() {
                   </div>
                   <p className="text-xs text-gray-400 mt-2">Click a size to upload or replace a .glb file</p>
                 </div>
+
+                {/* Size Chart */}
+                <div className="border-t border-gray-100 pt-4 mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Size Chart ({sizeChartCount(g)} sizes)
+                    </p>
+                    <button
+                      onClick={() => openSizeChart(g)}
+                      className="text-xs text-blue-500 hover:text-blue-700 transition"
+                    >
+                      {sizeChartCount(g) > 0 ? 'Edit Size Chart' : '+ Add Size Chart'}
+                    </button>
+                  </div>
+                  {sizeChartCount(g) > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="text-xs w-full">
+                        <thead>
+                          <tr className="text-gray-400">
+                            <th className="text-left pr-4 py-1 font-medium">Size</th>
+                            <th className="text-right px-3 py-1 font-medium">Chest</th>
+                            <th className="text-right px-3 py-1 font-medium">Waist</th>
+                            <th className="text-right px-3 py-1 font-medium">Hips</th>
+                            <th className="text-right pl-3 py-1 font-medium">Length</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {SIZES.filter((sz) => g.size_chart?.[sz]).map((sz) => {
+                            const row = g.size_chart[sz] as Record<string, number>;
+                            return (
+                              <tr key={sz} className="text-gray-700">
+                                <td className="pr-4 py-1 font-medium uppercase">{sz}</td>
+                                <td className="text-right px-3 py-1">{row.chest ?? '—'}</td>
+                                <td className="text-right px-3 py-1">{row.waist ?? '—'}</td>
+                                <td className="text-right px-3 py-1">{row.hips ?? '—'}</td>
+                                <td className="text-right pl-3 py-1">{row.length ?? '—'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Size Chart Editor Modal */}
+        {sizeChartGarmentId && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSizeChartGarmentId(null)}>
+            <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-lg font-semibold text-black">Size Chart (measurements in cm)</h3>
+                <button onClick={() => setSizeChartGarmentId(null)} className="text-gray-400 hover:text-black text-xl">&times;</button>
+              </div>
+
+              <input type="file" ref={csvInputRef} accept=".csv,.json" className="hidden" onChange={handleImportFile} />
+
+              <div className="overflow-x-auto mb-4">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 pr-3 text-gray-500 font-medium text-xs uppercase">Size</th>
+                      {MEASUREMENTS.map((m) => (
+                        <th key={m} className="text-center py-2 px-2 text-gray-500 font-medium text-xs uppercase">{m}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {SIZES.map((sz) => (
+                      <tr key={sz} className="border-b border-gray-100">
+                        <td className="py-2 pr-3 font-medium text-black uppercase">{sz}</td>
+                        {MEASUREMENTS.map((m) => (
+                          <td key={m} className="py-2 px-1">
+                            <input
+                              type="number"
+                              value={sizeChartData[sz]?.[m] ?? ''}
+                              onChange={(e) => updateSizeChartCell(sz, m, e.target.value)}
+                              placeholder="—"
+                              className="w-full px-2 py-1.5 border border-gray-200 rounded text-center text-sm text-black focus:outline-none focus:ring-1 focus:ring-black"
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => csvInputRef.current?.click()}
+                  className="text-sm text-gray-500 hover:text-black transition flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                  Import CSV / JSON
+                </button>
+                <div className="flex gap-3">
+                  <button onClick={() => setSizeChartGarmentId(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-black transition">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveSizeChart}
+                    disabled={savingSizeChart}
+                    className="px-5 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition disabled:opacity-40"
+                  >
+                    {savingSizeChart ? 'Saving...' : 'Save Size Chart'}
+                  </button>
+                </div>
+              </div>
+
+              <p className="text-xs text-gray-400 mt-3">
+                CSV format: size,chest,waist,hips,length (header row + data rows). JSON format: {`{"xs": {"chest": 86, "waist": 72, ...}, ...}`}
+              </p>
+            </div>
           </div>
         )}
       </main>
