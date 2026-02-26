@@ -1,19 +1,17 @@
 /**
  * Supabase auth and user/fit-passport helpers for the frontend.
  * Uses NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.
- * In the browser we use createBrowserClient so the session is stored in cookies,
- * enabling /auth/me (session memory) for the widget without re-login.
+ *
+ * We use createClient (localStorage-based) instead of createBrowserClient
+ * (cookie-based) because the app runs inside Shopify admin as a third-party
+ * iframe where browsers block third-party cookies.
  */
 import { createClient, type User as SupabaseAuthUser } from '@supabase/supabase-js';
-import { createBrowserClient } from '@supabase/auth-helpers-nextjs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-const supabase =
-  typeof window !== 'undefined'
-    ? createBrowserClient(supabaseUrl, supabaseAnonKey)
-    : createClient(supabaseUrl, supabaseAnonKey);
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export interface User {
   id: string;
