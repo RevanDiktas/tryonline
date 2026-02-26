@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TryOn Viewer</title>
+  <script>
+    if (new URLSearchParams(location.search).get('open') === '1' || window.self !== window.top) {
+      document.documentElement.classList.add('embedded');
+    }
+  </script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
@@ -17,6 +22,16 @@
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       background: #f5f5f5;
       min-height: 100vh;
+    }
+
+    html.embedded, html.embedded body {
+      background: transparent !important;
+    }
+
+    html.embedded.viewer-closed,
+    html.embedded.viewer-closed body {
+      background: transparent !important;
+      visibility: hidden !important;
     }
 
     /* Simulated PDP Background */
@@ -466,11 +481,10 @@
     var open=p.get('open')==='1';
     var inIframe=typeof window!=='undefined'&&window.self!==window.top;
     if(open||inIframe){
+      document.documentElement.classList.add('embedded');
       document.body.classList.add('open-direct');
       var el=document.getElementById('pdp-background');
       if(el)el.style.display='none';
-      document.documentElement.style.background='transparent';
-      document.body.style.background='transparent';
       var preload=document.getElementById('preload-status');
       if(preload)preload.style.display='none';
     }
@@ -1009,6 +1023,7 @@
     function closeViewer() {
       track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
       overlay.classList.remove('active');
+      document.documentElement.classList.add('viewer-closed');
       if (window.parent !== window) {
         window.parent.postMessage({ type: 'TRYON_CLOSE' }, '*');
       }
