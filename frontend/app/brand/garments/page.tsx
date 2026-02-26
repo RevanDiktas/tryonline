@@ -32,10 +32,23 @@ export default function GarmentsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadTarget, setUploadTarget] = useState<{ garmentId: string; size: string } | null>(null);
 
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+
   const loadGarments = useCallback(async (bid: string) => {
     try {
       const list = await garmentApi.list(bid);
       setGarments(list);
+      // Auto-sync garments that have no sizes but have a shopify_product_id
+      for (const g of list) {
+        if (g.shopify_product_id && Object.keys(g.sizes || {}).length === 0) {
+          try {
+            await garmentApi.sync(g.id);
+          } catch {}
+        }
+      }
+      // Reload after sync
+      const updated = await garmentApi.list(bid);
+      setGarments(updated);
     } catch {
       console.error('Failed to load garments');
     }
@@ -288,6 +301,17 @@ export default function GarmentsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={async () => {
+                        setSyncingId(g.id);
+                        try { await garmentApi.sync(g.id); if (brandId) await loadGarments(brandId); } catch {}
+                        setSyncingId(null);
+                      }}
+                      disabled={syncingId === g.id}
+                      className="text-xs text-blue-500 hover:text-blue-700 transition px-2 py-1"
+                    >
+                      {syncingId === g.id ? 'Syncing...' : 'Sync Files'}
+                    </button>
                     <button onClick={() => startEdit(g)} className="text-xs text-gray-500 hover:text-black transition px-2 py-1">
                       Edit
                     </button>

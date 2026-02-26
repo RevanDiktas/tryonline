@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, logout, type User } from '@/lib/supabase-auth';
-import { api, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse } from '@/lib/api';
+import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse } from '@/lib/api';
 
 const CHART_HEIGHT = 200;
 
@@ -116,7 +116,7 @@ export default function BrandDashboardPage() {
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [metricsRange, setMetricsRange] = useState<'7d' | '30d'>('30d');
-  const [metricsShop, setMetricsShop] = useState('demo.myshopify.com');
+  const [metricsShop, setMetricsShop] = useState('');
 
   const fetchMetrics = useCallback(async () => {
     setMetricsLoading(true);
@@ -161,8 +161,10 @@ export default function BrandDashboardPage() {
 
   useEffect(() => { fetchMetrics(); }, [fetchMetrics]);
 
+  const [brandShop, setBrandShop] = useState<string | null>(null);
+
   useEffect(() => {
-    getCurrentUser().then((u) => {
+    getCurrentUser().then(async (u) => {
       if (!u) {
         router.push('/login');
         return;
@@ -173,6 +175,10 @@ export default function BrandDashboardPage() {
       }
       setUser(u);
       setAuthChecked(true);
+      try {
+        const brand = await getMyBrand(u.id);
+        if (brand?.shopify_domain) setBrandShop(brand.shopify_domain as string);
+      } catch {}
     }).catch(() => router.push('/login'));
   }, [router]);
 
@@ -242,7 +248,7 @@ export default function BrandDashboardPage() {
               className={`text-xs px-3 py-2 rounded-lg border focus:outline-none focus:ring-1 focus:ring-white/30 focus:border-white/20 ${dark ? 'bg-white/5 border-white/10 text-white/80' : 'bg-black/5 border-black/10 text-black/80 focus:ring-black/20 focus:border-black/20'}`}
             >
               <option value="">All shops</option>
-              <option value="demo.myshopify.com">demo.myshopify.com</option>
+              {brandShop && <option value={brandShop}>{brandShop}</option>}
             </select>
             <select
               value={metricsRange}

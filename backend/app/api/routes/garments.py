@@ -169,6 +169,44 @@ async def delete_garment(garment_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/{garment_id}/sync")
+async def sync_garment_sizes(garment_id: str):
+    """Scan storage for existing GLB files and update the sizes JSONB column."""
+    try:
+        r = supabase.client.table("garments").select("brand_id, shopify_product_id, sizes").eq(
+            "id", garment_id
+        ).limit(1).execute()
+        if not r.data:
+            raise HTTPException(status_code=404, detail="Garment not found")
+
+        garment = r.data[0]
+        brand_id = garment["brand_id"]
+        product_id = garment.get("shopify_product_id") or garment_id
+        folder_path = f"{brand_id}/{product_id}"
+        bucket = supabase.client.storage.from_(settings.garments_bucket)
+
+        try:
+            files = bucket.list(folder_path)
+        except Exception:
+            files = []
+
+        sizes = {}
+        for f in files:
+            name = f.get("name", "") if isinstance(f, dict) else str(f)
+            name_lower = name.lower()
+            for sz in VALID_SIZES:
+                if name_lower == f"{sz}.glb":
+                    sizes[sz] = f"garments/{folder_path}/{name}"
+                    break
+
+        supabase.client.table("garments").update({"sizes": sizes}).eq("id", garment_id).execute()
+        return {"ok": True, "sizes": sizes, "folder": folder_path}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{garment_id}/upload")
 async def upload_garment_glb(
     garment_id: str,

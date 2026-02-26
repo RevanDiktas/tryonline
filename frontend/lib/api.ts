@@ -386,6 +386,10 @@ export const garmentApi = {
     await fetchApi(`/api/garments/${garmentId}`, { method: 'DELETE' });
   },
 
+  async sync(garmentId: string): Promise<{ sizes: Record<string, string> }> {
+    return fetchApi(`/api/garments/${garmentId}/sync`, { method: 'POST' });
+  },
+
   async uploadGlb(garmentId: string, size: string, file: File): Promise<{ url: string }> {
     const base = getBase();
     const formData = new FormData();
