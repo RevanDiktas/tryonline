@@ -1023,10 +1023,11 @@
     function closeViewer() {
       track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
       overlay.classList.remove('active');
-      document.documentElement.classList.add('viewer-closed');
-      if (window.parent !== window) {
-        window.parent.postMessage({ type: 'TRYON_CLOSE' }, '*');
-      }
+      // Make the entire page invisible + click-through so the iframe is a ghost
+      document.documentElement.style.cssText = 'visibility:hidden!important;background:transparent!important;pointer-events:none!important;';
+      document.body.style.cssText = 'visibility:hidden!important;background:transparent!important;pointer-events:none!important;';
+      // Tell parent to remove iframe (multiple methods for reliability)
+      try { window.parent.postMessage({ type: 'TRYON_CLOSE' }, '*'); } catch(e) {}
     }
 
     openBtn.addEventListener('click', () => openViewer());
