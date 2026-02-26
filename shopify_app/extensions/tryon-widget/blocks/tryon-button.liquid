@@ -52,8 +52,25 @@
       position: relative;
     }
     .tryon-modal-close {
-      display: none;
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 10;
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: rgba(255, 255, 255, 0.85);
+      color: #333;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      opacity: 0.6;
+      transition: opacity 0.2s;
     }
+    .tryon-modal-close:hover { opacity: 1; }
     .tryon-modal-inner iframe {
       width: 100%;
       height: 100%;
@@ -106,6 +123,11 @@
       });
       document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
+      });
+      window.addEventListener('message', function(e) {
+        if (e.data && (e.data.type === 'TRYON_CLOSE' || e.data.type === 'TRYON_ADD_TO_CART')) {
+          closeModal();
+        }
       });
     })();
   </script>

@@ -1005,27 +1005,27 @@
     // ============================================
     // EVENT LISTENERS
     // ============================================
+
+    function closeViewer() {
+      track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
+      overlay.classList.remove('active');
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: 'TRYON_CLOSE' }, '*');
+      }
+    }
+
     openBtn.addEventListener('click', () => openViewer());
 
     overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
-        overlay.classList.remove('active');
-      }
+      if (e.target === overlay) closeViewer();
     });
 
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && overlay.classList.contains('active')) {
-        overlay.classList.remove('active');
-        track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
-      }
+      if (e.key === 'Escape' && overlay.classList.contains('active')) closeViewer();
     });
 
-    // Add to Cart
     addToCartBtn.addEventListener('click', () => {
       track('add_to_cart', { size: currentSize });
-      track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
-      // Shopify: tell parent to add item with session_id for attribution
       if (window.parent !== window) {
         var targetOrigin = '*';
         try {
@@ -1042,13 +1042,10 @@
           }
         }, targetOrigin);
       }
-      overlay.classList.remove('active');
+      closeViewer();
     });
 
-    closeBtn.addEventListener('click', () => {
-      track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
-      overlay.classList.remove('active');
-    });
+    closeBtn.addEventListener('click', () => closeViewer());
 
     // Size button clicks - INSTANT switching
     sizeButtons.forEach(btn => {
