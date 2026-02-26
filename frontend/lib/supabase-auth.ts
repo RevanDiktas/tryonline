@@ -76,8 +76,34 @@ export async function login(email: string, password: string): Promise<{ user: Us
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) return { user: null, error: error.message };
   if (!data.user) return { user: null, error: 'No user' };
+
+  // Try getting the full profile from the users table
   const user = await getCurrentUser();
-  return { user, error: null };
+  if (user) return { user, error: null };
+
+  // Fallback: session might not be available yet (e.g. in iframe with cookie restrictions).
+  // Use the auth data directly + try to read the profile with the signed-in client.
+  const { data: profile } = await supabase
+    .from('users')
+    .select('id, email, name, phone, user_type, created_at')
+    .eq('id', data.user.id)
+    .single();
+
+  if (profile) {
+    return { user: { id: profile.id, email: profile.email, name: profile.name, phone: profile.phone, user_type: profile.user_type, created_at: profile.created_at }, error: null };
+  }
+
+  // Last resort: construct user from auth metadata
+  const meta = data.user.user_metadata as { name?: string; user_type?: string } | undefined;
+  return {
+    user: {
+      id: data.user.id,
+      email: data.user.email ?? email,
+      name: meta?.name,
+      user_type: meta?.user_type ?? 'shopper',
+    },
+    error: null,
+  };
 }
 
 export interface SignupOptions {
