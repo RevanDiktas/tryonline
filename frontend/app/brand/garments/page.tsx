@@ -149,7 +149,7 @@ export default function GarmentsPage() {
   };
 
   // --- Size Chart Editor ---
-  const MEASUREMENTS = ['chest', 'waist', 'hips', 'length'];
+  const MEASUREMENTS = ['chest', 'waist', 'hips', 'length', 'inseam', 'shoulder', 'sleeve', 'thigh'];
   const [sizeChartGarmentId, setSizeChartGarmentId] = useState<string | null>(null);
   const [sizeChartData, setSizeChartData] = useState<Record<string, Record<string, string>>>({});
   const [savingSizeChart, setSavingSizeChart] = useState(false);
@@ -482,16 +482,19 @@ export default function GarmentsPage() {
                       {sizeChartCount(g) > 0 ? 'Edit Size Chart' : '+ Add Size Chart'}
                     </button>
                   </div>
-                  {sizeChartCount(g) > 0 && (
+                  {sizeChartCount(g) > 0 && (() => {
+                    const usedMeasurements = MEASUREMENTS.filter((m) =>
+                      SIZES.some((sz) => (g.size_chart?.[sz] as Record<string, number> | undefined)?.[m] != null)
+                    );
+                    return (
                     <div className="overflow-x-auto">
                       <table className="text-xs w-full">
                         <thead>
                           <tr className="text-gray-400">
                             <th className="text-left pr-4 py-1 font-medium">Size</th>
-                            <th className="text-right px-3 py-1 font-medium">Chest</th>
-                            <th className="text-right px-3 py-1 font-medium">Waist</th>
-                            <th className="text-right px-3 py-1 font-medium">Hips</th>
-                            <th className="text-right pl-3 py-1 font-medium">Length</th>
+                            {usedMeasurements.map((m) => (
+                              <th key={m} className="text-right px-2 py-1 font-medium capitalize">{m}</th>
+                            ))}
                           </tr>
                         </thead>
                         <tbody>
@@ -500,16 +503,16 @@ export default function GarmentsPage() {
                             return (
                               <tr key={sz} className="text-gray-700">
                                 <td className="pr-4 py-1 font-medium uppercase">{sz}</td>
-                                <td className="text-right px-3 py-1">{row.chest ?? '—'}</td>
-                                <td className="text-right px-3 py-1">{row.waist ?? '—'}</td>
-                                <td className="text-right px-3 py-1">{row.hips ?? '—'}</td>
-                                <td className="text-right pl-3 py-1">{row.length ?? '—'}</td>
+                                {usedMeasurements.map((m) => (
+                                  <td key={m} className="text-right px-2 py-1">{row[m] ?? '—'}</td>
+                                ))}
                               </tr>
                             );
                           })}
                         </tbody>
                       </table>
-                    </div>
+                    </div>);
+                  })()
                   )}
                 </div>
               </div>

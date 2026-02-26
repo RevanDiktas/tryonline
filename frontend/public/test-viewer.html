@@ -806,7 +806,11 @@
       if (sizes.length === 0) return available.includes('m') ? 'm' : available[0];
       const withEase = sizes.map(function(size) {
         const c = sizeChart[size];
-        const avgEase = (c.chest - userMeasurements.chest + c.waist - userMeasurements.waist + c.hips - userMeasurements.hips) / 3;
+        var diffs = [];
+        ['chest','waist','hips','inseam','shoulder','sleeve','thigh'].forEach(function(key) {
+          if (c[key] != null && userMeasurements[key] != null) diffs.push(c[key] - userMeasurements[key]);
+        });
+        var avgEase = diffs.length ? diffs.reduce(function(a,b){return a+b;},0) / diffs.length : 0;
         return { size: size, avgEase: isNaN(avgEase) ? 0 : avgEase };
       });
       const idealMid = preferredFit === 'slim' ? 2.5 : preferredFit === 'loose' ? 12 : 7;
