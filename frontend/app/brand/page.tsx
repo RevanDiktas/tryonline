@@ -227,6 +227,12 @@ export default function BrandDashboardPage() {
                   {label}
                 </button>
               ))}
+              <Link
+                href="/brand/garments"
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 border border-transparent ${dark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-black/60 hover:text-black hover:bg-black/5'}`}
+              >
+                Garments
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3">

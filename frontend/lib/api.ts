@@ -330,6 +330,79 @@ export const api = {
   },
 };
 
+// --- Garment Management ---
+export interface Garment {
+  id: string;
+  brand_id: string;
+  name: string;
+  category: string | null;
+  shopify_product_id: string | null;
+  fit_type: string;
+  sizes: Record<string, string>;
+  size_chart: Record<string, Record<string, number>>;
+  thumbnail_url: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const garmentApi = {
+  async list(brandId: string): Promise<Garment[]> {
+    const res: { garments: Garment[] } = await fetchApi('/api/garments', { params: { brand_id: brandId } });
+    return res.garments || [];
+  },
+
+  async create(data: {
+    brand_id: string;
+    name: string;
+    category?: string;
+    shopify_product_id?: string;
+    fit_type?: string;
+    size_chart?: Record<string, Record<string, number>>;
+  }): Promise<Garment> {
+    const res: { garment: Garment } = await fetchApi('/api/garments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return res.garment;
+  },
+
+  async update(garmentId: string, data: {
+    name?: string;
+    category?: string;
+    shopify_product_id?: string;
+    fit_type?: string;
+    size_chart?: Record<string, Record<string, number>>;
+    is_active?: boolean;
+  }): Promise<Garment> {
+    const res: { garment: Garment } = await fetchApi(`/api/garments/${garmentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return res.garment;
+  },
+
+  async remove(garmentId: string): Promise<void> {
+    await fetchApi(`/api/garments/${garmentId}`, { method: 'DELETE' });
+  },
+
+  async uploadGlb(garmentId: string, size: string, file: File): Promise<{ url: string }> {
+    const base = getBase();
+    const formData = new FormData();
+    formData.append('size', size);
+    formData.append('file', file);
+    const res = await fetch(`${base}/api/garments/${garmentId}/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error((err as { detail?: string }).detail || res.statusText);
+    }
+    return res.json();
+  },
+};
+
 export async function createAvatarWithFallback(
   payload: CreateAvatarPayload,
   onProgress?: (progress: number, message: string) => void
