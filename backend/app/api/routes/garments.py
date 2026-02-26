@@ -56,7 +56,7 @@ async def list_garments(brand_id: str = Query(...)):
 
 @router.post("")
 async def create_garment(body: GarmentCreate):
-    """Create a new garment row (no GLB files yet — upload separately)."""
+    """Create a new garment row and its storage folder in the garments bucket."""
     if body.category and body.category not in VALID_CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Invalid category. Must be one of: {VALID_CATEGORIES}")
     if body.fit_type and body.fit_type not in VALID_FIT_TYPES:
@@ -74,9 +74,28 @@ async def create_garment(body: GarmentCreate):
     }
     try:
         ins = supabase.client.table("garments").insert(row).execute()
-        if ins.data and len(ins.data) > 0:
-            return {"ok": True, "garment": ins.data[0]}
-        raise HTTPException(status_code=500, detail="Insert returned no data")
+        if not ins.data or len(ins.data) == 0:
+            raise HTTPException(status_code=500, detail="Insert returned no data")
+
+        garment = ins.data[0]
+        garment_id = str(garment["id"])
+        product_folder = body.shopify_product_id or garment_id
+
+        # Create the storage folder: garments/{brand_id}/{product_id}/
+        supabase.ensure_garments_bucket()
+        try:
+            bucket = supabase.client.storage.from_(settings.garments_bucket)
+            placeholder_path = f"{body.brand_id}/{product_folder}/.folder"
+            bucket.upload(
+                placeholder_path,
+                b"",
+                {"content-type": "application/octet-stream", "x-upsert": "true"},
+            )
+            print(f"[Garments] Created folder: {settings.garments_bucket}/{body.brand_id}/{product_folder}/")
+        except Exception as e:
+            print(f"[Garments] Folder creation note: {e}")
+
+        return {"ok": True, "garment": garment}
     except HTTPException:
         raise
     except Exception as e:

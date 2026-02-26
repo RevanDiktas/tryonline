@@ -192,15 +192,18 @@ export default function GarmentsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Shopify Product ID</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Shopify Product ID *</label>
                 <input
                   type="text"
                   value={form.shopify_product_id}
-                  onChange={(e) => setForm({ ...form, shopify_product_id: e.target.value })}
-                  placeholder="e.g. gid://shopify/Product/12345"
+                  onChange={(e) => setForm({ ...form, shopify_product_id: e.target.value.trim() })}
+                  placeholder="e.g. 8234567890123"
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
                 />
-                <p className="text-xs text-gray-400 mt-1">Links this garment to a product page for the TryOn widget</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Find this in Shopify Admin → Products → click product → the number in the URL.
+                  Creates a storage folder and links to the TryOn widget on this product page.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
