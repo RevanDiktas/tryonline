@@ -107,14 +107,28 @@ export async function signup(options: SignupOptions): Promise<{ user: User | nul
   });
   if (authError) return { user: null, error: authError.message };
   if (!authData.user) return { user: null, error: 'This email may already be registered. Try signing in instead.' };
-  await supabase.from('users').upsert({
+
+  const profileData = {
     id: authData.user.id,
     email: authData.user.email!,
     name: options.name ?? authData.user.email?.split('@')[0] ?? 'User',
     phone: options.phone ?? null,
     user_type: options.userType ?? 'shopper',
     updated_at: new Date().toISOString(),
-  }, { onConflict: 'id' });
+  };
+
+  // Try INSERT first; if row already exists (e.g. from a DB trigger), fall back to UPDATE.
+  // Avoids PostgREST 406 issues with UPSERT on tables with multiple unique constraints.
+  const { error: insertErr } = await supabase.from('users').insert(profileData);
+  if (insertErr) {
+    await supabase.from('users').update({
+      name: profileData.name,
+      phone: profileData.phone,
+      user_type: profileData.user_type,
+      updated_at: profileData.updated_at,
+    }).eq('id', authData.user.id);
+  }
+
   const user = await getCurrentUser();
   return { user, error: null };
 }
