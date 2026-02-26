@@ -92,12 +92,16 @@ function AppPageContent() {
       .then((user) => {
         if (user && user.user_type === 'brand') {
           router.push('/brand');
-        } else {
+        } else if (user) {
+          // Logged in but not a brand — go to brand signup
           router.push(`/signup?type=brand&shop=${encodeURIComponent(shop)}`);
+        } else {
+          // Not logged in — go to login (they may already have an account)
+          router.push(`/login?redirect=/brand&shop=${encodeURIComponent(shop)}`);
         }
       })
       .catch(() => {
-        router.push(`/signup?type=brand&shop=${encodeURIComponent(shop)}`);
+        router.push(`/login?redirect=/brand&shop=${encodeURIComponent(shop)}`);
       });
   }, [status, shop, router]);
 

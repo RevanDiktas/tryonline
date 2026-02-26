@@ -1,14 +1,16 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { login, hasAvatarFiles, getCurrentUser } from '@/lib/supabase-auth';
 import { isShopifyMode } from '@/lib/app-mode';
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const shopifyMode = isShopifyMode();
+  const shopParam = searchParams.get('shop') ?? '';
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -120,10 +122,27 @@ export default function LoginPage() {
 
           <p className="text-center text-gray-500 text-sm mt-6">
             Don&apos;t have an account?{' '}
-            <Link href="/signup" className="text-black font-medium hover:underline">Create one</Link>
+            <Link
+              href={shopifyMode || shopParam ? `/signup?type=brand${shopParam ? `&shop=${encodeURIComponent(shopParam)}` : ''}` : '/signup'}
+              className="text-black font-medium hover:underline"
+            >
+              Create one
+            </Link>
           </p>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-gray-400">Loading...</div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }
