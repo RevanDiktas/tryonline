@@ -18,10 +18,6 @@ export default function HomePage() {
     const checkAuth = async () => {
       try {
         const u = await getCurrentUser();
-        if (shopifyMode && !u) {
-          router.push('/signup');
-          return;
-        }
         setUser(u);
         if (u?.user_type === 'brand') {
           const brand = await getMyBrand(u.id);
@@ -87,11 +83,12 @@ export default function HomePage() {
           </h2>
 
           <p className="text-xl text-gray-500 mb-12 max-w-xl mx-auto">
-            Shoppers get a perfect fit. Brands reduce returns.
-            One platform, powered by your 3D avatar.
+            {shopifyMode
+              ? 'Add virtual try-on to your store. Reduce returns by up to 40%.'
+              : 'Shoppers get a perfect fit. Brands reduce returns. One platform, powered by your 3D avatar.'}
           </p>
 
-          {/* Two CTAs — show signup buttons when logged out, dashboard when logged in */}
+          {/* CTAs — show signup buttons when logged out, dashboard when logged in */}
           {user ? (
             <Link
               href={dashboardUrl}
@@ -99,6 +96,21 @@ export default function HomePage() {
             >
               {user.user_type === 'brand' ? 'Go to Brand Dashboard' : 'Go to My Dashboard'}
             </Link>
+          ) : shopifyMode ? (
+            <div className="flex flex-col gap-4 justify-center max-w-md mx-auto">
+              <Link
+                href="/login"
+                className="px-8 py-5 bg-black text-white font-semibold rounded-2xl hover:bg-gray-800 transition text-center text-lg"
+              >
+                Sign In
+              </Link>
+              <Link
+                href="/signup?type=brand"
+                className="px-8 py-5 bg-white text-black font-semibold rounded-2xl border-2 border-black hover:bg-gray-50 transition text-center text-lg"
+              >
+                Create Brand Account
+              </Link>
+            </div>
           ) : (
             <div className="flex flex-col sm:flex-row gap-4 justify-center max-w-lg mx-auto">
               <Link

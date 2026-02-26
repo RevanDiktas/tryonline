@@ -178,7 +178,7 @@ export default function BrandDashboardPage() {
 
   const handleLogout = async () => {
     await logout();
-    router.push('/login');
+    router.push('/');
   };
 
   if (!authChecked) {
