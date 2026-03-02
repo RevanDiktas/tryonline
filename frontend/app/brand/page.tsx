@@ -127,7 +127,7 @@ export default function BrandDashboardPage() {
     const days = metricsRange === '7d' ? 7 : 30;
     const start = new Date();
     start.setDate(start.getDate() - days);
-    const params: Record<string, string> = {
+    const params: { start: string; end: string; shop?: string } = {
       start: start.toISOString().slice(0, 10),
       end: end.toISOString().slice(0, 10),
     };
