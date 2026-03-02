@@ -420,130 +420,143 @@ export default function BrandDashboardPage() {
         )}
 
         {tab === 'trend' && (
-          <div className="space-y-6">
-            {metricsLoading && !velocity ? (
-              <div className="py-24 flex justify-center"><div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-white' : 'border-black/20 border-t-black'}`} /></div>
-            ) : (
-              <>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                  <MetricCell label="Tryon 7d" value={String(velocity?.tryon_velocity_7d ?? '—')} dark={dark} />
-                  <MetricCell label="Tryon 30d" value={String(velocity?.tryon_velocity_30d ?? '—')} dark={dark} />
-                  <MetricCell label="Purch 7d" value={String(velocity?.purchase_velocity_7d ?? '—')} dark={dark} />
-                  <MetricCell label="Purch 30d" value={String(velocity?.purchase_velocity_30d ?? '—')} dark={dark} />
-                  <MetricCell label="Ratio 7d" value={velocity?.velocity_ratio_7d != null ? Number(velocity.velocity_ratio_7d).toFixed(2) : '—'} dark={dark} />
-                  <MetricCell label="Ratio 30d" value={velocity?.velocity_ratio_30d != null ? Number(velocity.velocity_ratio_30d).toFixed(2) : '—'} dark={dark} />
-                </div>
-                {velocity && <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><VelocityChart velocity={{ tryon_velocity_7d: Number(velocity.tryon_velocity_7d), tryon_velocity_30d: Number(velocity.tryon_velocity_30d), purchase_velocity_7d: Number(velocity.purchase_velocity_7d), purchase_velocity_30d: Number(velocity.purchase_velocity_30d) }} dark={dark} /></div></div>}
-                <div>
-                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>At-risk SKUs</p>
-                  {atRisk && Array.isArray(atRisk.products) && (atRisk.products as Array<{ product_id: string; tryons: number; purchases: number; conversion?: number | null; severity: string }>).length > 0 ? (
-                    <div className={`${panelClass} overflow-hidden`}>
-                      <table className="w-full">
-                        <thead><tr className={`border-b ${borderCl}`}><th className={tableHeaderClass}>Product</th><th className={`${tableHeaderClass} text-right`}>Tryons</th><th className={`${tableHeaderClass} text-right`}>Purch</th><th className={`${tableHeaderClass} text-right`}>Conv</th><th className={tableHeaderClass}>Severity</th></tr></thead>
-                        <tbody>{(atRisk.products as Array<{ product_id: string; tryons: number; purchases: number; conversion?: number | null; severity: string }>).slice(0, 8).map((p, i) => (
-                          <tr key={p.product_id} className={`border-b ${borderCl} last:border-0 ${rowHover} ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
-                            <td className={`${tableCellClass} font-medium`}>{p.product_id}</td>
-                            <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.tryons}</td>
-                            <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.purchases}</td>
-                            <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.conversion != null ? `${(Number(p.conversion) * 100).toFixed(1)}%` : '0%'}</td>
-                            <td className={tableCellClass}><span className={`px-2 py-0.5 rounded text-[10px] font-medium ${p.severity === 'critical' ? 'bg-white/20 text-white' : p.severity === 'warning' ? 'bg-white/15 text-white/90' : 'bg-white/10 text-white/60'}`}>{p.severity}</span></td>
-                          </tr>
-                        ))}</tbody>
-                      </table>
-                    </div>
-                  ) : <div className={panelClass} style={chartPanelMinH}><EmptyState message="No at-risk products" sub="All SKUs meet conversion threshold" dark={dark} /></div>}
-                </div>
-                <div>
-                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>Rising size exploration</p>
-                  {explorationTrend.length > 0 ? (
-                    <>
-                      <div className={`${panelClass} p-5 mb-4`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><ExplorationTrendChart data={explorationTrend as Array<{ week_start: string; avg_sizes_per_session: number }>} dark={dark} /></div></div>
+          <div className="flex gap-6">
+            {/* Left column: scrollable analytics */}
+            <div className="flex-1 min-w-0 space-y-6">
+              {metricsLoading && !velocity ? (
+                <div className="py-24 flex justify-center"><div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-white' : 'border-black/20 border-t-black'}`} /></div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                    <MetricCell label="Tryon 7d" value={String(velocity?.tryon_velocity_7d ?? '—')} dark={dark} />
+                    <MetricCell label="Tryon 30d" value={String(velocity?.tryon_velocity_30d ?? '—')} dark={dark} />
+                    <MetricCell label="Purch 7d" value={String(velocity?.purchase_velocity_7d ?? '—')} dark={dark} />
+                    <MetricCell label="Purch 30d" value={String(velocity?.purchase_velocity_30d ?? '—')} dark={dark} />
+                    <MetricCell label="Ratio 7d" value={velocity?.velocity_ratio_7d != null ? Number(velocity.velocity_ratio_7d).toFixed(2) : '—'} dark={dark} />
+                    <MetricCell label="Ratio 30d" value={velocity?.velocity_ratio_30d != null ? Number(velocity.velocity_ratio_30d).toFixed(2) : '—'} dark={dark} />
+                  </div>
+                  {velocity && <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><VelocityChart velocity={{ tryon_velocity_7d: Number(velocity.tryon_velocity_7d), tryon_velocity_30d: Number(velocity.tryon_velocity_30d), purchase_velocity_7d: Number(velocity.purchase_velocity_7d), purchase_velocity_30d: Number(velocity.purchase_velocity_30d) }} dark={dark} /></div></div>}
+                  <div>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>At-risk SKUs</p>
+                    {atRisk && Array.isArray(atRisk.products) && (atRisk.products as Array<{ product_id: string; tryons: number; purchases: number; conversion?: number | null; severity: string }>).length > 0 ? (
                       <div className={`${panelClass} overflow-hidden`}>
                         <table className="w-full">
-                          <thead><tr className={`border-b ${borderCl}`}><th className={tableHeaderClass}>Week</th><th className={`${tableHeaderClass} text-right`}>Sessions</th><th className={`${tableHeaderClass} text-right`}>Avg sizes</th></tr></thead>
-                          <tbody>{(explorationTrend as Array<{ week_start: string; sessions_count: number; avg_sizes_per_session: number }>).slice(-8).map((p, i) => (
-                            <tr key={p.week_start} className={`border-b ${borderCl} last:border-0 ${rowHover} ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
-                              <td className={tableCellClass}>{p.week_start}</td>
-                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.sessions_count}</td>
-                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{Number(p.avg_sizes_per_session).toFixed(1)}</td>
+                          <thead><tr className={`border-b ${borderCl}`}><th className={tableHeaderClass}>Product</th><th className={`${tableHeaderClass} text-right`}>Tryons</th><th className={`${tableHeaderClass} text-right`}>Purch</th><th className={`${tableHeaderClass} text-right`}>Conv</th><th className={tableHeaderClass}>Severity</th></tr></thead>
+                          <tbody>{(atRisk.products as Array<{ product_id: string; tryons: number; purchases: number; conversion?: number | null; severity: string }>).slice(0, 8).map((p, i) => (
+                            <tr key={p.product_id} className={`border-b ${borderCl} last:border-0 ${rowHover} ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                              <td className={`${tableCellClass} font-medium`}>{p.product_id}</td>
+                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.tryons}</td>
+                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.purchases}</td>
+                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.conversion != null ? `${(Number(p.conversion) * 100).toFixed(1)}%` : '0%'}</td>
+                              <td className={tableCellClass}><span className={`px-2 py-0.5 rounded text-[10px] font-medium ${p.severity === 'critical' ? 'bg-white/20 text-white' : p.severity === 'warning' ? 'bg-white/15 text-white/90' : 'bg-white/10 text-white/60'}`}>{p.severity}</span></td>
                             </tr>
                           ))}</tbody>
                         </table>
                       </div>
-                    </>
-                  ) : <div className={panelClass} style={chartPanelMinH}><EmptyState message="No exploration data" dark={dark} /></div>}
-                </div>
-                <div>
-                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>Size stress</p>
-                  {sizeStress.length > 0 ? (
-                    <div className={`${panelClass} overflow-hidden`}>
-                      <table className="w-full">
-                        <thead><tr className={`border-b ${borderCl}`}><th className={tableHeaderClass}>Product</th><th className={tableHeaderClass}>Size</th><th className={`${tableHeaderClass} text-right`}>Views</th><th className={`${tableHeaderClass} text-right`}>Purch</th><th className={`${tableHeaderClass} text-right`}>Stress</th></tr></thead>
-                        <tbody>{(sizeStress as Array<{ product_id: string; size: string; views: number; purchases: number; stress_score: number }>).slice(0, 8).map((s, i) => (
-                          <tr key={`${s.product_id}-${s.size}-${i}`} className={`border-b ${borderCl} last:border-0 ${rowHover} ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
-                            <td className={`${tableCellClass} font-medium`}>{s.product_id}</td>
-                            <td className={tableCellClass}>{s.size}</td>
-                            <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{s.views}</td>
-                            <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{s.purchases}</td>
-                            <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{Number(s.stress_score).toFixed(1)}×</td>
-                          </tr>
-                        ))}</tbody>
-                      </table>
-                    </div>
-                  ) : <EmptyState message="No size stress" sub="All sizes show healthy conversion" dark={dark} />}
-                </div>
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size</p>
-                      <p className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-black/40'}`}>Size mix by region (recommended, selected & purchased)</p>
-                    </div>
-                    <div className={`flex rounded-lg overflow-hidden border ${dark ? 'border-white/10' : 'border-gray-200'}`}>
-                      <button
-                        onClick={() => setRegionalView('globe')}
-                        className={`px-2.5 py-1.5 text-[10px] font-medium transition-colors ${regionalView === 'globe' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
-                      >
-                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" /></svg>
-                      </button>
-                      <button
-                        onClick={() => setRegionalView('chart')}
-                        className={`px-2.5 py-1.5 text-[10px] font-medium transition-colors ${regionalView === 'chart' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
-                      >
-                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="18" rx="1" /><rect x="14" y="9" width="7" height="12" rx="1" /></svg>
-                      </button>
-                    </div>
+                    ) : <div className={panelClass} style={chartPanelMinH}><EmptyState message="No at-risk products" sub="All SKUs meet conversion threshold" dark={dark} /></div>}
                   </div>
-                  {regionalSize && typeof regionalSize.by_country === 'object' && regionalSize.by_country !== null && Object.keys(regionalSize.by_country as Record<string, unknown>).length > 0 ? (
-                    <>
-                      {regionalSize.top_size_by_country && typeof regionalSize.top_size_by_country === 'object' && Object.keys(regionalSize.top_size_by_country as Record<string, unknown>).length > 0 && (
-                        <div className={`flex flex-wrap gap-2 mb-3 ${dark ? 'text-white/70' : 'text-black/70'}`}>
-                          <span className="text-xs font-medium">Typical size per region:</span>
-                          {Object.entries(regionalSize.top_size_by_country as Record<string, string>)
-                            .sort(([a], [b]) => a.localeCompare(b))
-                            .map(([country, size]) => (
-                              <span key={country} className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium ${dark ? 'bg-white/10' : 'bg-black/10'}`}>
-                                {country}: <strong className="ml-1">{String(size)}</strong>
-                              </span>
-                            ))}
-                        </div>
-                      )}
-                      {regionalView === 'globe' ? (
+                  <div>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>Rising size exploration</p>
+                    {explorationTrend.length > 0 ? (
+                      <>
+                        <div className={`${panelClass} p-5 mb-4`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><ExplorationTrendChart data={explorationTrend as Array<{ week_start: string; avg_sizes_per_session: number }>} dark={dark} /></div></div>
                         <div className={`${panelClass} overflow-hidden`}>
-                          <RegionalSizeGlobe
-                            by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>}
-                            raw_counts={(regionalSize as Record<string, unknown>).raw_counts as Record<string, Record<string, number>> | undefined}
-                            top_size_by_country={(regionalSize.top_size_by_country ?? {}) as Record<string, string>}
-                            dark={dark}
-                          />
+                          <table className="w-full">
+                            <thead><tr className={`border-b ${borderCl}`}><th className={tableHeaderClass}>Week</th><th className={`${tableHeaderClass} text-right`}>Sessions</th><th className={`${tableHeaderClass} text-right`}>Avg sizes</th></tr></thead>
+                            <tbody>{(explorationTrend as Array<{ week_start: string; sessions_count: number; avg_sizes_per_session: number }>).slice(-8).map((p, i) => (
+                              <tr key={p.week_start} className={`border-b ${borderCl} last:border-0 ${rowHover} ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                                <td className={tableCellClass}>{p.week_start}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.sessions_count}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{Number(p.avg_sizes_per_session).toFixed(1)}</td>
+                              </tr>
+                            ))}</tbody>
+                          </table>
                         </div>
-                      ) : (
-                        <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><RegionalSizeChart by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
-                      )}
-                    </>
-                  ) : <div className={panelClass} style={chartPanelMinH}><EmptyState message="No regional data" sub="Country may be missing from events" dark={dark} /></div>}
+                      </>
+                    ) : <div className={panelClass} style={chartPanelMinH}><EmptyState message="No exploration data" dark={dark} /></div>}
+                  </div>
+                  <div>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>Size stress</p>
+                    {sizeStress.length > 0 ? (
+                      <div className={`${panelClass} overflow-hidden`}>
+                        <table className="w-full">
+                          <thead><tr className={`border-b ${borderCl}`}><th className={tableHeaderClass}>Product</th><th className={tableHeaderClass}>Size</th><th className={`${tableHeaderClass} text-right`}>Views</th><th className={`${tableHeaderClass} text-right`}>Purch</th><th className={`${tableHeaderClass} text-right`}>Stress</th></tr></thead>
+                          <tbody>{(sizeStress as Array<{ product_id: string; size: string; views: number; purchases: number; stress_score: number }>).slice(0, 8).map((s, i) => (
+                            <tr key={`${s.product_id}-${s.size}-${i}`} className={`border-b ${borderCl} last:border-0 ${rowHover} ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                              <td className={`${tableCellClass} font-medium`}>{s.product_id}</td>
+                              <td className={tableCellClass}>{s.size}</td>
+                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{s.views}</td>
+                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{s.purchases}</td>
+                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{Number(s.stress_score).toFixed(1)}×</td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      </div>
+                    ) : <EmptyState message="No size stress" sub="All sizes show healthy conversion" dark={dark} />}
+                  </div>
+                  {/* Regional bar chart (when viewing chart mode) */}
+                  {regionalView === 'chart' && regionalSize && typeof regionalSize.by_country === 'object' && regionalSize.by_country !== null && Object.keys(regionalSize.by_country as Record<string, unknown>).length > 0 && (
+                    <div>
+                      <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size (chart)</p>
+                      <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><RegionalSizeChart by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Right column: sticky globe */}
+            <div className="hidden lg:block w-[420px] flex-shrink-0">
+              <div className="sticky top-6">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size</p>
+                    <p className={`text-[10px] mt-0.5 ${dark ? 'text-white/30' : 'text-black/30'}`}>Size mix by region</p>
+                  </div>
+                  <div className={`flex rounded-lg overflow-hidden border ${dark ? 'border-white/10' : 'border-gray-200'}`}>
+                    <button
+                      onClick={() => setRegionalView('globe')}
+                      className={`px-2 py-1 text-[10px] transition-colors ${regionalView === 'globe' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
+                    >
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" /></svg>
+                    </button>
+                    <button
+                      onClick={() => setRegionalView('chart')}
+                      className={`px-2 py-1 text-[10px] transition-colors ${regionalView === 'chart' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
+                    >
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="3" width="7" height="18" rx="1" /><rect x="14" y="9" width="7" height="12" rx="1" /></svg>
+                    </button>
+                  </div>
                 </div>
-              </>
-            )}
+                {regionalSize && typeof regionalSize.by_country === 'object' && regionalSize.by_country !== null && Object.keys(regionalSize.by_country as Record<string, unknown>).length > 0 ? (
+                  <>
+                    <div className={`${panelClass} overflow-hidden rounded-2xl`} style={{ height: 420 }}>
+                      {regionalView === 'globe' ? (
+                        <RegionalSizeGlobe
+                          by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>}
+                          raw_counts={(regionalSize as Record<string, unknown>).raw_counts as Record<string, Record<string, number>> | undefined}
+                          top_size_by_country={(regionalSize.top_size_by_country ?? {}) as Record<string, string>}
+                          dark={dark}
+                        />
+                      ) : (
+                        <div className="p-5"><div style={{ height: 380 }}><RegionalSizeChart by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
+                      )}
+                    </div>
+                    {regionalSize.top_size_by_country && typeof regionalSize.top_size_by_country === 'object' && Object.keys(regionalSize.top_size_by_country as Record<string, unknown>).length > 0 && (
+                      <div className={`flex flex-wrap gap-1.5 mt-3 ${dark ? 'text-white/70' : 'text-black/70'}`}>
+                        {Object.entries(regionalSize.top_size_by_country as Record<string, string>)
+                          .sort(([a], [b]) => a.localeCompare(b))
+                          .map(([country, size]) => (
+                            <span key={country} className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium ${dark ? 'bg-white/8' : 'bg-black/8'}`}>
+                              {country}: <strong className="ml-0.5">{String(size)}</strong>
+                            </span>
+                          ))}
+                      </div>
+                    )}
+                  </>
+                ) : <div className={`${panelClass} rounded-2xl`} style={{ height: 420 }}><EmptyState message="No regional data" sub="Country may be missing from events" dark={dark} /></div>}
+              </div>
+            </div>
           </div>
         )}
       </main>
