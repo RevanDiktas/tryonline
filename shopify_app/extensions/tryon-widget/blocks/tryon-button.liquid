@@ -54,12 +54,12 @@
       if (!btn || !iframe) return;
       var src = iframe.getAttribute('data-tryon-src');
 
-      /* Size → Shopify variant ID map built from Liquid */
-      var sizeVariantMap = {};
+      /* Expose size → Shopify variant ID map globally for tryon-cart.js */
+      window.__tryonSizeVariantMap = {};
       {% for v in product.variants %}
-        sizeVariantMap['{{ v.option1 | downcase | strip }}'] = {{ v.id }};
+        window.__tryonSizeVariantMap['{{ v.option1 | downcase | strip }}'] = {{ v.id }};
       {% endfor %}
-      var fallbackVariantId = {{ variant_id }};
+      window.__tryonFallbackVariantId = {{ variant_id }};
 
       btn.addEventListener('click', function() {
         iframe.src = src;
@@ -73,32 +73,6 @@
         document.body.style.overflow = '';
       }
 
-      function addToShopifyCart(varId, qty) {
-        fetch('/cart/add.js', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items: [{ id: varId, quantity: qty || 1 }] })
-        })
-        .then(function(r) {
-          if (!r.ok) throw new Error('Cart add failed: ' + r.status);
-          return r.json();
-        })
-        .then(function() {
-          /* Refresh cart UI — works for most themes (Dawn, etc.) */
-          if (typeof window.Shopify !== 'undefined' && typeof window.Shopify.onCartUpdate === 'function') {
-            fetch('/cart.js').then(function(r) { return r.json(); }).then(function(cart) {
-              window.Shopify.onCartUpdate(cart);
-            });
-          }
-          /* Update cart count bubble if present */
-          fetch('/cart.js').then(function(r) { return r.json(); }).then(function(cart) {
-            var badges = document.querySelectorAll('.cart-count-bubble span, [data-cart-count]');
-            badges.forEach(function(el) { el.textContent = cart.item_count; });
-          });
-        })
-        .catch(function(err) { console.error('[TryOn] Add to cart error:', err); });
-      }
-
       document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && iframe.style.display === 'block') close();
       });
@@ -109,10 +83,6 @@
           close();
         }
         if (e.data.type === 'TRYON_ADD_TO_CART') {
-          var payload = e.data.payload || {};
-          var size = (payload.size || '').toLowerCase().trim();
-          var vid = sizeVariantMap[size] || fallbackVariantId;
-          addToShopifyCart(vid, 1);
           close();
         }
       });
