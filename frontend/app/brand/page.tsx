@@ -15,6 +15,7 @@ const VelocityChart = dynamic(() => import('@/components/analytics/Charts').then
 const SizeDistributionChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.SizeDistributionChart })), { ssr: false });
 const ExplorationTrendChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.ExplorationTrendChart })), { ssr: false });
 const RegionalSizeChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.RegionalSizeChart })), { ssr: false });
+const RegionalSizeGlobe = dynamic(() => import('@/components/analytics/RegionalSizeGlobe'), { ssr: false });
 
 const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
@@ -112,6 +113,7 @@ export default function BrandDashboardPage() {
   const [explorationTrend, setExplorationTrend] = useState<ExplorationTrendPoint[]>([]);
   const [sizeStress, setSizeStress] = useState<SizeStressItem[]>([]);
   const [regionalSize, setRegionalSize] = useState<RegionalSizeData | null>(null);
+  const [regionalView, setRegionalView] = useState<'globe' | 'chart'>('globe');
   const [metricsByProduct, setMetricsByProduct] = useState<MetricsByProductResponse | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -491,12 +493,30 @@ export default function BrandDashboardPage() {
                   ) : <EmptyState message="No size stress" sub="All sizes show healthy conversion" dark={dark} />}
                 </div>
                 <div>
-                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-2 ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size</p>
-                  <p className={`text-xs mb-3 ${dark ? 'text-white/40' : 'text-black/40'}`}>Size mix by region (recommended, selected & purchased)</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size</p>
+                      <p className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-black/40'}`}>Size mix by region (recommended, selected & purchased)</p>
+                    </div>
+                    <div className={`flex rounded-lg overflow-hidden border ${dark ? 'border-white/10' : 'border-gray-200'}`}>
+                      <button
+                        onClick={() => setRegionalView('globe')}
+                        className={`px-2.5 py-1.5 text-[10px] font-medium transition-colors ${regionalView === 'globe' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" /></svg>
+                      </button>
+                      <button
+                        onClick={() => setRegionalView('chart')}
+                        className={`px-2.5 py-1.5 text-[10px] font-medium transition-colors ${regionalView === 'chart' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="18" rx="1" /><rect x="14" y="9" width="7" height="12" rx="1" /></svg>
+                      </button>
+                    </div>
+                  </div>
                   {regionalSize && typeof regionalSize.by_country === 'object' && regionalSize.by_country !== null && Object.keys(regionalSize.by_country as Record<string, unknown>).length > 0 ? (
                     <>
                       {regionalSize.top_size_by_country && typeof regionalSize.top_size_by_country === 'object' && Object.keys(regionalSize.top_size_by_country as Record<string, unknown>).length > 0 && (
-                        <div className={`flex flex-wrap gap-2 mb-4 ${dark ? 'text-white/70' : 'text-black/70'}`}>
+                        <div className={`flex flex-wrap gap-2 mb-3 ${dark ? 'text-white/70' : 'text-black/70'}`}>
                           <span className="text-xs font-medium">Typical size per region:</span>
                           {Object.entries(regionalSize.top_size_by_country as Record<string, string>)
                             .sort(([a], [b]) => a.localeCompare(b))
@@ -507,7 +527,18 @@ export default function BrandDashboardPage() {
                             ))}
                         </div>
                       )}
-                      <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><RegionalSizeChart by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
+                      {regionalView === 'globe' ? (
+                        <div className={`${panelClass} overflow-hidden`}>
+                          <RegionalSizeGlobe
+                            by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>}
+                            raw_counts={(regionalSize as Record<string, unknown>).raw_counts as Record<string, Record<string, number>> | undefined}
+                            top_size_by_country={(regionalSize.top_size_by_country ?? {}) as Record<string, string>}
+                            dark={dark}
+                          />
+                        </div>
+                      ) : (
+                        <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><RegionalSizeChart by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
+                      )}
                     </>
                   ) : <div className={panelClass} style={chartPanelMinH}><EmptyState message="No regional data" sub="Country may be missing from events" dark={dark} /></div>}
                 </div>
