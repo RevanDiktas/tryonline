@@ -36,20 +36,21 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const user = await getCurrentUser();
-      if (!user) {
-        router.push('/signup');
-        return;
-      }
-      
+      try {
+        const user = await getCurrentUser();
+        if (!user) {
+          router.push('/signup');
+          return;
+        }
         setCurrentUser(user);
-      
-      // Check if user already has a completed Fit Passport
-      const existingPassport = await getFitPassport(user.id);
-      if (existingPassport && existingPassport.avatarUrl) {
-        // User already has an avatar, redirect to dashboard
-        router.push('/dashboard');
-        return;
+        const existingPassport = await getFitPassport(user.id);
+        if (existingPassport && existingPassport.avatarUrl) {
+          router.push('/dashboard');
+          return;
+        }
+      } catch (e) {
+        console.error('Auth check failed:', e);
+        setError('Connection error. Please refresh the page.');
       }
     };
     checkAuth();
@@ -328,15 +329,70 @@ export default function OnboardingPage() {
                 />
               </div>
 
-              {/* Tips */}
-              <div className="bg-gray-50 rounded-xl p-4">
-                <p className="text-gray-700 text-sm font-medium mb-2">Tips for best results:</p>
-                <ul className="text-gray-500 text-xs space-y-1">
-                  <li>• Stand in a well-lit area</li>
-                  <li>• Wear fitted clothes</li>
-                  <li>• Face the camera directly</li>
-                  <li>• Show your full body from head to toe</li>
-                </ul>
+              {/* Photo Guide */}
+              <div className="bg-gray-50 rounded-xl p-5">
+                <p className="text-gray-800 text-sm font-semibold mb-3">Photo Guide</p>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="bg-white rounded-lg p-3 border border-green-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center">
+                        <svg className="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <span className="text-xs font-medium text-green-700">Do this</span>
+                    </div>
+                    <ul className="text-xs text-gray-600 space-y-1.5">
+                      <li className="flex items-start gap-1.5">
+                        <span className="text-green-500 mt-0.5">&#x2022;</span>
+                        Stand straight, arms slightly away from body
+                      </li>
+                      <li className="flex items-start gap-1.5">
+                        <span className="text-green-500 mt-0.5">&#x2022;</span>
+                        Well-lit room, even lighting
+                      </li>
+                      <li className="flex items-start gap-1.5">
+                        <span className="text-green-500 mt-0.5">&#x2022;</span>
+                        Fitted clothes (not baggy)
+                      </li>
+                      <li className="flex items-start gap-1.5">
+                        <span className="text-green-500 mt-0.5">&#x2022;</span>
+                        Full body visible, head to toe
+                      </li>
+                    </ul>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-red-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center">
+                        <svg className="w-3 h-3 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </div>
+                      <span className="text-xs font-medium text-red-700">Avoid this</span>
+                    </div>
+                    <ul className="text-xs text-gray-600 space-y-1.5">
+                      <li className="flex items-start gap-1.5">
+                        <span className="text-red-400 mt-0.5">&#x2022;</span>
+                        Sitting or leaning poses
+                      </li>
+                      <li className="flex items-start gap-1.5">
+                        <span className="text-red-400 mt-0.5">&#x2022;</span>
+                        Dark or uneven lighting
+                      </li>
+                      <li className="flex items-start gap-1.5">
+                        <span className="text-red-400 mt-0.5">&#x2022;</span>
+                        Loose or baggy clothing
+                      </li>
+                      <li className="flex items-start gap-1.5">
+                        <span className="text-red-400 mt-0.5">&#x2022;</span>
+                        Cropped photo (no feet/head)
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 text-center">
+                  Better photos = more accurate avatar and size recommendations
+                </p>
               </div>
 
               {error && (

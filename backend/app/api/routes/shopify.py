@@ -117,7 +117,6 @@ async def shopify_auth_callback(
             url=f"{settings.frontend_app_url.rstrip('/')}/app?error=hmac_failed",
             status_code=302,
         )
-    # Exchange code for access_token (form-urlencoded per Shopify docs)
     import httpx
     token_url = f"https://{shop}/admin/oauth/access_token"
     payload = {
@@ -125,8 +124,15 @@ async def shopify_auth_callback(
         "client_secret": settings.shopify_client_secret,
         "code": code,
     }
-    async with httpx.AsyncClient() as client:
-        r = await client.post(token_url, data=payload)
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(token_url, data=payload)
+    except Exception as e:
+        print(f"[Shopify callback] token exchange network error: {e}")
+        return RedirectResponse(
+            url=f"{settings.frontend_app_url.rstrip('/')}/app?error=token_exchange",
+            status_code=302,
+        )
     if r.status_code != 200:
         return RedirectResponse(
             url=f"{settings.frontend_app_url.rstrip('/')}/app?error=token_exchange",
@@ -179,8 +185,12 @@ async def shopify_complete_install(body: CompleteInstallBody):
         "client_secret": settings.shopify_client_secret,
         "code": body.code,
     }
-    async with httpx.AsyncClient() as client:
-        r = await client.post(token_url, data=payload)
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(token_url, data=payload)
+    except Exception as e:
+        print(f"[Shopify complete-install] network error: {e}")
+        return JSONResponse(content={"ok": False, "error": "token_exchange"}, status_code=400)
     if r.status_code != 200:
         print(f"[Shopify complete-install] token exchange failed: {r.status_code}")
         return JSONResponse(content={"ok": False, "error": "token_exchange"}, status_code=400)
@@ -201,6 +211,60 @@ async def shopify_session(shop: str = Query(..., description="Shop myshopify dom
     """Return 200 if we have a stored session (access token) for this shop, 401 otherwise."""
     if not shop or not shop.strip():
         return JSONResponse(content={"ok": False, "reason": "missing_shop"}, status_code=401)
-    if supabase.has_shopify_session(shop.strip()):
-        return {"ok": True}
+    try:
+        if supabase.has_shopify_session(shop.strip()):
+            return {"ok": True}
+    except Exception as e:
+        print(f"[shopify/session] error checking session: {e}")
+        return JSONResponse(content={"ok": False, "reason": "internal_error"}, status_code=500)
     return JSONResponse(content={"ok": False, "reason": "no_session"}, status_code=401)
+
+
+# ============================================
+# GDPR Mandatory Webhooks
+# Shopify requires these for App Store submission.
+# ============================================
+
+@router.post("/webhooks/customers/data_request")
+async def gdpr_customers_data_request(request: Request):
+    """Shopify sends this when a customer requests their data. We log it for manual processing."""
+    body = await request.json()
+    shop = body.get("shop_domain", "unknown")
+    customer_email = body.get("customer", {}).get("email", "unknown")
+    print(f"[GDPR] Data request: shop={shop} customer={customer_email}")
+    return {"ok": True}
+
+
+@router.post("/webhooks/customers/redact")
+async def gdpr_customers_redact(request: Request):
+    """Shopify sends this when a customer requests deletion. Delete their analytics events."""
+    body = await request.json()
+    shop = body.get("shop_domain", "unknown")
+    customer = body.get("customer", {})
+    customer_email = customer.get("email", "")
+    print(f"[GDPR] Customer redact: shop={shop} customer={customer_email}")
+    try:
+        if customer_email:
+            supabase.client.table("analytics_events").delete().eq(
+                "shop_domain", shop
+            ).eq("metadata->>customer_email", customer_email).execute()
+    except Exception as e:
+        print(f"[GDPR] Redact error: {e}")
+    return {"ok": True}
+
+
+@router.post("/webhooks/shop/redact")
+async def gdpr_shop_redact(request: Request):
+    """Shopify sends this 48h after app uninstall. Delete all shop data."""
+    body = await request.json()
+    shop = body.get("shop_domain", "unknown")
+    print(f"[GDPR] Shop redact: shop={shop}")
+    try:
+        supabase.client.table("analytics_events").delete().eq("shop_domain", shop).execute()
+        supabase.client.table("brands").update({
+            "shopify_access_token": None,
+            "is_active": False,
+        }).eq("shopify_domain", shop).execute()
+    except Exception as e:
+        print(f"[GDPR] Shop redact error: {e}")
+    return {"ok": True}

@@ -66,8 +66,11 @@ function AppPageContent() {
       setStatus('redirecting');
       return;
     }
-    fetch(`${apiBase}/api/shopify/session?shop=${encodeURIComponent(shop)}`)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    fetch(`${apiBase}/api/shopify/session?shop=${encodeURIComponent(shop)}`, { signal: controller.signal })
       .then((res) => {
+        clearTimeout(timeout);
         if (res.ok) {
           setStatus('ready');
           return;
@@ -78,6 +81,7 @@ function AppPageContent() {
         }
       })
       .catch(() => {
+        clearTimeout(timeout);
         setStatus('redirecting');
         if (typeof window !== 'undefined' && window.top) {
           window.top.location.href = authUrl;

@@ -162,6 +162,7 @@ export default function BrandDashboardPage() {
   useEffect(() => { fetchMetrics(); }, [fetchMetrics]);
 
   const [brandShop, setBrandShop] = useState<string | null>(null);
+  const [hasGarments, setHasGarments] = useState(true);
 
   useEffect(() => {
     getCurrentUser().then(async (u) => {
@@ -178,6 +179,11 @@ export default function BrandDashboardPage() {
       try {
         const brand = await getMyBrand(u.id);
         if (brand?.shopify_domain) setBrandShop(brand.shopify_domain as string);
+        if (brand?.id) {
+          const { garmentApi } = await import('@/lib/api');
+          const garments = await garmentApi.list(brand.id as string);
+          setHasGarments(garments.length > 0);
+        }
       } catch {}
     }).catch(() => router.push('/login'));
   }, [router]);
@@ -279,6 +285,44 @@ export default function BrandDashboardPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-5 py-6 dashboard-fade-in">
+        {/* Getting Started Guide */}
+        {(!brandShop || !hasGarments) && (
+          <div className={`mb-6 rounded-xl border p-5 ${dark ? 'bg-white/[0.03] border-white/10' : 'bg-gradient-to-r from-blue-50 to-purple-50 border-blue-100'}`}>
+            <h3 className={`text-sm font-semibold mb-3 ${dark ? 'text-white' : 'text-gray-900'}`}>Getting Started</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className={`flex items-start gap-3 p-3 rounded-lg ${dark ? 'bg-white/5' : 'bg-white'}`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${brandShop ? (dark ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-600') : (dark ? 'bg-white/10 text-white/40' : 'bg-gray-100 text-gray-400')}`}>
+                  {brandShop ? '✓' : '1'}
+                </div>
+                <div>
+                  <p className={`text-xs font-medium ${dark ? 'text-white/80' : 'text-gray-800'}`}>Connect Shopify Store</p>
+                  <p className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>
+                    {brandShop ? `Connected: ${brandShop}` : 'Install the app on your Shopify store'}
+                  </p>
+                </div>
+              </div>
+              <Link href="/brand/garments" className={`flex items-start gap-3 p-3 rounded-lg transition hover:ring-1 ${dark ? 'bg-white/5 hover:ring-white/20' : 'bg-white hover:ring-blue-200'}`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${hasGarments ? (dark ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-600') : (dark ? 'bg-white/10 text-white/40' : 'bg-gray-100 text-gray-400')}`}>
+                  {hasGarments ? '✓' : '2'}
+                </div>
+                <div>
+                  <p className={`text-xs font-medium ${dark ? 'text-white/80' : 'text-gray-800'}`}>Add Your Garments</p>
+                  <p className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>
+                    {hasGarments ? 'Garments added' : 'Upload GLB files and size charts'}
+                  </p>
+                </div>
+              </Link>
+              <div className={`flex items-start gap-3 p-3 rounded-lg ${dark ? 'bg-white/5' : 'bg-white'}`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${dark ? 'bg-white/10 text-white/40' : 'bg-gray-100 text-gray-400'}`}>3</div>
+                <div>
+                  <p className={`text-xs font-medium ${dark ? 'text-white/80' : 'text-gray-800'}`}>Enable Try-On Widget</p>
+                  <p className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>Add the Try On block to your product pages in the theme editor</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {fetchError && (
           <div className={`mb-5 p-4 rounded-xl text-sm flex items-center justify-between ${dark ? 'bg-white/[0.03] text-white/70' : 'bg-black/[0.03] text-black/70'}`}>
             <span>{fetchError}</span>

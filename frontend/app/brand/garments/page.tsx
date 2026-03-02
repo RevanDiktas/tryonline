@@ -34,11 +34,13 @@ export default function GarmentsPage() {
 
   const [syncingId, setSyncingId] = useState<string | null>(null);
 
+  const [loadError, setLoadError] = useState('');
+
   const loadGarments = useCallback(async (bid: string) => {
+    setLoadError('');
     try {
       const list = await garmentApi.list(bid);
       setGarments(list);
-      // Auto-sync garments that have no sizes but have a shopify_product_id
       for (const g of list) {
         if (g.shopify_product_id && Object.keys(g.sizes || {}).length === 0) {
           try {
@@ -46,11 +48,11 @@ export default function GarmentsPage() {
           } catch {}
         }
       }
-      // Reload after sync
       const updated = await garmentApi.list(bid);
       setGarments(updated);
-    } catch {
-      console.error('Failed to load garments');
+    } catch (e) {
+      console.error('Failed to load garments:', e);
+      setLoadError('Failed to load garments. Please check your connection and try again.');
     }
   }, []);
 
@@ -358,6 +360,15 @@ export default function GarmentsPage() {
           </div>
         )}
 
+        {loadError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700 flex items-center justify-between">
+            <span>{loadError}</span>
+            <button onClick={() => brandId && loadGarments(brandId)} className="px-3 py-1.5 bg-red-100 hover:bg-red-200 rounded-lg text-xs font-medium transition">
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Garments List */}
         {garments.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
@@ -405,7 +416,13 @@ export default function GarmentsPage() {
                     <button
                       onClick={async () => {
                         setSyncingId(g.id);
-                        try { await garmentApi.sync(g.id); if (brandId) await loadGarments(brandId); } catch {}
+                        try {
+                          await garmentApi.sync(g.id);
+                          if (brandId) await loadGarments(brandId);
+                        } catch (e) {
+                          setError('Sync failed. Please try again.');
+                          console.error('Sync error:', e);
+                        }
                         setSyncingId(null);
                       }}
                       disabled={syncingId === g.id}
