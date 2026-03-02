@@ -157,6 +157,60 @@ export async function signup(options: SignupOptions): Promise<{ user: User | nul
   return { user, error: null };
 }
 
+export async function signInWithSocial(provider: 'google' | 'apple'): Promise<{ url: string | null; error: string | null }> {
+  const redirectTo = `${window.location.origin}/auth/callback`;
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+    },
+  });
+  if (error) return { url: null, error: error.message };
+  return { url: data.url, error: null };
+}
+
+export async function exchangeCodeForSession(code: string): Promise<{ user: User | null; error: string | null }> {
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) return { user: null, error: error.message };
+
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) return { user: null, error: 'No session after code exchange' };
+
+  const authUser = session.user;
+  const meta = authUser.user_metadata as { name?: string; full_name?: string; user_type?: string } | undefined;
+  const name = meta?.name || meta?.full_name || authUser.email?.split('@')[0] || 'User';
+
+  const { data: existingProfile } = await supabase
+    .from('users')
+    .select('id, email, name, phone, user_type, created_at')
+    .eq('id', authUser.id)
+    .single();
+
+  if (existingProfile) {
+    return { user: existingProfile as User, error: null };
+  }
+
+  const profileData = {
+    id: authUser.id,
+    email: authUser.email!,
+    name,
+    user_type: 'shopper',
+    updated_at: new Date().toISOString(),
+  };
+  const { error: insertErr } = await supabase.from('users').insert(profileData);
+  if (insertErr) {
+    await supabase.from('users').update({
+      name: profileData.name,
+      user_type: profileData.user_type,
+      updated_at: profileData.updated_at,
+    }).eq('id', authUser.id);
+  }
+
+  const user = await getCurrentUser();
+  return { user, error: null };
+}
+
 export async function logout(): Promise<void> {
   await supabase.auth.signOut();
 }
