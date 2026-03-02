@@ -245,7 +245,7 @@ export function RegionalSizeChart({ by_country, dark }: { by_country: Record<str
             labelStyle={tt.labelStyle}
             itemStyle={tt.itemStyle}
             cursor={tt.cursor}
-            formatter={(value: number | undefined) => [`${value ?? 0}%`, '']}
+            formatter={(value: number | undefined, name?: string) => [`${value ?? 0}%`, name ?? '']}
           />
           <Legend wrapperStyle={legendStyle(dark)} />
           {sizes.map((s, i) => (

@@ -487,7 +487,7 @@ export default function RegionalSizeGlobe({
       {/* Tooltip */}
       {hovered && (
         <div
-          className={`absolute top-4 right-4 rounded-xl px-4 py-3 shadow-2xl border backdrop-blur-xl text-xs z-10 ${
+          className={`absolute top-12 right-4 rounded-xl px-4 py-3 shadow-2xl border backdrop-blur-xl text-xs z-10 ${
             dark ? 'bg-black/80 border-white/10 text-white' : 'bg-white/90 border-gray-200 text-gray-900'
           }`}
           style={{ minWidth: 170, pointerEvents: 'none' }}

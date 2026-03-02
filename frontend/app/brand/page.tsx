@@ -221,7 +221,7 @@ export default function BrandDashboardPage() {
   return (
     <div className={`min-h-screen transition-colors ${dark ? 'bg-black text-white' : 'bg-white text-black'}`}>
       <header className={`sticky top-0 z-20 backdrop-blur-xl border-b ${dark ? 'bg-black/95 border-white/10' : 'bg-white/95 border-black/10'}`}>
-        <div className="max-w-7xl mx-auto px-5 py-3 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">
           <div className="flex items-center gap-8">
             <Link href="/" className="flex items-center gap-2.5 group opacity-90 hover:opacity-100 transition-opacity">
               <img src="/tryon-logo.jpg" alt="TRYON" className="h-7 w-auto rounded" />
@@ -426,8 +426,8 @@ export default function BrandDashboardPage() {
           <div className="relative" style={{ minHeight: 'calc(100vh - 150px)' }}>
 
             {/* ── Floating globe — right side, viewport-sticky, desktop only ── */}
-            <div className="hidden lg:block fixed right-0 bottom-0 z-0 overflow-visible" style={{ width: '58vw', top: '56px' }}>
-              <div className={`absolute top-3 left-3 z-20 flex rounded-lg overflow-hidden border backdrop-blur-md ${dark ? 'border-white/10 bg-black/30' : 'border-black/10 bg-white/50'}`}>
+            <div className="hidden lg:block fixed right-0 bottom-0 z-0 overflow-visible" style={{ width: '58vw', top: '48px' }}>
+              <div className={`absolute top-2 right-3 z-20 flex rounded-lg overflow-hidden border backdrop-blur-md ${dark ? 'border-white/10 bg-black/30' : 'border-black/10 bg-white/50'}`}>
                 <button
                   onClick={() => setRegionalView('globe')}
                   className={`px-2.5 py-1.5 text-[10px] transition-colors ${regionalView === 'globe' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
