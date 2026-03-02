@@ -516,7 +516,7 @@
   .tryon-login-gate-btn:hover{opacity:0.9;}
   .tryon-login-gate-hint{color:#666;font-size:11px;margin-top:12px;}
   body.open-direct .tryon-login-gate{background:transparent;}
-  .tryon-error-state{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;padding:20px;}
+  .tryon-error-state{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;padding:20px;}
   .tryon-error-state-inner{background:#fff;border-radius:16px;padding:32px;max-width:360px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
   .tryon-error-state-inner h3{font-size:16px;margin-bottom:12px;color:#1a1a1a;}
   .tryon-error-state-inner p{color:#555;font-size:14px;}
@@ -733,6 +733,7 @@
     }
 
     // Initialize: fetch user + product from API only (no demo fallbacks). Then preload or show error.
+    // Returns true if everything is ready, false if an error state was shown.
     async function initConfig() {
       const [userData, productConfig] = await Promise.all([
         fetchUserData(),
@@ -742,7 +743,7 @@
       if (config.userId) {
         if (!userData.avatarUrl) {
           showErrorState('Avatar not ready', 'Your avatar is not ready yet. Complete onboarding to generate it.');
-          return;
+          return false;
         }
         userMeasurements = userData.measurements || {};
         avatarUrl = userData.avatarUrl;
@@ -772,13 +773,14 @@
       // Require product tryon config from API (no pre-stored garments)
       if (!productConfig || !Object.keys(productConfig.modelUrls || {}).length) {
         showErrorState('Product try-on not available', 'This product does not have try-on data yet.');
-        return;
+        return false;
       }
       modelPaths = productConfig.modelUrls;
       if (Object.keys(productConfig.sizeChart || {}).length) sizeChart = productConfig.sizeChart;
       modelType = productConfig.modelType || 'combined';
       console.log('[TryOn] Garment from Supabase:', Object.keys(modelPaths));
       preloadAllModels();
+      return true;
     }
 
     // ============================================
@@ -1007,14 +1009,14 @@
           .then(function(data) {
             if (data && data.user_id) {
               config.userId = data.user_id;
-              initConfig().then(function() { openViewer(); });
+              initConfig().then(function(ok) { if (ok) openViewer(); });
             } else {
               showLoginGate();
             }
           })
           .catch(function() { showLoginGate(); });
       } else {
-        initConfig().then(function() { openViewer(); });
+        initConfig().then(function(ok) { if (ok) openViewer(); });
       }
     } else {
       initConfig().then(function() {});

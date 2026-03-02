@@ -127,11 +127,11 @@ export default function BrandDashboardPage() {
     const days = metricsRange === '7d' ? 7 : 30;
     const start = new Date();
     start.setDate(start.getDate() - days);
-    const params = {
+    const params: Record<string, string> = {
       start: start.toISOString().slice(0, 10),
       end: end.toISOString().slice(0, 10),
-      shop: metricsShop || undefined,
     };
+    if (metricsShop) params.shop = metricsShop;
     const calls = [
       () => api.getAnalyticsMetrics(params),
       () => api.getFitMetrics(params),
@@ -180,7 +180,10 @@ export default function BrandDashboardPage() {
       setAuthChecked(true);
       try {
         const brand = await getMyBrand(u.id);
-        if (brand?.shopify_domain) setBrandShop(brand.shopify_domain as string);
+        if (brand?.shopify_domain) {
+          setBrandShop(brand.shopify_domain as string);
+          setMetricsShop((prev) => prev || (brand.shopify_domain as string));
+        }
         if (brand?.id) {
           const { garmentApi } = await import('@/lib/api');
           const garments = await garmentApi.list(brand.id as string);

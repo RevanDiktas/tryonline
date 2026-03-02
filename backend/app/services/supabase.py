@@ -33,8 +33,13 @@ class SupabaseService:
     
     async def get_fit_passport(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get fit passport by user ID"""
-        response = self.client.table("fit_passports").select("*").eq("user_id", user_id).single().execute()
-        return response.data if response.data else None
+        try:
+            response = self.client.table("fit_passports").select("*").eq("user_id", user_id).single().execute()
+            return response.data if response.data else None
+        except Exception:
+            # .single() throws PGRST116 when 0 rows found
+            response = self.client.table("fit_passports").select("*").eq("user_id", user_id).execute()
+            return response.data[0] if response.data else None
     
     async def update_fit_passport_status(
         self, 

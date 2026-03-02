@@ -465,7 +465,10 @@ async def get_avatar(user_id: str):
     ALWAYS returns avatar_textured.glb URL — canonical path from Supabase storage.
     Never returns OBJ; widget must load GLB for correct scale (mm) + texture.
     """
-    fit_passport = await supabase_service.get_fit_passport(user_id)
+    try:
+        fit_passport = await supabase_service.get_fit_passport(user_id)
+    except Exception:
+        fit_passport = None
     
     if not fit_passport:
         raise HTTPException(status_code=404, detail="Avatar not found")
