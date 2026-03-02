@@ -65,16 +65,16 @@ function useEarthGrid(): EarthGrid | null {
       ctx.drawImage(img, 0, 0, W, H);
       const px = ctx.getImageData(0, 0, W, H).data;
 
+      // Detect ocean first (blue-dominant) — everything else is land.
+      // Much more reliable than trying to detect land colors directly.
       const land: boolean[][] = [];
       for (let y = 0; y < H; y++) {
         land[y] = [];
         for (let x = 0; x < W; x++) {
           const i = (y * W + x) * 4;
           const r = px[i], g = px[i + 1], b = px[i + 2];
-          // Land: red or green channel dominates over blue
-          // Ice/snow: all channels high (R>200, G>200, B>200) = land
-          // Ocean: blue dominates (B > R and B > G)
-          land[y][x] = (r > 60 && g > 50 && (r + g) > b * 1.6) || (r > 200 && g > 200 && b > 200);
+          const isOcean = b > 45 && b > r * 1.15 && b > g * 1.05;
+          land[y][x] = !isOcean && (r + g + b) > 30;
         }
       }
 
@@ -137,10 +137,10 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
     const col: number[] = [];
     const { land, coast, w: W, h: H } = earth;
 
-    const landBase = dark ? new THREE.Color('#4fd1c5') : new THREE.Color('#2dd4bf');
-    const landBright = dark ? new THREE.Color('#81e6d9') : new THREE.Color('#5eead4');
-    const coastCol = dark ? new THREE.Color('#b2f5ea') : new THREE.Color('#6ee7b7');
-    const oceanCol = dark ? new THREE.Color('#0a0e1a') : new THREE.Color('#93c5fd');
+    const landBase = dark ? new THREE.Color('#4fd1c5') : new THREE.Color('#0d9488');
+    const landBright = dark ? new THREE.Color('#81e6d9') : new THREE.Color('#14b8a6');
+    const coastCol = dark ? new THREE.Color('#b2f5ea') : new THREE.Color('#0f766e');
+    const oceanCol = dark ? new THREE.Color('#0a0e1a') : new THREE.Color('#a5b4fc');
 
     const N = 55000;
     const golden = Math.PI * (3 - Math.sqrt(5));
@@ -153,7 +153,10 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
       const z = Math.sin(theta) * rad;
 
       const lat = Math.asin(y) * (180 / Math.PI);
-      const lon = Math.atan2(z, -x) * (180 / Math.PI);
+      // atan2(z, -x) gives theta where theta = (lon+180)*pi/180,
+      // so we subtract 180 to get actual geographic longitude
+      let lon = Math.atan2(z, -x) * (180 / Math.PI) - 180;
+      if (lon < -180) lon += 360;
 
       const onLand = gridLookup(land, W, H, lat, lon);
 
@@ -183,14 +186,14 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
   return (
     <points geometry={geom}>
       <pointsMaterial
-        size={dark ? 0.026 : 0.022}
+        size={dark ? 0.026 : 0.025}
         map={dotTex}
         vertexColors
         transparent
-        opacity={dark ? 0.9 : 0.75}
+        opacity={dark ? 0.9 : 0.85}
         depthWrite={false}
         sizeAttenuation
-        blending={THREE.AdditiveBlending}
+        blending={dark ? THREE.AdditiveBlending : THREE.NormalBlending}
       />
     </points>
   );
@@ -378,7 +381,7 @@ function GlobeScene({ earth, dataPoints, dark, onHover, hoveredCountry }: {
     <group ref={groupRef} rotation={[0.15, -0.6, 0.05]}>
       <mesh>
         <sphereGeometry args={[GLOBE_R - 0.005, 64, 64]} />
-        <meshBasicMaterial color={dark ? '#030712' : '#eff6ff'} />
+        <meshBasicMaterial color={dark ? '#030712' : '#c7d2fe'} />
       </mesh>
       <EarthDots earth={earth} dark={dark} />
       <InnerGlow dark={dark} />
@@ -478,7 +481,7 @@ export default function RegionalSizeGlobe({
       {/* Tooltip */}
       {hovered && (
         <div
-          className={`absolute top-4 left-4 rounded-xl px-4 py-3 shadow-2xl border backdrop-blur-xl text-xs z-10 ${
+          className={`absolute bottom-16 right-4 rounded-xl px-4 py-3 shadow-2xl border backdrop-blur-xl text-xs z-10 ${
             dark ? 'bg-black/80 border-white/10 text-white' : 'bg-white/90 border-gray-200 text-gray-900'
           }`}
           style={{ minWidth: 170, pointerEvents: 'none' }}
