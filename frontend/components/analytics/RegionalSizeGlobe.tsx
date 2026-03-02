@@ -73,8 +73,9 @@ function useEarthGrid(): EarthGrid | null {
         for (let x = 0; x < W; x++) {
           const i = (y * W + x) * 4;
           const r = px[i], g = px[i + 1], b = px[i + 2];
-          const isOcean = b > 45 && b > r * 1.15 && b > g * 1.05;
-          land[y][x] = !isOcean && (r + g + b) > 30;
+          const isOcean = (b > 40 && b > r * 1.05 && b > g * 0.95)
+            || (b > 80 && r < 80 && g < 100);
+          land[y][x] = !isOcean && (r + g + b) > 35;
         }
       }
 
@@ -137,10 +138,9 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
     const col: number[] = [];
     const { land, coast, w: W, h: H } = earth;
 
-    const landBase = dark ? new THREE.Color('#4fd1c5') : new THREE.Color('#0d9488');
-    const landBright = dark ? new THREE.Color('#81e6d9') : new THREE.Color('#14b8a6');
-    const coastCol = dark ? new THREE.Color('#b2f5ea') : new THREE.Color('#0f766e');
-    const oceanCol = dark ? new THREE.Color('#0a0e1a') : new THREE.Color('#a5b4fc');
+    const landBase = dark ? new THREE.Color('#4fd1c5') : new THREE.Color('#7dd3fc');
+    const landBright = dark ? new THREE.Color('#81e6d9') : new THREE.Color('#a5f3fc');
+    const coastCol = dark ? new THREE.Color('#b2f5ea') : new THREE.Color('#e0f2fe');
 
     const N = 55000;
     const golden = Math.PI * (3 - Math.sqrt(5));
@@ -153,27 +153,19 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
       const z = Math.sin(theta) * rad;
 
       const lat = Math.asin(y) * (180 / Math.PI);
-      // atan2(z, -x) gives theta where theta = (lon+180)*pi/180,
-      // so we subtract 180 to get actual geographic longitude
       let lon = Math.atan2(z, -x) * (180 / Math.PI) - 180;
       if (lon < -180) lon += 360;
 
-      const onLand = gridLookup(land, W, H, lat, lon);
+      if (!gridLookup(land, W, H, lat, lon)) continue;
 
-      if (!onLand) {
-        if (Math.random() > 0.012) continue;
-        pos.push(x * GLOBE_R, y * GLOBE_R, z * GLOBE_R);
-        col.push(oceanCol.r, oceanCol.g, oceanCol.b);
+      pos.push(x * GLOBE_R, y * GLOBE_R, z * GLOBE_R);
+      const onCoast = gridLookup(coast, W, H, lat, lon);
+      if (onCoast) {
+        col.push(coastCol.r, coastCol.g, coastCol.b);
       } else {
-        pos.push(x * GLOBE_R, y * GLOBE_R, z * GLOBE_R);
-        const onCoast = gridLookup(coast, W, H, lat, lon);
-        if (onCoast) {
-          col.push(coastCol.r, coastCol.g, coastCol.b);
-        } else {
-          const c = Math.random() > 0.5 ? landBright : landBase;
-          const b = 0.65 + Math.random() * 0.35;
-          col.push(c.r * b, c.g * b, c.b * b);
-        }
+        const c = Math.random() > 0.5 ? landBright : landBase;
+        const b = 0.65 + Math.random() * 0.35;
+        col.push(c.r * b, c.g * b, c.b * b);
       }
     }
 
@@ -186,14 +178,14 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
   return (
     <points geometry={geom}>
       <pointsMaterial
-        size={dark ? 0.026 : 0.025}
+        size={0.026}
         map={dotTex}
         vertexColors
         transparent
-        opacity={dark ? 0.9 : 0.85}
+        opacity={0.9}
         depthWrite={false}
         sizeAttenuation
-        blending={dark ? THREE.AdditiveBlending : THREE.NormalBlending}
+        blending={THREE.AdditiveBlending}
       />
     </points>
   );
@@ -242,7 +234,7 @@ const GLOW_FRAG = `
 function GlobeAtmosphere({ dark }: { dark: boolean }) {
   const mat = useMemo(() => new THREE.ShaderMaterial({
     uniforms: {
-      glowColor: { value: dark ? new THREE.Color('#14b8a6') : new THREE.Color('#99f6e4') },
+      glowColor: { value: dark ? new THREE.Color('#14b8a6') : new THREE.Color('#38bdf8') },
       coefficient: { value: 0.08 },
       power: { value: 4.0 },
       hollowRadius: { value: GLOBE_R },
@@ -260,7 +252,7 @@ function GlobeAtmosphere({ dark }: { dark: boolean }) {
 function InnerGlow({ dark }: { dark: boolean }) {
   const mat = useMemo(() => new THREE.ShaderMaterial({
     uniforms: {
-      glowColor: { value: dark ? new THREE.Color('#0d9488') : new THREE.Color('#ccfbf1') },
+      glowColor: { value: dark ? new THREE.Color('#0d9488') : new THREE.Color('#7dd3fc') },
     },
     vertexShader: `
       varying vec3 vN; varying vec3 vP;
@@ -381,7 +373,7 @@ function GlobeScene({ earth, dataPoints, dark, onHover, hoveredCountry }: {
     <group ref={groupRef} rotation={[0.15, -0.6, 0.05]}>
       <mesh>
         <sphereGeometry args={[GLOBE_R - 0.005, 64, 64]} />
-        <meshBasicMaterial color={dark ? '#030712' : '#c7d2fe'} />
+        <meshBasicMaterial color={dark ? '#030712' : '#1e1b4b'} />
       </mesh>
       <EarthDots earth={earth} dark={dark} />
       <InnerGlow dark={dark} />
@@ -463,7 +455,7 @@ export default function RegionalSizeGlobe({
   return (
     <div className="w-full h-full relative">
       <Canvas
-        camera={{ position: [0, 0.3, 7.0], fov: 45 }}
+        camera={{ position: [0, 0.2, 8.5], fov: 38 }}
         style={{ background: 'transparent' }}
         gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
         dpr={[1, 2]}
@@ -481,7 +473,7 @@ export default function RegionalSizeGlobe({
       {/* Tooltip */}
       {hovered && (
         <div
-          className={`absolute bottom-16 right-4 rounded-xl px-4 py-3 shadow-2xl border backdrop-blur-xl text-xs z-10 ${
+          className={`absolute top-4 right-4 rounded-xl px-4 py-3 shadow-2xl border backdrop-blur-xl text-xs z-10 ${
             dark ? 'bg-black/80 border-white/10 text-white' : 'bg-white/90 border-gray-200 text-gray-900'
           }`}
           style={{ minWidth: 170, pointerEvents: 'none' }}
