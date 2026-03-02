@@ -243,7 +243,7 @@ export default function GarmentsPage() {
           }
         }
         setSizeChartData(updated);
-      } catch {
+      } catch (_e) {
         alert('Failed to parse file. Use JSON format like {"xs": {"chest": 86, ...}} or CSV with size,chest,waist,hips,length columns.');
       }
     };
@@ -529,8 +529,7 @@ export default function GarmentsPage() {
                         </tbody>
                       </table>
                     </div>);
-                  })()
-                  )}
+                  })()}
                 </div>
               </div>
             ))}
