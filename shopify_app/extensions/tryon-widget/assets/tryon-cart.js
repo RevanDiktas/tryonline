@@ -12,10 +12,16 @@
     var payload = e.data.payload;
     var size = (payload.size || '').toLowerCase().trim();
 
-    /* Resolve variant: prefer size→variant map from Liquid, fall back to message variantId */
+    /* Resolve variant: prefer size→variant map from Liquid (try exact key + common aliases), fall back to message variantId */
     var map = window.__tryonSizeVariantMap || {};
     var fallback = window.__tryonFallbackVariantId || parseInt(payload.variantId, 10);
-    var variantId = map[size] || fallback;
+    var sizeAliases = { xs: ['xs', 'extra small'], s: ['s', 'small'], m: ['m', 'medium'], l: ['l', 'large'], xl: ['xl', 'extra large'] };
+    var keysToTry = sizeAliases[size] ? sizeAliases[size] : [size];
+    var variantId = null;
+    for (var i = 0; i < keysToTry.length; i++) {
+      if (map[keysToTry[i]] != null) { variantId = map[keysToTry[i]]; break; }
+    }
+    if (variantId == null) variantId = fallback;
 
     if (!variantId || Number.isNaN(Number(variantId))) {
       console.warn('[TryOn] Add to cart skipped: no variant for size', size);
@@ -38,7 +44,8 @@
           console.log('[TryOn] Added to cart:', size.toUpperCase(), '— variant', variantId);
           refreshCartUI();
         } else {
-          console.warn('[TryOn] Cart add rejected:', data.message || data.description || data);
+          console.warn('[TryOn] Cart add rejected (variant ' + variantId + '):', data.message || data.description || data);
+          if (window.__tryonSizeVariantMap) console.warn('[TryOn] Size map keys:', Object.keys(window.__tryonSizeVariantMap).join(', '));
         }
       })
       .catch(function (err) {
