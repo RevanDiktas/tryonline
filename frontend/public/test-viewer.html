@@ -1049,20 +1049,20 @@
     addToCartBtn.addEventListener('click', () => {
       track('add_to_cart', { size: currentSize });
       if (window.parent !== window) {
-        var targetOrigin = '*';
         try {
-          if (document.referrer) targetOrigin = new URL(document.referrer).origin;
-        } catch (e) {}
-        window.parent.postMessage({
-          type: 'TRYON_ADD_TO_CART',
-          payload: {
-            productId: config.productId,
-            variantId: config.variantId,
-            size: currentSize,
-            shop: config.shopDomain,
-            session_id: sessionId
-          }
-        }, targetOrigin);
+          window.parent.postMessage({
+            type: 'TRYON_ADD_TO_CART',
+            payload: {
+              productId: config.productId,
+              variantId: config.variantId,
+              size: currentSize,
+              shop: config.shopDomain,
+              session_id: sessionId
+            }
+          }, '*');
+        } catch (e) {
+          console.warn('[TryOn] postMessage failed:', e);
+        }
       }
       closeViewer();
     });

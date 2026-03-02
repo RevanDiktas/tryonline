@@ -1,7 +1,7 @@
 {% comment %}
   TryOn — "Try On" button app block for product pages.
   Renders a button that opens the TryOn widget in a modal iframe.
-  Widget URL: https://tryonline.vercel.app/test-viewer.html
+  On Add to Cart: calls Shopify /cart/add.js with the variant matching the selected size.
 {% endcomment %}
 {% liquid
   assign widget_base = 'https://tryonline.vercel.app'
@@ -54,6 +54,13 @@
       if (!btn || !iframe) return;
       var src = iframe.getAttribute('data-tryon-src');
 
+      /* Size → Shopify variant ID map built from Liquid */
+      var sizeVariantMap = {};
+      {% for v in product.variants %}
+        sizeVariantMap['{{ v.option1 | downcase | strip }}'] = {{ v.id }};
+      {% endfor %}
+      var fallbackVariantId = {{ variant_id }};
+
       btn.addEventListener('click', function() {
         iframe.src = src;
         iframe.style.display = 'block';
@@ -66,12 +73,46 @@
         document.body.style.overflow = '';
       }
 
+      function addToShopifyCart(varId, qty) {
+        fetch('/cart/add.js', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: [{ id: varId, quantity: qty || 1 }] })
+        })
+        .then(function(r) {
+          if (!r.ok) throw new Error('Cart add failed: ' + r.status);
+          return r.json();
+        })
+        .then(function() {
+          /* Refresh cart UI — works for most themes (Dawn, etc.) */
+          if (typeof window.Shopify !== 'undefined' && typeof window.Shopify.onCartUpdate === 'function') {
+            fetch('/cart.js').then(function(r) { return r.json(); }).then(function(cart) {
+              window.Shopify.onCartUpdate(cart);
+            });
+          }
+          /* Update cart count bubble if present */
+          fetch('/cart.js').then(function(r) { return r.json(); }).then(function(cart) {
+            var badges = document.querySelectorAll('.cart-count-bubble span, [data-cart-count]');
+            badges.forEach(function(el) { el.textContent = cart.item_count; });
+          });
+        })
+        .catch(function(err) { console.error('[TryOn] Add to cart error:', err); });
+      }
+
       document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && iframe.style.display === 'block') close();
       });
 
       window.addEventListener('message', function(e) {
-        if (e.data && (e.data.type === 'TRYON_CLOSE' || e.data.type === 'TRYON_ADD_TO_CART')) {
+        if (!e.data) return;
+        if (e.data.type === 'TRYON_CLOSE') {
+          close();
+        }
+        if (e.data.type === 'TRYON_ADD_TO_CART') {
+          var payload = e.data.payload || {};
+          var size = (payload.size || '').toLowerCase().trim();
+          var vid = sizeVariantMap[size] || fallbackVariantId;
+          addToShopifyCart(vid, 1);
           close();
         }
       });
