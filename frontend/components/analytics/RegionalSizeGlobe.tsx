@@ -73,9 +73,21 @@ function useEarthGrid(): EarthGrid | null {
         for (let x = 0; x < W; x++) {
           const i = (y * W + x) * 4;
           const r = px[i], g = px[i + 1], b = px[i + 2];
-          const isOcean = (b > 40 && b > r * 1.05 && b > g * 0.95)
-            || (b > 80 && r < 80 && g < 100);
+          const isOcean = b > 35 && (b >= r || b >= g);
           land[y][x] = !isOcean && (r + g + b) > 35;
+        }
+      }
+
+      // Erode isolated noise: if a land pixel has fewer than 2 land neighbors, remove it
+      for (let y = 1; y < H - 1; y++) {
+        for (let x = 0; x < W; x++) {
+          if (!land[y][x]) continue;
+          let neighbors = 0;
+          for (const [dy, dx] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+            const ny = y + dy, nx = (x + dx + W) % W;
+            if (land[ny]?.[nx]) neighbors++;
+          }
+          if (neighbors < 2) land[y][x] = false;
         }
       }
 

@@ -423,11 +423,11 @@ export default function BrandDashboardPage() {
           const hasRegional = !!(regionalSize && typeof regionalSize.by_country === 'object' && regionalSize.by_country !== null && Object.keys(regionalSize.by_country as Record<string, unknown>).length > 0);
           const hasCountryTags = !!(hasRegional && regionalSize && regionalSize.top_size_by_country && typeof regionalSize.top_size_by_country === 'object' && Object.keys(regionalSize.top_size_by_country as Record<string, unknown>).length > 0);
           return (
-          <div className="relative overflow-hidden" style={{ minHeight: 'calc(100vh - 150px)' }}>
+          <div className="relative" style={{ minHeight: 'calc(100vh - 150px)' }}>
 
-            {/* ── Floating globe — right side, desktop only ── */}
-            <div className="hidden lg:block absolute inset-y-0 right-0" style={{ width: '62%' }}>
-              <div className={`absolute top-1 right-1 z-20 flex rounded-lg overflow-hidden border backdrop-blur-md ${dark ? 'border-white/10 bg-black/30' : 'border-black/10 bg-white/50'}`}>
+            {/* ── Floating globe — right side, viewport-sticky, desktop only ── */}
+            <div className="hidden lg:block fixed right-0 top-0 bottom-0 z-0 overflow-visible" style={{ width: '58vw' }}>
+              <div className={`absolute top-3 left-3 z-20 flex rounded-lg overflow-hidden border backdrop-blur-md ${dark ? 'border-white/10 bg-black/30' : 'border-black/10 bg-white/50'}`}>
                 <button
                   onClick={() => setRegionalView('globe')}
                   className={`px-2.5 py-1.5 text-[10px] transition-colors ${regionalView === 'globe' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
@@ -470,7 +470,7 @@ export default function BrandDashboardPage() {
               )}
             </div>
 
-            {/* ── Analytics cards — left side, floating above ── */}
+            {/* ── Analytics cards — left side, scrollable ── */}
             <div className="relative z-10 lg:max-w-[44%] space-y-6">
               {metricsLoading && !velocity ? (
                 <div className="py-24 flex justify-center"><div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-white' : 'border-black/20 border-t-black'}`} /></div>
