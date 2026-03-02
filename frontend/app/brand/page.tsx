@@ -453,8 +453,8 @@ export default function BrandDashboardPage() {
                 ) : null}
               </div>
               {hasCountryTags && (
-                <div className="absolute bottom-3 left-4 right-4 z-10">
-                  <div className={`flex flex-wrap gap-1.5 ${dark ? 'text-white/50' : 'text-black/50'}`}>
+                <div className="absolute bottom-3 right-4 z-10" style={{ left: '40%' }}>
+                  <div className={`flex flex-wrap justify-end gap-1.5 ${dark ? 'text-white/50' : 'text-black/50'}`}>
                     {Object.entries(regionalSize!.top_size_by_country as Record<string, string>)
                       .sort(([a], [b]) => a.localeCompare(b))
                       .map(([country, size]) => (
