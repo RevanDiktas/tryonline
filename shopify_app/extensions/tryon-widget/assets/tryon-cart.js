@@ -6,6 +6,9 @@
  */
 (function () {
   var ATTR_KEY = 'tryon_session_id';
+  var lastAddKey = '';
+  var lastAddTime = 0;
+  var DEBOUNCE_MS = 2000;
 
   window.addEventListener('message', function (e) {
     if (!e.data || e.data.type !== 'TRYON_ADD_TO_CART' || !e.data.payload) return;
@@ -28,7 +31,19 @@
       return;
     }
 
-    var properties = { _tryon_size: size };
+    /* Debounce: avoid duplicate add if same variant added very recently */
+    var addKey = variantId + '-' + size;
+    var now = Date.now();
+    if (addKey === lastAddKey && (now - lastAddTime) < DEBOUNCE_MS) {
+      console.warn('[TryOn] Add to cart ignored (duplicate within ' + DEBOUNCE_MS + 'ms)');
+      return;
+    }
+    lastAddKey = addKey;
+    lastAddTime = now;
+
+    /* Line item properties: _tryon_size (lowercase for logic), Size (display in cart: XS, S, M, L, XL) */
+    var sizeDisplay = (size === 'xs' ? 'XS' : size === 'xl' ? 'XL' : size.length ? size.charAt(0).toUpperCase() + size.slice(1) : size);
+    var properties = { _tryon_size: size, Size: sizeDisplay };
     if (payload.session_id) properties[ATTR_KEY] = payload.session_id;
 
     fetch('/cart/add.js', {
