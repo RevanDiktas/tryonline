@@ -506,13 +506,10 @@ export default function BrandDashboardPage() {
             </div>
 
             {/* Right column: sticky globe */}
-            <div className="hidden lg:block w-[420px] flex-shrink-0">
-              <div className="sticky top-6">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size</p>
-                    <p className={`text-[10px] mt-0.5 ${dark ? 'text-white/30' : 'text-black/30'}`}>Size mix by region</p>
-                  </div>
+            <div className="hidden lg:block" style={{ width: '48%', flexShrink: 0 }}>
+              <div className="sticky top-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size</p>
                   <div className={`flex rounded-lg overflow-hidden border ${dark ? 'border-white/10' : 'border-gray-200'}`}>
                     <button
                       onClick={() => setRegionalView('globe')}
@@ -530,7 +527,7 @@ export default function BrandDashboardPage() {
                 </div>
                 {regionalSize && typeof regionalSize.by_country === 'object' && regionalSize.by_country !== null && Object.keys(regionalSize.by_country as Record<string, unknown>).length > 0 ? (
                   <>
-                    <div className={`${panelClass} overflow-hidden rounded-2xl`} style={{ height: 420 }}>
+                    <div className={`${panelClass} overflow-hidden rounded-2xl`} style={{ height: 'calc(100vh - 200px)', minHeight: 500 }}>
                       {regionalView === 'globe' ? (
                         <RegionalSizeGlobe
                           by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>}
@@ -539,11 +536,11 @@ export default function BrandDashboardPage() {
                           dark={dark}
                         />
                       ) : (
-                        <div className="p-5"><div style={{ height: 380 }}><RegionalSizeChart by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
+                        <div className="p-5 h-full"><div className="h-full"><RegionalSizeChart by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
                       )}
                     </div>
                     {regionalSize.top_size_by_country && typeof regionalSize.top_size_by_country === 'object' && Object.keys(regionalSize.top_size_by_country as Record<string, unknown>).length > 0 && (
-                      <div className={`flex flex-wrap gap-1.5 mt-3 ${dark ? 'text-white/70' : 'text-black/70'}`}>
+                      <div className={`flex flex-wrap gap-1.5 mt-3 ${dark ? 'text-white/60' : 'text-black/60'}`}>
                         {Object.entries(regionalSize.top_size_by_country as Record<string, string>)
                           .sort(([a], [b]) => a.localeCompare(b))
                           .map(([country, size]) => (
@@ -554,7 +551,7 @@ export default function BrandDashboardPage() {
                       </div>
                     )}
                   </>
-                ) : <div className={`${panelClass} rounded-2xl`} style={{ height: 420 }}><EmptyState message="No regional data" sub="Country may be missing from events" dark={dark} /></div>}
+                ) : <div className={`${panelClass} rounded-2xl`} style={{ height: 'calc(100vh - 200px)', minHeight: 500 }}><EmptyState message="No regional data" sub="Country may be missing from events" dark={dark} /></div>}
               </div>
             </div>
           </div>
