@@ -46,18 +46,23 @@
     var properties = { _tryon_size: size, Size: sizeDisplay };
     if (payload.session_id) properties[ATTR_KEY] = payload.session_id;
 
+    /* Request cart sections so we get fresh HTML and can update UI without full page refresh (Shopify bundled section rendering) */
+    var sectionsList = 'cart-icon-bubble,cart-drawer,cart-items';
+    var body = {
+      items: [{ id: Number(variantId), quantity: 1, properties: properties }],
+      sections: sectionsList,
+    };
+
     fetch('/cart/add.js', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        items: [{ id: Number(variantId), quantity: 1, properties: properties }],
-      }),
+      body: JSON.stringify(body),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data.items) {
           console.log('[TryOn] Added to cart:', size.toUpperCase(), '— variant', variantId);
-          refreshCartUI();
+          refreshCartUI(data);
         } else {
           console.warn('[TryOn] Cart add rejected (variant ' + variantId + '):', data.message || data.description || data);
           if (window.__tryonSizeVariantMap) console.warn('[TryOn] Size map keys:', Object.keys(window.__tryonSizeVariantMap).join(', '));
@@ -68,34 +73,63 @@
       });
   });
 
-  function refreshCartUI() {
+  /**
+   * Replace DOM elements with section HTML from Shopify (bundled section rendering).
+   * This is why the cart updates without refresh — we swap in the new HTML.
+   */
+  function renderSections(sections) {
+    if (!sections || typeof sections !== 'object') return;
+    var sectionIds = ['cart-icon-bubble', 'cart-drawer', 'cart-items'];
+    for (var i = 0; i < sectionIds.length; i++) {
+      var id = sectionIds[i];
+      var html = sections[id];
+      if (!html || typeof html !== 'string') continue;
+      var wrap = document.createElement('div');
+      wrap.innerHTML = html.trim();
+      var newEl = wrap.firstElementChild;
+      if (!newEl || !newEl.id) continue;
+      var existing = document.getElementById(newEl.id);
+      if (existing && existing.parentNode) {
+        existing.parentNode.replaceChild(newEl, existing);
+      }
+    }
+  }
+
+  function refreshCartUI(addResponse) {
+    /* If add response included sections (bundled section rendering), replace DOM first — cart updates without refresh */
+    if (addResponse && addResponse.sections) {
+      renderSections(addResponse.sections);
+    }
+
     fetch('/cart.js')
       .then(function (r) { return r.json(); })
       .then(function (cart) {
-        /* Update cart count badges (Dawn theme + common selectors) */
+        /* Fallback: update cart count badges if section replace didn’t run or theme uses different IDs */
         var selectors = [
           '.cart-count-bubble span',
           '[data-cart-count]',
           '.cart-count',
           '#cart-icon-bubble span[aria-hidden]',
+          '.cart-count-bubble',
         ];
         selectors.forEach(function (sel) {
-          document.querySelectorAll(sel).forEach(function (el) {
-            el.textContent = cart.item_count;
-          });
+          try {
+            document.querySelectorAll(sel).forEach(function (el) {
+              if (el.tagName === 'SPAN' || el.tagName === 'SMALL') el.textContent = cart.item_count;
+              else if (el.classList && el.classList.contains('cart-count-bubble')) el.textContent = cart.item_count;
+            });
+          } catch (err) {}
         });
 
-        /* Fire Shopify events for themes that listen */
         if (typeof window.Shopify !== 'undefined') {
           if (typeof window.Shopify.onCartUpdate === 'function') {
             window.Shopify.onCartUpdate(cart);
           }
         }
-        document.dispatchEvent(new CustomEvent('cart:refresh'));
+        document.dispatchEvent(new CustomEvent('cart:refresh', { detail: cart }));
         window.dispatchEvent(new CustomEvent('tryon:cart_added', { detail: cart }));
 
-        /* Open cart drawer/notification if theme supports it */
-        var cartDrawerToggle = document.querySelector('[data-cart-drawer-toggle], cart-drawer summary, .js-drawer-open-right');
+        var cartDrawerToggle = document.querySelector('[data-cart-drawer-toggle], cart-drawer summary, .js-drawer-open-right, [aria-controls="cart-drawer"]');
         if (cartDrawerToggle) cartDrawerToggle.click();
       })
       .catch(function () {});
