@@ -221,39 +221,36 @@ export default function BrandDashboardPage() {
   return (
     <div className={`min-h-screen transition-colors ${dark ? 'bg-black text-white' : 'bg-white text-black'}`}>
       <header className={`sticky top-0 z-20 backdrop-blur-xl border-b ${dark ? 'bg-black/95 border-white/10' : 'bg-white/95 border-black/10'}`}>
-        <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            <Link href="/" className="flex items-center gap-2.5 group opacity-90 hover:opacity-100 transition-opacity">
-              <img src="/tryon-logo.jpg" alt="TRYON" className="h-7 w-auto rounded" />
-              <span className={`${dark ? 'text-white/50' : 'text-black/50'} text-xs font-medium tracking-wider hidden sm:inline`}>BRAND</span>
-            </Link>
-            <nav className="flex gap-1">
-              {tabs.map(({ id, label }) => (
-                <button
-                  key={id}
-                  onClick={() => setTab(id)}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                    tab === id
-                      ? dark ? 'text-white' : 'text-black'
-                      : dark ? 'text-white/40 hover:text-white/70' : 'text-black/40 hover:text-black/70'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-              <Link
-                href="/brand/garments"
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${dark ? 'text-white/40 hover:text-white/70' : 'text-black/40 hover:text-black/70'}`}
+        <div className="max-w-7xl mx-auto px-4 py-1.5 flex items-center gap-4">
+          <Link href="/" className="flex items-center gap-2 shrink-0 opacity-90 hover:opacity-100 transition-opacity">
+            <img src="/tryon-logo.jpg" alt="TRYON" className="h-5 w-auto rounded" />
+          </Link>
+          <nav className="flex gap-0.5 min-w-0">
+            {tabs.map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={`px-2.5 py-1 text-xs font-medium transition-all whitespace-nowrap ${
+                  tab === id
+                    ? dark ? 'text-white' : 'text-black'
+                    : dark ? 'text-white/35 hover:text-white/60' : 'text-black/35 hover:text-black/60'
+                }`}
               >
-                Garments
-              </Link>
-            </nav>
-          </div>
-          <div className="flex items-center gap-3">
+                {label}
+              </button>
+            ))}
+            <Link
+              href="/brand/garments"
+              className={`px-2.5 py-1 text-xs font-medium transition-all whitespace-nowrap ${dark ? 'text-white/35 hover:text-white/60' : 'text-black/35 hover:text-black/60'}`}
+            >
+              Garments
+            </Link>
+          </nav>
+          <div className="flex items-center gap-2 ml-auto shrink-0">
             <select
               value={metricsShop}
               onChange={(e) => setMetricsShop(e.target.value)}
-              className={`text-xs px-3 py-2 rounded-lg border focus:outline-none focus:ring-1 focus:ring-white/30 focus:border-white/20 ${dark ? 'bg-white/5 border-white/10 text-white/80' : 'bg-black/5 border-black/10 text-black/80 focus:ring-black/20 focus:border-black/20'}`}
+              className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
             >
               <option value="">All shops</option>
               {brandShop && <option value={brandShop}>{brandShop}</option>}
@@ -261,14 +258,14 @@ export default function BrandDashboardPage() {
             <select
               value={metricsRange}
               onChange={(e) => setMetricsRange(e.target.value as '7d' | '30d')}
-              className={`text-xs px-3 py-2 rounded-lg border focus:outline-none focus:ring-1 focus:ring-white/30 focus:border-white/20 ${dark ? 'bg-white/5 border-white/10 text-white/80' : 'bg-black/5 border-black/10 text-black/80 focus:ring-black/20 focus:border-black/20'}`}
+              className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
             >
               <option value="7d">7d</option>
               <option value="30d">30d</option>
             </select>
             <button
               onClick={toggleTheme}
-              className={`p-2 rounded-lg border transition-colors ${dark ? 'border-white/10 text-white/70 hover:bg-white/5' : 'border-black/10 text-black/70 hover:bg-black/5'}`}
+              className={`p-1 rounded transition-colors ${dark ? 'text-white/50 hover:text-white/80' : 'text-black/50 hover:text-black/80'}`}
               title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
             >
               {dark ? <SunIcon /> : <MoonIcon />}
@@ -276,12 +273,12 @@ export default function BrandDashboardPage() {
             <button
               onClick={fetchMetrics}
               disabled={metricsLoading}
-              className={`text-xs px-4 py-2 rounded-lg border disabled:opacity-50 transition-colors ${dark ? 'bg-white text-black border-white/50 hover:bg-white/90' : 'bg-black text-white border-black/50 hover:bg-black/90'}`}
+              className={`text-[10px] px-2.5 py-1 rounded border disabled:opacity-50 transition-colors ${dark ? 'bg-white text-black border-white/50 hover:bg-white/90' : 'bg-black text-white border-black/50 hover:bg-black/90'}`}
             >
-              {metricsLoading ? '⋯' : 'Refresh'}
+              {metricsLoading ? '...' : 'Refresh'}
             </button>
-            {user && <span className={`${dark ? 'text-white/50' : 'text-black/50'} text-xs hidden sm:inline`}>{user.email}</span>}
-            <button onClick={handleLogout} className={`${dark ? 'text-white/50 hover:text-white/80' : 'text-black/50 hover:text-black/80'} text-xs ml-1 transition-colors`}>Sign out</button>
+            {user && <span className={`${dark ? 'text-white/40' : 'text-black/40'} text-[10px] hidden md:inline`}>{user.email}</span>}
+            <button onClick={handleLogout} className={`${dark ? 'text-white/40 hover:text-white/70' : 'text-black/40 hover:text-black/70'} text-[10px] transition-colors`}>Sign out</button>
           </div>
         </div>
       </header>
@@ -426,7 +423,7 @@ export default function BrandDashboardPage() {
           <div className="relative" style={{ minHeight: 'calc(100vh - 150px)' }}>
 
             {/* ── Floating globe — right side, viewport-sticky, desktop only ── */}
-            <div className="hidden lg:block fixed right-0 bottom-0 z-0 overflow-visible" style={{ width: '58vw', top: '48px' }}>
+            <div className="hidden lg:block fixed right-0 bottom-0 z-0 overflow-visible" style={{ width: '58vw', top: '36px' }}>
               <div className={`absolute top-2 right-3 z-20 flex rounded-lg overflow-hidden border backdrop-blur-md ${dark ? 'border-white/10 bg-black/30' : 'border-black/10 bg-white/50'}`}>
                 <button
                   onClick={() => setRegionalView('globe')}
