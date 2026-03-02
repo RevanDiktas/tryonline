@@ -419,10 +419,59 @@ export default function BrandDashboardPage() {
           </div>
         )}
 
-        {tab === 'trend' && (
-          <div className="flex gap-6">
-            {/* Left column: scrollable analytics */}
-            <div className="flex-1 min-w-0 space-y-6">
+        {tab === 'trend' && (() => {
+          const hasRegional = !!(regionalSize && typeof regionalSize.by_country === 'object' && regionalSize.by_country !== null && Object.keys(regionalSize.by_country as Record<string, unknown>).length > 0);
+          const hasCountryTags = !!(hasRegional && regionalSize && regionalSize.top_size_by_country && typeof regionalSize.top_size_by_country === 'object' && Object.keys(regionalSize.top_size_by_country as Record<string, unknown>).length > 0);
+          return (
+          <div className="relative overflow-hidden" style={{ minHeight: 'calc(100vh - 150px)' }}>
+
+            {/* ── Floating globe — right side, desktop only ── */}
+            <div className="hidden lg:block absolute inset-y-0 right-0" style={{ width: '62%' }}>
+              <div className={`absolute top-1 right-1 z-20 flex rounded-lg overflow-hidden border backdrop-blur-md ${dark ? 'border-white/10 bg-black/30' : 'border-black/10 bg-white/50'}`}>
+                <button
+                  onClick={() => setRegionalView('globe')}
+                  className={`px-2.5 py-1.5 text-[10px] transition-colors ${regionalView === 'globe' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" /></svg>
+                </button>
+                <button
+                  onClick={() => setRegionalView('chart')}
+                  className={`px-2.5 py-1.5 text-[10px] transition-colors ${regionalView === 'chart' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="3" width="7" height="18" rx="1" /><rect x="14" y="9" width="7" height="12" rx="1" /></svg>
+                </button>
+              </div>
+              <div className="w-full h-full">
+                {hasRegional ? (
+                  regionalView === 'globe' ? (
+                    <RegionalSizeGlobe
+                      by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>}
+                      raw_counts={(regionalSize as Record<string, unknown>).raw_counts as Record<string, Record<string, number>> | undefined}
+                      top_size_by_country={(regionalSize.top_size_by_country ?? {}) as Record<string, string>}
+                      dark={dark}
+                    />
+                  ) : (
+                    <div className="p-8 h-full flex items-center"><div className="w-full" style={{ height: 400 }}><RegionalSizeChart by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
+                  )
+                ) : null}
+              </div>
+              {hasCountryTags && (
+                <div className="absolute bottom-3 left-4 right-4 z-10">
+                  <div className={`flex flex-wrap gap-1.5 ${dark ? 'text-white/50' : 'text-black/50'}`}>
+                    {Object.entries(regionalSize!.top_size_by_country as Record<string, string>)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([country, size]) => (
+                        <span key={country} className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium backdrop-blur-sm ${dark ? 'bg-black/40' : 'bg-white/60'}`}>
+                          {country}: <strong className="ml-0.5">{String(size)}</strong>
+                        </span>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Analytics cards — left side, floating above ── */}
+            <div className="relative z-10 lg:max-w-[44%] space-y-6">
               {metricsLoading && !velocity ? (
                 <div className="py-24 flex justify-center"><div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-white' : 'border-black/20 border-t-black'}`} /></div>
               ) : (
@@ -494,68 +543,22 @@ export default function BrandDashboardPage() {
                       </div>
                     ) : <EmptyState message="No size stress" sub="All sizes show healthy conversion" dark={dark} />}
                   </div>
-                  {/* Regional bar chart (when viewing chart mode) */}
-                  {regionalView === 'chart' && regionalSize && typeof regionalSize.by_country === 'object' && regionalSize.by_country !== null && Object.keys(regionalSize.by_country as Record<string, unknown>).length > 0 && (
-                    <div>
-                      <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size (chart)</p>
-                      <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><RegionalSizeChart by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
-                    </div>
-                  )}
+
+                  {/* Mobile: regional chart inline (globe hidden on small screens) */}
+                  <div className="lg:hidden">
+                    {hasRegional ? (
+                      <div>
+                        <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size</p>
+                        <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><RegionalSizeChart by_country={(regionalSize!.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
+                      </div>
+                    ) : <EmptyState message="No regional data" sub="Country may be missing from events" dark={dark} />}
+                  </div>
                 </>
               )}
             </div>
-
-            {/* Right column: sticky globe */}
-            <div className="hidden lg:block" style={{ width: '48%', flexShrink: 0 }}>
-              <div className="sticky top-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size</p>
-                  <div className={`flex rounded-lg overflow-hidden border ${dark ? 'border-white/10' : 'border-gray-200'}`}>
-                    <button
-                      onClick={() => setRegionalView('globe')}
-                      className={`px-2 py-1 text-[10px] transition-colors ${regionalView === 'globe' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
-                    >
-                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" /></svg>
-                    </button>
-                    <button
-                      onClick={() => setRegionalView('chart')}
-                      className={`px-2 py-1 text-[10px] transition-colors ${regionalView === 'chart' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
-                    >
-                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="3" width="7" height="18" rx="1" /><rect x="14" y="9" width="7" height="12" rx="1" /></svg>
-                    </button>
-                  </div>
-                </div>
-                {regionalSize && typeof regionalSize.by_country === 'object' && regionalSize.by_country !== null && Object.keys(regionalSize.by_country as Record<string, unknown>).length > 0 ? (
-                  <>
-                    <div className={`${panelClass} overflow-hidden rounded-2xl`} style={{ height: 'calc(100vh - 200px)', minHeight: 500 }}>
-                      {regionalView === 'globe' ? (
-                        <RegionalSizeGlobe
-                          by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>}
-                          raw_counts={(regionalSize as Record<string, unknown>).raw_counts as Record<string, Record<string, number>> | undefined}
-                          top_size_by_country={(regionalSize.top_size_by_country ?? {}) as Record<string, string>}
-                          dark={dark}
-                        />
-                      ) : (
-                        <div className="p-5 h-full"><div className="h-full"><RegionalSizeChart by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
-                      )}
-                    </div>
-                    {regionalSize.top_size_by_country && typeof regionalSize.top_size_by_country === 'object' && Object.keys(regionalSize.top_size_by_country as Record<string, unknown>).length > 0 && (
-                      <div className={`flex flex-wrap gap-1.5 mt-3 ${dark ? 'text-white/60' : 'text-black/60'}`}>
-                        {Object.entries(regionalSize.top_size_by_country as Record<string, string>)
-                          .sort(([a], [b]) => a.localeCompare(b))
-                          .map(([country, size]) => (
-                            <span key={country} className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium ${dark ? 'bg-white/8' : 'bg-black/8'}`}>
-                              {country}: <strong className="ml-0.5">{String(size)}</strong>
-                            </span>
-                          ))}
-                      </div>
-                    )}
-                  </>
-                ) : <div className={`${panelClass} rounded-2xl`} style={{ height: 'calc(100vh - 200px)', minHeight: 500 }}><EmptyState message="No regional data" sub="Country may be missing from events" dark={dark} /></div>}
-              </div>
-            </div>
           </div>
-        )}
+          );
+        })()}
       </main>
     </div>
   );
