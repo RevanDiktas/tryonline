@@ -234,8 +234,8 @@ export default function BrandDashboardPage() {
                   onClick={() => setTab(id)}
                   className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
                     tab === id
-                      ? dark ? 'bg-white text-black border border-white/50' : 'bg-black text-white border border-black/50'
-                      : dark ? 'text-white/60 hover:text-white hover:bg-white/5 border border-transparent' : 'text-black/60 hover:text-black hover:bg-black/5 border border-transparent'
+                      ? dark ? 'text-white' : 'text-black'
+                      : dark ? 'text-white/40 hover:text-white/70' : 'text-black/40 hover:text-black/70'
                   }`}
                 >
                   {label}
@@ -243,7 +243,7 @@ export default function BrandDashboardPage() {
               ))}
               <Link
                 href="/brand/garments"
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 border border-transparent ${dark ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-black/60 hover:text-black hover:bg-black/5'}`}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${dark ? 'text-white/40 hover:text-white/70' : 'text-black/40 hover:text-black/70'}`}
               >
                 Garments
               </Link>
@@ -426,7 +426,7 @@ export default function BrandDashboardPage() {
           <div className="relative" style={{ minHeight: 'calc(100vh - 150px)' }}>
 
             {/* ── Floating globe — right side, viewport-sticky, desktop only ── */}
-            <div className="hidden lg:block fixed right-0 top-0 bottom-0 z-0 overflow-visible" style={{ width: '58vw' }}>
+            <div className="hidden lg:block fixed right-0 bottom-0 z-0 overflow-visible" style={{ width: '58vw', top: '56px' }}>
               <div className={`absolute top-3 left-3 z-20 flex rounded-lg overflow-hidden border backdrop-blur-md ${dark ? 'border-white/10 bg-black/30' : 'border-black/10 bg-white/50'}`}>
                 <button
                   onClick={() => setRegionalView('globe')}

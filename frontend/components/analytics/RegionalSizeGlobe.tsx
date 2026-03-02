@@ -73,21 +73,23 @@ function useEarthGrid(): EarthGrid | null {
         for (let x = 0; x < W; x++) {
           const i = (y * W + x) * 4;
           const r = px[i], g = px[i + 1], b = px[i + 2];
-          const isOcean = b > 35 && (b >= r || b >= g);
-          land[y][x] = !isOcean && (r + g + b) > 35;
+          const isOcean = (b > 30 && b >= r) || (b > 30 && b >= g) || (r < 40 && g < 60 && b > 25);
+          land[y][x] = !isOcean && (r + g + b) > 50;
         }
       }
 
-      // Erode isolated noise: if a land pixel has fewer than 2 land neighbors, remove it
-      for (let y = 1; y < H - 1; y++) {
-        for (let x = 0; x < W; x++) {
-          if (!land[y][x]) continue;
-          let neighbors = 0;
-          for (const [dy, dx] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-            const ny = y + dy, nx = (x + dx + W) % W;
-            if (land[ny]?.[nx]) neighbors++;
+      // Erode noise: two passes, require 3+ of 8 neighbors to survive
+      for (let pass = 0; pass < 2; pass++) {
+        for (let y = 1; y < H - 1; y++) {
+          for (let x = 0; x < W; x++) {
+            if (!land[y][x]) continue;
+            let n = 0;
+            for (const [dy, dx] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) {
+              const ny = y + dy, nx = (x + dx + W) % W;
+              if (land[ny]?.[nx]) n++;
+            }
+            if (n < 3) land[y][x] = false;
           }
-          if (neighbors < 2) land[y][x] = false;
         }
       }
 
