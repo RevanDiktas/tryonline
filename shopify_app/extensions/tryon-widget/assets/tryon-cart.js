@@ -112,15 +112,14 @@
       if (!html || typeof html !== 'string') continue;
       var wrap = document.createElement('div');
       wrap.innerHTML = html.trim();
-      var newEl = wrap.firstElementChild;
-      if (!newEl || !newEl.id) continue;
-      var existing = document.getElementById(newEl.id);
-      if (!existing && key) {
-        var keySlug = key.replace(/^template--\d+__/, '');
-        existing = document.querySelector('[id^="shopify-section-"][id*="' + keySlug + '"]');
-      }
+      var newEl = wrap.querySelector('[id^="shopify-section-"]') || wrap.firstElementChild;
+      if (!newEl) continue;
+      var newId = newEl.id;
+      var keySlug = key.replace(/^template--\d+__/, '');
+      /* Only replace Shopify section wrappers (id^="shopify-section-") to avoid wiping the wrong node and breaking the basket */
+      var existing = (newId && document.getElementById(newId)) || document.querySelector('[id^="shopify-section-"][id*="' + keySlug + '"]');
       if (!existing || !existing.parentNode) continue;
-      if (newEl.id !== existing.id) newEl.id = existing.id;
+      if (newId && newEl.id !== existing.id) newEl.id = existing.id;
       try {
         existing.parentNode.replaceChild(newEl, existing);
         replaced++;
@@ -134,7 +133,7 @@
     return replaced;
   }
 
-  /** Dawn-style: fetch section as HTML and replace specific cart elements. Also refresh cart icon section. */
+  /** Dawn-style: fetch section as HTML and replace specific cart elements. Returns a Promise that resolves when cart-drawer and cart-icon-bubble fetches finish. */
   function refreshCartDrawerDawn() {
     var path = (window.location.pathname || '/').split('?')[0];
     var base = (typeof window.Shopify !== 'undefined' && window.Shopify.routes && window.Shopify.routes.root) ? window.Shopify.routes.root.replace(/\/$/, '') : '';
@@ -142,14 +141,14 @@
 
     function replaceSectionHtml(sectionId) {
       var url = (base || path) + sep + 'section_id=' + encodeURIComponent(sectionId);
-      fetch(url)
+      return fetch(url)
         .then(function (r) { return r.text(); })
         .then(function (htmlText) {
           if (!htmlText || htmlText.length < 10) return;
           var doc = new DOMParser().parseFromString(htmlText, 'text/html');
           var sectionWrap = doc.querySelector('[id^="shopify-section-"]') || doc.body.firstElementChild;
           if (!sectionWrap || !sectionWrap.id) return;
-          var existing = document.getElementById(sectionWrap.id);
+          var existing = document.getElementById(sectionWrap.id) || document.querySelector('[id^="shopify-section-"][id*="' + sectionId + '"]');
           if (existing) {
             try {
               existing.innerHTML = sectionWrap.innerHTML;
@@ -163,8 +162,7 @@
         .catch(function () {});
     }
 
-    var drawerUrl = (base || path) + sep + 'section_id=cart-drawer';
-    fetch(drawerUrl)
+    var drawerPromise = fetch((base || path) + sep + 'section_id=cart-drawer')
       .then(function (r) { return r.text(); })
       .then(function (htmlText) {
         if (!htmlText || htmlText.length < 10) return;
@@ -182,7 +180,8 @@
       })
       .catch(function () {});
 
-    replaceSectionHtml('cart-icon-bubble');
+    var bubblePromise = replaceSectionHtml('cart-icon-bubble');
+    return Promise.all([drawerPromise, bubblePromise]);
   }
 
   /** Fetch section HTML via Section Rendering API (GET) and replace in DOM. */
@@ -213,49 +212,29 @@
     var didReplace = addResponse && addResponse.sections ? renderSections(addResponse.sections) : 0;
     if (didReplace > 0) console.log('[TryOn] Replaced', didReplace, 'section(s) from add response');
     if (!didReplace) fetchAndRenderSections();
-    refreshCartDrawerDawn();
-
+    function updateCountAndOpenDrawer(cart) {
+      var countStr = String(cart.item_count);
+      ['.cart-count-bubble span', '[data-cart-count]', '.cart-count', '#cart-icon-bubble span[aria-hidden]', '.cart-count-bubble', 'span.cart-count', '.cart-drawer__count', '[id*="cart"] span'].forEach(function (sel) {
+        try {
+          document.querySelectorAll(sel).forEach(function (el) {
+            if (el.tagName === 'SPAN' || el.tagName === 'SMALL') el.textContent = countStr;
+            else if (el.classList && el.classList.contains('cart-count-bubble')) el.textContent = countStr;
+            else if (el.getAttribute && el.getAttribute('data-cart-count') !== null) el.textContent = countStr;
+          });
+        } catch (err) {}
+      });
+      if (typeof window.Shopify !== 'undefined' && typeof window.Shopify.onCartUpdate === 'function') window.Shopify.onCartUpdate(cart);
+      document.dispatchEvent(new CustomEvent('cart:refresh', { detail: cart }));
+      window.dispatchEvent(new CustomEvent('tryon:cart_added', { detail: cart }));
+      var t = document.querySelector('[data-cart-drawer-toggle], cart-drawer summary, .js-drawer-open-right, [aria-controls="cart-drawer"]');
+      if (t) t.click();
+    }
     var cartJsUrl = (typeof window.Shopify !== 'undefined' && window.Shopify.routes && window.Shopify.routes.root) ? window.Shopify.routes.root + 'cart.js' : '/cart.js';
-    fetch(cartJsUrl)
-      .then(function (r) { return r.json(); })
-      .then(function (cart) {
-        /* Fallback: update cart count badges if section replace didn’t run or theme uses different IDs */
-        var countStr = String(cart.item_count);
-        var selectors = [
-          '.cart-count-bubble span',
-          '[data-cart-count]',
-          '.cart-count',
-          '#cart-icon-bubble span[aria-hidden]',
-          '.cart-count-bubble',
-          'span.cart-count',
-          '.cart-drawer__count',
-          '[id*="cart"] span',
-        ];
-        selectors.forEach(function (sel) {
-          try {
-            document.querySelectorAll(sel).forEach(function (el) {
-              if (el.tagName === 'SPAN' || el.tagName === 'SMALL') el.textContent = countStr;
-              else if (el.classList && el.classList.contains('cart-count-bubble')) el.textContent = countStr;
-              else if (el.getAttribute && el.getAttribute('data-cart-count') !== null) el.textContent = countStr;
-            });
-          } catch (err) {}
-        });
-
-        if (typeof window.Shopify !== 'undefined') {
-          if (typeof window.Shopify.onCartUpdate === 'function') {
-            window.Shopify.onCartUpdate(cart);
-          }
-        }
-        document.dispatchEvent(new CustomEvent('cart:refresh', { detail: cart }));
-        window.dispatchEvent(new CustomEvent('tryon:cart_added', { detail: cart }));
-
-        function openDrawer() {
-          var cartDrawerToggle = document.querySelector('[data-cart-drawer-toggle], cart-drawer summary, .js-drawer-open-right, [aria-controls="cart-drawer"]');
-          if (cartDrawerToggle) cartDrawerToggle.click();
-        }
-        /* Delay so section-replaced DOM is painted before opening drawer */
-        setTimeout(openDrawer, 300);
-      })
-      .catch(function () {});
+    var cartPromise = fetch(cartJsUrl).then(function (r) { return r.json(); });
+    refreshCartDrawerDawn()
+      .then(function () { return new Promise(function (r) { setTimeout(r, 250); }); })
+      .then(function () { return cartPromise; })
+      .then(updateCountAndOpenDrawer)
+      .catch(function () { cartPromise.then(updateCountAndOpenDrawer).catch(function () {}); });
   }
 })();
