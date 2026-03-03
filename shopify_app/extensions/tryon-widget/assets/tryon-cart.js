@@ -102,7 +102,14 @@
     return ['main-cart-items', 'cart-drawer', 'cart-icon-bubble', 'cart-items', 'cart-footer'];
   }
 
-  /** Replace DOM elements with section HTML. Response keys (e.g. main-cart-items) may not match wrapper id on page (e.g. shopify-section-template--123__main-cart-items). */
+  /**
+   * Update cart sections from add response (Dawn-aligned).
+   * Per Shopify + Dawn: only update innerHTML of the section wrapper so the wrapper
+   * and theme behavior (custom elements, listeners) stay intact. Replacing the whole
+   * node can break the basket and prevent instant cart updates.
+   * @see https://shopify.dev/docs/api/ajax/reference/cart#bundled-section-rendering
+   * @see https://nickdrishinski.com/blogs/shopify/how-dawn-theme-uses-section-rendering-api-for-cart-refresh
+   */
   function renderSections(sections) {
     if (!sections || typeof sections !== 'object') return 0;
     var replaced = 0;
@@ -116,19 +123,12 @@
       if (!newEl) continue;
       var newId = newEl.id;
       var keySlug = key.replace(/^template--\d+__/, '');
-      /* Only replace Shopify section wrappers (id^="shopify-section-") to avoid wiping the wrong node and breaking the basket */
       var existing = (newId && document.getElementById(newId)) || document.querySelector('[id^="shopify-section-"][id*="' + keySlug + '"]');
       if (!existing || !existing.parentNode) continue;
-      if (newId && newEl.id !== existing.id) newEl.id = existing.id;
       try {
-        existing.parentNode.replaceChild(newEl, existing);
+        existing.innerHTML = newEl.innerHTML;
         replaced++;
-      } catch (err) {
-        try {
-          existing.innerHTML = newEl.innerHTML;
-          replaced++;
-        } catch (e) {}
-      }
+      } catch (e) {}
     }
     return replaced;
   }
