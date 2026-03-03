@@ -46,8 +46,12 @@
     var properties = { _tryon_size: size, Size: sizeDisplay };
     if (payload.session_id) properties[ATTR_KEY] = payload.session_id;
 
-    var sectionIds = getCartSectionIds();
-    var sectionsList = sectionIds.slice(0, 5).join(',');
+    /* Request same sections the theme would (Dawn: cart-drawer getSectionsToRender().map(s => s.id)) so renderContents(response) can update */
+    var themeCart = document.querySelector('cart-drawer') || document.querySelector('cart-notification');
+    var sectionIds = (themeCart && typeof themeCart.getSectionsToRender === 'function')
+      ? themeCart.getSectionsToRender().map(function (s) { return s.id; })
+      : getCartSectionIds();
+    var sectionsList = (Array.isArray(sectionIds) ? sectionIds : sectionIds).slice(0, 5).join(',');
     var body = {
       items: [{ id: Number(variantId), quantity: 1, properties: properties }],
       sections: sectionsList,
@@ -209,6 +213,25 @@
   }
 
   function refreshCartUI(addResponse) {
+    var themeCart = document.querySelector('cart-drawer') || document.querySelector('cart-notification');
+    if (themeCart && typeof themeCart.renderContents === 'function' && addResponse && addResponse.sections) {
+      /* Dawn (and compatible themes): use the theme’s own update so drawer and icon update like native Add to cart */
+      try {
+        themeCart.renderContents(addResponse);
+        if (addResponse.item_count != null) {
+          document.dispatchEvent(new CustomEvent('cart:refresh', { detail: addResponse }));
+          window.dispatchEvent(new CustomEvent('tryon:cart_added', { detail: addResponse }));
+        }
+      } catch (e) {
+        console.warn('[TryOn] theme renderContents failed, using fallback:', e);
+        refreshCartUIFallback(addResponse);
+      }
+      return;
+    }
+    refreshCartUIFallback(addResponse);
+  }
+
+  function refreshCartUIFallback(addResponse) {
     var didReplace = addResponse && addResponse.sections ? renderSections(addResponse.sections) : 0;
     if (didReplace > 0) console.log('[TryOn] Replaced', didReplace, 'section(s) from add response');
     if (!didReplace) fetchAndRenderSections();
