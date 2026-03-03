@@ -1,0 +1,11 @@
+# Root .dockerignore: keep Docker build context small when building from repo root.
+# Only backend/ is COPY'd; ignore the rest to speed up upload.
+frontend/
+shopify_app/
+avatar-creation/
+docs/
+.git
+.gitignore
+*.md
+.env*
+node_modules/
