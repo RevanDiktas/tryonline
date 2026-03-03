@@ -682,28 +682,53 @@
     let modelType = 'combined'; // 'combined' | 'garment_only'
 
     // Fetch user data (avatar, measurements) when user_id present
-    // Use credentials: 'include' so session cookie is sent (same-origin when apiUrl is empty)
+    // 1) Try same-origin /api/avatar/:id (Next.js rewrites to backend).
+    // 2) If that fails (e.g. rewrite/deploy issue), try direct backend from /widget-config (backend must allow CORS for this origin).
+    function parseAvatarResponse(d) {
+      var m = d.measurements || {};
+      return {
+        avatarUrl: d.avatar_url || null,
+        measurements: {
+          chest: m.chest || 102,
+          waist: m.waist || 83,
+          hips: m.hips || 96,
+          height: m.height || (d.measurements && d.measurements.height) || 192
+        }
+      };
+    }
     async function fetchUserData() {
       if (!config.userId) return {};
+      var uid = encodeURIComponent(config.userId);
+      var sameOriginUrl = (config.apiUrl || '') + '/api/avatar/' + uid;
       try {
-        const r = await fetch(config.apiUrl + '/api/avatar/' + encodeURIComponent(config.userId), { credentials: 'include' });
-        if (!r.ok) {
-          if (r.status === 401) return { _authRequired: true };
+        var r = await fetch(sameOriginUrl, { credentials: 'include' });
+        if (r.ok) {
+          var d = await r.json();
+          return parseAvatarResponse(d);
+        }
+        if (r.status === 401) return { _authRequired: true };
+        console.warn('[TryOn] Avatar API (same-origin) failed:', r.status, r.statusText);
+      } catch (e) {
+        console.warn('[TryOn] Avatar API (same-origin) error:', e);
+      }
+      // Fallback: get backend URL from our app and request avatar directly (requires backend CORS for this origin)
+      try {
+        var configRes = await fetch('/widget-config', { credentials: 'include' });
+        if (!configRes.ok) return {};
+        var cfg = await configRes.json();
+        var backendUrl = (cfg.backendUrl || '').replace(/\/+$/, '');
+        if (!backendUrl) return {};
+        var directUrl = backendUrl + '/api/avatar/' + uid;
+        var r2 = await fetch(directUrl, { credentials: 'omit' });
+        if (!r2.ok) {
+          console.warn('[TryOn] Avatar API (direct) failed:', r2.status);
           return {};
         }
-        const d = await r.json();
-        const m = d.measurements || {};
-        return {
-          avatarUrl: d.avatar_url || null,
-          measurements: {
-            chest: m.chest || 102,
-            waist: m.waist || 83,
-            hips: m.hips || 96,
-            height: m.height || d.measurements?.height || 192
-          }
-        };
-      } catch (e) {
-        console.warn('[TryOn] Fetch user failed:', e);
+        var d2 = await r2.json();
+        console.log('[TryOn] Avatar loaded via direct backend fallback');
+        return parseAvatarResponse(d2);
+      } catch (e2) {
+        console.warn('[TryOn] Avatar direct fallback failed:', e2);
         return {};
       }
     }
@@ -762,7 +787,7 @@
           return false;
         }
         if (!userData.avatarUrl) {
-          showErrorState('Avatar not ready', 'Your avatar is not ready yet. Complete onboarding to generate it.');
+          showErrorState('Avatar not ready', 'Your avatar is not ready yet. Complete onboarding to generate it, or sign in again.');
           showErrorStateSignInLink();
           return false;
         }

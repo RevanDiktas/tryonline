@@ -26,7 +26,7 @@ The **frontend** (Vercel) needs **different** variables so the browser can call 
 
 | Variable | Example / where to get it |
 |----------|---------------------------|
-| `NEXT_PUBLIC_API_URL` | Your **Railway** backend URL, e.g. `https://heroic-celebration-production-9f72.up.railway.app` (no trailing slash). Required so `/api/*` is proxied to the backend; if missing, sign-in and try-on API calls fail. |
+| `NEXT_PUBLIC_API_URL` | Your **Railway** backend URL, e.g. `https://heroic-celebration-production-9f72.up.railway.app` (no trailing slash). **Required** so `/api/*` is proxied to the backend. If missing, sign-in and try-on API calls fail. **"Avatar not ready" on the store despite avatar ready on the dashboard** usually means this is unset or wrong — the widget cannot load avatar data. Set it in Vercel → Settings → Environment Variables, then redeploy. |
 | `NEXT_PUBLIC_SUPABASE_URL` | Your **Supabase** project URL, e.g. `https://cykwthsbrylonconqlfz.supabase.co` (same as `SUPABASE_URL` in backend .env). |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Your **Supabase anon (public) key** from Dashboard → Project Settings → API. This is a long JWT starting with `eyJ...`. **Not** the service_role key — the frontend must use the **anon** key. |
 
@@ -37,6 +37,8 @@ If `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` is missing or w
 **If sign-in fails or redirect fails:** In Supabase Dashboard → Authentication → URL Configuration, set Site URL to your Vercel domain and add to Redirect URLs: `https://tryonline.vercel.app/**` and `https://tryonline-cx1g.vercel.app/**`.
 
 **Sign-in on PDP (Shopify product page):** When the widget runs inside an iframe on the store, the app opens sign-in in a **popup** instead of in the iframe. That avoids third-party cookie blocking so Supabase can set the session. After you sign in, the popup closes and the iframe reloads with your user so the try-on opens.
+
+**"Avatar not ready" on the store but avatar works on tryonline.vercel.app/dashboard:** The widget first requests avatar via same-origin `GET /api/avatar/:user_id` (Next.js rewrites to your backend). If that fails, it fetches `/widget-config` to get the backend URL and retries the avatar request directly. For the **direct fallback** to work, your **Railway** backend must allow CORS from your frontend: set `CORS_ORIGINS` in Railway to include `https://tryonline.vercel.app` (and any other Vercel URLs you use, e.g. `https://tryonline-cx1g.vercel.app`). Also ensure `NEXT_PUBLIC_API_URL` is set on Vercel and redeploy after changing env vars.
 
 ## Deploy and verify
 
