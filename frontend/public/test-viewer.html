@@ -505,6 +505,7 @@
     <div class="tryon-error-state-inner">
       <h3 id="tryon-error-title">Try-on unavailable</h3>
       <p id="tryon-error-message"></p>
+      <p id="tryon-error-signin-wrap" style="display:none;margin-top:16px;"></p>
     </div>
   </div>
   <style>
@@ -520,6 +521,7 @@
   .tryon-error-state-inner{background:#fff;border-radius:16px;padding:32px;max-width:360px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
   .tryon-error-state-inner h3{font-size:16px;margin-bottom:12px;color:#1a1a1a;}
   .tryon-error-state-inner p{color:#555;font-size:14px;}
+  .tryon-error-state-inner a.tryon-error-signin{display:inline-block;margin-top:8px;color:#0a0a0a;font-weight:500;text-decoration:underline;}
   </style>
 
   <!-- TryOn Overlay -->
@@ -680,11 +682,15 @@
     let modelType = 'combined'; // 'combined' | 'garment_only'
 
     // Fetch user data (avatar, measurements) when user_id present
+    // Use credentials: 'include' so session cookie is sent (same-origin when apiUrl is empty)
     async function fetchUserData() {
       if (!config.userId) return {};
       try {
-        const r = await fetch(config.apiUrl + '/api/avatar/' + config.userId);
-        if (!r.ok) return {};
+        const r = await fetch(config.apiUrl + '/api/avatar/' + encodeURIComponent(config.userId), { credentials: 'include' });
+        if (!r.ok) {
+          if (r.status === 401) return { _authRequired: true };
+          return {};
+        }
         const d = await r.json();
         const m = d.measurements || {};
         return {
@@ -725,11 +731,20 @@
       const el = document.getElementById('tryon-error-state');
       const titleEl = document.getElementById('tryon-error-title');
       const msgEl = document.getElementById('tryon-error-message');
+      const signinWrap = document.getElementById('tryon-error-signin-wrap');
       if (el && titleEl && msgEl) {
         titleEl.textContent = title;
         msgEl.textContent = message;
+        if (signinWrap) { signinWrap.style.display = 'none'; signinWrap.innerHTML = ''; }
         el.style.display = 'flex';
       }
+    }
+    function showErrorStateSignInLink() {
+      const signinWrap = document.getElementById('tryon-error-signin-wrap');
+      if (!signinWrap || typeof buildWidgetSignInUrl !== 'function') return;
+      const url = buildWidgetSignInUrl(false);
+      signinWrap.innerHTML = '<a href="' + url + '" class="tryon-error-signin" id="tryon-error-signin-link">Sign in again</a>';
+      signinWrap.style.display = 'block';
     }
 
     // Initialize: fetch user + product from API only (no demo fallbacks). Then preload or show error.
@@ -741,8 +756,14 @@
       ]);
       // Require avatar from Supabase when user_id is present
       if (config.userId) {
+        if (userData._authRequired) {
+          showErrorState('Session expired', 'Please sign in again to use your avatar.');
+          showErrorStateSignInLink();
+          return false;
+        }
         if (!userData.avatarUrl) {
           showErrorState('Avatar not ready', 'Your avatar is not ready yet. Complete onboarding to generate it.');
+          showErrorStateSignInLink();
           return false;
         }
         userMeasurements = userData.measurements || {};
@@ -1001,7 +1022,9 @@
       });
     }
 
-    // Start: when open=1, check session first (memory) so returning users don't have to log in again
+    // Start: when open=1, check session first (memory) so returning users don't have to log in again.
+    // In iframe, /auth/me often returns 401 (cookies not sent), so we show login gate; after sign-in
+    // via widget-signin popup we get user_id via postMessage and reload with user_id in URL.
     if (config.openDirect) {
       if (!config.userId) {
         fetch('/auth/me', { credentials: 'include' })

@@ -46,14 +46,16 @@
     var properties = { _tryon_size: size, Size: sizeDisplay };
     if (payload.session_id) properties[ATTR_KEY] = payload.session_id;
 
-    /* Request cart sections so we get fresh HTML and can update UI without full page refresh (Shopify bundled section rendering) */
-    var sectionsList = 'cart-icon-bubble,cart-drawer,cart-items';
+    var sectionIds = getCartSectionIds();
+    var sectionsList = sectionIds.slice(0, 5).join(',');
     var body = {
       items: [{ id: Number(variantId), quantity: 1, properties: properties }],
       sections: sectionsList,
+      sections_url: (window.location.pathname || '/').split('?')[0],
     };
+    var cartAddUrl = (typeof window.Shopify !== 'undefined' && window.Shopify.routes && window.Shopify.routes.root) ? window.Shopify.routes.root + 'cart/add.js' : '/cart/add.js';
 
-    fetch('/cart/add.js', {
+    fetch(cartAddUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -62,6 +64,10 @@
       .then(function (data) {
         if (data.items) {
           console.log('[TryOn] Added to cart:', size.toUpperCase(), '— variant', variantId);
+          if (data.sections) {
+            var keys = Object.keys(data.sections).filter(function (k) { return data.sections[k]; });
+            console.log('[TryOn] Add response had sections:', keys.length ? keys.join(', ') : 'all null');
+          }
           refreshCartUI(data);
         } else {
           console.warn('[TryOn] Cart add rejected (variant ' + variantId + '):', data.message || data.description || data);
@@ -73,50 +79,164 @@
       });
   });
 
-  /**
-   * Replace DOM elements with section HTML from Shopify (bundled section rendering).
-   * This is why the cart updates without refresh — we swap in the new HTML.
-   */
+  /** Discover cart-related section IDs (Dawn: data-id on #main-cart-items; or wrapper id from shopify-section-*). */
+  function getCartSectionIds() {
+    var ids = [];
+    var seen = {};
+    function add(id) {
+      if (id && !seen[id]) { seen[id] = true; ids.push(id); }
+    }
+    var nodes = document.querySelectorAll('[id^="shopify-section-"]');
+    for (var i = 0; i < nodes.length; i++) {
+      var sectionId = nodes[i].id.replace(/^shopify-section-/, '');
+      if (/cart|drawer|bubble|icon|main-cart/.test(sectionId)) add(sectionId);
+    }
+    var mainCart = document.getElementById('main-cart-items');
+    if (mainCart && mainCart.dataset && mainCart.dataset.id) add(mainCart.dataset.id);
+    var cartDrawerEl = document.querySelector('cart-drawer, [id*="cart-drawer"], [id*="CartDrawer"]');
+    if (cartDrawerEl) {
+      var wrapper = cartDrawerEl.closest('[id^="shopify-section-"]');
+      if (wrapper) add(wrapper.id.replace(/^shopify-section-/, ''));
+    }
+    if (ids.length) return ids;
+    return ['main-cart-items', 'cart-drawer', 'cart-icon-bubble', 'cart-items', 'cart-footer'];
+  }
+
+  /** Replace DOM elements with section HTML. Response keys (e.g. main-cart-items) may not match wrapper id on page (e.g. shopify-section-template--123__main-cart-items). */
   function renderSections(sections) {
-    if (!sections || typeof sections !== 'object') return;
-    var sectionIds = ['cart-icon-bubble', 'cart-drawer', 'cart-items'];
-    for (var i = 0; i < sectionIds.length; i++) {
-      var id = sectionIds[i];
-      var html = sections[id];
+    if (!sections || typeof sections !== 'object') return 0;
+    var replaced = 0;
+    for (var key in sections) {
+      if (!sections.hasOwnProperty(key)) continue;
+      var html = sections[key];
       if (!html || typeof html !== 'string') continue;
       var wrap = document.createElement('div');
       wrap.innerHTML = html.trim();
       var newEl = wrap.firstElementChild;
       if (!newEl || !newEl.id) continue;
       var existing = document.getElementById(newEl.id);
-      if (existing && existing.parentNode) {
+      if (!existing && key) {
+        var keySlug = key.replace(/^template--\d+__/, '');
+        existing = document.querySelector('[id^="shopify-section-"][id*="' + keySlug + '"]');
+      }
+      if (!existing || !existing.parentNode) continue;
+      if (newEl.id !== existing.id) newEl.id = existing.id;
+      try {
         existing.parentNode.replaceChild(newEl, existing);
+        replaced++;
+      } catch (err) {
+        try {
+          existing.innerHTML = newEl.innerHTML;
+          replaced++;
+        } catch (e) {}
       }
     }
+    return replaced;
+  }
+
+  /** Dawn-style: fetch section as HTML and replace specific cart elements. Also refresh cart icon section. */
+  function refreshCartDrawerDawn() {
+    var path = (window.location.pathname || '/').split('?')[0];
+    var base = (typeof window.Shopify !== 'undefined' && window.Shopify.routes && window.Shopify.routes.root) ? window.Shopify.routes.root.replace(/\/$/, '') : '';
+    var sep = path.indexOf('?') >= 0 ? '&' : '?';
+
+    function replaceSectionHtml(sectionId) {
+      var url = (base || path) + sep + 'section_id=' + encodeURIComponent(sectionId);
+      fetch(url)
+        .then(function (r) { return r.text(); })
+        .then(function (htmlText) {
+          if (!htmlText || htmlText.length < 10) return;
+          var doc = new DOMParser().parseFromString(htmlText, 'text/html');
+          var sectionWrap = doc.querySelector('[id^="shopify-section-"]') || doc.body.firstElementChild;
+          if (!sectionWrap || !sectionWrap.id) return;
+          var existing = document.getElementById(sectionWrap.id);
+          if (existing) {
+            try {
+              existing.innerHTML = sectionWrap.innerHTML;
+            } catch (e) {
+              try {
+                existing.parentNode.replaceChild(sectionWrap.cloneNode(true), existing);
+              } catch (e2) {}
+            }
+          }
+        })
+        .catch(function () {});
+    }
+
+    var drawerUrl = (base || path) + sep + 'section_id=cart-drawer';
+    fetch(drawerUrl)
+      .then(function (r) { return r.text(); })
+      .then(function (htmlText) {
+        if (!htmlText || htmlText.length < 10) return;
+        var doc = new DOMParser().parseFromString(htmlText, 'text/html');
+        var selectors = ['cart-drawer-items', '.cart-drawer__footer', '.drawer__contents', '.cart-drawer__form'];
+        for (var i = 0; i < selectors.length; i++) {
+          var source = doc.querySelector(selectors[i]);
+          var target = document.querySelector(selectors[i]);
+          if (source && target) {
+            try {
+              target.replaceWith(source.cloneNode(true));
+            } catch (e) {}
+          }
+        }
+      })
+      .catch(function () {});
+
+    replaceSectionHtml('cart-icon-bubble');
+  }
+
+  /** Fetch section HTML via Section Rendering API (GET) and replace in DOM. */
+  function fetchAndRenderSections() {
+    var ids = getCartSectionIds().slice(0, 5);
+    var q = ids.join(',');
+    var path = (window.location.pathname || '/').split('?')[0];
+    var sep = path.indexOf('?') >= 0 ? '&' : '?';
+    var url = path + sep + 'sections=' + encodeURIComponent(q);
+    fetch(url, { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && typeof data === 'object' && renderSections(data) > 0) return;
+        var root = (typeof window.Shopify !== 'undefined' && window.Shopify.routes && window.Shopify.routes.root) ? window.Shopify.routes.root.replace(/\/$/, '') : '';
+        var rootUrl = (root || '/') + (root ? '?' : '?') + 'sections=' + encodeURIComponent(q);
+        if (rootUrl === url) return;
+        fetch(rootUrl, { headers: { Accept: 'application/json' } })
+          .then(function (r2) { return r2.json(); })
+          .then(function (data2) {
+            if (data2 && typeof data2 === 'object') renderSections(data2);
+          })
+          .catch(function () {});
+      })
+      .catch(function () {});
   }
 
   function refreshCartUI(addResponse) {
-    /* If add response included sections (bundled section rendering), replace DOM first — cart updates without refresh */
-    if (addResponse && addResponse.sections) {
-      renderSections(addResponse.sections);
-    }
+    var didReplace = addResponse && addResponse.sections ? renderSections(addResponse.sections) : 0;
+    if (didReplace > 0) console.log('[TryOn] Replaced', didReplace, 'section(s) from add response');
+    if (!didReplace) fetchAndRenderSections();
+    refreshCartDrawerDawn();
 
-    fetch('/cart.js')
+    var cartJsUrl = (typeof window.Shopify !== 'undefined' && window.Shopify.routes && window.Shopify.routes.root) ? window.Shopify.routes.root + 'cart.js' : '/cart.js';
+    fetch(cartJsUrl)
       .then(function (r) { return r.json(); })
       .then(function (cart) {
         /* Fallback: update cart count badges if section replace didn’t run or theme uses different IDs */
+        var countStr = String(cart.item_count);
         var selectors = [
           '.cart-count-bubble span',
           '[data-cart-count]',
           '.cart-count',
           '#cart-icon-bubble span[aria-hidden]',
           '.cart-count-bubble',
+          'span.cart-count',
+          '.cart-drawer__count',
+          '[id*="cart"] span',
         ];
         selectors.forEach(function (sel) {
           try {
             document.querySelectorAll(sel).forEach(function (el) {
-              if (el.tagName === 'SPAN' || el.tagName === 'SMALL') el.textContent = cart.item_count;
-              else if (el.classList && el.classList.contains('cart-count-bubble')) el.textContent = cart.item_count;
+              if (el.tagName === 'SPAN' || el.tagName === 'SMALL') el.textContent = countStr;
+              else if (el.classList && el.classList.contains('cart-count-bubble')) el.textContent = countStr;
+              else if (el.getAttribute && el.getAttribute('data-cart-count') !== null) el.textContent = countStr;
             });
           } catch (err) {}
         });
@@ -129,8 +249,12 @@
         document.dispatchEvent(new CustomEvent('cart:refresh', { detail: cart }));
         window.dispatchEvent(new CustomEvent('tryon:cart_added', { detail: cart }));
 
-        var cartDrawerToggle = document.querySelector('[data-cart-drawer-toggle], cart-drawer summary, .js-drawer-open-right, [aria-controls="cart-drawer"]');
-        if (cartDrawerToggle) cartDrawerToggle.click();
+        function openDrawer() {
+          var cartDrawerToggle = document.querySelector('[data-cart-drawer-toggle], cart-drawer summary, .js-drawer-open-right, [aria-controls="cart-drawer"]');
+          if (cartDrawerToggle) cartDrawerToggle.click();
+        }
+        /* Delay so section-replaced DOM is painted before opening drawer */
+        setTimeout(openDrawer, 300);
       })
       .catch(function () {});
   }
