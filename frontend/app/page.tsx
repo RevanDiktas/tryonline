@@ -44,20 +44,20 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="absolute top-0 left-0 right-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-6 flex items-center justify-between">
+      {/* Header — on mobile: compact bar with bg so it doesn't overlap hero; desktop unchanged */}
+      <header className="absolute top-0 left-0 right-0 z-10 bg-white md:bg-transparent border-b border-gray-100 md:border-0">
+        <div className="max-w-6xl mx-auto px-4 py-4 md:px-6 md:py-6 flex items-center justify-between">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/tryon-logo.jpg" alt="TRYON" className="h-14 w-auto" />
+          <img src="/tryon-logo.jpg" alt="TRYON" className="h-10 w-auto md:h-14" />
 
           {user ? (
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 md:gap-4">
               <span className="text-sm text-gray-600 hidden sm:inline">
                 {user.user_type === 'brand' ? (brandName || user.name || user.email) : (user.name || user.email)}
               </span>
               <Link
                 href={dashboardUrl}
-                className="px-6 py-2.5 bg-black text-white font-medium rounded-xl hover:bg-gray-800 transition text-sm"
+                className="px-4 py-2 md:px-6 md:py-2.5 bg-black text-white font-medium rounded-xl hover:bg-gray-800 transition text-sm"
               >
                 {user.user_type === 'brand' ? 'Brand Dashboard' : 'My Dashboard'}
               </Link>
@@ -65,7 +65,7 @@ export default function HomePage() {
           ) : (
             <Link
               href="/login"
-              className="px-6 py-2.5 bg-black text-white font-medium rounded-xl hover:bg-gray-800 transition text-sm"
+              className="px-4 py-2 md:px-6 md:py-2.5 bg-black text-white font-medium rounded-xl hover:bg-gray-800 transition text-sm"
             >
               Sign In
             </Link>
@@ -73,9 +73,9 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Hero */}
-      <main className="relative min-h-screen flex items-center justify-center px-4">
-        <div className="relative text-center max-w-3xl mx-auto">
+      {/* Hero — on mobile: start below header to avoid overlap; desktop centered unchanged */}
+      <main className="relative min-h-screen flex items-start md:items-center justify-center px-4 pt-20 md:pt-0">
+        <div className="relative text-center max-w-3xl mx-auto pt-4 md:pt-0">
           <h2 className="text-5xl md:text-7xl font-bold text-black mb-6 leading-tight">
             Virtual Try-On
             <br />
