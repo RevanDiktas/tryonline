@@ -1063,6 +1063,7 @@
       u.searchParams.set('open', '1');
       var url = (window.location.origin || 'https://tryonline.vercel.app') + '/widget-signin?return=' + encodeURIComponent(u.toString());
       if (popup) url += '&popup=1';
+      if (inIframe && isMobileDevice()) url += '&show_form=1';
       return url;
     }
     function showLoginGate() {

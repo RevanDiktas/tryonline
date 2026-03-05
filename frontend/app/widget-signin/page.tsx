@@ -19,6 +19,7 @@ export default function WidgetSignInPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnUrl = searchParams.get('return');
+  const showForm = searchParams.get('show_form') === '1';
 
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -31,6 +32,10 @@ export default function WidgetSignInPage() {
   useEffect(() => {
     const run = async () => {
       if (!SUPABASE_CONFIGURED) {
+        setChecking(false);
+        return;
+      }
+      if (showForm) {
         setChecking(false);
         return;
       }
@@ -58,7 +63,7 @@ export default function WidgetSignInPage() {
       setChecking(false);
     };
     run();
-  }, [returnUrl, isPopup, router]);
+  }, [returnUrl, isPopup, router, showForm]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
