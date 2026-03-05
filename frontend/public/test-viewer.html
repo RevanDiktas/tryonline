@@ -405,17 +405,17 @@
       .avatar-section {
         border-right: none;
         border-bottom: 1px solid rgba(255, 255, 255, 0.3);
-        min-height: 44vh;
-        height: 44vh;
-        max-height: 48vh;
+        min-height: 50vh;
+        height: 50vh;
+        max-height: 52vh;
         flex-shrink: 0;
         border-radius: 0;
       }
 
       #canvas-container {
-        min-height: 44vh;
+        min-height: 50vh;
         height: 100%;
-        max-height: 48vh;
+        max-height: 52vh;
       }
 
       .info-section {
@@ -429,24 +429,24 @@
       .measurements {
         display: flex;
         flex-direction: row;
-        flex-wrap: wrap;
-        gap: 8px 14px;
+        flex-wrap: nowrap;
+        gap: 6px 8px;
         margin-bottom: 10px;
       }
 
       .measurement-item {
         margin-bottom: 0;
-        flex: 1 1 22%;
-        min-width: 54px;
+        flex: 1 1 0;
+        min-width: 0;
       }
 
       .measurement-label {
-        font-size: 7px;
-        margin-bottom: 1px;
+        font-size: 6px;
+        margin-bottom: 0;
       }
 
       .measurement-value {
-        font-size: 12px;
+        font-size: 11px;
       }
 
       .size-selector {
@@ -1475,6 +1475,8 @@
       currentModel.position.x = -center.x;
       currentModel.position.y = -center.y + modelSize.y / 2;
       currentModel.position.z = -center.z;
+
+      if (window.innerWidth <= 768) currentModel.scale.multiplyScalar(1.2);
 
       scene.add(currentModel);
       controls.target.set(0, modelSize.y / 2, 0);
