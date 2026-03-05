@@ -796,7 +796,9 @@
         a.addEventListener('click', function(e) {
           e.preventDefault();
           var href = a.getAttribute('href');
-          if (href && href !== '#') window.location.href = href;
+          if (href && href !== '#') {
+            try { window.top.location.href = href; } catch (err) { window.location.href = href; }
+          }
         });
       });
     }
@@ -1069,9 +1071,9 @@
       signinBtn.addEventListener('click', function(e) {
         e.preventDefault();
         if (inIframe) {
-          // In iframe (e.g. Shopify store): use redirect so we don't rely on postMessage.
-          // Sign-in page will redirect back to return= URL + user_id, so we get a real session.
-          window.location.href = buildWidgetSignInUrl(false);
+          // In iframe (e.g. Shopify store): mobile often blocks iframe navigation to another origin.
+          // Navigate the whole tab so sign-in page actually loads; after sign-in user lands on widget URL with user_id.
+          try { window.top.location.href = buildWidgetSignInUrl(false); } catch (err) { window.location.href = buildWidgetSignInUrl(false); }
           return;
         }
         if (!signinBtn.href || signinBtn.href === '#' || signinBtn.href === '') {
