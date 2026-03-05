@@ -1478,12 +1478,12 @@
 
       if (window.innerWidth <= 768) {
         currentModel.scale.multiplyScalar(1.6);
-        currentModel.position.y -= 0.25;
+        currentModel.position.y += 0.5;
       }
 
       scene.add(currentModel);
       var targetY = modelSize.y / 2;
-      if (window.innerWidth <= 768) targetY -= 0.25;
+      if (window.innerWidth <= 768) targetY += 0.5;
       controls.target.set(0, targetY, 0);
       controls.update();
 
