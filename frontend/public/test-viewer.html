@@ -1476,10 +1476,15 @@
       currentModel.position.y = -center.y + modelSize.y / 2;
       currentModel.position.z = -center.z;
 
-      if (window.innerWidth <= 768) currentModel.scale.multiplyScalar(1.6);
+      if (window.innerWidth <= 768) {
+        currentModel.scale.multiplyScalar(1.6);
+        currentModel.position.y -= 0.25;
+      }
 
       scene.add(currentModel);
-      controls.target.set(0, modelSize.y / 2, 0);
+      var targetY = modelSize.y / 2;
+      if (window.innerWidth <= 768) targetY -= 0.25;
+      controls.target.set(0, targetY, 0);
       controls.update();
 
       if (!hasTrackedTryonStarted) {
