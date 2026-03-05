@@ -787,12 +787,26 @@
         el.style.display = 'flex';
       }
     }
+    function bindErrorSigninLinksInIframe() {
+      var inIframe = typeof window !== 'undefined' && window.self !== window.top;
+      if (!inIframe) return;
+      var wrap = document.getElementById('tryon-error-signin-wrap');
+      if (!wrap) return;
+      wrap.querySelectorAll('a.tryon-error-signin').forEach(function(a) {
+        a.addEventListener('click', function(e) {
+          e.preventDefault();
+          var href = a.getAttribute('href');
+          if (href && href !== '#') window.location.href = href;
+        });
+      });
+    }
     function showErrorStateSignInLink() {
       const signinWrap = document.getElementById('tryon-error-signin-wrap');
       if (!signinWrap || typeof buildWidgetSignInUrl !== 'function') return;
       const url = buildWidgetSignInUrl(false);
       signinWrap.innerHTML = '<a href="' + url + '" class="tryon-error-signin" id="tryon-error-signin-link">Sign in again</a>';
       signinWrap.style.display = 'block';
+      bindErrorSigninLinksInIframe();
     }
     function showErrorStateAvatarNotReady() {
       const signinWrap = document.getElementById('tryon-error-signin-wrap');
@@ -804,6 +818,7 @@
       if (again && typeof buildWidgetSignInUrl === 'function') {
         again.href = buildWidgetSignInUrl(false);
       }
+      bindErrorSigninLinksInIframe();
     }
 
     // Initialize: fetch user + product from API only (no demo fallbacks). Then preload or show error.
