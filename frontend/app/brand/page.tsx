@@ -224,16 +224,37 @@ export default function BrandDashboardPage() {
   return (
     <div className={`min-h-screen transition-colors ${dark ? 'bg-black text-white' : 'bg-white text-black'}`}>
       <header className={`sticky top-0 z-20 backdrop-blur-xl border-b ${dark ? 'bg-black/95 border-white/10' : 'bg-white/95 border-black/10'}`}>
-        <div className="max-w-7xl mx-auto px-4 py-1.5 flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-2 shrink-0 opacity-90 hover:opacity-100 transition-opacity">
-            <img src="/tryon-logo.jpg" alt="TRYON" className="h-5 w-auto rounded" />
-          </Link>
-          <nav className="flex gap-0.5 min-w-0">
+        <div className="max-w-7xl mx-auto px-4 py-2 md:py-1.5 flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
+          {/* Mobile: row 1 — logo left, Refresh + theme + Sign out right (no overlap, nothing off-screen) */}
+          <div className="flex items-center justify-between gap-2 md:contents">
+            <Link href="/" className="flex items-center gap-2 shrink-0 opacity-90 hover:opacity-100 transition-opacity">
+              <img src="/tryon-logo.jpg" alt="TRYON" className="h-5 w-auto rounded" />
+            </Link>
+            <div className="flex items-center gap-2 shrink-0 md:hidden">
+              <button
+                onClick={toggleTheme}
+                className={`p-1.5 rounded transition-colors ${dark ? 'text-white/50 hover:text-white/80' : 'text-black/50 hover:text-black/80'}`}
+                title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {dark ? <SunIcon /> : <MoonIcon />}
+              </button>
+              <button
+                onClick={fetchMetrics}
+                disabled={metricsLoading}
+                className={`text-[10px] px-3 py-1.5 rounded border disabled:opacity-50 transition-colors ${dark ? 'bg-white text-black border-white/50 hover:bg-white/90' : 'bg-black text-white border-black/50 hover:bg-black/90'}`}
+              >
+                {metricsLoading ? '...' : 'Refresh'}
+              </button>
+              <button onClick={handleLogout} className={`${dark ? 'text-white/40 hover:text-white/70' : 'text-black/40 hover:text-black/70'} text-[10px] transition-colors whitespace-nowrap`}>Sign out</button>
+            </div>
+          </div>
+          {/* Tabs + Garments: horizontal scroll on mobile so all are tappable; single row on desktop */}
+          <nav className="flex gap-0.5 min-w-0 overflow-x-auto pb-1 -mx-1 md:overflow-visible md:pb-0 md:mx-0">
             {tabs.map(({ id, label }) => (
               <button
                 key={id}
                 onClick={() => setTab(id)}
-                className={`px-2.5 py-1 text-xs font-medium transition-all whitespace-nowrap ${
+                className={`px-2.5 py-1.5 text-xs font-medium transition-all whitespace-nowrap shrink-0 ${
                   tab === id
                     ? dark ? 'text-white' : 'text-black'
                     : dark ? 'text-white/35 hover:text-white/60' : 'text-black/35 hover:text-black/60'
@@ -244,12 +265,32 @@ export default function BrandDashboardPage() {
             ))}
             <Link
               href="/brand/garments"
-              className={`px-2.5 py-1 text-xs font-medium transition-all whitespace-nowrap ${dark ? 'text-white/35 hover:text-white/60' : 'text-black/35 hover:text-black/60'}`}
+              className={`px-2.5 py-1.5 text-xs font-medium transition-all whitespace-nowrap shrink-0 ${dark ? 'text-white/35 hover:text-white/60' : 'text-black/35 hover:text-black/60'}`}
             >
               Garments
             </Link>
+            {/* Mobile: shop + range at end of scroll so they stay accessible */}
+            <div className="flex items-center gap-2 shrink-0 pl-2 md:hidden">
+              <select
+                value={metricsShop}
+                onChange={(e) => setMetricsShop(e.target.value)}
+                className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
+              >
+                <option value="">All shops</option>
+                {brandShop && <option value={brandShop}>{brandShop}</option>}
+              </select>
+              <select
+                value={metricsRange}
+                onChange={(e) => setMetricsRange(e.target.value as '7d' | '30d')}
+                className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
+              >
+                <option value="7d">7d</option>
+                <option value="30d">30d</option>
+              </select>
+            </div>
           </nav>
-          <div className="flex items-center gap-2 ml-auto shrink-0">
+          {/* Desktop only: right group (unchanged) */}
+          <div className="hidden md:flex items-center gap-2 ml-auto shrink-0">
             <select
               value={metricsShop}
               onChange={(e) => setMetricsShop(e.target.value)}
@@ -280,7 +321,7 @@ export default function BrandDashboardPage() {
             >
               {metricsLoading ? '...' : 'Refresh'}
             </button>
-            {user && <span className={`${dark ? 'text-white/40' : 'text-black/40'} text-[10px] hidden md:inline`}>{user.email}</span>}
+            {user && <span className={`${dark ? 'text-white/40' : 'text-black/40'} text-[10px]`}>{user.email}</span>}
             <button onClick={handleLogout} className={`${dark ? 'text-white/40 hover:text-white/70' : 'text-black/40 hover:text-black/70'} text-[10px] transition-colors`}>Sign out</button>
           </div>
         </div>
@@ -472,6 +513,60 @@ export default function BrandDashboardPage() {
 
             {/* ── Analytics cards — left side, scrollable ── */}
             <div className="relative z-10 lg:max-w-[44%] space-y-6">
+              {/* Mobile only: Regional size (globe + chart) at top so it's visible when scrolling; desktop keeps globe in fixed right panel */}
+              <div className="lg:hidden">
+                {hasRegional ? (
+                  <div className="space-y-3">
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size</p>
+                    <div className={`rounded-lg overflow-hidden border ${dark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-white/50'}`}>
+                      <div className="flex border-b border-inherit">
+                        <button
+                          type="button"
+                          onClick={() => setRegionalView('globe')}
+                          className={`flex-1 px-3 py-2 text-[10px] font-medium transition-colors flex items-center justify-center gap-1.5 ${regionalView === 'globe' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" /></svg>
+                          Globe
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRegionalView('chart')}
+                          className={`flex-1 px-3 py-2 text-[10px] font-medium transition-colors flex items-center justify-center gap-1.5 ${regionalView === 'chart' ? (dark ? 'bg-white/15 text-white' : 'bg-black text-white') : (dark ? 'text-white/40 hover:text-white/60' : 'text-gray-400 hover:text-gray-600')}`}
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="3" width="7" height="18" rx="1" /><rect x="14" y="9" width="7" height="12" rx="1" /></svg>
+                          Chart
+                        </button>
+                      </div>
+                      <div className="p-3" style={{ minHeight: 260 }}>
+                        {regionalView === 'globe' ? (
+                          <RegionalSizeGlobe
+                            by_country={(regionalSize!.by_country ?? {}) as Record<string, Record<string, number>>}
+                            raw_counts={(regionalSize as Record<string, unknown>).raw_counts as Record<string, Record<string, number>> | undefined}
+                            top_size_by_country={(regionalSize!.top_size_by_country ?? {}) as Record<string, string>}
+                            dark={dark}
+                          />
+                        ) : (
+                          <div style={{ height: 220 }}><RegionalSizeChart by_country={(regionalSize!.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div>
+                        )}
+                      </div>
+                      {hasCountryTags && (
+                        <div className={`px-3 pb-3 flex flex-wrap gap-1.5 ${dark ? 'text-white/50' : 'text-black/50'}`}>
+                          {Object.entries(regionalSize!.top_size_by_country as Record<string, string>)
+                            .sort(([a], [b]) => a.localeCompare(b))
+                            .map(([country, size]) => (
+                              <span key={country} className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium ${dark ? 'bg-black/40' : 'bg-white/60'}`}>
+                                {country}: <strong className="ml-0.5">{String(size)}</strong>
+                              </span>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className={panelClass} style={chartPanelMinH}><EmptyState message="No regional data" sub="Country may be missing from events" dark={dark} /></div>
+                )}
+              </div>
+
               {metricsLoading && !velocity ? (
                 <div className="py-24 flex justify-center"><div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-white' : 'border-black/20 border-t-black'}`} /></div>
               ) : (
@@ -542,16 +637,6 @@ export default function BrandDashboardPage() {
                         </table>
                       </div>
                     ) : <EmptyState message="No size stress" sub="All sizes show healthy conversion" dark={dark} />}
-                  </div>
-
-                  {/* Mobile: regional chart inline (globe hidden on small screens) */}
-                  <div className="lg:hidden">
-                    {hasRegional ? (
-                      <div>
-                        <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${dark ? 'text-white/45' : 'text-black/45'}`}>Regional size</p>
-                        <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><RegionalSizeChart by_country={(regionalSize!.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div></div>
-                      </div>
-                    ) : <EmptyState message="No regional data" sub="Country may be missing from events" dark={dark} />}
                   </div>
                 </>
               )}
