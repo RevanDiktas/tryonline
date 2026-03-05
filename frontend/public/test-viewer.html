@@ -405,17 +405,17 @@
       .avatar-section {
         border-right: none;
         border-bottom: 1px solid rgba(255, 255, 255, 0.3);
-        min-height: 38vh;
-        height: 38vh;
-        max-height: 40vh;
+        min-height: 44vh;
+        height: 44vh;
+        max-height: 48vh;
         flex-shrink: 0;
         border-radius: 0;
       }
 
       #canvas-container {
-        min-height: 38vh;
+        min-height: 44vh;
         height: 100%;
-        max-height: 40vh;
+        max-height: 48vh;
       }
 
       .info-section {
@@ -441,12 +441,12 @@
       }
 
       .measurement-label {
-        font-size: 8px;
+        font-size: 7px;
         margin-bottom: 1px;
       }
 
       .measurement-value {
-        font-size: 14px;
+        font-size: 12px;
       }
 
       .size-selector {
@@ -545,12 +545,22 @@
       var defaultApiUrl = isLocal ? 'http://localhost:8000' : '';
       var openParam = p.get('open') === '1';
       var inIframe = typeof window !== 'undefined' && window.self !== window.top;
+      var userId = p.get('user_id') || null;
+      if ((openParam || inIframe) && !userId) {
+        try {
+          var stored = sessionStorage.getItem('tryon_user_id');
+          if (stored) userId = stored;
+        } catch (e) {}
+      }
+      if (userId) {
+        try { sessionStorage.setItem('tryon_user_id', userId); } catch (e) {}
+      }
       window.TRYON_CONFIG = {
         apiUrl: p.get('api_url') ?? defaultApiUrl,
         productId: p.get('product_id') || '',
         variantId: p.get('variant_id') || '',
         shopDomain: p.get('shop') || 'demo.myshopify.com',
-        userId: p.get('user_id') || null,
+        userId: userId,
         preferredFit: p.get('preferred_fit') || null,
         openDirect: openParam || inIframe
       };
@@ -1220,6 +1230,7 @@
             clearTimeout(authTimeout);
             if (data && data.user_id) {
               config.userId = data.user_id;
+              try { sessionStorage.setItem('tryon_user_id', data.user_id); } catch (e) {}
               initConfig().then(function(ok) { if (ok) openViewer(); });
             } else {
               showGateOnce();
