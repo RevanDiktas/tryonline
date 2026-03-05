@@ -537,28 +537,46 @@ export default function BrandDashboardPage() {
                           Chart
                         </button>
                       </div>
-                      <div className="p-2 min-h-[340px]">
-                        {regionalView === 'globe' ? (
-                          <RegionalSizeGlobe
-                            by_country={(regionalSize!.by_country ?? {}) as Record<string, Record<string, number>>}
-                            raw_counts={(regionalSize as Record<string, unknown>).raw_counts as Record<string, Record<string, number>> | undefined}
-                            top_size_by_country={(regionalSize!.top_size_by_country ?? {}) as Record<string, string>}
-                            dark={dark}
-                          />
-                        ) : (
-                          <div style={{ height: 220 }}><RegionalSizeChart by_country={(regionalSize!.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} /></div>
-                        )}
-                      </div>
-                      {hasCountryTags && (
-                        <div className={`px-3 pb-3 flex flex-wrap gap-1.5 ${dark ? 'text-white/50' : 'text-black/50'}`}>
-                          {Object.entries(regionalSize!.top_size_by_country as Record<string, string>)
-                            .sort(([a], [b]) => a.localeCompare(b))
-                            .map(([country, size]) => (
-                              <span key={country} className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium ${dark ? 'bg-black/40' : 'bg-white/60'}`}>
-                                {country}: <strong className="ml-0.5">{String(size)}</strong>
-                              </span>
-                            ))}
+                      {regionalView === 'globe' ? (
+                        /* One full-height block so globe fills the whole square; country tags overlay at bottom (same line as "Drag to rotate") — mobile only */
+                        <div className="relative w-full h-[380px]">
+                          <div className="absolute inset-0">
+                            <RegionalSizeGlobe
+                              by_country={(regionalSize!.by_country ?? {}) as Record<string, Record<string, number>>}
+                              raw_counts={(regionalSize as Record<string, unknown>).raw_counts as Record<string, Record<string, number>> | undefined}
+                              top_size_by_country={(regionalSize!.top_size_by_country ?? {}) as Record<string, string>}
+                              dark={dark}
+                            />
+                          </div>
+                          {hasCountryTags && (
+                            <div className={`absolute bottom-0 left-0 right-0 px-3 pb-3 pt-6 flex flex-wrap gap-1.5 ${dark ? 'text-white/50 bg-gradient-to-t from-black/70 to-transparent' : 'text-black/50 bg-gradient-to-t from-white/80 to-transparent'}`}>
+                              {Object.entries(regionalSize!.top_size_by_country as Record<string, string>)
+                                .sort(([a], [b]) => a.localeCompare(b))
+                                .map(([country, size]) => (
+                                  <span key={country} className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium ${dark ? 'bg-black/40' : 'bg-white/60'}`}>
+                                    {country}: <strong className="ml-0.5">{String(size)}</strong>
+                                  </span>
+                                ))}
+                            </div>
+                          )}
                         </div>
+                      ) : (
+                        <>
+                          <div className="p-2" style={{ height: 220 }}>
+                            <RegionalSizeChart by_country={(regionalSize!.by_country ?? {}) as Record<string, Record<string, number>>} dark={dark} />
+                          </div>
+                          {hasCountryTags && (
+                            <div className={`px-3 pb-3 flex flex-wrap gap-1.5 ${dark ? 'text-white/50' : 'text-black/50'}`}>
+                              {Object.entries(regionalSize!.top_size_by_country as Record<string, string>)
+                                .sort(([a], [b]) => a.localeCompare(b))
+                                .map(([country, size]) => (
+                                  <span key={country} className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium ${dark ? 'bg-black/40' : 'bg-white/60'}`}>
+                                    {country}: <strong className="ml-0.5">{String(size)}</strong>
+                                  </span>
+                                ))}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
