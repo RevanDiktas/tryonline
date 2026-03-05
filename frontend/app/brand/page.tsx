@@ -537,7 +537,7 @@ export default function BrandDashboardPage() {
                           Chart
                         </button>
                       </div>
-                      <div className="p-3" style={{ minHeight: 260 }}>
+                      <div className="p-2 min-h-[340px]">
                         {regionalView === 'globe' ? (
                           <RegionalSizeGlobe
                             by_country={(regionalSize!.by_country ?? {}) as Record<string, Record<string, number>>}
