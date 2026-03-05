@@ -696,41 +696,64 @@
         }
       };
     }
+    async function fetchAvatarOneAttempt(url, credentials) {
+      var r = await fetch(url, { credentials: credentials ? 'include' : 'omit' });
+      if (r.ok) {
+        var d = await r.json();
+        return parseAvatarResponse(d);
+      }
+      if (r.status === 401) return { _authRequired: true };
+      if (r.status === 404) return { _avatarNotFound: true };
+      return null;
+    }
     async function fetchUserData() {
       if (!config.userId) return {};
       var uid = encodeURIComponent(config.userId);
       var sameOriginUrl = (config.apiUrl || '') + '/api/avatar/' + uid;
+      var result = null;
       try {
-        var r = await fetch(sameOriginUrl, { credentials: 'include' });
-        if (r.ok) {
-          var d = await r.json();
-          return parseAvatarResponse(d);
+        result = await fetchAvatarOneAttempt(sameOriginUrl, true);
+        if (result && !result._authRequired && !result._avatarNotFound) return result;
+        if (result && result._authRequired) return result;
+        if (result && result._avatarNotFound) {
+          console.warn('[TryOn] Avatar API (same-origin) 404, retrying once...');
+          await new Promise(function(r) { setTimeout(r, 1500); });
+          result = await fetchAvatarOneAttempt(sameOriginUrl, true);
+          if (result && !result._avatarNotFound) return result;
+          return { _avatarNotFound: true };
         }
-        if (r.status === 401) return { _authRequired: true };
-        console.warn('[TryOn] Avatar API (same-origin) failed:', r.status, r.statusText);
       } catch (e) {
         console.warn('[TryOn] Avatar API (same-origin) error:', e);
+        await new Promise(function(r) { setTimeout(r, 1500); });
+        try {
+          result = await fetchAvatarOneAttempt(sameOriginUrl, true);
+          if (result && !result._authRequired && !result._avatarNotFound) return result;
+          if (result && result._authRequired) return result;
+        } catch (e2) {}
       }
-      // Fallback: get backend URL from our app and request avatar directly (requires backend CORS for this origin)
+      // Fallback: direct backend (requires backend CORS for this origin)
       try {
         var configRes = await fetch('/widget-config', { credentials: 'include' });
-        if (!configRes.ok) return {};
+        if (!configRes.ok) return result || {};
         var cfg = await configRes.json();
         var backendUrl = (cfg.backendUrl || '').replace(/\/+$/, '');
-        if (!backendUrl) return {};
+        if (!backendUrl) return result || {};
         var directUrl = backendUrl + '/api/avatar/' + uid;
-        var r2 = await fetch(directUrl, { credentials: 'omit' });
-        if (!r2.ok) {
-          console.warn('[TryOn] Avatar API (direct) failed:', r2.status);
-          return {};
+        result = await fetchAvatarOneAttempt(directUrl, false);
+        if (result && !result._authRequired && !result._avatarNotFound) {
+          console.log('[TryOn] Avatar loaded via direct backend fallback');
+          return result;
         }
-        var d2 = await r2.json();
-        console.log('[TryOn] Avatar loaded via direct backend fallback');
-        return parseAvatarResponse(d2);
+        if (result && result._avatarNotFound) {
+          await new Promise(function(r) { setTimeout(r, 1500); });
+          result = await fetchAvatarOneAttempt(directUrl, false);
+          if (result && !result._avatarNotFound) return result;
+          return { _avatarNotFound: true };
+        }
       } catch (e2) {
         console.warn('[TryOn] Avatar direct fallback failed:', e2);
-        return {};
       }
+      return result || {};
     }
 
     // Fetch product config (model URLs, size chart) from API
@@ -771,6 +794,17 @@
       signinWrap.innerHTML = '<a href="' + url + '" class="tryon-error-signin" id="tryon-error-signin-link">Sign in again</a>';
       signinWrap.style.display = 'block';
     }
+    function showErrorStateAvatarNotReady() {
+      const signinWrap = document.getElementById('tryon-error-signin-wrap');
+      if (!signinWrap) return;
+      var base = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : 'https://tryonline.vercel.app';
+      signinWrap.innerHTML = '<a href="' + base + '/dashboard" class="tryon-error-signin" id="tryon-error-signin-link">Complete your fit passport</a> &middot; <a href="#" class="tryon-error-signin" id="tryon-error-signin-again">Sign in again</a>';
+      signinWrap.style.display = 'block';
+      var again = document.getElementById('tryon-error-signin-again');
+      if (again && typeof buildWidgetSignInUrl === 'function') {
+        again.href = buildWidgetSignInUrl(false);
+      }
+    }
 
     // Initialize: fetch user + product from API only (no demo fallbacks). Then preload or show error.
     // Returns true if everything is ready, false if an error state was shown.
@@ -784,6 +818,11 @@
         if (userData._authRequired) {
           showErrorState('Session expired', 'Please sign in again to use your avatar.');
           showErrorStateSignInLink();
+          return false;
+        }
+        if (userData._avatarNotFound) {
+          showErrorState('Avatar not ready', 'Complete your fit passport in your account, then try again.');
+          showErrorStateAvatarNotReady();
           return false;
         }
         if (!userData.avatarUrl) {
@@ -1013,13 +1052,14 @@
     if (signinBtn) {
       signinBtn.href = buildWidgetSignInUrl(false);
       signinBtn.addEventListener('click', function(e) {
+        e.preventDefault();
         if (inIframe) {
-          e.preventDefault();
-          window.open(buildWidgetSignInUrl(true), 'tryon_signin', 'width=420,height=520,scrollbars=yes,resizable=yes');
+          // In iframe (e.g. Shopify store): use redirect so we don't rely on postMessage.
+          // Sign-in page will redirect back to return= URL + user_id, so we get a real session.
+          window.location.href = buildWidgetSignInUrl(false);
           return;
         }
         if (!signinBtn.href || signinBtn.href === '#' || signinBtn.href === '') {
-          e.preventDefault();
           window.location.href = buildWidgetSignInUrl(false);
         }
       });
@@ -1047,22 +1087,31 @@
       });
     }
 
-    // Start: when open=1, check session first (memory) so returning users don't have to log in again.
+    // Start: when open=1, check session first so returning users don't have to log in again.
     // In iframe, /auth/me often returns 401 (cookies not sent), so we show login gate; after sign-in
     // via widget-signin popup we get user_id via postMessage and reload with user_id in URL.
     if (config.openDirect) {
       if (!config.userId) {
+        var authGateShown = false;
+        function showGateOnce() {
+          if (!authGateShown) { authGateShown = true; showLoginGate(); }
+        }
+        var authTimeout = setTimeout(showGateOnce, 8000);
         fetch('/auth/me', { credentials: 'include' })
           .then(function(r) { return r.ok ? r.json() : null; })
           .then(function(data) {
+            clearTimeout(authTimeout);
             if (data && data.user_id) {
               config.userId = data.user_id;
               initConfig().then(function(ok) { if (ok) openViewer(); });
             } else {
-              showLoginGate();
+              showGateOnce();
             }
           })
-          .catch(function() { showLoginGate(); });
+          .catch(function() {
+            clearTimeout(authTimeout);
+            showGateOnce();
+          });
       } else {
         initConfig().then(function(ok) { if (ok) openViewer(); });
       }

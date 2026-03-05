@@ -85,6 +85,13 @@
         if (e.data.type === 'TRYON_ADD_TO_CART') {
           close();
         }
+        if (e.data.type === 'TRYON_USER_ID' && e.data.user_id && iframe) {
+          var base = iframe.getAttribute('data-tryon-src') || '';
+          if (base) {
+            var sep = base.indexOf('?') >= 0 ? '&' : '?';
+            iframe.src = base + sep + 'user_id=' + encodeURIComponent(e.data.user_id);
+          }
+        }
       });
     })();
   </script>

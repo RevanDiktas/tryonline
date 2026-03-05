@@ -40,8 +40,10 @@ export default function WidgetSignInPage() {
           if (isPopup && window.opener) {
             try {
               window.opener.postMessage({ type: 'TRYON_USER_ID', user_id: user.id }, '*');
-            } catch (_) {}
-            window.close();
+              setTimeout(() => window.close(), 150);
+            } catch (_) {
+              window.close();
+            }
             return;
           }
           if (returnUrl) {
@@ -80,8 +82,10 @@ export default function WidgetSignInPage() {
       if (user && isPopup && window.opener) {
         try {
           window.opener.postMessage({ type: 'TRYON_USER_ID', user_id: user.id }, '*');
-        } catch (_) {}
-        window.close();
+          setTimeout(() => window.close(), 150);
+        } catch (_) {
+          window.close();
+        }
         return;
       }
       if (user && returnUrl) {
