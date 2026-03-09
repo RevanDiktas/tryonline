@@ -202,7 +202,7 @@ export default function OnboardingPage() {
         </div>
 
         {/* Card */}
-        <div className={`bg-white border border-gray-200 rounded-2xl shadow-sm ${step === 'photo' ? 'p-6 md:p-8' : 'p-8'}`}>
+        <div className={`bg-white border border-gray-200 rounded-2xl shadow-sm ${step === 'photo' ? 'p-5 sm:p-6 md:p-8' : 'p-8'}`}>
           
           {/* Step 1: Info */}
           {step === 'info' && (
@@ -283,7 +283,7 @@ export default function OnboardingPage() {
           {step === 'photo' && (
             <div className="space-y-6 md:grid md:grid-cols-2 md:gap-8 md:space-y-0 md:items-start">
               {/* Left: instructions + upload + Do/Avoid (desktop); on mobile order: upload block first, then Do/Avoid, then photo guide below */}
-              <div className="space-y-4 md:space-y-5">
+              <div className="space-y-5 md:space-y-5">
                 <div className="text-center md:text-left">
                   <p className="text-gray-600 mb-4">
                     Upload a full-body photo in an <strong>A-pose</strong> against a <strong>neutral background</strong>. Wear tight clothing (e.g. shorts + tank top) for accurate measurements.
@@ -329,9 +329,9 @@ export default function OnboardingPage() {
                   />
                 </div>
 
-                {/* Do this / Avoid this — under upload on left (desktop); on mobile appears here then photo guide follows in second column / below */}
-                <div className="grid grid-cols-2 gap-2 md:gap-3">
-                  <div className="bg-white rounded-lg p-2.5 md:p-3 border border-green-200">
+                {/* Do this / Avoid this — under upload on left; on mobile stack vertically so text fits in boxes */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-3">
+                  <div className="bg-white rounded-lg p-3 md:p-3 border border-green-200 min-w-0">
                     <div className="flex items-center gap-2 mb-1.5">
                       <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
                         <svg className="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -340,26 +340,26 @@ export default function OnboardingPage() {
                       </div>
                       <span className="text-xs font-medium text-green-700">Do this</span>
                     </div>
-                    <ul className="text-xs text-gray-600 space-y-1">
-                      <li className="flex items-start gap-1.5">
-                        <span className="text-green-500 mt-0.5">&#x2022;</span>
-                        <strong>A-pose:</strong> stand straight, arms out to the sides (like the letter A)
+                    <ul className="text-xs text-gray-600 space-y-1 break-words min-w-0">
+                      <li className="flex items-start gap-1.5 min-w-0">
+                        <span className="text-green-500 mt-0.5 flex-shrink-0">&#x2022;</span>
+                        <span className="min-w-0"><strong>A-pose:</strong> stand straight, arms out to the sides (like the letter A)</span>
                       </li>
-                      <li className="flex items-start gap-1.5">
-                        <span className="text-green-500 mt-0.5">&#x2022;</span>
-                        <strong>Neutral background</strong> (plain wall, grey/white/beige)
+                      <li className="flex items-start gap-1.5 min-w-0">
+                        <span className="text-green-500 mt-0.5 flex-shrink-0">&#x2022;</span>
+                        <span className="min-w-0"><strong>Neutral background</strong> (plain wall, grey/white/beige)</span>
                       </li>
-                      <li className="flex items-start gap-1.5">
-                        <span className="text-green-500 mt-0.5">&#x2022;</span>
-                        <strong>Tight clothing:</strong> preferably shorts + tank top
+                      <li className="flex items-start gap-1.5 min-w-0">
+                        <span className="text-green-500 mt-0.5 flex-shrink-0">&#x2022;</span>
+                        <span className="min-w-0"><strong>Tight clothing:</strong> preferably shorts + tank top</span>
                       </li>
-                      <li className="flex items-start gap-1.5">
-                        <span className="text-green-500 mt-0.5">&#x2022;</span>
-                        Full body visible, head to toe; well-lit, even lighting
+                      <li className="flex items-start gap-1.5 min-w-0">
+                        <span className="text-green-500 mt-0.5 flex-shrink-0">&#x2022;</span>
+                        <span className="min-w-0">Full body visible, head to toe; well-lit, even lighting</span>
                       </li>
                     </ul>
                   </div>
-                  <div className="bg-white rounded-lg p-2.5 md:p-3 border border-red-200">
+                  <div className="bg-white rounded-lg p-3 md:p-3 border border-red-200 min-w-0">
                     <div className="flex items-center gap-2 mb-1.5">
                       <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
                         <svg className="w-3 h-3 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -368,26 +368,26 @@ export default function OnboardingPage() {
                       </div>
                       <span className="text-xs font-medium text-red-700">Avoid this</span>
                     </div>
-                    <ul className="text-xs text-gray-600 space-y-1">
-                      <li className="flex items-start gap-1.5">
-                        <span className="text-red-400 mt-0.5">&#x2022;</span>
-                        Arms down, sitting, or leaning
+                    <ul className="text-xs text-gray-600 space-y-1 break-words min-w-0">
+                      <li className="flex items-start gap-1.5 min-w-0">
+                        <span className="text-red-400 mt-0.5 flex-shrink-0">&#x2022;</span>
+                        <span className="min-w-0">Arms down, sitting, or leaning</span>
                       </li>
-                      <li className="flex items-start gap-1.5">
-                        <span className="text-red-400 mt-0.5">&#x2022;</span>
-                        Busy or patterned background
+                      <li className="flex items-start gap-1.5 min-w-0">
+                        <span className="text-red-400 mt-0.5 flex-shrink-0">&#x2022;</span>
+                        <span className="min-w-0">Busy or patterned background</span>
                       </li>
-                      <li className="flex items-start gap-1.5">
-                        <span className="text-red-400 mt-0.5">&#x2022;</span>
-                        Loose or baggy clothing
+                      <li className="flex items-start gap-1.5 min-w-0">
+                        <span className="text-red-400 mt-0.5 flex-shrink-0">&#x2022;</span>
+                        <span className="min-w-0">Loose or baggy clothing</span>
                       </li>
-                      <li className="flex items-start gap-1.5">
-                        <span className="text-red-400 mt-0.5">&#x2022;</span>
-                        Dark or uneven lighting
+                      <li className="flex items-start gap-1.5 min-w-0">
+                        <span className="text-red-400 mt-0.5 flex-shrink-0">&#x2022;</span>
+                        <span className="min-w-0">Dark or uneven lighting</span>
                       </li>
-                      <li className="flex items-start gap-1.5">
-                        <span className="text-red-400 mt-0.5">&#x2022;</span>
-                        Cropped photo (no feet/head)
+                      <li className="flex items-start gap-1.5 min-w-0">
+                        <span className="text-red-400 mt-0.5 flex-shrink-0">&#x2022;</span>
+                        <span className="min-w-0">Cropped photo (no feet/head)</span>
                       </li>
                     </ul>
                   </div>
