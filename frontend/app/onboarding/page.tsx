@@ -329,10 +329,10 @@ export default function OnboardingPage() {
                   />
                 </div>
 
-                {/* Do this / Avoid this — under upload on left; on mobile stack vertically so text fits in boxes */}
+                {/* Do this / Avoid this — under upload on left; on mobile stack vertically, tidy text alignment */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-3">
-                  <div className="bg-white rounded-lg p-3 md:p-3 border border-green-200 min-w-0">
-                    <div className="flex items-center gap-2 mb-1.5">
+                  <div className="bg-white rounded-lg p-4 md:p-3 border border-green-200 min-w-0">
+                    <div className="flex items-center gap-2 mb-2">
                       <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
                         <svg className="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
@@ -340,27 +340,27 @@ export default function OnboardingPage() {
                       </div>
                       <span className="text-xs font-medium text-green-700">Do this</span>
                     </div>
-                    <ul className="text-xs text-gray-600 space-y-1 break-words min-w-0">
-                      <li className="flex items-start gap-1.5 min-w-0">
-                        <span className="text-green-500 mt-0.5 flex-shrink-0">&#x2022;</span>
-                        <span className="min-w-0"><strong>A-pose:</strong> stand straight, arms out to the sides (like the letter A)</span>
+                    <ul className="text-xs text-gray-600 space-y-2 md:space-y-1 leading-relaxed md:leading-normal min-w-0 list-none pl-0">
+                      <li className="flex gap-2 min-w-0">
+                        <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                        <span className="min-w-0 flex-1 text-left block"><strong>A-pose:</strong> Stand straight, arms out to the sides (like the letter A).</span>
                       </li>
-                      <li className="flex items-start gap-1.5 min-w-0">
-                        <span className="text-green-500 mt-0.5 flex-shrink-0">&#x2022;</span>
-                        <span className="min-w-0"><strong>Neutral background</strong> (plain wall, grey/white/beige)</span>
+                      <li className="flex gap-2 min-w-0">
+                        <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                        <span className="min-w-0 flex-1 text-left block"><strong>Neutral background:</strong> Plain wall, grey or white.</span>
                       </li>
-                      <li className="flex items-start gap-1.5 min-w-0">
-                        <span className="text-green-500 mt-0.5 flex-shrink-0">&#x2022;</span>
-                        <span className="min-w-0"><strong>Tight clothing:</strong> preferably shorts + tank top</span>
+                      <li className="flex gap-2 min-w-0">
+                        <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                        <span className="min-w-0 flex-1 text-left block"><strong>Tight clothing:</strong> Shorts + tank top.</span>
                       </li>
-                      <li className="flex items-start gap-1.5 min-w-0">
-                        <span className="text-green-500 mt-0.5 flex-shrink-0">&#x2022;</span>
-                        <span className="min-w-0">Full body visible, head to toe; well-lit, even lighting</span>
+                      <li className="flex gap-2 min-w-0">
+                        <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                        <span className="min-w-0 flex-1 text-left block">Full body visible, head to toe. Well-lit, even lighting.</span>
                       </li>
                     </ul>
                   </div>
-                  <div className="bg-white rounded-lg p-3 md:p-3 border border-red-200 min-w-0">
-                    <div className="flex items-center gap-2 mb-1.5">
+                  <div className="bg-white rounded-lg p-4 md:p-3 border border-red-200 min-w-0">
+                    <div className="flex items-center gap-2 mb-2">
                       <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
                         <svg className="w-3 h-3 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
@@ -368,26 +368,26 @@ export default function OnboardingPage() {
                       </div>
                       <span className="text-xs font-medium text-red-700">Avoid this</span>
                     </div>
-                    <ul className="text-xs text-gray-600 space-y-1 break-words min-w-0">
-                      <li className="flex items-start gap-1.5 min-w-0">
-                        <span className="text-red-400 mt-0.5 flex-shrink-0">&#x2022;</span>
-                        <span className="min-w-0">Arms down, sitting, or leaning</span>
+                    <ul className="text-xs text-gray-600 space-y-2 md:space-y-1 leading-relaxed md:leading-normal min-w-0 list-none pl-0">
+                      <li className="flex gap-2 min-w-0">
+                        <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                        <span className="min-w-0 flex-1 text-left block">Arms down, sitting, or leaning.</span>
                       </li>
-                      <li className="flex items-start gap-1.5 min-w-0">
-                        <span className="text-red-400 mt-0.5 flex-shrink-0">&#x2022;</span>
-                        <span className="min-w-0">Busy or patterned background</span>
+                      <li className="flex gap-2 min-w-0">
+                        <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                        <span className="min-w-0 flex-1 text-left block">Busy or patterned background.</span>
                       </li>
-                      <li className="flex items-start gap-1.5 min-w-0">
-                        <span className="text-red-400 mt-0.5 flex-shrink-0">&#x2022;</span>
-                        <span className="min-w-0">Loose or baggy clothing</span>
+                      <li className="flex gap-2 min-w-0">
+                        <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                        <span className="min-w-0 flex-1 text-left block">Loose or baggy clothing.</span>
                       </li>
-                      <li className="flex items-start gap-1.5 min-w-0">
-                        <span className="text-red-400 mt-0.5 flex-shrink-0">&#x2022;</span>
-                        <span className="min-w-0">Dark or uneven lighting</span>
+                      <li className="flex gap-2 min-w-0">
+                        <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                        <span className="min-w-0 flex-1 text-left block">Dark or uneven lighting.</span>
                       </li>
-                      <li className="flex items-start gap-1.5 min-w-0">
-                        <span className="text-red-400 mt-0.5 flex-shrink-0">&#x2022;</span>
-                        <span className="min-w-0">Cropped photo (no feet/head)</span>
+                      <li className="flex gap-2 min-w-0">
+                        <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                        <span className="min-w-0 flex-1 text-left block">Cropped photo (no feet or head).</span>
                       </li>
                     </ul>
                   </div>
