@@ -168,7 +168,7 @@ export default function OnboardingPage() {
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-4">
-      <div className="w-full max-w-lg">
+      <div className={`w-full ${step === 'photo' ? 'max-w-lg md:max-w-5xl' : 'max-w-lg'}`}>
         {/* Logo */}
         <div className="text-center mb-8">
           <a href="/" onClick={(e) => { e.preventDefault(); window.location.href = '/'; }}>
@@ -202,7 +202,7 @@ export default function OnboardingPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
+        <div className={`bg-white border border-gray-200 rounded-2xl shadow-sm ${step === 'photo' ? 'p-6 md:p-8' : 'p-8'}`}>
           
           {/* Step 1: Info */}
           {step === 'info' && (
@@ -281,18 +281,18 @@ export default function OnboardingPage() {
 
           {/* Step 2: Photo Upload */}
           {step === 'photo' && (
-            <div className="space-y-6">
-              <div className="text-center">
+            <div className="space-y-6 md:grid md:grid-cols-2 md:gap-8 md:space-y-0 md:items-start">
+              {/* Left: instructions + upload (mobile first, then desktop column) */}
+              <div className="text-center md:text-left">
                 <p className="text-gray-600 mb-4">
                   Upload a full-body photo in an <strong>A-pose</strong> against a <strong>neutral background</strong>. Wear tight clothing (e.g. shorts + tank top) for accurate measurements.
                 </p>
-                
                 {photoPreview ? (
                   <div className="relative inline-block">
                     <img
                       src={photoPreview}
                       alt="Preview"
-                      className="max-h-64 rounded-2xl mx-auto border-2 border-black"
+                      className="max-h-64 rounded-2xl mx-auto md:mx-0 border-2 border-black"
                     />
                     <button
                       onClick={() => {
@@ -309,7 +309,7 @@ export default function OnboardingPage() {
                 ) : (
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full h-48 border-2 border-dashed border-gray-300 rounded-2xl flex flex-col items-center justify-center gap-3 hover:border-black hover:bg-gray-50 transition"
+                    className="w-full h-48 md:h-44 border-2 border-dashed border-gray-300 rounded-2xl flex flex-col items-center justify-center gap-3 hover:border-black hover:bg-gray-50 transition"
                   >
                     <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
                       <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -319,7 +319,6 @@ export default function OnboardingPage() {
                     <span className="text-gray-500">Click to upload photo</span>
                   </button>
                 )}
-                
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -329,28 +328,28 @@ export default function OnboardingPage() {
                 />
               </div>
 
-              {/* Photo Guide */}
-              <div className="bg-gray-50 rounded-xl p-5">
+              {/* Right: Photo guide — pose image on #FFFFFF, then Do/Avoid */}
+              <div className="bg-gray-50 rounded-xl p-4 md:p-4">
                 <p className="text-gray-800 text-sm font-semibold mb-3">Photo guide</p>
-                <div className="flex justify-center mb-4">
+                <div className="flex justify-center mb-3 bg-[#FFFFFF] rounded-lg py-4 px-2">
                   <img
                     src="/pose-guide.png"
                     alt="Stand in an A-pose: arms out to the sides, like the letter A"
-                    className="max-h-48 w-auto object-contain rounded-lg"
+                    className="max-h-36 md:max-h-32 w-auto object-contain rounded-lg"
                   />
                 </div>
-                <p className="text-center text-xs text-gray-500 mb-4">Position like this: A-pose, neutral background, tight clothing.</p>
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="bg-white rounded-lg p-3 border border-green-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center">
+                <p className="text-center text-xs text-gray-500 mb-3">Position like this: A-pose, neutral background, tight clothing.</p>
+                <div className="grid grid-cols-2 gap-2 md:gap-2 mb-3">
+                  <div className="bg-white rounded-lg p-2.5 border border-green-200">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
                         <svg className="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                         </svg>
                       </div>
                       <span className="text-xs font-medium text-green-700">Do this</span>
                     </div>
-                    <ul className="text-xs text-gray-600 space-y-1.5">
+                    <ul className="text-xs text-gray-600 space-y-1">
                       <li className="flex items-start gap-1.5">
                         <span className="text-green-500 mt-0.5">&#x2022;</span>
                         <strong>A-pose:</strong> stand straight, arms out to the sides (like the letter A)
@@ -369,16 +368,16 @@ export default function OnboardingPage() {
                       </li>
                     </ul>
                   </div>
-                  <div className="bg-white rounded-lg p-3 border border-red-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center">
+                  <div className="bg-white rounded-lg p-2.5 border border-red-200">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
                         <svg className="w-3 h-3 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </div>
                       <span className="text-xs font-medium text-red-700">Avoid this</span>
                     </div>
-                    <ul className="text-xs text-gray-600 space-y-1.5">
+                    <ul className="text-xs text-gray-600 space-y-1">
                       <li className="flex items-start gap-1.5">
                         <span className="text-red-400 mt-0.5">&#x2022;</span>
                         Arms down, sitting, or leaning
@@ -406,7 +405,12 @@ export default function OnboardingPage() {
                   Better photos = more accurate avatar and size recommendations
                 </p>
               </div>
+            </div>
+          )}
 
+          {/* Error + buttons row: full width below grid on desktop */}
+          {step === 'photo' && (
+            <div className="mt-6 space-y-4">
               {error && (
                 <div className="text-red-600 text-sm bg-red-50 border border-red-100 rounded-lg p-3">
                   {error}
