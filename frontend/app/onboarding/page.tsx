@@ -282,65 +282,56 @@ export default function OnboardingPage() {
           {/* Step 2: Photo Upload */}
           {step === 'photo' && (
             <div className="space-y-6 md:grid md:grid-cols-2 md:gap-8 md:space-y-0 md:items-start">
-              {/* Left: instructions + upload (mobile first, then desktop column) */}
-              <div className="text-center md:text-left">
-                <p className="text-gray-600 mb-4">
-                  Upload a full-body photo in an <strong>A-pose</strong> against a <strong>neutral background</strong>. Wear tight clothing (e.g. shorts + tank top) for accurate measurements.
-                </p>
-                {photoPreview ? (
-                  <div className="relative inline-block">
-                    <img
-                      src={photoPreview}
-                      alt="Preview"
-                      className="max-h-64 rounded-2xl mx-auto md:mx-0 border-2 border-black"
-                    />
-                    <button
-                      onClick={() => {
-                        setPhotoFile(null);
-                        setPhotoPreview(null);
-                      }}
-                      className="absolute -top-2 -right-2 w-8 h-8 bg-black rounded-full text-white text-sm hover:bg-gray-800 transition flex items-center justify-center"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full h-48 md:h-44 border-2 border-dashed border-gray-300 rounded-2xl flex flex-col items-center justify-center gap-3 hover:border-black hover:bg-gray-50 transition"
-                  >
-                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
-                      <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                      </svg>
+              {/* Left: instructions + upload + Do/Avoid (desktop); on mobile order: upload block first, then Do/Avoid, then photo guide below */}
+              <div className="space-y-4 md:space-y-5">
+                <div className="text-center md:text-left">
+                  <p className="text-gray-600 mb-4">
+                    Upload a full-body photo in an <strong>A-pose</strong> against a <strong>neutral background</strong>. Wear tight clothing (e.g. shorts + tank top) for accurate measurements.
+                  </p>
+                  {photoPreview ? (
+                    <div className="relative inline-block">
+                      <img
+                        src={photoPreview}
+                        alt="Preview"
+                        className="max-h-64 rounded-2xl mx-auto md:mx-0 border-2 border-black"
+                      />
+                      <button
+                        onClick={() => {
+                          setPhotoFile(null);
+                          setPhotoPreview(null);
+                        }}
+                        className="absolute -top-2 -right-2 w-8 h-8 bg-black rounded-full text-white text-sm hover:bg-gray-800 transition flex items-center justify-center"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
                     </div>
-                    <span className="text-gray-500">Click to upload photo</span>
-                  </button>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileSelect}
-                  className="hidden"
-                />
-              </div>
-
-              {/* Right: Photo guide — pose image on #FFFFFF, then Do/Avoid */}
-              <div className="bg-gray-50 rounded-xl p-4 md:p-4">
-                <p className="text-gray-800 text-sm font-semibold mb-3">Photo guide</p>
-                <div className="flex justify-center mb-3 bg-[#FFFFFF] rounded-lg py-4 px-2">
-                  <img
-                    src="/pose-guide.png"
-                    alt="Stand in an A-pose: arms out to the sides, like the letter A"
-                    className="max-h-36 md:max-h-32 w-auto object-contain rounded-lg"
+                  ) : (
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full h-48 md:h-44 border-2 border-dashed border-gray-300 rounded-2xl flex flex-col items-center justify-center gap-3 hover:border-black hover:bg-gray-50 transition"
+                    >
+                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
+                        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                      </div>
+                      <span className="text-gray-500">Click to upload photo</span>
+                    </button>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileSelect}
+                    className="hidden"
                   />
                 </div>
-                <p className="text-center text-xs text-gray-500 mb-3">Position like this: A-pose, neutral background, tight clothing.</p>
-                <div className="grid grid-cols-2 gap-2 md:gap-2 mb-3">
-                  <div className="bg-white rounded-lg p-2.5 border border-green-200">
+
+                {/* Do this / Avoid this — under upload on left (desktop); on mobile appears here then photo guide follows in second column / below */}
+                <div className="grid grid-cols-2 gap-2 md:gap-3">
+                  <div className="bg-white rounded-lg p-2.5 md:p-3 border border-green-200">
                     <div className="flex items-center gap-2 mb-1.5">
                       <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
                         <svg className="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -368,7 +359,7 @@ export default function OnboardingPage() {
                       </li>
                     </ul>
                   </div>
-                  <div className="bg-white rounded-lg p-2.5 border border-red-200">
+                  <div className="bg-white rounded-lg p-2.5 md:p-3 border border-red-200">
                     <div className="flex items-center gap-2 mb-1.5">
                       <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
                         <svg className="w-3 h-3 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -401,9 +392,22 @@ export default function OnboardingPage() {
                     </ul>
                   </div>
                 </div>
-                <p className="text-xs text-gray-400 text-center">
+                <p className="text-xs text-gray-400 text-center md:text-left">
                   Better photos = more accurate avatar and size recommendations
                 </p>
+              </div>
+
+              {/* Right: Photo guide only — bigger avatar on #FFFFFF (desktop); on mobile this is second in column order so it appears after left column content */}
+              <div className="bg-[#FFFFFF] rounded-xl p-4 md:p-5 border border-gray-100">
+                <p className="text-gray-800 text-sm font-semibold mb-3">Photo guide</p>
+                <div className="flex justify-center bg-[#FFFFFF] rounded-lg py-4 md:py-6 px-2">
+                  <img
+                    src="/pose-guide.png"
+                    alt="Stand in an A-pose: arms out to the sides, like the letter A"
+                    className="max-h-52 md:max-h-[280px] w-auto object-contain rounded-lg"
+                  />
+                </div>
+                <p className="text-center text-xs text-gray-500 mt-3">Position like this: A-pose, neutral background, tight clothing.</p>
               </div>
             </div>
           )}
