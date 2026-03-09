@@ -284,7 +284,7 @@ export default function OnboardingPage() {
             <div className="space-y-6">
               <div className="text-center">
                 <p className="text-gray-600 mb-4">
-                  Take or upload a full-body photo for best results
+                  Upload a full-body photo in an <strong>A-pose</strong> against a <strong>neutral background</strong>. Wear tight clothing (e.g. shorts + tank top) for accurate measurements.
                 </p>
                 
                 {photoPreview ? (
@@ -331,7 +331,15 @@ export default function OnboardingPage() {
 
               {/* Photo Guide */}
               <div className="bg-gray-50 rounded-xl p-5">
-                <p className="text-gray-800 text-sm font-semibold mb-3">Photo Guide</p>
+                <p className="text-gray-800 text-sm font-semibold mb-3">Photo guide</p>
+                <div className="flex justify-center mb-4">
+                  <img
+                    src="/pose-guide.png"
+                    alt="Stand in an A-pose: arms out to the sides, like the letter A"
+                    className="max-h-48 w-auto object-contain rounded-lg"
+                  />
+                </div>
+                <p className="text-center text-xs text-gray-500 mb-4">Position like this: A-pose, neutral background, tight clothing.</p>
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div className="bg-white rounded-lg p-3 border border-green-200">
                     <div className="flex items-center gap-2 mb-2">
@@ -345,19 +353,19 @@ export default function OnboardingPage() {
                     <ul className="text-xs text-gray-600 space-y-1.5">
                       <li className="flex items-start gap-1.5">
                         <span className="text-green-500 mt-0.5">&#x2022;</span>
-                        Stand straight, arms slightly away from body
+                        <strong>A-pose:</strong> stand straight, arms out to the sides (like the letter A)
                       </li>
                       <li className="flex items-start gap-1.5">
                         <span className="text-green-500 mt-0.5">&#x2022;</span>
-                        Well-lit room, even lighting
+                        <strong>Neutral background</strong> (plain wall, grey/white/beige)
                       </li>
                       <li className="flex items-start gap-1.5">
                         <span className="text-green-500 mt-0.5">&#x2022;</span>
-                        Fitted clothes (not baggy)
+                        <strong>Tight clothing:</strong> preferably shorts + tank top
                       </li>
                       <li className="flex items-start gap-1.5">
                         <span className="text-green-500 mt-0.5">&#x2022;</span>
-                        Full body visible, head to toe
+                        Full body visible, head to toe; well-lit, even lighting
                       </li>
                     </ul>
                   </div>
@@ -373,15 +381,19 @@ export default function OnboardingPage() {
                     <ul className="text-xs text-gray-600 space-y-1.5">
                       <li className="flex items-start gap-1.5">
                         <span className="text-red-400 mt-0.5">&#x2022;</span>
-                        Sitting or leaning poses
+                        Arms down, sitting, or leaning
                       </li>
                       <li className="flex items-start gap-1.5">
                         <span className="text-red-400 mt-0.5">&#x2022;</span>
-                        Dark or uneven lighting
+                        Busy or patterned background
                       </li>
                       <li className="flex items-start gap-1.5">
                         <span className="text-red-400 mt-0.5">&#x2022;</span>
                         Loose or baggy clothing
+                      </li>
+                      <li className="flex items-start gap-1.5">
+                        <span className="text-red-400 mt-0.5">&#x2022;</span>
+                        Dark or uneven lighting
                       </li>
                       <li className="flex items-start gap-1.5">
                         <span className="text-red-400 mt-0.5">&#x2022;</span>
