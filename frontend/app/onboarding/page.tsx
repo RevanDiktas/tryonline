@@ -279,125 +279,78 @@ export default function OnboardingPage() {
             </form>
           )}
 
-          {/* Step 2: Photo Upload */}
+          {/* Step 2: Photo Upload — order: Avoid this, Do this, Photo guide, then Upload, then Buttons */}
           {step === 'photo' && (
-            <div className="space-y-6 md:grid md:grid-cols-2 md:gap-8 md:space-y-0 md:items-start">
-              {/* Left: instructions + upload + Do/Avoid (desktop); on mobile order: upload block first, then Do/Avoid, then photo guide below */}
-              <div className="space-y-5 md:space-y-5">
-                <div className="text-center md:text-left">
-                  <p className="text-gray-600 mb-4">
-                    Upload a full-body photo in an <strong>A-pose</strong> against a <strong>neutral background</strong>. Wear tight clothing (e.g. shorts + tank top) for accurate measurements.
-                  </p>
-                  {photoPreview ? (
-                    <div className="relative inline-block">
-                      <img
-                        src={photoPreview}
-                        alt="Preview"
-                        className="max-h-64 rounded-2xl mx-auto md:mx-0 border-2 border-black"
-                      />
-                      <button
-                        onClick={() => {
-                          setPhotoFile(null);
-                          setPhotoPreview(null);
-                        }}
-                        className="absolute -top-2 -right-2 w-8 h-8 bg-black rounded-full text-white text-sm hover:bg-gray-800 transition flex items-center justify-center"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
+            <div className="space-y-6">
+              {/* 1. Avoid this (first) + Do this — side by side on desktop, stacked on mobile */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-3">
+                <div className="bg-white rounded-lg p-4 md:p-3 border border-red-200 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <svg className="w-3 h-3 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full h-48 md:h-44 border-2 border-dashed border-gray-300 rounded-2xl flex flex-col items-center justify-center gap-3 hover:border-black hover:bg-gray-50 transition"
-                    >
-                      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
-                        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                        </svg>
-                      </div>
-                      <span className="text-gray-500">Click to upload photo</span>
-                    </button>
-                  )}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                </div>
-
-                {/* Do this / Avoid this — under upload on left; on mobile stack vertically, tidy text alignment */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-3">
-                  <div className="bg-white rounded-lg p-4 md:p-3 border border-green-200 min-w-0">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <svg className="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      </div>
-                      <span className="text-xs font-medium text-green-700">Do this</span>
-                    </div>
-                    <ul className="text-xs text-gray-600 space-y-2 md:space-y-1 leading-relaxed md:leading-normal min-w-0 list-none pl-0">
-                      <li className="flex gap-2 min-w-0">
-                        <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
-                        <span className="min-w-0 flex-1 text-left block"><strong>A-pose:</strong> Stand straight, arms out to the sides (like the letter A).</span>
-                      </li>
-                      <li className="flex gap-2 min-w-0">
-                        <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
-                        <span className="min-w-0 flex-1 text-left block"><strong>Neutral background:</strong> Plain wall, grey or white.</span>
-                      </li>
-                      <li className="flex gap-2 min-w-0">
-                        <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
-                        <span className="min-w-0 flex-1 text-left block"><strong>Tight clothing:</strong> Shorts + tank top.</span>
-                      </li>
-                      <li className="flex gap-2 min-w-0">
-                        <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
-                        <span className="min-w-0 flex-1 text-left block">Full body visible, head to toe. Well-lit, even lighting.</span>
-                      </li>
-                    </ul>
+                    <span className="text-xs font-medium text-red-700">Avoid this</span>
                   </div>
-                  <div className="bg-white rounded-lg p-4 md:p-3 border border-red-200 min-w-0">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <svg className="w-3 h-3 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </div>
-                      <span className="text-xs font-medium text-red-700">Avoid this</span>
-                    </div>
-                    <ul className="text-xs text-gray-600 space-y-2 md:space-y-1 leading-relaxed md:leading-normal min-w-0 list-none pl-0">
-                      <li className="flex gap-2 min-w-0">
-                        <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
-                        <span className="min-w-0 flex-1 text-left block">Arms down, sitting, or leaning.</span>
-                      </li>
-                      <li className="flex gap-2 min-w-0">
-                        <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
-                        <span className="min-w-0 flex-1 text-left block">Busy or patterned background.</span>
-                      </li>
-                      <li className="flex gap-2 min-w-0">
-                        <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
-                        <span className="min-w-0 flex-1 text-left block">Loose or baggy clothing.</span>
-                      </li>
-                      <li className="flex gap-2 min-w-0">
-                        <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
-                        <span className="min-w-0 flex-1 text-left block">Dark or uneven lighting.</span>
-                      </li>
-                      <li className="flex gap-2 min-w-0">
-                        <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
-                        <span className="min-w-0 flex-1 text-left block">Cropped photo (no feet or head).</span>
-                      </li>
-                    </ul>
-                  </div>
+                  <ul className="text-xs text-gray-600 space-y-2 md:space-y-1 leading-relaxed md:leading-normal min-w-0 list-none pl-0">
+                    <li className="flex gap-2 min-w-0">
+                      <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                      <span className="min-w-0 flex-1 text-left block">Arms down, sitting, or leaning.</span>
+                    </li>
+                    <li className="flex gap-2 min-w-0">
+                      <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                      <span className="min-w-0 flex-1 text-left block">Busy or patterned background.</span>
+                    </li>
+                    <li className="flex gap-2 min-w-0">
+                      <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                      <span className="min-w-0 flex-1 text-left block">Loose or baggy clothing.</span>
+                    </li>
+                    <li className="flex gap-2 min-w-0">
+                      <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                      <span className="min-w-0 flex-1 text-left block">Dark or uneven lighting.</span>
+                    </li>
+                    <li className="flex gap-2 min-w-0">
+                      <span className="text-red-400 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                      <span className="min-w-0 flex-1 text-left block">Cropped photo (no feet or head).</span>
+                    </li>
+                  </ul>
                 </div>
-                <p className="text-xs text-gray-400 text-center md:text-left">
-                  Better photos = more accurate avatar and size recommendations
-                </p>
+                <div className="bg-white rounded-lg p-4 md:p-3 border border-green-200 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <svg className="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <span className="text-xs font-medium text-green-700">Do this</span>
+                  </div>
+                  <ul className="text-xs text-gray-600 space-y-2 md:space-y-1 leading-relaxed md:leading-normal min-w-0 list-none pl-0">
+                    <li className="flex gap-2 min-w-0">
+                      <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                      <span className="min-w-0 flex-1 text-left block"><strong>A-pose:</strong> Stand straight, arms out to the sides (like the letter A).</span>
+                    </li>
+                    <li className="flex gap-2 min-w-0">
+                      <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                      <span className="min-w-0 flex-1 text-left block"><strong>Neutral background:</strong> Plain wall, grey or white.</span>
+                    </li>
+                    <li className="flex gap-2 min-w-0">
+                      <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                      <span className="min-w-0 flex-1 text-left block"><strong>Tight clothing:</strong> Shorts + tank top.</span>
+                    </li>
+                    <li className="flex gap-2 min-w-0">
+                      <span className="text-green-500 flex-shrink-0 w-4 text-center">&#x2022;</span>
+                      <span className="min-w-0 flex-1 text-left block">Full body visible, head to toe. Well-lit, even lighting.</span>
+                    </li>
+                  </ul>
+                </div>
               </div>
 
-              {/* Right: Photo guide only — bigger avatar on #FFFFFF (desktop); on mobile this is second in column order so it appears after left column content */}
+              <p className="text-xs text-gray-400 text-center md:text-left">
+                Better photos = more accurate avatar and size recommendations
+              </p>
+
+              {/* 2. Photo guide */}
               <div className="bg-[#FFFFFF] rounded-xl p-4 md:p-5 border border-gray-100">
                 <p className="text-gray-800 text-sm font-semibold mb-3">Photo guide</p>
                 <div className="flex justify-center bg-[#FFFFFF] rounded-lg py-4 md:py-6 px-2">
@@ -408,6 +361,52 @@ export default function OnboardingPage() {
                   />
                 </div>
                 <p className="text-center text-xs text-gray-500 mt-3">Position like this: A-pose, neutral background, tight clothing.</p>
+              </div>
+
+              {/* 3. Upload — at the bottom before buttons */}
+              <div className="text-center md:text-left">
+                <p className="text-gray-600 mb-4">
+                  Upload a full-body photo in an <strong>A-pose</strong> against a <strong>neutral background</strong>. Wear tight clothing (e.g. shorts + tank top) for accurate measurements.
+                </p>
+                {photoPreview ? (
+                  <div className="relative inline-block">
+                    <img
+                      src={photoPreview}
+                      alt="Preview"
+                      className="max-h-64 rounded-2xl mx-auto md:mx-0 border-2 border-black"
+                    />
+                    <button
+                      onClick={() => {
+                        setPhotoFile(null);
+                        setPhotoPreview(null);
+                      }}
+                      className="absolute -top-2 -right-2 w-8 h-8 bg-black rounded-full text-white text-sm hover:bg-gray-800 transition flex items-center justify-center"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full h-48 md:h-44 border-2 border-dashed border-gray-300 rounded-2xl flex flex-col items-center justify-center gap-3 hover:border-black hover:bg-gray-50 transition"
+                  >
+                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
+                      <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                    </div>
+                    <span className="text-gray-500">Click to upload photo</span>
+                  </button>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
               </div>
             </div>
           )}
