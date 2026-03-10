@@ -23,7 +23,7 @@ export function TryonLogo({ className = 'h-10 w-auto', href = '/' }: TryonLogoPr
 
   if (href) {
     return (
-      <Link href={href} className="inline-block opacity-90 hover:opacity-100 transition-opacity">
+      <Link href={href} className="inline-block hover:opacity-90 transition-opacity">
         {img}
       </Link>
     );
