@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { TryonLogo } from '@/components/TryonLogo';
 import { getCurrentUser, type User } from '@/lib/supabase-auth';
 import { getMyBrand } from '@/lib/api';
 import { isShopifyMode } from '@/lib/app-mode';
@@ -47,8 +48,7 @@ export default function HomePage() {
       {/* Header — on mobile: compact bar with bg so it doesn't overlap hero; desktop unchanged */}
       <header className="absolute top-0 left-0 right-0 z-10 bg-white md:bg-transparent border-b border-gray-100 md:border-0">
         <div className="max-w-6xl mx-auto px-4 py-4 md:px-6 md:py-6 flex items-center justify-between">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/tryon-logo.jpg" alt="TRYON" className="h-10 w-auto md:h-14" />
+          <TryonLogo className="h-10 w-auto md:h-14" href="/" />
 
           {user ? (
             <div className="flex items-center gap-3 md:gap-4">
@@ -170,6 +170,12 @@ export default function HomePage() {
               </p>
             </div>
           </div>
+
+          <footer className="mt-24 pb-8 text-center">
+            <Link href="/privacy" className="text-sm text-gray-500 hover:text-black transition">
+              Privacy Policy
+            </Link>
+          </footer>
         </div>
       </main>
     </div>

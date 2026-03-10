@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { TryonLogo } from '@/components/TryonLogo';
 import { useRouter } from 'next/navigation';
 import { getCurrentUser, createFitPassport, getFitPassport, User, uploadUserPhoto, saveUserPhoto, updateFitPassport } from '@/lib/supabase-auth';
 import { createAvatarWithFallback } from '@/lib/api';
@@ -171,14 +172,7 @@ export default function OnboardingPage() {
       <div className={`w-full ${step === 'photo' ? 'max-w-lg md:max-w-5xl' : 'max-w-lg'}`}>
         {/* Logo */}
         <div className="text-center mb-8">
-          <a href="/" onClick={(e) => { e.preventDefault(); window.location.href = '/'; }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img 
-            src="/tryon-logo.jpg" 
-            alt="TRYON" 
-              className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition"
-          />
-          </a>
+          <TryonLogo href="/" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
           <p className="text-gray-500">
             {step === 'info' && 'Tell us about yourself'}
             {step === 'photo' && 'Upload your photo'}

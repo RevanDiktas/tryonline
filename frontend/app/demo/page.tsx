@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { TryonLogo } from '@/components/TryonLogo';
 
 export default function DemoPage() {
   const [showWidget, setShowWidget] = useState(false);
@@ -87,12 +88,7 @@ export default function DemoPage() {
             <div className="bg-white/20 backdrop-blur-xl border border-white/40 rounded-3xl shadow-2xl overflow-hidden" style={{ backdropFilter: 'blur(40px) saturate(180%)' }}>
               {/* Header */}
               <div className="flex justify-between items-center px-6 py-4 border-b border-white/30 bg-white/30">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img 
-                  src="/tryon-logo.jpg" 
-                  alt="TRYON" 
-                  className="h-6 w-auto"
-                />
+                <TryonLogo className="h-6 w-auto" href="/" />
                 <span className="text-sm font-medium text-gray-700">{mockUser.name.toUpperCase()}</span>
               </div>
 

@@ -3,6 +3,7 @@
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { TryonLogo } from '@/components/TryonLogo';
 import { login, hasAvatarFiles, getCurrentUser, signInWithSocial } from '@/lib/supabase-auth';
 import { isShopifyMode } from '@/lib/app-mode';
 
@@ -76,10 +77,7 @@ function LoginContent() {
     <div className="min-h-screen bg-white flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link href="/">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/tryon-logo.jpg" alt="TRYON" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
-          </Link>
+          <TryonLogo href="/" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
           <p className="text-gray-500">
             {shopifyMode ? 'Sign in to your brand account' : 'Welcome back'}
           </p>
@@ -192,6 +190,9 @@ function LoginContent() {
             >
               Create one
             </Link>
+          </p>
+          <p className="text-center text-gray-400 text-xs mt-4">
+            <Link href="/privacy" className="hover:text-black transition">Privacy Policy</Link>
           </p>
         </div>
       </div>

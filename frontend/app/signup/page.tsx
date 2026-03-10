@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { TryonLogo } from '@/components/TryonLogo';
 import { signup, signInWithSocial } from '@/lib/supabase-auth';
 import { registerBrand } from '@/lib/api';
 import { isShopifyMode } from '@/lib/app-mode';
@@ -208,10 +209,7 @@ function SignupContent() {
       <div className="min-h-screen bg-white flex items-center justify-center p-4">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <Link href="/">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/tryon-logo.jpg" alt="TRYON" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
-            </Link>
+            <TryonLogo href="/" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
             <p className="text-gray-500">Join the future of fashion</p>
           </div>
 
@@ -276,10 +274,7 @@ function SignupContent() {
     <div className="min-h-screen bg-white flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link href="/">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/tryon-logo.jpg" alt="TRYON" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
-          </Link>
+          <TryonLogo href="/" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
           <p className="text-gray-500">
             {isBrand ? 'Set up your brand account' : 'Create your Fit Passport'}
           </p>
@@ -648,7 +643,8 @@ function SignupContent() {
         </div>
 
         <p className="text-center text-gray-400 text-xs mt-6">
-          By signing up, you agree to our Terms of Service and Privacy Policy
+          By signing up, you agree to our Terms of Service and{' '}
+          <Link href="/privacy" className="text-gray-600 hover:text-black underline">Privacy Policy</Link>.
         </p>
       </div>
     </div>

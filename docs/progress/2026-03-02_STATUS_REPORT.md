@@ -93,20 +93,37 @@
 
 ---
 
-## Remaining — Mon–Tue plan (done this week; launching with a brand)
+## Done — Step 3 (Avatar photo guide) ✅
 
-**Monday evening (both done):**
-- **Step 3 — Avatar photo guide** (priority one). Step-by-step doc: how to take photos for avatar creation (lighting, pose, background, file format). **Critical:** this determines how avatars are generated and the measurements users get.
-- **Step 4 — Custom domain.** Domain: **tryon.global** (planned; best/cheapest option for now). Add to Vercel, DNS, backend CORS; update widget URL in extension.
+- **In-app onboarding photo guide:** Complete. On the photo upload step we show: Avoid this, Do this, Photo guide (pose image on #FFFFFF), then Click to upload photo, then Back/Create Avatar. Order teaches guidelines before upload. Desktop: 2-column layout (Avoid+Do left, Photo guide+Upload right) so no scrolling; mobile: single column, tidy text in boxes. Pose image (A-pose, neutral background, tight clothing) and copy are in place. Optional: add a standalone doc (e.g. `docs/AVATAR_PHOTO_GUIDE.md`) later if needed.
 
-**Tuesday:** Privacy policy, icon (1200×1200), app listing (name, description, screenshots). Double-check everything before listing. Run compliance webhooks, emergency contact, automated checks. Goal: listed and ready (or submitted) by EOD Tuesday.
+---
 
-**Flex:** OK to wrap small stuff (e.g. icon prep, final checks) Wednesday evening if needed. **Must be done this week** — launching with a brand.
+## Done — Step 4 (Custom domain tryon.global) ✅
 
-**When 3 and 4 are done Monday** → user will update this record and structure Tuesday (e.g. order of privacy/icon/listing, any prep like icon files).
+- **tryon.global** is live: Vercel (tryonline project), DNS (GoDaddy → Vercel), backend CORS (Railway), Supabase redirect URLs + Site URL, Shopify extension `widget_base` and `shopify.app.toml` (application_url + redirect_urls) all point to tryon.global. Widget and dashboards work on the new domain.
 
-### Before App Store (Tuesday)
-- Privacy policy URL (on tryon.global), app icon, app listing, compliance + emergency contact, automated checks, error handling pass, test on second store.
+---
+
+## Remaining — For launch / App Store (what’s left to do)
+
+**Steps 3 & 4 are done** (Avatar photo guide + Domain). What’s left is **App Store publishing** so the app can be listed/submitted.
+
+### Before App Store submission (in order)
+
+| # | Item | What to do |
+|---|------|------------|
+| 1 | **Privacy policy URL** | Host a privacy policy page at tryon.global (e.g. `/privacy`). Required for listing. |
+| 2 | **App icon** | Create/finalize 1200×1200 px icon; upload in Partner dashboard. No “Shopify”/“Example” in imagery. |
+| 3 | **App listing** | App name, short + long description, screenshots (real app UI). Support/contact info. |
+| 4 | **Compliance webhooks** | Subscribe to required compliance webhooks in Partner dashboard. |
+| 5 | **Emergency contact** | Set in Partner dashboard (required for App Store). |
+| 6 | **Automated checks** | Run Shopify’s automated checks on the App Store review page; fix any failures. |
+| 7 | **Error handling pass** | Quick review: token expiry, graceful errors, timeouts. |
+| 8 | **Test on second store** | Install on another dev store (different theme if possible); smoke test. |
+| 9 | **Submit for review** | Submit; respond to any reviewer feedback. |
+
+**Goal:** Listed and ready (or submitted) so you’re launching with a brand. OK to wrap small items (e.g. second-store test, final double-check) later if needed.
 
 ---
 
@@ -114,10 +131,10 @@
 
 - **Branch:** `feature/analytics`
 - **Try On extension:** Deployed via `shopify_app` (tryon-widget); cart logic in `tryon-cart.js`.
-- **Widget:** `frontend/public/test-viewer.html`; init and avatar flow depend on successful auth (e.g. `/auth/me`).
+- **Widget:** `frontend/public/test-viewer.html`; init and avatar flow depend on successful auth (e.g. `/auth/me`). User name in header and avatar y on mobile fixed.
 - **Cart:** Instant update after Try On add is fixed (Mar 3: theme `renderContents` on Dawn).
-- **Domain:** Currently `tryonline.vercel.app`; custom domain **tryon.global** planned (Monday evening). Then App Store prep Tuesday (privacy, icon, listing); done this week — launching with a brand.
-- **Steps 1 & 2:** Done. **Mon eve:** step 3 (avatar photo guide) + step 4 (tryon.global). **Tue:** privacy, icon, listing, double-check, list/submit.
+- **Domain:** **tryon.global** live (Vercel, DNS, CORS, Supabase, Shopify app URL + redirects).
+- **Steps 1–4:** Done (widget/dashboards, avatar photo guide, tryon.global). **Remaining:** App Store prep (privacy, icon, listing, compliance, checks, submit).
 
 ---
 
@@ -126,3 +143,4 @@
 - `shopify_app/extensions/tryon-widget/assets/tryon-cart.js` — section matching, replace logic, Dawn refresh, delay, logging, locale-aware URLs.
 - `frontend/public/test-viewer.html` — mobile sign-in URL `show_form=1`, mobile camera (FOV 38, distance 5.8), avatar section max-height 42vh, avatar scale 1.6× and **y offset = 0** on mobile (final framing).
 - `frontend/app/widget-signin/page.tsx` — when `show_form=1`, skip auto-redirect and always show sign-in form (mobile flow).
+- `frontend/app/onboarding/page.tsx` — Avatar photo guide: Avoid/Do, pose image (#FFFFFF), upload order; desktop 2-col no-scroll, mobile tidy.

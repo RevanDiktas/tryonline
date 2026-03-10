@@ -8,12 +8,12 @@
 
 ## 1. What still needs to be done (full list)
 
-### Must-do before App Store (steps 3 & 4)
+### Must-do before App Store
 
 | # | Item | What it is | Why it matters |
 |---|------|------------|----------------|
-| **3** | **Avatar photo guide** | Step-by-step doc for users: how to take photos for avatar creation (lighting, pose, background, file format, etc.) | **Critical:** Determines how avatars are generated and the measurements users get. Better quality → better try-on; fewer support questions. |
-| **4** | **Custom domain** | **tryon.global** (planned). Add to Vercel, DNS, backend CORS; update widget URL in extension. | App Store rule: no "Shopify" or "Example" in URLs; stable brand URL. |
+| **3** | ~~Avatar photo guide~~ | ✅ **Done.** In-app onboarding: Avoid/Do, pose image, upload order; desktop no-scroll, mobile tidy. | — |
+| **4** | ~~**Custom domain**~~ | ✅ **Done.** **tryon.global** live (Vercel, DNS, CORS, Supabase, Shopify app URL + redirects). | — |
 
 ### App Store publishing (after 3 & 4)
 
@@ -38,11 +38,11 @@
 
 ## 2. Priority order (recommended)
 
-**Phase A — Monday evening (both done)**  
-Step 3 first (it’s the foundation for avatar generation and measurements), then step 4.
+**Phase A — Done ✅**  
+Steps 3 and 4 complete.
 
-1. **Step 3 — Avatar photo guide** (priority one). Doc only; no code. Determines avatar quality and measurements.
-2. **Step 4 — Custom domain (tryon.global).** Vercel + DNS + CORS; update widget URL. Unblocks App Store and privacy policy URL.
+1. ~~**Step 3 — Avatar photo guide**~~ ✅ Done (in-app onboarding photo step).
+2. ~~**Step 4 — Custom domain (tryon.global)**~~ ✅ Done. Vercel + DNS + CORS + Supabase + Shopify app URLs. Unblocks App Store and privacy policy URL.
 
 **Phase B — App Store publishing (Tuesday)**  
 Once 3 & 4 are done, do these in this order:
@@ -60,14 +60,13 @@ Once 3 & 4 are done, do these in this order:
 
 ## 3. Mon–Tue plan (quickest + high quality)
 
-### Monday evening (both done)
+### Step 3 — Done ✅
 
-| Order | Task | Time | Output |
-|-------|------|------|--------|
-| 1 | **Avatar photo guide** | 30–45 min | Single doc (e.g. `docs/AVATAR_PHOTO_GUIDE.md` or in-app copy). Sections: lighting, pose, background, file format (resolution, format), what to avoid. **Priority one** — drives avatar generation and measurements. |
-| 2 | **Custom domain (tryon.global)** | 30–45 min | Domain added in Vercel; DNS set; backend `CORS_ORIGINS` updated; widget URL in extension updated to tryon.global; quick smoke test. |
+Avatar photo guide is **implemented in-app** (onboarding photo step: Avoid/Do, pose image, upload order; desktop 2-col no-scroll, mobile tidy). No separate doc required for launch.
 
-**Monday end state:** Step 3 done; step 4 done. User will update this record when both are complete and then structure Tuesday (order of privacy / icon / listing, any prep like icon files).
+### Step 4 — Custom domain (tryon.global) — Done ✅
+
+tryon.global is live: Vercel, DNS, backend CORS, Supabase redirects, Shopify app URL and redirect_urls. Widget and dashboards work on the new domain.
 
 ---
 

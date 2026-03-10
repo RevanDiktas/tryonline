@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { TryonLogo } from '@/components/TryonLogo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, logout, type User } from '@/lib/supabase-auth';
 import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse } from '@/lib/api';
@@ -227,9 +228,7 @@ export default function BrandDashboardPage() {
         <div className="max-w-7xl mx-auto px-4 py-2 md:py-1.5 flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
           {/* Mobile: row 1 — logo left, Refresh + theme + Sign out right (no overlap, nothing off-screen) */}
           <div className="flex items-center justify-between gap-2 md:contents">
-            <Link href="/" className="flex items-center gap-2 shrink-0 opacity-90 hover:opacity-100 transition-opacity">
-              <img src="/tryon-logo.jpg" alt="TRYON" className="h-5 w-auto rounded" />
-            </Link>
+            <TryonLogo href="/" className="h-5 w-auto rounded" />
             <div className="flex items-center gap-2 shrink-0 md:hidden">
               <button
                 onClick={toggleTheme}
