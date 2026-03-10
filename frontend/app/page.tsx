@@ -60,7 +60,7 @@ export default function HomePage() {
               </span>
               <Link
                 href={dashboardUrl}
-                className="px-4 py-2 md:px-6 md:py-2.5 bg-white text-black font-medium rounded-xl hover:bg-white/90 transition text-sm"
+                className={`px-4 py-2 md:px-6 md:py-2.5 font-medium rounded-xl transition text-sm ${dark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-gray-800'}`}
               >
                 {user.user_type === 'brand' ? 'Brand Dashboard' : 'My Dashboard'}
               </Link>
@@ -68,7 +68,7 @@ export default function HomePage() {
           ) : (
             <Link
               href="/login"
-              className="px-4 py-2 md:px-6 md:py-2.5 bg-white text-black font-medium rounded-xl hover:bg-white/90 transition text-sm"
+              className={`px-4 py-2 md:px-6 md:py-2.5 font-medium rounded-xl transition text-sm ${dark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-gray-800'}`}
             >
               Sign In
             </Link>
@@ -91,11 +91,11 @@ export default function HomePage() {
               : 'Shoppers get a perfect fit. Brands reduce returns. One platform, powered by your 3D avatar.'}
           </p>
 
-          {/* CTAs */}
+          {/* CTAs — theme-aware: light = black button, dark = white button */}
           {user ? (
             <Link
               href={dashboardUrl}
-              className="inline-block px-8 py-5 bg-white text-black font-semibold rounded-2xl hover:bg-white/90 transition text-lg"
+              className={`inline-block px-8 py-5 font-semibold rounded-2xl transition text-lg ${dark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-gray-800'}`}
             >
               {user.user_type === 'brand' ? 'Go to Brand Dashboard' : 'Go to My Dashboard'}
             </Link>
@@ -103,7 +103,7 @@ export default function HomePage() {
             <div className="flex flex-col gap-4 justify-center max-w-md mx-auto">
               <Link
                 href="/login"
-                className="px-8 py-5 bg-white text-black font-semibold rounded-2xl hover:bg-white/90 transition text-center text-lg"
+                className={`px-8 py-5 font-semibold rounded-2xl transition text-center text-lg ${dark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-gray-800'}`}
               >
                 Sign In
               </Link>
@@ -118,10 +118,10 @@ export default function HomePage() {
             <div className="flex flex-col sm:flex-row gap-4 justify-center max-w-lg mx-auto">
               <Link
                 href="/signup?type=shopper"
-                className="flex-1 group relative overflow-hidden px-8 py-5 bg-white text-black font-semibold rounded-2xl hover:bg-white/90 transition text-center"
+                className={`flex-1 group relative overflow-hidden px-8 py-5 font-semibold rounded-2xl transition text-center ${dark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-gray-800'}`}
               >
                 <span className="block text-lg">Create Your Fit Passport</span>
-                <span className="block text-sm font-normal text-black/60 mt-1">I&apos;m a shopper</span>
+                <span className={`block text-sm font-normal mt-1 ${dark ? 'text-black/60' : 'text-white/60'}`}>I&apos;m a shopper</span>
               </Link>
 
               <Link
