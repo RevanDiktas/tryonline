@@ -23,7 +23,9 @@ export async function GET() {
     if (!session?.user?.id) {
       return NextResponse.json({ user_id: null }, { status: 401 });
     }
-    return NextResponse.json({ user_id: session.user.id });
+    const meta = session.user.user_metadata as { name?: string; full_name?: string } | undefined;
+    const name = meta?.full_name || meta?.name || session.user.email?.split('@')[0] || 'User';
+    return NextResponse.json({ user_id: session.user.id, name });
   } catch (e) {
     console.error('[auth/me]', e);
     return NextResponse.json({ user_id: null }, { status: 500 });

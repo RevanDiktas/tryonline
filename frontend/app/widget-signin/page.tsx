@@ -42,9 +42,10 @@ export default function WidgetSignInPage() {
       try {
         const user = await getCurrentUser();
         if (user) {
+          const displayName = user.name || user.email?.split('@')[0] || 'User';
           if (isPopup && window.opener) {
             try {
-              window.opener.postMessage({ type: 'TRYON_USER_ID', user_id: user.id }, '*');
+              window.opener.postMessage({ type: 'TRYON_USER_ID', user_id: user.id, display_name: displayName }, '*');
               setTimeout(() => window.close(), 150);
             } catch (_) {
               window.close();
@@ -53,7 +54,7 @@ export default function WidgetSignInPage() {
           }
           if (returnUrl) {
             const sep = returnUrl.includes('?') ? '&' : '?';
-            window.location.href = returnUrl + sep + 'user_id=' + encodeURIComponent(user.id);
+            window.location.href = returnUrl + sep + 'user_id=' + encodeURIComponent(user.id) + '&display_name=' + encodeURIComponent(displayName);
             return;
           }
           router.push('/dashboard');
@@ -85,8 +86,9 @@ export default function WidgetSignInPage() {
         return;
       }
       if (user && isPopup && window.opener) {
+        const displayName = user.name || user.email?.split('@')[0] || 'User';
         try {
-          window.opener.postMessage({ type: 'TRYON_USER_ID', user_id: user.id }, '*');
+          window.opener.postMessage({ type: 'TRYON_USER_ID', user_id: user.id, display_name: displayName }, '*');
           setTimeout(() => window.close(), 150);
         } catch (_) {
           window.close();
@@ -94,8 +96,9 @@ export default function WidgetSignInPage() {
         return;
       }
       if (user && returnUrl) {
+        const displayName = user.name || user.email?.split('@')[0] || 'User';
         const sep = returnUrl.includes('?') ? '&' : '?';
-        window.location.href = returnUrl + sep + 'user_id=' + encodeURIComponent(user.id);
+        window.location.href = returnUrl + sep + 'user_id=' + encodeURIComponent(user.id) + '&display_name=' + encodeURIComponent(displayName);
         return;
       }
       if (user) {

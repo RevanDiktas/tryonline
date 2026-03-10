@@ -3,7 +3,7 @@
 client_id = "daf4359349b8033a4165df358aa6e05c"
 name = "Tryon"
 # Embedded app loads this URL in Shopify Admin (onboarding)
-application_url = "https://tryon-shopify-theta.vercel.app/app"
+application_url = "https://tryon.global/app"
 embedded = true
 
 [webhooks]
@@ -20,7 +20,7 @@ use_legacy_install_flow = false
 # Frontend second for any other redirect needs.
 redirect_urls = [
   "https://heroic-celebration-production-9f72.up.railway.app/api/shopify/auth/callback",
-  "https://tryon-shopify-theta.vercel.app/app"
+  "https://tryon.global/app"
 ]
 
 [pos]

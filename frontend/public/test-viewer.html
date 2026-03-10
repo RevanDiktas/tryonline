@@ -546,6 +546,7 @@
       var openParam = p.get('open') === '1';
       var inIframe = typeof window !== 'undefined' && window.self !== window.top;
       var userId = p.get('user_id') || null;
+      var displayName = p.get('display_name') || null;
       if ((openParam || inIframe) && !userId) {
         try {
           var stored = sessionStorage.getItem('tryon_user_id');
@@ -555,12 +556,19 @@
       if (userId) {
         try { sessionStorage.setItem('tryon_user_id', userId); } catch (e) {}
       }
+      if (!displayName) {
+        try { displayName = sessionStorage.getItem('tryon_user_name'); } catch (e) {}
+      }
+      if (displayName) {
+        try { sessionStorage.setItem('tryon_user_name', displayName); } catch (e) {}
+      }
       window.TRYON_CONFIG = {
         apiUrl: p.get('api_url') ?? defaultApiUrl,
         productId: p.get('product_id') || '',
         variantId: p.get('variant_id') || '',
         shopDomain: p.get('shop') || 'demo.myshopify.com',
         userId: userId,
+        displayName: displayName || null,
         preferredFit: p.get('preferred_fit') || null,
         openDirect: openParam || inIframe
       };
@@ -638,7 +646,7 @@
       <div class="popup-glass">
         <div class="popup-header">
           <div class="popup-logo">TRYON</div>
-          <div class="popup-user">REVAN DIKTAS</div>
+          <div class="popup-user" id="popup-user-name">—</div>
         </div>
 
         <div class="popup-content">
@@ -726,6 +734,7 @@
       variantId: 'demo-variant-m',
       shopDomain: 'demo.myshopify.com',
       userId: null,
+      displayName: null,
       preferredFit: null,
       openDirect: false
     };
@@ -1193,13 +1202,23 @@
     }
     window.addEventListener('message', function(event) {
       if (event.data && event.data.type === 'TRYON_USER_ID' && event.data.user_id) {
+        try {
+          if (event.data.display_name) sessionStorage.setItem('tryon_user_name', event.data.display_name);
+        } catch (e) {}
         var u = new URL(window.location.href);
         u.searchParams.set('user_id', event.data.user_id);
+        if (event.data.display_name) u.searchParams.set('display_name', event.data.display_name);
         window.location.href = u.toString();
       }
     });
 
+    function setHeaderName() {
+      var el = document.getElementById('popup-user-name');
+      if (el) el.textContent = (config.displayName || 'User').trim().toUpperCase() || '—';
+    }
+
     async function openViewer() {
+      setHeaderName();
       overlay.classList.add('active');
       currentSize = recommendSize(config.preferredFit || 'regular');
       sizeButtons.forEach(function(b) {
@@ -1230,6 +1249,7 @@
             clearTimeout(authTimeout);
             if (data && data.user_id) {
               config.userId = data.user_id;
+              if (data.name) { config.displayName = data.name; try { sessionStorage.setItem('tryon_user_name', data.name); } catch (e) {} }
               try { sessionStorage.setItem('tryon_user_id', data.user_id); } catch (e) {}
               initConfig().then(function(ok) { if (ok) openViewer(); });
             } else {
@@ -1478,8 +1498,8 @@
 
       if (window.innerWidth <= 768) {
         currentModel.scale.multiplyScalar(1.6);
-        // Keep y at 0 so avatar + clothing import correctly for all users on mobile
-        currentModel.position.y = 0;
+        // Position avatar so feet sit at bottom: move model down (negative y in world space)
+        currentModel.position.y = -modelSize.y * 0.12;
       }
 
       scene.add(currentModel);
