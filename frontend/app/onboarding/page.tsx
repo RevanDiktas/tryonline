@@ -172,7 +172,7 @@ export default function OnboardingPage() {
       <div className={`w-full ${step === 'photo' ? 'max-w-lg md:max-w-5xl' : 'max-w-lg'}`}>
         {/* Logo */}
         <div className="text-center mb-8">
-          <TryonLogo href="/" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
+          <TryonLogo href="/" className="h-10 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
           <p className="text-gray-500">
             {step === 'info' && 'Tell us about yourself'}
             {step === 'photo' && 'Upload your photo'}

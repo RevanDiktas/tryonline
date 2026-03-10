@@ -228,7 +228,7 @@ export default function BrandDashboardPage() {
         <div className="max-w-7xl mx-auto px-4 py-2 md:py-1.5 flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
           {/* Mobile: row 1 — logo left, Refresh + theme + Sign out right (no overlap, nothing off-screen) */}
           <div className="flex items-center justify-between gap-2 md:contents">
-            <TryonLogo href="/" className="h-5 w-auto rounded" />
+            <TryonLogo href="/" className="h-4 w-auto rounded" />
             <div className="flex items-center gap-2 shrink-0 md:hidden">
               <button
                 onClick={toggleTheme}

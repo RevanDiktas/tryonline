@@ -601,7 +601,7 @@ export default function DashboardPage() {
     <div className={`min-h-screen transition-colors ${dark ? 'bg-black text-white' : 'bg-slate-50 text-black'}`}>
       <header className={`sticky top-0 z-10 backdrop-blur-md border-b shadow-sm ${dark ? 'bg-black/95 border-white/10' : 'bg-white/95 border-slate-200/80'}`}>
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 flex items-center justify-between">
-          <TryonLogo href="/" className="h-12 w-auto cursor-pointer hover:opacity-90 transition-opacity" />
+          <TryonLogo href="/" className="h-8 w-auto cursor-pointer hover:opacity-90 transition-opacity" />
           <div className="flex items-center gap-6">
             <span className={`text-sm hidden sm:inline ${dark ? 'text-white/60' : 'text-slate-500'}`}>{user.email}</span>
             <button onClick={toggleTheme} className={`p-2 rounded-lg border transition-colors ${dark ? 'border-white/10 text-white/70 hover:bg-white/5' : 'border-slate-200 text-slate-600 hover:bg-slate-100'}`} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}>

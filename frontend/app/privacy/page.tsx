@@ -12,7 +12,7 @@ export default function PrivacyPolicyPage() {
     <div className={`min-h-screen transition-colors ${dark ? 'bg-black text-white' : 'bg-white text-black'}`}>
       <header className={`border-b px-6 py-4 ${dark ? 'border-white/10' : 'border-gray-200'}`}>
         <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <TryonLogo href="/" className="h-8 w-auto" />
+          <TryonLogo href="/" className="h-6 w-auto" />
           <Link href="/" className={`text-sm transition ${dark ? 'text-white/60 hover:text-white' : 'text-gray-500 hover:text-black'}`}>Back to Home</Link>
         </div>
       </header>

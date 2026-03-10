@@ -48,7 +48,7 @@ export default function HomePage() {
       {/* Header — on mobile: compact bar with bg so it doesn't overlap hero; desktop unchanged */}
       <header className="absolute top-0 left-0 right-0 z-10 bg-white md:bg-transparent border-b border-gray-100 md:border-0">
         <div className="max-w-6xl mx-auto px-4 py-4 md:px-6 md:py-6 flex items-center justify-between">
-          <TryonLogo className="h-10 w-auto md:h-14" href="/" />
+          <TryonLogo className="h-8 w-auto md:h-10" href="/" />
 
           {user ? (
             <div className="flex items-center gap-3 md:gap-4">

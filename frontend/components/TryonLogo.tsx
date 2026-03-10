@@ -12,7 +12,7 @@ type TryonLogoProps = {
  * Theme-aware TRYON logo (transparent background).
  * Light theme → tryon_logo (black letters); dark theme → tryon_logo_w (white letters).
  */
-export function TryonLogo({ className = 'h-10 w-auto', href = '/' }: TryonLogoProps) {
+export function TryonLogo({ className = 'h-8 w-auto', href = '/' }: TryonLogoProps) {
   const { theme } = useTheme();
   const src = theme === 'dark' ? '/tryon_logo_w.png' : '/tryon_logo.png';
 

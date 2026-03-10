@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { TryonLogo } from '@/components/TryonLogo';
+import { useTheme } from '@/contexts/ThemeContext';
 import { signup, signInWithSocial } from '@/lib/supabase-auth';
 import { registerBrand } from '@/lib/api';
 import { isShopifyMode } from '@/lib/app-mode';
@@ -64,6 +65,8 @@ const countries = [
 function SignupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { theme } = useTheme();
+  const dark = theme === 'dark';
   const dropdownRef = useRef<HTMLDivElement>(null);
   const countryDropdownRef = useRef<HTMLDivElement>(null);
   const shopifyMode = isShopifyMode();
@@ -206,21 +209,21 @@ function SignupContent() {
   // --- User type selection screen ---
   if (step === 'user_type') {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
+      <div className={`min-h-screen flex items-center justify-center p-4 transition-colors ${dark ? 'bg-black' : 'bg-white'}`}>
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <TryonLogo href="/" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
-            <p className="text-gray-500">Join the future of fashion</p>
+            <TryonLogo href="/" className="h-10 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
+            <p className={dark ? 'text-white/60' : 'text-gray-500'}>Join the future of fashion</p>
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
-            <h2 className="text-xl font-semibold text-black mb-2 text-center">How will you use TryOn?</h2>
-            <p className="text-gray-500 text-sm text-center mb-8">Select your account type to get started</p>
+          <div className={`rounded-2xl p-8 shadow-sm border ${dark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-gray-200'}`}>
+            <h2 className={`text-xl font-semibold mb-2 text-center ${dark ? 'text-white' : 'text-black'}`}>How will you use TryOn?</h2>
+            <p className={`text-sm text-center mb-8 ${dark ? 'text-white/60' : 'text-gray-500'}`}>Select your account type to get started</p>
 
             <div className="space-y-4">
               <button
                 onClick={() => { setUserType('shopper'); setStep('details'); }}
-                className="w-full p-6 border-2 border-gray-200 rounded-2xl hover:border-black hover:bg-gray-50 transition-all group text-left"
+                className={`w-full p-6 border-2 rounded-2xl transition-all group text-left ${dark ? 'border-white/10 hover:border-white/20 hover:bg-white/5' : 'border-gray-200 hover:border-black hover:bg-gray-50'}`}
               >
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -229,15 +232,15 @@ function SignupContent() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-black text-lg group-hover:text-black">I&apos;m a Shopper</h3>
-                    <p className="text-gray-500 text-sm mt-1">Create your Fit Passport and try on clothes virtually before you buy</p>
+                    <h3 className={`font-semibold text-lg ${dark ? 'text-white' : 'text-black'}`}>I&apos;m a Shopper</h3>
+                    <p className={`text-sm mt-1 ${dark ? 'text-white/50' : 'text-gray-500'}`}>Create your Fit Passport and try on clothes virtually before you buy</p>
                   </div>
                 </div>
               </button>
 
               <button
                 onClick={() => { setUserType('brand'); setStep('details'); }}
-                className="w-full p-6 border-2 border-gray-200 rounded-2xl hover:border-black hover:bg-gray-50 transition-all group text-left"
+                className={`w-full p-6 border-2 rounded-2xl transition-all group text-left ${dark ? 'border-white/10 hover:border-white/20 hover:bg-white/5' : 'border-gray-200 hover:border-black hover:bg-gray-50'}`}
               >
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-pink-600 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -246,17 +249,17 @@ function SignupContent() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-black text-lg group-hover:text-black">I&apos;m a Brand</h3>
-                    <p className="text-gray-500 text-sm mt-1">Add virtual try-on to your store and reduce returns by up to 40%</p>
+                    <h3 className={`font-semibold text-lg ${dark ? 'text-white' : 'text-black'}`}>I&apos;m a Brand</h3>
+                    <p className={`text-sm mt-1 ${dark ? 'text-white/50' : 'text-gray-500'}`}>Add virtual try-on to your store and reduce returns by up to 40%</p>
                   </div>
                 </div>
               </button>
             </div>
           </div>
 
-          <p className="text-center text-gray-500 text-sm mt-6">
+          <p className={`text-center text-sm mt-6 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
             Already have an account?{' '}
-            <Link href="/login" className="text-black font-medium hover:underline">Sign in</Link>
+            <Link href="/login" className={dark ? 'text-white font-medium hover:underline' : 'text-black font-medium hover:underline'}>Sign in</Link>
           </p>
         </div>
       </div>
@@ -271,21 +274,21 @@ function SignupContent() {
     : formData.name.trim() && formData.email.trim() && formData.phone.trim() && formData.country.trim() && formData.city.trim() && formData.password && formData.confirmPassword && formData.password === formData.confirmPassword && formData.password.length >= 6;
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-4">
+    <div className={`min-h-screen flex items-center justify-center p-4 transition-colors ${dark ? 'bg-black' : 'bg-white'}`}>
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <TryonLogo href="/" className="h-14 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
-          <p className="text-gray-500">
+          <TryonLogo href="/" className="h-10 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
+          <p className={dark ? 'text-white/60' : 'text-gray-500'}>
             {isBrand ? 'Set up your brand account' : 'Create your Fit Passport'}
           </p>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
+        <div className={`rounded-2xl p-8 shadow-sm border ${dark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-gray-200'}`}>
           {/* Back button (only on website mode where user chose type) */}
           {!shopifyMode && (
             <button
               onClick={() => { setStep('user_type'); setUserType('shopper'); }}
-              className="flex items-center gap-2 text-gray-500 hover:text-black mb-4 transition"
+              className={`flex items-center gap-2 mb-4 transition ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-black'}`}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -636,15 +639,15 @@ function SignupContent() {
             </button>
           </form>
 
-          <p className="text-center text-gray-500 text-sm mt-6">
+          <p className={`text-center text-sm mt-6 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
             Already have an account?{' '}
-            <Link href="/login" className="text-black font-medium hover:underline">Sign in</Link>
+            <Link href="/login" className={dark ? 'text-white font-medium hover:underline' : 'text-black font-medium hover:underline'}>Sign in</Link>
           </p>
         </div>
 
-        <p className="text-center text-gray-400 text-xs mt-6">
+        <p className={`text-center text-xs mt-6 ${dark ? 'text-white/40' : 'text-gray-400'}`}>
           By signing up, you agree to our Terms of Service and{' '}
-          <Link href="/privacy" className="text-gray-600 hover:text-black underline">Privacy Policy</Link>.
+          <Link href="/privacy" className={dark ? 'text-white/60 hover:text-white underline' : 'text-gray-600 hover:text-black underline'}>Privacy Policy</Link>.
         </p>
       </div>
     </div>
