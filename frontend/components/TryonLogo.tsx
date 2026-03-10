@@ -9,12 +9,12 @@ type TryonLogoProps = {
 };
 
 /**
- * Theme-aware TRYON logo.
- * Light theme → tryon-logo.jpg; dark theme → tryon-logo-d.jpg (inverted for dark UI).
+ * Theme-aware TRYON logo (transparent background).
+ * Light theme → tryon_logo (black letters); dark theme → tryon_logo_w (white letters).
  */
 export function TryonLogo({ className = 'h-10 w-auto', href = '/' }: TryonLogoProps) {
   const { theme } = useTheme();
-  const src = theme === 'dark' ? '/tryon-logo-d.jpg' : '/tryon-logo.jpg';
+  const src = theme === 'dark' ? '/tryon_logo_w.png' : '/tryon_logo.png';
 
   const img = (
     // eslint-disable-next-line @next/next/no-img-element
