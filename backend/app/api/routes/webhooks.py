@@ -1,6 +1,7 @@
 """
-Shopify webhooks — orders/paid for purchase attribution
+Shopify webhooks — orders/paid for purchase attribution; GDPR compliance webhooks.
 """
+import base64
 import hmac
 import hashlib
 import json
@@ -16,20 +17,20 @@ settings = get_settings()
 # Attribute name from cart (theme must use this key)
 TRYON_SESSION_ATTR = "tryon_session_id"
 
+# Compliance webhook topics (Shopify mandatory for App Store)
+COMPLIANCE_TOPICS = {"customers/data_request", "customers/redact", "shop/redact"}
+
 
 def _verify_shopify_hmac(body: bytes, hmac_header: str | None) -> bool:
-    """Verify Shopify webhook HMAC. Skip if no secret configured (local testing)."""
+    """Verify Shopify webhook HMAC using app client secret. Shopify sends header as base64."""
     secret = getattr(settings, "shopify_webhook_secret", None) or ""
     if not secret:
         return True  # Allow when not configured for dev
     if not hmac_header:
         return False
-    computed = hmac.new(
-        secret.encode(),
-        body,
-        hashlib.sha256
-    ).hexdigest()
-    return hmac.compare_digest(computed, hmac_header)
+    digest = hmac.new(secret.encode(), body, hashlib.sha256).digest()
+    computed_b64 = base64.b64encode(digest).decode("ascii")
+    return hmac.compare_digest(computed_b64, hmac_header)
 
 
 def _get_session_id_from_order(order: dict[str, Any]) -> str | None:
@@ -130,3 +131,43 @@ async def shopify_orders_paid(request: Request):
     if event_id is None:
         return Response(status_code=200, content="OK")  # No session_id, skip
     return Response(status_code=200, content="OK")
+
+
+# --- Mandatory compliance webhooks (GDPR/CCPA; required for App Store) ---
+# Shopify sends all three topics to the same URI; identify by X-Shopify-Topic header.
+
+
+@router.post("/shopify/compliance")
+async def shopify_compliance_webhook(request: Request):
+    """
+    Single endpoint for mandatory compliance webhooks: customers/data_request,
+    customers/redact, shop/redact. Verify HMAC, acknowledge with 200. Actual
+    data deletion/export can be implemented or queued here.
+    """
+    body = await request.body()
+    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
+    if not _verify_shopify_hmac(body, hmac_header):
+        raise HTTPException(status_code=401, detail="Invalid HMAC")
+
+    try:
+        payload = json.loads(body) if body else {}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    topic = (request.headers.get("X-Shopify-Topic") or "").strip()
+    if topic not in COMPLIANCE_TOPICS:
+        raise HTTPException(status_code=400, detail="Unknown compliance topic")
+
+    # Acknowledge receipt immediately (Shopify requires 200 within 5s).
+    # Optional: enqueue or run data_request/redact logic here.
+    if topic == "customers/data_request":
+        # Payload: shop_id, shop_domain, orders_requested, customer, data_request.id
+        pass
+    elif topic == "customers/redact":
+        # Payload: shop_id, shop_domain, customer, orders_to_redact
+        pass
+    elif topic == "shop/redact":
+        # Payload: shop_id, shop_domain
+        pass
+
+    return Response(status_code=200, content="OK", media_type="text/plain")
