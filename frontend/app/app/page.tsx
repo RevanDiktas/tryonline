@@ -1,187 +1,87 @@
-'use client';
+'use client'
 
-import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { getCurrentUser } from '@/lib/supabase-auth';
-
-/** Backend (Railway) base URL — Shopify OAuth and session live here, not on Vercel. */
-const getApiBase = () => (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 
 /**
- * Embedded Shopify app — onboarding entry.
- * Open from Shopify Admin → Apps → Tryon.
- * When no session: redirects to backend OAuth; after OAuth, Shopify redirects back here.
- * Once store is connected: checks if brand is logged in and routes accordingly.
+ * App landing: tryon.global/app
+ * - When opened from Shopify (URL has ?shop=...): show only brand onboarding ("Launch Your Brand").
+ * - When opened on the main website (no shop param): show both shopper and brand options.
  */
-function AppPageContent() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const shop = searchParams.get('shop') ?? '';
-  const host = searchParams.get('host') ?? '';
-  const error = searchParams.get('error') ?? '';
-  const [status, setStatus] = useState<'loading' | 'ready' | 'redirecting' | 'completing'>('loading');
+export default function AppLandingPage() {
+  const searchParams = useSearchParams()
+  const shop = searchParams.get('shop')
+  const isShopifyApp = Boolean(shop?.includes('.myshopify.com'))
 
-  const code = searchParams.get('code') ?? '';
-  const hmac = searchParams.get('hmac') ?? '';
-  const state = searchParams.get('state') ?? '';
+  const dashboardUrl = shop ? `/app/dashboard?shop=${encodeURIComponent(shop)}` : '/app/dashboard'
 
-  useEffect(() => {
-    if (code && shop && hmac && state) {
-      setStatus('completing');
-      const apiBase = getApiBase();
-      fetch(`${apiBase}/api/shopify/complete-install`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, shop, hmac, state }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.ok) {
-            if (typeof window !== 'undefined') {
-              window.history.replaceState({}, '', `${window.location.pathname}?shop=${encodeURIComponent(shop)}`);
-              window.location.reload();
-            }
-          } else {
-            setStatus('ready');
-            window.history.replaceState({}, '', `${window.location.pathname}?shop=${encodeURIComponent(shop)}&error=${data.error || 'complete_failed'}`);
-            window.location.reload();
-          }
-        })
-        .catch(() => {
-          setStatus('ready');
-          window.history.replaceState({}, '', `${window.location.pathname}?shop=${encodeURIComponent(shop)}&error=complete_failed`);
-          window.location.reload();
-        });
-      return;
-    }
+  return (
+    <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col">
+      {/* Header */}
+      <header className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+        <span className="text-xl font-semibold tracking-tight">Tryon</span>
+        <Link
+          href="/"
+          className="text-sm font-medium text-white/80 hover:text-white transition-colors"
+        >
+          Sign In
+        </Link>
+      </header>
 
-    if (!shop) {
-      setStatus('ready');
-      return;
-    }
-    const apiBase = getApiBase();
-    const authUrl = apiBase ? `${apiBase}/api/shopify/auth?shop=${encodeURIComponent(shop)}` : '';
+      {/* Main */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+        <h1 className="text-3xl md:text-4xl font-bold text-center text-white/95 mb-3">
+          Virtual Try-On For Everyone
+        </h1>
+        <p className="text-center text-white/70 max-w-lg mb-10">
+          Shoppers get a perfect fit. Brands reduce returns. One platform, powered by your 3D avatar.
+        </p>
 
-    if (!apiBase) {
-      setStatus('redirecting');
-      return;
-    }
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    fetch(`${apiBase}/api/shopify/session?shop=${encodeURIComponent(shop)}`, { signal: controller.signal })
-      .then((res) => {
-        clearTimeout(timeout);
-        if (res.ok) {
-          setStatus('ready');
-          return;
-        }
-        setStatus('redirecting');
-        if (typeof window !== 'undefined' && window.top) {
-          window.top.location.href = authUrl;
-        }
-      })
-      .catch(() => {
-        clearTimeout(timeout);
-        setStatus('redirecting');
-        if (typeof window !== 'undefined' && window.top) {
-          window.top.location.href = authUrl;
-        }
-      });
-  }, [shop, code, hmac, state]);
-
-  // Once store is connected (status=ready), check auth and route
-  useEffect(() => {
-    if (status !== 'ready' || !shop) return;
-    getCurrentUser()
-      .then((user) => {
-        if (user && user.user_type === 'brand') {
-          router.push('/brand');
-        } else if (user) {
-          // Logged in but not a brand — go to brand signup
-          router.push(`/signup?type=brand&shop=${encodeURIComponent(shop)}`);
-        } else {
-          // Not logged in — go to login (they may already have an account)
-          router.push(`/login?redirect=/brand&shop=${encodeURIComponent(shop)}`);
-        }
-      })
-      .catch(() => {
-        router.push(`/login?redirect=/brand&shop=${encodeURIComponent(shop)}`);
-      });
-  }, [status, shop, router]);
-
-  if (status === 'redirecting') {
-    const apiBase = getApiBase();
-    const authUrl = apiBase && shop ? `${apiBase}/api/shopify/auth?shop=${encodeURIComponent(shop)}` : '';
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 p-6 gap-5">
-        {!authUrl ? (
-          <p className="text-amber-600 dark:text-amber-400 text-center max-w-md">
-            Backend URL is not set. Add <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">NEXT_PUBLIC_API_URL</code> in Vercel to your Railway backend URL (e.g. https://heroic-celebration-production-9f72.up.railway.app), then redeploy.
-          </p>
-        ) : (
-          <>
-            <p className="text-gray-600 dark:text-gray-400 text-center">
-              Complete install to connect your store. Click the button below (required when the app opens inside Shopify).
-            </p>
-            <a
-              href={authUrl}
-              target="_top"
-              rel="noopener noreferrer"
-              className="px-6 py-3 bg-gray-900 text-white rounded-md font-medium hover:opacity-90 text-center"
+        {/* Onboarding options */}
+        <div className="flex flex-col sm:flex-row gap-4 w-full max-w-2xl justify-center">
+          {!isShopifyApp && (
+            <Link
+              href="/"
+              className="flex flex-col items-center justify-center rounded-2xl border-2 border-white/20 bg-white/5 px-8 py-6 hover:bg-white/10 hover:border-white/30 transition-all min-h-[120px]"
             >
-              Complete install
-            </a>
-          </>
-        )}
-      </div>
-    );
-  }
-
-  if (status === 'completing') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-6">
-        <p className="text-gray-600 dark:text-gray-400">Completing install…</p>
-      </div>
-    );
-  }
-
-  if (!shop) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-6">
-        <div className="text-center text-gray-600 dark:text-gray-400">
-          <p className="font-medium">Open this app from Shopify Admin</p>
-          <p className="mt-2 text-sm">Apps → Tryon</p>
+              <span className="text-lg font-semibold text-white">Create Your Fit Passport</span>
+              <span className="text-sm text-white/60 mt-1">I&apos;m a shopper</span>
+            </Link>
+          )}
+          <Link
+            href={dashboardUrl}
+            className="flex flex-col items-center justify-center rounded-2xl border-2 border-white bg-white/10 px-8 py-6 hover:bg-white/15 transition-all min-h-[120px]"
+          >
+            <span className="text-lg font-semibold text-white">Launch Your Brand</span>
+            <span className="text-sm text-white/60 mt-1">I&apos;m a brand</span>
+          </Link>
         </div>
-      </div>
-    );
-  }
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-6">
-        <div className="text-center text-gray-600 dark:text-gray-400">
-          <p className="font-medium">Something went wrong</p>
-          <p className="mt-2 text-sm">Error: {error}</p>
+        {/* Feature cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-14 w-full max-w-3xl">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-5 text-center">
+            <div className="text-2xl mb-2">📷</div>
+            <h3 className="font-semibold text-white mb-1">Upload Once</h3>
+            <p className="text-sm text-white/60">
+              Take one photo, get your personalized 3D avatar with accurate body measurements.
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-5 text-center">
+            <div className="text-2xl mb-2">🌐</div>
+            <h3 className="font-semibold text-white mb-1">Try On Anywhere</h3>
+            <p className="text-sm text-white/60">
+              Works on any brand&apos;s website. One avatar, endless possibilities.
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-5 text-center">
+            <div className="text-2xl mb-2">✓</div>
+            <h3 className="font-semibold text-white mb-1">Reduce Returns</h3>
+            <p className="text-sm text-white/60">
+              Brands see up to 40% fewer returns with accurate size recommendations.
+            </p>
+          </div>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-6">
-      <p className="text-gray-600 dark:text-gray-400">Setting up your account…</p>
+      </main>
     </div>
-  );
-}
-
-export default function AppPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <p className="text-gray-600 dark:text-gray-400">Loading…</p>
-      </div>
-    }>
-      <AppPageContent />
-    </Suspense>
-  );
+  )
 }
