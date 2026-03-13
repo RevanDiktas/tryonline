@@ -3,6 +3,6 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "deploy": "shopify app deploy"
+    "deploy": "bash deploy.sh"
   }
 }
