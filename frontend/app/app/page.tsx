@@ -2,11 +2,12 @@
 
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { useEffect } from 'react'
 import { Camera, Globe, CheckCircle } from 'lucide-react'
 
 /**
  * App landing: tryon.global/app
- * Same structure as main site. When opened from Shopify (?shop=...): show only "Launch Your Brand".
+ * Same structure and look as tryon.global (light theme). When opened from Shopify (?shop=...): show only "Launch Your Brand".
  * Otherwise show both shopper and brand options.
  */
 export default function AppLandingPage() {
@@ -15,6 +16,18 @@ export default function AppLandingPage() {
   const isShopifyApp = Boolean(shop?.includes('.myshopify.com'))
 
   const dashboardUrl = shop ? `/app/dashboard?shop=${encodeURIComponent(shop)}` : '/app/dashboard'
+
+  // Force light theme on this page so it always matches tryon.global (including when embedded in Shopify)
+  useEffect(() => {
+    const html = document.documentElement
+    const body = document.body
+    html.classList.remove('theme-dark')
+    html.classList.add('theme-light')
+    body.style.backgroundColor = '#ffffff'
+    return () => {
+      body.style.backgroundColor = ''
+    }
+  }, [])
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
