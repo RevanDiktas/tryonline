@@ -1,27 +1,33 @@
-# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
-
-client_id = "daf4359349b8033a4165df358aa6e05c"
+# Tryon (tryon-3) — Public App Store app
+# Deploy: cd shopify_app && shopify app deploy (or npm run deploy)
 name = "Tryon"
-# Embedded app loads this URL in Shopify Admin (onboarding)
+client_id = "ec47b40d60204a8d7cf80aa50e313d19"
 application_url = "https://tryon.global/app"
 embedded = true
+handle = "tryon"
+
+[access_scopes]
+scopes = "read_orders"
+
+[access.admin]
+direct_api_mode = "online"
+
+[auth]
+redirect_urls = [
+  "https://heroic-celebration-production-9f72.up.railway.app/api/shopify/auth/callback",
+  "https://tryon.global/app",
+]
 
 [webhooks]
 api_version = "2026-01"
 
-[access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_orders"
-optional_scopes = [ ]
-use_legacy_install_flow = false
-
-[auth]
-# Backend callback FIRST so install link / OAuth redirect hits backend (we exchange code → create brand).
-# Frontend second for any other redirect needs.
-redirect_urls = [
-  "https://heroic-celebration-production-9f72.up.railway.app/api/shopify/auth/callback",
-  "https://tryon.global/app"
-]
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/shopify/compliance"
 
 [pos]
 embedded = false
+
+[build]
+automatically_update_urls_on_dev = false

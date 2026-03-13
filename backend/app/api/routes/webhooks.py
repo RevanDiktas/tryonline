@@ -19,6 +19,8 @@ TRYON_SESSION_ATTR = "tryon_session_id"
 
 # Compliance webhook topics (Shopify mandatory for App Store)
 COMPLIANCE_TOPICS = {"customers/data_request", "customers/redact", "shop/redact"}
+# Same URI may receive app/uninstalled if configured in shopify.app.toml
+ALLOWED_WEBHOOK_TOPICS = COMPLIANCE_TOPICS | {"app/uninstalled"}
 
 
 def _verify_shopify_hmac(body: bytes, hmac_header: str | None) -> bool:
@@ -155,7 +157,7 @@ async def shopify_compliance_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
     topic = (request.headers.get("X-Shopify-Topic") or "").strip()
-    if topic not in COMPLIANCE_TOPICS:
+    if topic not in ALLOWED_WEBHOOK_TOPICS:
         raise HTTPException(status_code=400, detail="Unknown compliance topic")
 
     # Acknowledge receipt immediately (Shopify requires 200 within 5s).
