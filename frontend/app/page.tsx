@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { TryonLogo } from '@/components/TryonLogo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, type User } from '@/lib/supabase-auth';
@@ -9,14 +10,17 @@ import { getMyBrand } from '@/lib/api';
 import { isShopifyMode } from '@/lib/app-mode';
 import { useRouter } from 'next/navigation';
 
-export default function HomePage() {
+function HomePageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const [user, setUser] = useState<User | null>(null);
   const [brandName, setBrandName] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
   const shopifyMode = isShopifyMode();
+  const shop = searchParams.get('shop');
+  const isShopifyApp = Boolean(shop?.includes('.myshopify.com'));
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -44,11 +48,10 @@ export default function HomePage() {
     );
   }
 
-  const dashboardUrl = user?.user_type === 'brand' ? '/brand' : '/dashboard';
+  const dashboardUrl = user?.user_type === 'brand' ? (shop ? `/brand?shop=${encodeURIComponent(shop)}` : '/brand') : '/dashboard';
 
   return (
     <div className={`min-h-screen transition-colors ${dark ? 'bg-black' : 'bg-white'}`}>
-      {/* Header — theme-aware so logo + background match after sign-out */}
       <header className={`absolute top-0 left-0 right-0 z-10 border-b md:border-0 ${dark ? 'bg-black md:bg-transparent border-white/10' : 'bg-white md:bg-transparent border-gray-100'}`}>
         <div className="max-w-6xl mx-auto px-4 py-4 md:px-6 md:py-6 flex items-center justify-between">
           <TryonLogo className="h-8 w-auto md:h-10" href="/" />
@@ -76,7 +79,6 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Hero */}
       <main className="relative min-h-screen flex items-start md:items-center justify-center px-4 pt-20 md:pt-0">
         <div className="relative text-center max-w-3xl mx-auto pt-4 md:pt-0">
           <h2 className={`text-5xl md:text-7xl font-bold mb-6 leading-tight ${dark ? 'text-white' : 'text-black'}`}>
@@ -86,12 +88,11 @@ export default function HomePage() {
           </h2>
 
           <p className={`text-xl mb-12 max-w-xl mx-auto ${dark ? 'text-white/60' : 'text-gray-500'}`}>
-            {shopifyMode
+            {isShopifyApp || shopifyMode
               ? 'Add virtual try-on to your store. Reduce returns by up to 40%.'
               : 'Shoppers get a perfect fit. Brands reduce returns. One platform, powered by your 3D avatar.'}
           </p>
 
-          {/* CTAs — theme-aware: light = black button, dark = white button */}
           {user ? (
             <Link
               href={dashboardUrl}
@@ -99,6 +100,16 @@ export default function HomePage() {
             >
               {user.user_type === 'brand' ? 'Go to Brand Dashboard' : 'Go to My Dashboard'}
             </Link>
+          ) : isShopifyApp ? (
+            <div className="flex flex-col sm:flex-row gap-4 justify-center max-w-lg mx-auto">
+              <Link
+                href={shop ? `/brand?shop=${encodeURIComponent(shop)}` : '/brand'}
+                className={`flex-1 group relative overflow-hidden px-8 py-5 font-semibold rounded-2xl border-2 transition text-center ${dark ? 'bg-transparent text-white border-white/30 hover:bg-white/10' : 'bg-white text-black border-black hover:bg-gray-50'}`}
+              >
+                <span className="block text-lg">Launch Your Brand</span>
+                <span className={`block text-sm font-normal mt-1 ${dark ? 'text-white/60' : 'text-gray-500'}`}>I&apos;m a brand</span>
+              </Link>
+            </div>
           ) : shopifyMode ? (
             <div className="flex flex-col gap-4 justify-center max-w-md mx-auto">
               <Link
@@ -123,7 +134,6 @@ export default function HomePage() {
                 <span className="block text-lg">Create Your Fit Passport</span>
                 <span className={`block text-sm font-normal mt-1 ${dark ? 'text-black/60' : 'text-white/60'}`}>I&apos;m a shopper</span>
               </Link>
-
               <Link
                 href="/signup?type=brand"
                 className={`flex-1 group relative overflow-hidden px-8 py-5 font-semibold rounded-2xl border-2 transition text-center ${dark ? 'bg-transparent text-white border-white/30 hover:bg-white/10' : 'bg-white text-black border-black hover:bg-gray-50'}`}
@@ -134,7 +144,6 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* Features */}
           <div className="grid md:grid-cols-3 gap-6 mt-20">
             <div className={`rounded-2xl p-6 text-left border ${dark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-gray-200 shadow-sm'}`}>
               <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${dark ? 'bg-white/10' : 'bg-gray-100'}`}>
@@ -148,7 +157,6 @@ export default function HomePage() {
                 Take one photo, get your personalized 3D avatar with accurate body measurements
               </p>
             </div>
-
             <div className={`rounded-2xl p-6 text-left border ${dark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-gray-200 shadow-sm'}`}>
               <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${dark ? 'bg-white/10' : 'bg-gray-100'}`}>
                 <svg className={`w-6 h-6 ${dark ? 'text-white/70' : 'text-gray-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -160,7 +168,6 @@ export default function HomePage() {
                 Works on any brand&apos;s website. One avatar, endless possibilities
               </p>
             </div>
-
             <div className={`rounded-2xl p-6 text-left border ${dark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-gray-200 shadow-sm'}`}>
               <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${dark ? 'bg-white/10' : 'bg-gray-100'}`}>
                 <svg className={`w-6 h-6 ${dark ? 'text-white/70' : 'text-gray-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -182,5 +189,17 @@ export default function HomePage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-gray-400">Loading...</div>
+      </div>
+    }>
+      <HomePageContent />
+    </Suspense>
   );
 }
