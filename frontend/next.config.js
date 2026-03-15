@@ -9,7 +9,6 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['three'],
   images: {
-    // Add your Supabase project host (e.g. 'xxxxx.supabase.co') for storage images in production
     domains: ['localhost', 'supabase.co'],
   },
   async rewrites() {
@@ -18,17 +17,11 @@ const nextConfig = {
       { source: '/health', destination: `${API_BASE}/health` },
     ];
   },
-  // Allow widget to be embedded in iframes (e.g. Shopify store product pages)
   async headers() {
     return [
       {
         source: '/test-viewer.html',
-        headers: [
-          {
-            key: 'Content-Security-Policy',
-            value: 'frame-ancestors *',
-          },
-        ],
+        headers: [{ key: 'Content-Security-Policy', value: 'frame-ancestors *' }],
       },
     ];
   },
