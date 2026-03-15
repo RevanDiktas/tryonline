@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { TryonLogo } from '@/components/TryonLogo';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -102,7 +102,9 @@ function EmptyState({ message, sub, dark }: { message: string; sub?: string; dar
 
 export default function BrandDashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { theme, toggleTheme } = useTheme();
+  const shopParam = searchParams.get('shop');
   const dark = theme === 'dark';
   const [user, setUser] = useState<User | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -196,7 +198,11 @@ export default function BrandDashboardPage() {
 
   const handleLogout = async () => {
     await logout();
-    router.push('/');
+    if (shopParam?.includes('.myshopify.com')) {
+      router.push(`/?shop=${encodeURIComponent(shopParam)}`);
+    } else {
+      router.push('/');
+    }
   };
 
   if (!authChecked) {

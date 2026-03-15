@@ -103,7 +103,7 @@ function HomePageContent() {
           ) : isShopifyApp ? (
             <div className="flex flex-col sm:flex-row gap-4 justify-center max-w-lg mx-auto">
               <Link
-                href={shop ? `/brand?shop=${encodeURIComponent(shop)}` : '/brand'}
+                href={shop ? `/signup?type=brand&shop=${encodeURIComponent(shop)}` : '/signup?type=brand'}
                 className={`flex-1 group relative overflow-hidden px-8 py-5 font-semibold rounded-2xl border-2 transition text-center ${dark ? 'bg-transparent text-white border-white/30 hover:bg-white/10' : 'bg-white text-black border-black hover:bg-gray-50'}`}
               >
                 <span className="block text-lg">Launch Your Brand</span>
