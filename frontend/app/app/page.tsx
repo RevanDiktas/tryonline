@@ -6,9 +6,9 @@ import { useEffect } from 'react'
 import { Camera, Globe, CheckCircle } from 'lucide-react'
 
 /**
- * App landing: tryon.global/app
- * Same structure and look as tryon.global (light theme). When opened from Shopify (?shop=...): show only "Launch Your Brand".
- * Otherwise show both shopper and brand options.
+ * Same homepage as tryon.global. No new page — one page, two CTAs.
+ * URL handler: when ?shop=... (Shopify app context), hide "Create Your Fit Passport" so brands only see "Launch Your Brand".
+ * Sign In → /. Launch Your Brand → /app/dashboard (then redirects to brand flow).
  */
 export default function AppLandingPage() {
   const searchParams = useSearchParams()
