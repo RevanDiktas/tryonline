@@ -89,7 +89,7 @@ function HomePageContent() {
 
           <p className={`text-xl mb-12 max-w-xl mx-auto ${dark ? 'text-white/60' : 'text-gray-500'}`}>
             {isShopifyApp || shopifyMode
-              ? 'Add virtual try-on to your store. Reduce returns by up to 40%.'
+              ? 'Add virtual try-on to your store. Shoppers see fit before they buy.'
               : 'Shoppers get a perfect fit. Brands reduce returns. One platform, powered by your 3D avatar.'}
           </p>
 
@@ -176,7 +176,7 @@ function HomePageContent() {
               </div>
               <h3 className={`font-semibold mb-2 ${dark ? 'text-white' : 'text-black'}`}>Reduce Returns</h3>
               <p className={dark ? 'text-white/50 text-sm' : 'text-gray-500 text-sm'}>
-                Brands see up to 40% fewer returns with accurate size recommendations
+                Accurate size recommendations help shoppers choose the right fit and reduce returns
               </p>
             </div>
           </div>

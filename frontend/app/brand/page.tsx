@@ -170,6 +170,12 @@ export default function BrandDashboardPage() {
   const [hasGarments, setHasGarments] = useState(true);
 
   useEffect(() => {
+    if (shopParam?.includes('.myshopify.com') && typeof window !== 'undefined') {
+      sessionStorage.setItem('tryon_shop_context', shopParam);
+    }
+  }, [shopParam]);
+
+  useEffect(() => {
     getCurrentUser().then(async (u) => {
       if (!u) {
         router.push('/login');
@@ -184,8 +190,12 @@ export default function BrandDashboardPage() {
       try {
         const brand = await getMyBrand(u.id);
         if (brand?.shopify_domain) {
-          setBrandShop(brand.shopify_domain as string);
-          setMetricsShop((prev) => prev || (brand.shopify_domain as string));
+          const domain = brand.shopify_domain as string;
+          setBrandShop(domain);
+          setMetricsShop((prev) => prev || domain);
+          if (typeof window !== 'undefined' && domain?.includes('.myshopify.com')) {
+            sessionStorage.setItem('tryon_shop_context', domain);
+          }
         }
         if (brand?.id) {
           const { garmentApi } = await import('@/lib/api');
@@ -197,9 +207,14 @@ export default function BrandDashboardPage() {
   }, [router]);
 
   const handleLogout = async () => {
+    const shopForRedirect =
+      (typeof window !== 'undefined' && sessionStorage.getItem('tryon_shop_context')) ||
+      shopParam ||
+      brandShop;
     await logout();
-    if (shopParam?.includes('.myshopify.com')) {
-      router.push(`/?shop=${encodeURIComponent(shopParam)}`);
+    if (typeof window !== 'undefined') sessionStorage.removeItem('tryon_shop_context');
+    if (shopForRedirect?.includes('.myshopify.com')) {
+      router.push(`/?shop=${encodeURIComponent(shopForRedirect)}`);
     } else {
       router.push('/');
     }
