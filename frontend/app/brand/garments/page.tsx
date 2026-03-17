@@ -301,8 +301,10 @@ export default function GarmentsPage() {
             <h2 className="text-lg font-semibold mb-4">{editingId ? 'Edit Garment' : 'Add New Garment'}</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`}>Name *</label>
+                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`} htmlFor="garment-name">Name *</label>
                 <input
+                  id="garment-name"
+                  name="garment-name"
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -311,8 +313,10 @@ export default function GarmentsPage() {
                 />
               </div>
               <div>
-                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`}>Shopify Product ID *</label>
+                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`} htmlFor="garment-shopify-product-id">Shopify Product ID *</label>
                 <input
+                  id="garment-shopify-product-id"
+                  name="shopify_product_id"
                   type="text"
                   value={form.shopify_product_id}
                   onChange={(e) => setForm({ ...form, shopify_product_id: e.target.value.trim() })}
@@ -325,8 +329,10 @@ export default function GarmentsPage() {
                 </p>
               </div>
               <div>
-                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`}>Category</label>
+                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`} htmlFor="garment-category">Category</label>
                 <select
+                  id="garment-category"
+                  name="category"
                   value={form.category}
                   onChange={(e) => setForm({ ...form, category: e.target.value })}
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'border-gray-200 text-black focus:ring-black'}`}
@@ -335,8 +341,10 @@ export default function GarmentsPage() {
                 </select>
               </div>
               <div>
-                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`}>Fit Type</label>
+                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`} htmlFor="garment-fit-type">Fit Type</label>
                 <select
+                  id="garment-fit-type"
+                  name="fit_type"
                   value={form.fit_type}
                   onChange={(e) => setForm({ ...form, fit_type: e.target.value })}
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'border-gray-200 text-black focus:ring-black'}`}
@@ -548,7 +556,7 @@ export default function GarmentsPage() {
                 <button onClick={() => setSizeChartGarmentId(null)} className={`text-xl ${dark ? 'text-white/40 hover:text-white' : 'text-gray-400 hover:text-black'}`}>&times;</button>
               </div>
 
-              <input type="file" ref={csvInputRef} accept=".csv,.json" className="hidden" onChange={handleImportFile} />
+              <input id="size-chart-import" name="size-chart-import" type="file" ref={csvInputRef} accept=".csv,.json" className="hidden" onChange={handleImportFile} />
 
               <div className="overflow-x-auto mb-4">
                 <table className="w-full text-sm">
@@ -567,6 +575,8 @@ export default function GarmentsPage() {
                         {MEASUREMENTS.map((m) => (
                           <td key={m} className="py-2 px-1">
                             <input
+                              id={`size-chart-${sz}-${m}`}
+                              name={`size-chart-${sz}-${m}`}
                               type="number"
                               value={sizeChartData[sz]?.[m] ?? ''}
                               onChange={(e) => updateSizeChartCell(sz, m, e.target.value)}

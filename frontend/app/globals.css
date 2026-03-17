@@ -1,10 +1,10 @@
+/* @import must be at the very top; only @charset/@layer can precede */
+@import url('https://fonts.cdnfonts.com/css/sf-pro-display');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* SF Pro Display + JetBrains Mono for quant dashboards */
-@import url('https://fonts.cdnfonts.com/css/sf-pro-display');
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
   --glass-bg: rgba(255, 255, 255, 0.72);

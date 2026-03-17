@@ -127,6 +127,8 @@ export default function PhotoUpload({ onUpload, onSkip, isLoading = false }: Pho
           `}
         >
           <input
+            id="photo-upload-input"
+            name="photo-upload"
             ref={fileInputRef}
             type="file"
             accept="image/*"

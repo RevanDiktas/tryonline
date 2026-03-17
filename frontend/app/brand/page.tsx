@@ -292,6 +292,8 @@ export default function BrandDashboardPage() {
             {/* Mobile: shop + range at end of scroll so they stay accessible */}
             <div className="flex items-center gap-2 shrink-0 pl-2 md:hidden">
               <select
+                id="metrics-shop-mobile"
+                name="metrics-shop"
                 value={metricsShop}
                 onChange={(e) => setMetricsShop(e.target.value)}
                 className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
@@ -300,6 +302,8 @@ export default function BrandDashboardPage() {
                 {brandShop && <option value={brandShop}>{brandShop}</option>}
               </select>
               <select
+                id="metrics-range-mobile"
+                name="metrics-range"
                 value={metricsRange}
                 onChange={(e) => setMetricsRange(e.target.value as '7d' | '30d')}
                 className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
@@ -312,6 +316,8 @@ export default function BrandDashboardPage() {
           {/* Desktop only: right group (unchanged) */}
           <div className="hidden md:flex items-center gap-2 ml-auto shrink-0">
             <select
+              id="metrics-shop-desktop"
+              name="metrics-shop"
               value={metricsShop}
               onChange={(e) => setMetricsShop(e.target.value)}
               className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
@@ -320,6 +326,8 @@ export default function BrandDashboardPage() {
               {brandShop && <option value={brandShop}>{brandShop}</option>}
             </select>
             <select
+              id="metrics-range-desktop"
+              name="metrics-range"
               value={metricsRange}
               onChange={(e) => setMetricsRange(e.target.value as '7d' | '30d')}
               className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
