@@ -24,6 +24,7 @@ export function GET(request: NextRequest) {
 
   const queryString = searchParams.toString();
   const nextPath = queryString ? `/?${queryString}` : '/';
+  const debug = searchParams.get('debug') === '1' || searchParams.get('debug') === 'true';
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -33,33 +34,75 @@ export function GET(request: NextRequest) {
   <meta name="shopify-api-key" content="${escapeHtml(SHOPIFY_CLIENT_ID)}"/>
   <script src="${APP_BRIDGE_URL}"></script>
 </head>
-<body style="margin:0;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;color:#666;">
-  <p>Loading Tryon…</p>
+<body style="margin:0;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;color:#666;padding:20px;">
+  <p id="msg">Loading Tryon…</p>
+  <pre id="debug" style="margin-top:12px;font-size:11px;text-align:left;max-width:100%;overflow:auto;display:none;"></pre>
   <script>
 (function(){
   var nextUrl = ${JSON.stringify(nextPath)};
+  var debug = ${debug ? 'true' : 'false'};
+  var debugEl = document.getElementById('debug');
+  var msgEl = document.getElementById('msg');
+  function log(s) {
+    if (typeof console !== 'undefined' && console.log) console.log('[Tryon session]', s);
+    if (debug && debugEl) { debugEl.style.display = 'block'; debugEl.textContent += s + '\\n'; }
+  }
+  function setMsg(s) { if (msgEl) msgEl.textContent = s; }
+  function appendMsg(s) { if (msgEl) msgEl.textContent = (msgEl.textContent || '') + s; }
   function getTokenFn(){
     if (window.shopify && typeof window.shopify.getSessionToken === 'function')
       return window.shopify.getSessionToken.bind(window.shopify);
     return null;
   }
   function go() {
-    window.location.replace(window.location.origin + nextUrl);
+    if (!debug) window.location.replace(window.location.origin + nextUrl);
+    else log('(debug: redirect skipped)');
   }
   function run() {
     var getToken = getTokenFn();
-    if (getToken) {
-      getToken().then(function(){}).catch(function(){});
-      try { fetch('shopify:admin/api/2024-01/shop.json').catch(function(){}); } catch(e) {}
+    if (!getToken) {
+      log('FAIL: getSessionToken not available');
+      setMsg('Session token: not available');
+      if (!debug) setTimeout(go, 400);
+      return;
     }
-    setTimeout(go, 400);
+    getToken()
+      .then(function(token) {
+        var ok = token && typeof token === 'string' && token.length > 0;
+        log(ok ? 'Session token received (length ' + token.length + ')' : 'FAIL: token empty');
+        setMsg(debug ? (ok ? 'Session token: OK' : 'Session token: empty') : 'Loading Tryon…');
+      })
+      .catch(function(e) {
+        log('FAIL: getSessionToken error ' + (e && e.message ? e.message : String(e)));
+        setMsg('Session token: error');
+      });
+    try {
+      fetch('shopify:admin/api/2024-01/shop.json', { method: 'GET' })
+        .then(function(res) {
+          log('Admin API shop.json: ' + res.status);
+          if (debug) appendMsg(' | Admin API: ' + res.status);
+        })
+        .catch(function(e) {
+          log('FAIL: Admin API ' + (e && e.message ? e.message : String(e)));
+          if (debug) appendMsg(' | Admin API: error');
+        });
+    } catch (e) {
+      log('FAIL: fetch threw ' + (e && e.message ? e.message : String(e)));
+    }
+    if (!debug) setTimeout(go, 400);
+    else setTimeout(go, 5000);
   }
   var attempts = 0;
   function poll() {
     if (getTokenFn()) { run(); return; }
     attempts++;
     if (attempts < 60) setTimeout(poll, 200);
-    else go();
+    else {
+      log('FAIL: App Bridge getSessionToken not ready after 60 attempts');
+      setMsg('Session token: timeout');
+      if (!debug) go();
+      else log('(debug: waiting)');
+    }
   }
   setTimeout(poll, 100);
 })();

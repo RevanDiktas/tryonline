@@ -74,7 +74,7 @@ export function ConversionFunnelChart({
 
   return (
     <div className="h-[140px] w-full min-h-[120px] min-w-0">
-      <ResponsiveContainer width="100%" height="100%" minHeight={120}>
+      <ResponsiveContainer width="100%" height="100%" minHeight={120} initialDimension={{ width: 400, height: 120 }}>
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
           <XAxis type="number" domain={[0, maxVal]} hide />
           <YAxis type="category" dataKey="name" width={90} tick={tickStyle(dark)} axisLine={false} tickLine={false} />
@@ -107,7 +107,7 @@ export function VelocityChart({ velocity, dark }: { velocity: { tryon_velocity_7
 
   return (
     <div className="h-[160px] w-full min-h-[140px] min-w-0">
-      <ResponsiveContainer width="100%" height="100%" minHeight={140}>
+      <ResponsiveContainer width="100%" height="100%" minHeight={140} initialDimension={{ width: 400, height: 140 }}>
         <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} vertical={false} />
           <XAxis dataKey="period" tick={tickStyle(dark)} axisLine={false} tickLine={false} />
@@ -151,7 +151,7 @@ export function SizeDistributionChart({
 
   return (
     <div className="h-[180px] w-full min-h-[140px] min-w-0">
-      <ResponsiveContainer width="100%" height="100%" minHeight={140}>
+      <ResponsiveContainer width="100%" height="100%" minHeight={140} initialDimension={{ width: 400, height: 140 }}>
         <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} vertical={false} />
           <XAxis dataKey="size" tick={tickStyle(dark)} axisLine={false} tickLine={false} />
@@ -180,7 +180,7 @@ export function ExplorationTrendChart({ data, dark }: { data: { week_start: stri
 
   return (
     <div className="h-[160px] w-full min-h-[120px] min-w-0">
-      <ResponsiveContainer width="100%" height="100%" minHeight={120}>
+      <ResponsiveContainer width="100%" height="100%" minHeight={120} initialDimension={{ width: 400, height: 120 }}>
         <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="explorationGradient" x1="0" y1="0" x2="0" y2="1">
@@ -235,7 +235,7 @@ export function RegionalSizeChart({ by_country, dark }: { by_country: Record<str
 
   return (
     <div className="h-[180px] w-full min-h-[120px] min-w-0">
-      <ResponsiveContainer width="100%" height="100%" minHeight={120}>
+      <ResponsiveContainer width="100%" height="100%" minHeight={120} initialDimension={{ width: 400, height: 120 }}>
         <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} layout="vertical">
           <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} horizontal={false} />
           <XAxis type="number" domain={[0, 100]} tick={tickStyle(dark)} tickFormatter={(v) => `${v}%`} axisLine={false} tickLine={false} />
