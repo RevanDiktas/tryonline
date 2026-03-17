@@ -34,18 +34,16 @@ export function ShopifyAppBridge() {
       document.head.appendChild(meta);
     }
 
-    // Load App Bridge from Shopify's CDN (required for "uses latest App Bridge" check)
+    // Script may already be in <head> from root layout (for Shopify's initial-HTML check)
     if (document.querySelector(`script[src="${SHOPIFY_APP_BRIDGE_URL}"]`)) {
-      tryUseSessionToken();
+      setTimeout(tryUseSessionToken, 100);
       return;
     }
 
     const script = document.createElement('script');
     script.src = SHOPIFY_APP_BRIDGE_URL;
     script.async = true;
-    script.onload = () => {
-      tryUseSessionToken();
-    };
+    script.onload = () => tryUseSessionToken();
     document.head.appendChild(script);
   }, [searchParams]);
 
