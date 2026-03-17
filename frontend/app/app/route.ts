@@ -49,9 +49,14 @@ export function GET(request: NextRequest) {
   }
   function setMsg(s) { if (msgEl) msgEl.textContent = s; }
   function appendMsg(s) { if (msgEl) msgEl.textContent = (msgEl.textContent || '') + s; }
-  function getTokenFn(){
+  function getSessionTokenFn(){
     if (window.shopify && typeof window.shopify.getSessionToken === 'function')
       return window.shopify.getSessionToken.bind(window.shopify);
+    return null;
+  }
+  function getIdTokenFn(){
+    if (window.shopify && typeof window.shopify.idToken === 'function')
+      return window.shopify.idToken.bind(window.shopify);
     return null;
   }
   function go() {
@@ -59,23 +64,10 @@ export function GET(request: NextRequest) {
     else log('(debug: redirect skipped)');
   }
   function run() {
-    var getToken = getTokenFn();
-    if (!getToken) {
-      log('FAIL: getSessionToken not available');
-      setMsg('Session token: not available');
-      if (!debug) setTimeout(go, 400);
-      return;
-    }
-    getToken()
-      .then(function(token) {
-        var ok = token && typeof token === 'string' && token.length > 0;
-        log(ok ? 'Session token received (length ' + token.length + ')' : 'FAIL: token empty');
-        setMsg(debug ? (ok ? 'Session token: OK' : 'Session token: empty') : 'Loading Tryon…');
-      })
-      .catch(function(e) {
-        log('FAIL: getSessionToken error ' + (e && e.message ? e.message : String(e)));
-        setMsg('Session token: error');
-      });
+    var getIdToken = getIdTokenFn();
+    var getSessionToken = getSessionTokenFn();
+
+    // Primary verification: direct Admin API fetch from embedded context.
     try {
       fetch('shopify:admin/api/2024-01/shop.json', { method: 'GET' })
         .then(function(res) {
@@ -89,16 +81,42 @@ export function GET(request: NextRequest) {
     } catch (e) {
       log('FAIL: fetch threw ' + (e && e.message ? e.message : String(e)));
     }
+
+    if (getIdToken) {
+      getIdToken()
+        .then(function(token) {
+          var ok = token && typeof token === 'string' && token.length > 0;
+          log(ok ? 'idToken OK (length ' + token.length + ')' : 'FAIL: idToken empty');
+          setMsg(debug ? (ok ? 'Session token API: idToken OK' : 'Session token API: idToken empty') : 'Loading Tryon…');
+        })
+        .catch(function(e) {
+          log('FAIL: idToken error ' + (e && e.message ? e.message : String(e)));
+        });
+    } else if (getSessionToken) {
+      getSessionToken()
+        .then(function(token) {
+          var ok = token && typeof token === 'string' && token.length > 0;
+          log(ok ? 'getSessionToken OK (length ' + token.length + ')' : 'FAIL: getSessionToken empty');
+          setMsg(debug ? (ok ? 'Session token API: getSessionToken OK' : 'Session token API: getSessionToken empty') : 'Loading Tryon…');
+        })
+        .catch(function(e) {
+          log('FAIL: getSessionToken error ' + (e && e.message ? e.message : String(e)));
+        });
+    } else {
+      log('Token API not exposed on window.shopify');
+      if (debug) setMsg('Session token API: not exposed');
+    }
+
     if (!debug) setTimeout(go, 400);
     else setTimeout(go, 5000);
   }
   var attempts = 0;
   function poll() {
-    if (getTokenFn()) { run(); return; }
+    if (window.shopify) { run(); return; }
     attempts++;
     if (attempts < 60) setTimeout(poll, 200);
     else {
-      log('FAIL: App Bridge getSessionToken not ready after 60 attempts');
+      log('FAIL: App Bridge global not ready after 60 attempts');
       setMsg('Session token: timeout');
       if (!debug) go();
       else log('(debug: waiting)');
