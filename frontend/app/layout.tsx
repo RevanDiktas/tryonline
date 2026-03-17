@@ -1,9 +1,11 @@
 import type { Metadata } from 'next'
+import Script from 'next/script'
 import { Suspense } from 'react'
 import './globals.css'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { ShopifyAppBridge } from '@/components/ShopifyAppBridge'
 
+// Must match Dev Dashboard → Tryon → Settings → Client ID. Set NEXT_PUBLIC_SHOPIFY_CLIENT_ID in Vercel.
 const SHOPIFY_CLIENT_ID = process.env.NEXT_PUBLIC_SHOPIFY_CLIENT_ID || 'ec47b40d60204a8d7cf80aa50e313d19'
 
 export const metadata: Metadata = {
@@ -20,9 +22,11 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta name="shopify-api-key" content={SHOPIFY_CLIENT_ID} />
-        {/* Required for Shopify embedded app checks: App Bridge from CDN in initial HTML */}
-        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
-        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" />
+        {/* App Bridge from Shopify CDN — beforeInteractive so it's in initial HTML for embedded check */}
+        <Script
+          src="https://cdn.shopify.com/shopifycloud/app-bridge.js"
+          strategy="beforeInteractive"
+        />
       </head>
       <body className="antialiased">
         <ThemeProvider>

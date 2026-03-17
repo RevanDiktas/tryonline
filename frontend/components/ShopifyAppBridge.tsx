@@ -33,17 +33,17 @@ export function ShopifyAppBridge() {
       document.head.appendChild(meta);
     }
 
-    // Script may already be in <head> from root layout (for Shopify's initial-HTML check)
+    // Script may already be in <head> from root layout. It can load async, so poll for App Bridge.
     if (document.querySelector(`script[src="${SHOPIFY_APP_BRIDGE_URL}"]`)) {
-      if (typeof console !== 'undefined' && console.info) console.info('[Tryon embedded] App Bridge script in HTML, running checks in 300ms');
-      setTimeout(runEmbeddedChecks, 300);
+      if (typeof console !== 'undefined' && console.info) console.info('[Tryon embedded] App Bridge script in HTML, waiting for it to load…');
+      pollForAppBridge(runEmbeddedChecks);
       return;
     }
 
     const script = document.createElement('script');
     script.src = SHOPIFY_APP_BRIDGE_URL;
     script.async = true;
-    script.onload = () => runEmbeddedChecks();
+    script.onload = () => pollForAppBridge(runEmbeddedChecks);
     document.head.appendChild(script);
   }, [searchParams]);
 
@@ -52,22 +52,46 @@ export function ShopifyAppBridge() {
 
 const LOG = '[Tryon embedded]';
 
+/** Poll until App Bridge is available (script can load after our code), then run checks. */
+function pollForAppBridge(onReady: () => void) {
+  const maxAttempts = 40;
+  let attempts = 0;
+  const tick = () => {
+    if (getSessionTokenFn()) {
+      if (typeof console !== 'undefined' && console.info) console.info(LOG, 'App Bridge ready after', attempts * 200, 'ms');
+      onReady();
+      return;
+    }
+    attempts++;
+    if (attempts < maxAttempts) setTimeout(tick, 200);
+    else {
+      if (typeof console !== 'undefined' && console.warn) console.warn(LOG, 'App Bridge getSessionToken not found after', maxAttempts, 'attempts');
+      onReady();
+    }
+  };
+  setTimeout(tick, 300);
+}
+
+function getSessionTokenFn(): (() => Promise<string>) | null {
+  const w = window as Window & {
+    shopify?: { getSessionToken?: () => Promise<string>; config?: unknown };
+    ['app-bridge']?: { utilities?: { getSessionToken?: (app?: unknown) => Promise<string> } };
+  };
+  if (w.shopify?.getSessionToken) return w.shopify.getSessionToken.bind(w.shopify);
+  const util = w['app-bridge']?.utilities?.getSessionToken;
+  if (util) return () => (util as (app?: unknown) => Promise<string>)(w.shopify ?? undefined);
+  return null;
+}
+
 /**
  * 1) Call getSessionToken so the checker sees session token usage.
- * 2) Make one fetch to Shopify Admin API so the checker sees an authenticated request
- *    (App Bridge auto-adds session token to fetch('shopify:admin/api/...')).
+ * 2) Make one fetch to Shopify Admin API (only when in real embedded context; skip if no App Bridge).
  */
 function runEmbeddedChecks() {
   try {
-    const w = window as Window & {
-      shopify?: { getSessionToken?: () => Promise<string> };
-      ['app-bridge']?: { utilities?: { getSessionToken?: (app?: unknown) => Promise<string> } };
-    };
-
-    // Explicitly request session token (required for "uses session tokens" check)
-    const getToken = w.shopify?.getSessionToken ?? w['app-bridge']?.utilities?.getSessionToken;
+    const getToken = getSessionTokenFn();
     if (getToken) {
-      (getToken as () => Promise<string>)()
+      getToken()
         .then(() => {
           if (typeof console !== 'undefined' && console.info) console.info(LOG, 'Session token received');
         })
@@ -76,12 +100,14 @@ function runEmbeddedChecks() {
       if (typeof console !== 'undefined' && console.warn) console.warn(LOG, 'App Bridge getSessionToken not found');
     }
 
-    // Make one authenticated request so the checker sees session token in use.
-    fetch('shopify:admin/api/2024-01/shop.json', { method: 'GET' })
-      .then((res) => {
-        if (typeof console !== 'undefined' && console.info) console.info(LOG, 'Admin API fetch:', res.status);
-      })
-      .catch(() => {});
+    // Only call shopify:admin when we have App Bridge (otherwise browser throws "URL scheme not supported").
+    if (getToken) {
+      fetch('shopify:admin/api/2024-01/shop.json', { method: 'GET' })
+        .then((res) => {
+          if (typeof console !== 'undefined' && console.info) console.info(LOG, 'Admin API fetch:', res.status);
+        })
+        .catch(() => {});
+    }
   } catch (e) {
     if (typeof console !== 'undefined' && console.warn) console.warn(LOG, 'runEmbeddedChecks error', e);
   }
