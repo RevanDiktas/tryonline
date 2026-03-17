@@ -7,8 +7,10 @@ const SHOPIFY_APP_BRIDGE_URL = 'https://cdn.shopify.com/shopifycloud/app-bridge.
 const SHOPIFY_CLIENT_ID = process.env.NEXT_PUBLIC_SHOPIFY_CLIENT_ID || 'ec47b40d60204a8d7cf80aa50e313d19';
 
 /**
- * Embedded app loads /app first (App Bridge + token), then redirects here (?shop=).
- * Optional: inject App Bridge on / for extra session calls (may warn if script not first).
+ * Embedded flow: Shopify loads /app first (App Bridge as first script) → we redirect to /?shop=...
+ * On the / page we are inside the admin iframe. We must NOT inject App Bridge here — it would
+ * load with async and not be first, so App Bridge aborts and you get "getSessionToken not found".
+ * The embedded check is already satisfied by /app. Here we no-op when in iframe.
  */
 export function ShopifyAppBridge() {
   const searchParams = useSearchParams();
@@ -19,11 +21,18 @@ export function ShopifyAppBridge() {
 
     const shop = searchParams.get('shop');
     const isEmbedded = shop?.includes('.myshopify.com');
+    const inIframe = window.self !== window.top;
+
+    // We're in the admin iframe on / after redirect from /app. Do NOT inject App Bridge —
+    // it would be async and not first → App Bridge aborts, getSessionToken never exists.
+    if (inIframe && isEmbedded) {
+      return;
+    }
 
     if (!isEmbedded || injected.current) return;
     injected.current = true;
 
-    // Meta tag for App Bridge (required by Shopify CDN script)
+    // Only for top-level (e.g. direct visit to /?shop= outside admin): ensure meta + script.
     let meta = document.querySelector('meta[name="shopify-api-key"]');
     if (!meta) {
       meta = document.createElement('meta');
@@ -32,9 +41,7 @@ export function ShopifyAppBridge() {
       document.head.appendChild(meta);
     }
 
-    // Script may already be in <head> from root layout. It can load async, so poll for App Bridge.
     if (document.querySelector(`script[src="${SHOPIFY_APP_BRIDGE_URL}"]`)) {
-      if (typeof console !== 'undefined' && console.info) console.info('[Tryon embedded] App Bridge script in HTML, waiting for it to load…');
       pollForAppBridge(runEmbeddedChecks);
       return;
     }
