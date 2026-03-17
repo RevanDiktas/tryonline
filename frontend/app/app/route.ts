@@ -6,11 +6,9 @@ const APP_BRIDGE_URL = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
 /**
  * Embedded entry: Shopify loads tryon.global/app?shop=... in ONE iframe (direct child of admin).
  *
- * 1) This response is minimal HTML with App Bridge as the ONLY external script (sync, first) —
- *    satisfies Shopify’s embedded checks.
- * 2) We run getSessionToken + shopify:admin fetch here.
- * 3) We then redirect IN THE SAME IFRAME to /?shop=... (Next app). No nested iframe — avoids
- *    postMessage errors (code was posting to admin.shopify.com with targetOrigin tryon.global).
+ * 1) This response is minimal HTML with App Bridge as the ONLY external script (sync, first).
+ * 2) We verify session auth via direct Admin API fetch + token APIs when available.
+ * 3) Then we redirect in the same iframe to /?shop=...
  */
 export function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -25,6 +23,7 @@ export function GET(request: NextRequest) {
   const queryString = searchParams.toString();
   const nextPath = queryString ? `/?${queryString}` : '/';
   const debug = searchParams.get('debug') === '1' || searchParams.get('debug') === 'true';
+  const hostParam = searchParams.get('host') || '';
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -32,6 +31,7 @@ export function GET(request: NextRequest) {
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="shopify-api-key" content="${escapeHtml(SHOPIFY_CLIENT_ID)}"/>
+  ${hostParam ? `<meta name="shopify-host" content="${escapeHtml(hostParam)}"/>` : ''}
   <script src="${APP_BRIDGE_URL}"></script>
 </head>
 <body style="margin:0;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;color:#666;padding:20px;">
@@ -43,39 +43,29 @@ export function GET(request: NextRequest) {
   var debug = ${debug ? 'true' : 'false'};
   var debugEl = document.getElementById('debug');
   var msgEl = document.getElementById('msg');
+
   function log(s) {
     if (typeof console !== 'undefined' && console.log) console.log('[Tryon session]', s);
-    if (debug && debugEl) { debugEl.style.display = 'block'; debugEl.textContent += s + '\\n'; }
+    if (debug && debugEl) { debugEl.style.display = 'block'; debugEl.textContent += s + '\n'; }
   }
   function setMsg(s) { if (msgEl) msgEl.textContent = s; }
   function appendMsg(s) { if (msgEl) msgEl.textContent = (msgEl.textContent || '') + s; }
-  function getTokenFn(){
-    if (window.shopify && typeof window.shopify.getSessionToken === 'function')
-      return window.shopify.getSessionToken.bind(window.shopify);
-    return null;
-  }
+
   function go() {
     if (!debug) window.location.replace(window.location.origin + nextUrl);
     else log('(debug: redirect skipped)');
   }
-  function run() {
-    var getToken = getTokenFn();
-    if (!getToken) {
-      log('FAIL: getSessionToken not available');
-      setMsg('Session token: not available');
-      if (!debug) setTimeout(go, 400);
-      return;
-    }
-    getToken()
-      .then(function(token) {
-        var ok = token && typeof token === 'string' && token.length > 0;
-        log(ok ? 'Session token received (length ' + token.length + ')' : 'FAIL: token empty');
-        setMsg(debug ? (ok ? 'Session token: OK' : 'Session token: empty') : 'Loading Tryon…');
-      })
-      .catch(function(e) {
-        log('FAIL: getSessionToken error ' + (e && e.message ? e.message : String(e)));
-        setMsg('Session token: error');
-      });
+
+  function runChecks() {
+    var shopifyGlobal = window.shopify || null;
+    var hasIdToken = !!(shopifyGlobal && typeof shopifyGlobal.idToken === 'function');
+    var hasGetSessionToken = !!(shopifyGlobal && typeof shopifyGlobal.getSessionToken === 'function');
+
+    log('shopify global: ' + (!!shopifyGlobal));
+    log('has idToken(): ' + hasIdToken);
+    log('has getSessionToken(): ' + hasGetSessionToken);
+
+    // Primary signal: direct Admin API call should be authenticated by App Bridge.
     try {
       fetch('shopify:admin/api/2024-01/shop.json', { method: 'GET' })
         .then(function(res) {
@@ -89,22 +79,67 @@ export function GET(request: NextRequest) {
     } catch (e) {
       log('FAIL: fetch threw ' + (e && e.message ? e.message : String(e)));
     }
-    if (!debug) setTimeout(go, 400);
+
+    if (hasIdToken) {
+      shopifyGlobal.idToken()
+        .then(function(token) {
+          var ok = token && typeof token === 'string' && token.length > 0;
+          log(ok ? 'idToken() OK (length ' + token.length + ')' : 'FAIL: idToken empty');
+          if (debug) setMsg(ok ? 'Session token API: idToken OK' : 'Session token API: idToken empty');
+        })
+        .catch(function(e) {
+          log('FAIL: idToken() ' + (e && e.message ? e.message : String(e)));
+        });
+    }
+
+    if (hasGetSessionToken) {
+      shopifyGlobal.getSessionToken()
+        .then(function(token) {
+          var ok = token && typeof token === 'string' && token.length > 0;
+          log(ok ? 'getSessionToken() OK (length ' + token.length + ')' : 'FAIL: getSessionToken empty');
+          if (debug) setMsg(ok ? 'Session token API: getSessionToken OK' : 'Session token API: getSessionToken empty');
+        })
+        .catch(function(e) {
+          log('FAIL: getSessionToken() ' + (e && e.message ? e.message : String(e)));
+        });
+    }
+
+    if (!hasIdToken && !hasGetSessionToken) {
+      log('No token API exposed on window.shopify (possible on some App Bridge versions).');
+      if (debug) setMsg('Session token API: not exposed');
+    }
+
+    if (!debug) setTimeout(go, 900);
     else setTimeout(go, 5000);
   }
+
   var attempts = 0;
-  function poll() {
-    if (getTokenFn()) { run(); return; }
+  function pollReady() {
+    var ready = typeof window !== 'undefined' && !!window.shopify;
+    if (ready) { runChecks(); return; }
     attempts++;
-    if (attempts < 60) setTimeout(poll, 200);
+    if (attempts < 80) setTimeout(pollReady, 250);
     else {
-      log('FAIL: App Bridge getSessionToken not ready after 60 attempts');
+      log('FAIL: window.shopify not ready after 80 attempts. If postMessage origin mismatch appears, App Bridge handshake failed.');
       setMsg('Session token: timeout');
       if (!debug) go();
       else log('(debug: waiting)');
     }
   }
-  setTimeout(poll, 100);
+
+  function start() {
+    if (debug && typeof window !== 'undefined' && window.location) {
+      log('href: ' + window.location.href);
+      log('has host param: ' + (window.location.search.indexOf('host=') !== -1));
+      log('referrer: ' + document.referrer);
+    }
+    pollReady();
+  }
+
+  if (typeof window !== 'undefined' && window.addEventListener)
+    window.addEventListener('load', function() { setTimeout(start, 400); });
+  else
+    setTimeout(start, 500);
 })();
   </script>
 </body>
