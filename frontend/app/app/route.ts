@@ -4,10 +4,13 @@ const SHOPIFY_CLIENT_ID = process.env.NEXT_PUBLIC_SHOPIFY_CLIENT_ID || 'ec47b40d
 const APP_BRIDGE_URL = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
 
 /**
- * Embedded app entry: Shopify loads tryon.global/app?shop=...&host=... in an iframe.
- * We must serve a document where App Bridge is the FIRST script (no async/defer).
- * Next.js cannot guarantee that, so we return minimal HTML here and load the real
- * app inside an iframe; this document gets the session token and posts it to the iframe.
+ * Embedded entry: Shopify loads tryon.global/app?shop=... in ONE iframe (direct child of admin).
+ *
+ * 1) This response is minimal HTML with App Bridge as the ONLY external script (sync, first) —
+ *    satisfies Shopify’s embedded checks.
+ * 2) We run getSessionToken + shopify:admin fetch here.
+ * 3) We then redirect IN THE SAME IFRAME to /?shop=... (Next app). No nested iframe — avoids
+ *    postMessage errors (code was posting to admin.shopify.com with targetOrigin tryon.global).
  */
 export function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -20,7 +23,7 @@ export function GET(request: NextRequest) {
   }
 
   const queryString = searchParams.toString();
-  const iframeSrc = queryString ? `/?${queryString}` : '/';
+  const nextPath = queryString ? `/?${queryString}` : '/';
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -30,32 +33,33 @@ export function GET(request: NextRequest) {
   <meta name="shopify-api-key" content="${escapeHtml(SHOPIFY_CLIENT_ID)}"/>
   <script src="${APP_BRIDGE_URL}"></script>
 </head>
-<body>
-  <iframe id="tryon-app" src="${escapeHtml(iframeSrc)}" style="position:fixed;inset:0;width:100%;height:100%;border:0;"></iframe>
+<body style="margin:0;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;color:#666;">
+  <p>Loading Tryon…</p>
   <script>
 (function(){
+  var nextUrl = ${JSON.stringify(nextPath)};
   function getTokenFn(){
     if (window.shopify && typeof window.shopify.getSessionToken === 'function')
       return window.shopify.getSessionToken.bind(window.shopify);
     return null;
   }
-  function sendToken(token) {
-    var iframe = document.getElementById('tryon-app');
-    if (iframe && iframe.contentWindow)
-      iframe.contentWindow.postMessage({ type: 'tryon-session-token', token: token }, window.location.origin);
+  function go() {
+    window.location.replace(window.location.origin + nextUrl);
   }
   function run() {
     var getToken = getTokenFn();
     if (getToken) {
-      getToken().then(function(token) { sendToken(token); }).catch(function(){});
+      getToken().then(function(){}).catch(function(){});
       try { fetch('shopify:admin/api/2024-01/shop.json').catch(function(){}); } catch(e) {}
     }
+    setTimeout(go, 400);
   }
   var attempts = 0;
   function poll() {
     if (getTokenFn()) { run(); return; }
     attempts++;
     if (attempts < 60) setTimeout(poll, 200);
+    else go();
   }
   setTimeout(poll, 100);
 })();
