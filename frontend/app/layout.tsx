@@ -1,5 +1,4 @@
 import type { Metadata } from 'next'
-import Script from 'next/script'
 import { Suspense } from 'react'
 import './globals.css'
 import { ThemeProvider } from '@/contexts/ThemeContext'
@@ -22,11 +21,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta name="shopify-api-key" content={SHOPIFY_CLIENT_ID} />
-        {/* App Bridge from Shopify CDN — beforeInteractive so it's in initial HTML for embedded check */}
-        <Script
-          src="https://cdn.shopify.com/shopifycloud/app-bridge.js"
-          strategy="beforeInteractive"
-        />
+        {/* App Bridge is loaded only in the /app embed shell (first script there). This doc is either the iframe (token via postMessage) or non-embed. */}
       </head>
       <body className="antialiased">
         <ThemeProvider>

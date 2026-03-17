@@ -6,10 +6,16 @@ import { useSearchParams } from 'next/navigation';
 const SHOPIFY_APP_BRIDGE_URL = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
 const SHOPIFY_CLIENT_ID = process.env.NEXT_PUBLIC_SHOPIFY_CLIENT_ID || 'ec47b40d60204a8d7cf80aa50e313d19';
 
+/** Session token received from parent (embed shell) when app runs in iframe. */
+let storedSessionToken: string | null = null;
+export function getStoredSessionToken(): string | null {
+  return storedSessionToken;
+}
+
 /**
- * When the app is embedded in Shopify Admin (?shop= & ?host= in URL), ensure
- * App Bridge is loaded and we use session tokens so Shopify's "Controles
- * ingesloten apps" (embedded app checks) can pass.
+ * When the app is embedded in Shopify Admin (?shop= & ?host= in URL):
+ * - If we're in the IFRAME (parent is our /app shell): listen for session token from parent.
+ * - If we're the top document (direct / with shop=): try to load App Bridge and run checks (fallback when not opened via /app).
  */
 export function ShopifyAppBridge() {
   const searchParams = useSearchParams();
@@ -20,6 +26,21 @@ export function ShopifyAppBridge() {
 
     const shop = searchParams.get('shop');
     const isEmbedded = shop?.includes('.myshopify.com');
+    const inIframe = typeof window !== 'undefined' && window.self !== window.top;
+
+    // When we're inside the embed iframe, parent sends session token via postMessage.
+    if (inIframe && isEmbedded) {
+      const handler = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        const data = event.data;
+        if (data && data.type === 'tryon-session-token' && typeof data.token === 'string') {
+          storedSessionToken = data.token;
+          if (typeof console !== 'undefined' && console.info) console.info('[Tryon embedded] Session token received from parent');
+        }
+      };
+      window.addEventListener('message', handler);
+      return () => window.removeEventListener('message', handler);
+    }
 
     if (!isEmbedded || injected.current) return;
     injected.current = true;
