@@ -3,21 +3,14 @@
 /**
  * OAuth return URL for Supabase (Google / Apple).
  * Handles both PKCE (?code=) and implicit (#access_token=) flows.
- * After session is established, routes to /dashboard (or onboarding if no fit passport).
+ * Uses the single shared Supabase client to avoid "Multiple GoTrueClient" errors.
  */
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
-import { exchangeCodeForSession, getCurrentUser, hasFitPassport } from '@/lib/supabase-auth';
+import { exchangeCodeForSession, getCurrentUser, hasFitPassport, getSession } from '@/lib/supabase-auth';
 
 export const dynamic = 'force-dynamic';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  { auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true } },
-);
 
 function AuthCallbackInner() {
   const router = useRouter();
@@ -69,7 +62,7 @@ function AuthCallbackInner() {
       // --- Implicit: tokens in URL fragment (#access_token=...&refresh_token=...) ---
       const hash = typeof window !== 'undefined' ? window.location.hash : '';
       if (hash && hash.includes('access_token')) {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { data: { session }, error } = await getSession();
         if (cancelled) return;
         if (error || !session) {
           setIsError(true);
@@ -82,7 +75,7 @@ function AuthCallbackInner() {
 
       // --- Fallback: maybe Supabase already consumed the fragment before React rendered ---
       await new Promise(r => setTimeout(r, 600));
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await getSession();
       if (cancelled) return;
       if (session) {
         await routeAfterAuth();

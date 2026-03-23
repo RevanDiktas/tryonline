@@ -239,6 +239,10 @@ export async function exchangeCodeForSession(code: string): Promise<{ user: User
   return { user, error: null };
 }
 
+export async function getSession() {
+  return supabase.auth.getSession();
+}
+
 export async function logout(): Promise<void> {
   await supabase.auth.signOut();
 }
