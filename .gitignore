@@ -44,6 +44,9 @@ env/
 .__*
 Thumbs.db
 
+# Apple Sign in with Apple (never commit)
+*.p8
+
 # Environment variables
 .env
 .env.local

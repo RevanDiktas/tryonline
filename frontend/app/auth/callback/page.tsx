@@ -1,66 +1,126 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+/**
+ * OAuth return URL for Supabase (Google / Apple).
+ * Handles both PKCE (?code=) and implicit (#access_token=) flows.
+ * After session is established, routes to /dashboard (or onboarding if no fit passport).
+ */
+import { Suspense, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
-import { exchangeCodeForSession, hasAvatarFiles } from '@/lib/supabase-auth';
+import { createClient } from '@supabase/supabase-js';
+import { exchangeCodeForSession, getCurrentUser, hasFitPassport } from '@/lib/supabase-auth';
 
-function CallbackContent() {
+export const dynamic = 'force-dynamic';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  { auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true } },
+);
+
+function AuthCallbackInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [error, setError] = useState('');
+  const [message, setMessage] = useState('Signing you in\u2026');
+  const [isError, setIsError] = useState(false);
 
   useEffect(() => {
-    const code = searchParams.get('code');
-    if (!code) {
-      setError('No authorization code received');
-      return;
-    }
+    let cancelled = false;
 
-    exchangeCodeForSession(code).then(async ({ user, error: authError }) => {
-      if (authError || !user) {
-        setError(authError || 'Authentication failed');
+    const routeAfterAuth = async () => {
+      const user = await getCurrentUser();
+      if (!user) {
+        if (!cancelled) { setIsError(true); setMessage('Could not complete sign-in.'); }
+        return;
+      }
+      const hasFP = await hasFitPassport(user.id);
+      if (hasFP) {
+        router.replace(user.user_type === 'brand' ? '/brand' : '/dashboard');
+      } else {
+        router.replace('/signup?step=onboarding');
+      }
+    };
+
+    const finish = async () => {
+      const href = typeof window !== 'undefined' ? window.location.href : '';
+      const url = new URL(href || 'https://tryon.global/');
+
+      const oauthError = url.searchParams.get('error') || searchParams.get('error');
+      if (oauthError) {
+        const desc = url.searchParams.get('error_description') || searchParams.get('error_description');
+        if (!cancelled) {
+          setIsError(true);
+          setMessage(desc ? decodeURIComponent(desc.replace(/\+/g, ' ')) : oauthError);
+        }
         return;
       }
 
-      if (user.user_type === 'brand') {
-        router.push('/brand');
-      } else {
-        const hasAvatar = await hasAvatarFiles(user.id);
-        router.push(hasAvatar ? '/dashboard' : '/onboarding');
+      // --- PKCE: code in query string ---
+      const code = url.searchParams.get('code') || searchParams.get('code');
+      if (code) {
+        const { error } = await exchangeCodeForSession(code);
+        if (cancelled) return;
+        if (error) { setIsError(true); setMessage(error); return; }
+        await routeAfterAuth();
+        return;
       }
-    });
-  }, [searchParams, router]);
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
-        <div className="text-center">
-          <p className="text-red-600 mb-4">{error}</p>
-          <a href="/login" className="text-black font-medium hover:underline">Back to login</a>
-        </div>
-      </div>
-    );
-  }
+      // --- Implicit: tokens in URL fragment (#access_token=...&refresh_token=...) ---
+      const hash = typeof window !== 'undefined' ? window.location.hash : '';
+      if (hash && hash.includes('access_token')) {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (cancelled) return;
+        if (error || !session) {
+          setIsError(true);
+          setMessage(error?.message || 'Session could not be established from URL tokens.');
+          return;
+        }
+        await routeAfterAuth();
+        return;
+      }
+
+      // --- Fallback: maybe Supabase already consumed the fragment before React rendered ---
+      await new Promise(r => setTimeout(r, 600));
+      const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (session) {
+        await routeAfterAuth();
+        return;
+      }
+
+      setIsError(true);
+      setMessage(
+        'No authorization code received. Make sure Supabase \u2192 URL Configuration includes https://tryon.global/auth/callback, then try again.',
+      );
+    };
+
+    finish();
+    return () => { cancelled = true; };
+  }, [router, searchParams]);
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
-      <div className="text-center">
-        <div className="w-8 h-8 border-2 border-black/20 border-t-black rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-gray-500">Signing you in...</p>
-      </div>
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4 bg-black">
+      <p className={isError ? 'text-red-500' : 'text-white/60'}>{message}</p>
+      {isError && (
+        <Link href="/login" className="text-blue-400 underline">
+          Back to login
+        </Link>
+      )}
     </div>
   );
 }
 
 export default function AuthCallbackPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-black/20 border-t-black rounded-full animate-spin" />
-      </div>
-    }>
-      <CallbackContent />
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-black text-white/60">
+          Loading\u2026
+        </div>
+      }
+    >
+      <AuthCallbackInner />
     </Suspense>
   );
 }

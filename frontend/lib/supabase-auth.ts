@@ -11,7 +11,13 @@ import { createClient, type User as SupabaseAuthUser } from '@supabase/supabase-
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    flowType: 'pkce',
+    detectSessionInUrl: true,
+    persistSession: true,
+  },
+});
 
 export interface User {
   id: string;
@@ -170,6 +176,21 @@ export async function signInWithSocial(provider: 'google' | 'apple'): Promise<{ 
   return { url: data.url, error: null };
 }
 
+/**
+ * Best-effort IP-based geolocation (no permission prompt).
+ * Used to pre-fill country/city for regional sizing intelligence.
+ */
+export async function detectGeoLocation(): Promise<{ country?: string; city?: string }> {
+  try {
+    const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return {};
+    const data = await res.json();
+    return { country: data.country_name, city: data.city };
+  } catch {
+    return {};
+  }
+}
+
 export async function exchangeCodeForSession(code: string): Promise<{ user: User | null; error: string | null }> {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) return { user: null, error: error.message };
@@ -191,11 +212,16 @@ export async function exchangeCodeForSession(code: string): Promise<{ user: User
     return { user: existingProfile as User, error: null };
   }
 
+  // New OAuth user: detect location for regional sizing data
+  const geo = await detectGeoLocation();
+
   const profileData = {
     id: authUser.id,
     email: authUser.email!,
     name,
     user_type: 'shopper',
+    country: geo.country ?? null,
+    city: geo.city ?? null,
     updated_at: new Date().toISOString(),
   };
   const { error: insertErr } = await supabase.from('users').insert(profileData);
@@ -203,6 +229,8 @@ export async function exchangeCodeForSession(code: string): Promise<{ user: User
     await supabase.from('users').update({
       name: profileData.name,
       user_type: profileData.user_type,
+      country: profileData.country,
+      city: profileData.city,
       updated_at: profileData.updated_at,
     }).eq('id', authUser.id);
   }
