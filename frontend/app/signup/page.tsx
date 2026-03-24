@@ -10,46 +10,46 @@ import { registerBrand } from '@/lib/api';
 import { isShopifyMode } from '@/lib/app-mode';
 
 const countryCodes = [
-  { code: '+31', country: 'Netherlands', flag: '🇳🇱' },
-  { code: '+1', country: 'United States', flag: '🇺🇸' },
-  { code: '+44', country: 'United Kingdom', flag: '🇬🇧' },
-  { code: '+49', country: 'Germany', flag: '🇩🇪' },
-  { code: '+33', country: 'France', flag: '🇫🇷' },
-  { code: '+34', country: 'Spain', flag: '🇪🇸' },
-  { code: '+39', country: 'Italy', flag: '🇮🇹' },
-  { code: '+32', country: 'Belgium', flag: '🇧🇪' },
-  { code: '+41', country: 'Switzerland', flag: '🇨🇭' },
-  { code: '+43', country: 'Austria', flag: '🇦🇹' },
-  { code: '+45', country: 'Denmark', flag: '🇩🇰' },
-  { code: '+46', country: 'Sweden', flag: '🇸🇪' },
-  { code: '+47', country: 'Norway', flag: '🇳🇴' },
-  { code: '+48', country: 'Poland', flag: '🇵🇱' },
-  { code: '+351', country: 'Portugal', flag: '🇵🇹' },
-  { code: '+353', country: 'Ireland', flag: '🇮🇪' },
-  { code: '+358', country: 'Finland', flag: '🇫🇮' },
-  { code: '+30', country: 'Greece', flag: '🇬🇷' },
-  { code: '+36', country: 'Hungary', flag: '🇭🇺' },
-  { code: '+420', country: 'Czech Republic', flag: '🇨🇿' },
-  { code: '+61', country: 'Australia', flag: '🇦🇺' },
-  { code: '+64', country: 'New Zealand', flag: '🇳🇿' },
-  { code: '+81', country: 'Japan', flag: '🇯🇵' },
-  { code: '+82', country: 'South Korea', flag: '🇰🇷' },
-  { code: '+86', country: 'China', flag: '🇨🇳' },
-  { code: '+91', country: 'India', flag: '🇮🇳' },
-  { code: '+65', country: 'Singapore', flag: '🇸🇬' },
-  { code: '+971', country: 'UAE', flag: '🇦🇪' },
-  { code: '+966', country: 'Saudi Arabia', flag: '🇸🇦' },
-  { code: '+55', country: 'Brazil', flag: '🇧🇷' },
-  { code: '+52', country: 'Mexico', flag: '🇲🇽' },
-  { code: '+27', country: 'South Africa', flag: '🇿🇦' },
-  { code: '+90', country: 'Turkey', flag: '🇹🇷' },
-  { code: '+7', country: 'Russia', flag: '🇷🇺' },
-  { code: '+380', country: 'Ukraine', flag: '🇺🇦' },
-  { code: '+62', country: 'Indonesia', flag: '🇮🇩' },
-  { code: '+60', country: 'Malaysia', flag: '🇲🇾' },
-  { code: '+66', country: 'Thailand', flag: '🇹🇭' },
-  { code: '+84', country: 'Vietnam', flag: '🇻🇳' },
-  { code: '+63', country: 'Philippines', flag: '🇵🇭' },
+  { code: '+31', country: 'Netherlands', abbr: 'NL' },
+  { code: '+1', country: 'United States', abbr: 'US' },
+  { code: '+44', country: 'United Kingdom', abbr: 'GB' },
+  { code: '+49', country: 'Germany', abbr: 'DE' },
+  { code: '+33', country: 'France', abbr: 'FR' },
+  { code: '+34', country: 'Spain', abbr: 'ES' },
+  { code: '+39', country: 'Italy', abbr: 'IT' },
+  { code: '+32', country: 'Belgium', abbr: 'BE' },
+  { code: '+41', country: 'Switzerland', abbr: 'CH' },
+  { code: '+43', country: 'Austria', abbr: 'AT' },
+  { code: '+45', country: 'Denmark', abbr: 'DK' },
+  { code: '+46', country: 'Sweden', abbr: 'SE' },
+  { code: '+47', country: 'Norway', abbr: 'NO' },
+  { code: '+48', country: 'Poland', abbr: 'PL' },
+  { code: '+351', country: 'Portugal', abbr: 'PT' },
+  { code: '+353', country: 'Ireland', abbr: 'IE' },
+  { code: '+358', country: 'Finland', abbr: 'FI' },
+  { code: '+30', country: 'Greece', abbr: 'GR' },
+  { code: '+36', country: 'Hungary', abbr: 'HU' },
+  { code: '+420', country: 'Czech Republic', abbr: 'CZ' },
+  { code: '+61', country: 'Australia', abbr: 'AU' },
+  { code: '+64', country: 'New Zealand', abbr: 'NZ' },
+  { code: '+81', country: 'Japan', abbr: 'JP' },
+  { code: '+82', country: 'South Korea', abbr: 'KR' },
+  { code: '+86', country: 'China', abbr: 'CN' },
+  { code: '+91', country: 'India', abbr: 'IN' },
+  { code: '+65', country: 'Singapore', abbr: 'SG' },
+  { code: '+971', country: 'UAE', abbr: 'AE' },
+  { code: '+966', country: 'Saudi Arabia', abbr: 'SA' },
+  { code: '+55', country: 'Brazil', abbr: 'BR' },
+  { code: '+52', country: 'Mexico', abbr: 'MX' },
+  { code: '+27', country: 'South Africa', abbr: 'ZA' },
+  { code: '+90', country: 'Turkey', abbr: 'TR' },
+  { code: '+7', country: 'Russia', abbr: 'RU' },
+  { code: '+380', country: 'Ukraine', abbr: 'UA' },
+  { code: '+62', country: 'Indonesia', abbr: 'ID' },
+  { code: '+60', country: 'Malaysia', abbr: 'MY' },
+  { code: '+66', country: 'Thailand', abbr: 'TH' },
+  { code: '+84', country: 'Vietnam', abbr: 'VN' },
+  { code: '+63', country: 'Philippines', abbr: 'PH' },
 ];
 
 const countries = [
@@ -459,7 +459,7 @@ function SignupContent() {
                     onClick={() => setShowCodeDropdown(!showCodeDropdown)}
                     className={`flex items-center gap-2 px-3 py-3 bg-gray-50 border rounded-xl text-black hover:bg-gray-100 transition min-w-[110px] ${errors.phone ? 'border-red-500' : 'border-gray-200'}`}
                   >
-                    <span className="text-lg">{selectedCountry.flag}</span>
+                    <span className="text-xs font-semibold text-gray-500 w-6 text-center">{selectedCountry.abbr}</span>
                     <span className="font-medium">{phoneCode}</span>
                     <svg className="w-4 h-4 text-gray-400 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -474,7 +474,7 @@ function SignupContent() {
                           onClick={() => { setPhoneCode(c.code); setShowCodeDropdown(false); }}
                           className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition text-left ${phoneCode === c.code ? 'bg-gray-100' : ''}`}
                         >
-                          <span className="text-lg">{c.flag}</span>
+                          <span className="text-xs font-semibold text-gray-500 w-6 text-center">{c.abbr}</span>
                           <span className="text-black flex-1">{c.country}</span>
                           <span className="text-gray-500 text-sm">{c.code}</span>
                         </button>

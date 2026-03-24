@@ -13,7 +13,7 @@ const ThemeContext = createContext<{
 } | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('dark');
+  const [theme, setThemeState] = useState<Theme>('light');
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -46,6 +46,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
 export function useTheme() {
   const ctx = useContext(ThemeContext);
-  if (!ctx) return { theme: 'dark' as Theme, setTheme: () => {}, toggleTheme: () => {} };
+  if (!ctx) return { theme: 'light' as Theme, setTheme: () => {}, toggleTheme: () => {} };
   return ctx;
 }

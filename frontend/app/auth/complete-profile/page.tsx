@@ -11,39 +11,39 @@ import {
 } from '@/lib/supabase-auth';
 
 const countryCodes = [
-  { code: '+31', country: 'Netherlands', flag: '\u{1F1F3}\u{1F1F1}' },
-  { code: '+1', country: 'United States', flag: '\u{1F1FA}\u{1F1F8}' },
-  { code: '+44', country: 'United Kingdom', flag: '\u{1F1EC}\u{1F1E7}' },
-  { code: '+49', country: 'Germany', flag: '\u{1F1E9}\u{1F1EA}' },
-  { code: '+33', country: 'France', flag: '\u{1F1EB}\u{1F1F7}' },
-  { code: '+34', country: 'Spain', flag: '\u{1F1EA}\u{1F1F8}' },
-  { code: '+39', country: 'Italy', flag: '\u{1F1EE}\u{1F1F9}' },
-  { code: '+32', country: 'Belgium', flag: '\u{1F1E7}\u{1F1EA}' },
-  { code: '+41', country: 'Switzerland', flag: '\u{1F1E8}\u{1F1ED}' },
-  { code: '+43', country: 'Austria', flag: '\u{1F1E6}\u{1F1F9}' },
-  { code: '+45', country: 'Denmark', flag: '\u{1F1E9}\u{1F1F0}' },
-  { code: '+46', country: 'Sweden', flag: '\u{1F1F8}\u{1F1EA}' },
-  { code: '+47', country: 'Norway', flag: '\u{1F1F3}\u{1F1F4}' },
-  { code: '+48', country: 'Poland', flag: '\u{1F1F5}\u{1F1F1}' },
-  { code: '+351', country: 'Portugal', flag: '\u{1F1F5}\u{1F1F9}' },
-  { code: '+353', country: 'Ireland', flag: '\u{1F1EE}\u{1F1EA}' },
-  { code: '+358', country: 'Finland', flag: '\u{1F1EB}\u{1F1EE}' },
-  { code: '+30', country: 'Greece', flag: '\u{1F1EC}\u{1F1F7}' },
-  { code: '+36', country: 'Hungary', flag: '\u{1F1ED}\u{1F1FA}' },
-  { code: '+420', country: 'Czech Republic', flag: '\u{1F1E8}\u{1F1FF}' },
-  { code: '+61', country: 'Australia', flag: '\u{1F1E6}\u{1F1FA}' },
-  { code: '+64', country: 'New Zealand', flag: '\u{1F1F3}\u{1F1FF}' },
-  { code: '+81', country: 'Japan', flag: '\u{1F1EF}\u{1F1F5}' },
-  { code: '+82', country: 'South Korea', flag: '\u{1F1F0}\u{1F1F7}' },
-  { code: '+86', country: 'China', flag: '\u{1F1E8}\u{1F1F3}' },
-  { code: '+91', country: 'India', flag: '\u{1F1EE}\u{1F1F3}' },
-  { code: '+65', country: 'Singapore', flag: '\u{1F1F8}\u{1F1EC}' },
-  { code: '+971', country: 'UAE', flag: '\u{1F1E6}\u{1F1EA}' },
-  { code: '+966', country: 'Saudi Arabia', flag: '\u{1F1F8}\u{1F1E6}' },
-  { code: '+55', country: 'Brazil', flag: '\u{1F1E7}\u{1F1F7}' },
-  { code: '+52', country: 'Mexico', flag: '\u{1F1F2}\u{1F1FD}' },
-  { code: '+27', country: 'South Africa', flag: '\u{1F1FF}\u{1F1E6}' },
-  { code: '+90', country: 'Turkey', flag: '\u{1F1F9}\u{1F1F7}' },
+  { code: '+31', country: 'Netherlands', abbr: 'NL' },
+  { code: '+1', country: 'United States', abbr: 'US' },
+  { code: '+44', country: 'United Kingdom', abbr: 'GB' },
+  { code: '+49', country: 'Germany', abbr: 'DE' },
+  { code: '+33', country: 'France', abbr: 'FR' },
+  { code: '+34', country: 'Spain', abbr: 'ES' },
+  { code: '+39', country: 'Italy', abbr: 'IT' },
+  { code: '+32', country: 'Belgium', abbr: 'BE' },
+  { code: '+41', country: 'Switzerland', abbr: 'CH' },
+  { code: '+43', country: 'Austria', abbr: 'AT' },
+  { code: '+45', country: 'Denmark', abbr: 'DK' },
+  { code: '+46', country: 'Sweden', abbr: 'SE' },
+  { code: '+47', country: 'Norway', abbr: 'NO' },
+  { code: '+48', country: 'Poland', abbr: 'PL' },
+  { code: '+351', country: 'Portugal', abbr: 'PT' },
+  { code: '+353', country: 'Ireland', abbr: 'IE' },
+  { code: '+358', country: 'Finland', abbr: 'FI' },
+  { code: '+30', country: 'Greece', abbr: 'GR' },
+  { code: '+36', country: 'Hungary', abbr: 'HU' },
+  { code: '+420', country: 'Czech Republic', abbr: 'CZ' },
+  { code: '+61', country: 'Australia', abbr: 'AU' },
+  { code: '+64', country: 'New Zealand', abbr: 'NZ' },
+  { code: '+81', country: 'Japan', abbr: 'JP' },
+  { code: '+82', country: 'South Korea', abbr: 'KR' },
+  { code: '+86', country: 'China', abbr: 'CN' },
+  { code: '+91', country: 'India', abbr: 'IN' },
+  { code: '+65', country: 'Singapore', abbr: 'SG' },
+  { code: '+971', country: 'UAE', abbr: 'AE' },
+  { code: '+966', country: 'Saudi Arabia', abbr: 'SA' },
+  { code: '+55', country: 'Brazil', abbr: 'BR' },
+  { code: '+52', country: 'Mexico', abbr: 'MX' },
+  { code: '+27', country: 'South Africa', abbr: 'ZA' },
+  { code: '+90', country: 'Turkey', abbr: 'TR' },
 ];
 
 const countries = [
@@ -76,7 +76,7 @@ function CompleteProfileInner() {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const selectedCountry = countryCodes.find(c => c.code === phoneCode) || countryCodes[0];
+  const selectedCC = countryCodes.find(c => c.code === phoneCode) || countryCodes[0];
 
   useEffect(() => {
     getCurrentUser().then((u) => {
@@ -178,7 +178,7 @@ function CompleteProfileInner() {
                     onClick={() => setShowCodeDropdown(!showCodeDropdown)}
                     className={`flex items-center gap-2 px-3 py-3 bg-white/5 border rounded-xl text-white hover:bg-white/10 transition min-w-[110px] ${errors.phone ? 'border-red-500' : 'border-white/10'}`}
                   >
-                    <span className="text-lg">{selectedCountry.flag}</span>
+                    <span className="text-xs font-semibold text-white/50 w-6 text-center">{selectedCC.abbr}</span>
                     <span className="font-medium">{phoneCode}</span>
                     <svg className="w-4 h-4 text-white/40 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -193,7 +193,7 @@ function CompleteProfileInner() {
                           onClick={() => { setPhoneCode(c.code); setShowCodeDropdown(false); }}
                           className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/10 transition text-left ${phoneCode === c.code ? 'bg-white/5' : ''}`}
                         >
-                          <span className="text-lg">{c.flag}</span>
+                          <span className="text-xs font-semibold text-white/50 w-6 text-center">{c.abbr}</span>
                           <span className="text-white flex-1">{c.country}</span>
                           <span className="text-white/50 text-sm">{c.code}</span>
                         </button>

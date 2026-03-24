@@ -55,7 +55,7 @@ async def create_avatar(
         "user_id": request.user_id,
         "status": ProcessingStatus.queued,
         "progress": 0,
-        "message": "Job queued",
+        "message": "Preparing your avatar...",
         "started_at": datetime.utcnow(),
         "runpod_job_id": None,
         "avatar_url": None,
@@ -179,11 +179,15 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
             runpod_status = status_result.get("status", "")
             
             if runpod_status == "IN_QUEUE":
-                jobs[job_id]["progress"] = 25
-                jobs[job_id]["message"] = "Waiting in GPU queue..."
+                if attempt < 12:
+                    jobs[job_id]["progress"] = min(10 + attempt * 2, 30)
+                    jobs[job_id]["message"] = "Preparing your avatar..."
+                else:
+                    jobs[job_id]["progress"] = 30
+                    jobs[job_id]["message"] = "Our servers are busy right now. Hang tight..."
             elif runpod_status == "IN_PROGRESS":
                 jobs[job_id]["progress"] = min(50 + attempt, 90)
-                jobs[job_id]["message"] = "Creating your 3D avatar..."
+                jobs[job_id]["message"] = "Creating your avatar and extracting measurements..."
             elif runpod_status == "COMPLETED":
                 output = status_result.get("output", {})
                 # RunPod marks job COMPLETED even when handler returns {"error": "..."}

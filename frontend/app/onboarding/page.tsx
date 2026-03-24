@@ -453,10 +453,10 @@ export default function OnboardingPage() {
               </div>
               
               <h3 className="text-black text-lg font-medium mb-2">
-                {progressMessage || 'Processing...'}
+                {progressMessage || 'Creating your avatar and extracting measurements...'}
               </h3>
               <p className="text-gray-400 text-sm">
-                This usually takes about 30 seconds
+                This may take a moment
               </p>
             </div>
           )}
