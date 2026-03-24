@@ -25,6 +25,13 @@
 - After completing, routes to onboarding (no fit passport) or dashboard (has one).
 - Added `isProfileComplete()` and `updateUserProfile()` helpers to `supabase-auth.ts`.
 
+### Widget sign-in — Google/Apple social login + close button
+- **Login gate popup** on the Shopify product page now includes "Continue with Google" and "Continue with Apple" buttons alongside email/password sign-in.
+- **Close button** (x) added to the login gate popup — dismisses the popup and sends `TRYON_CLOSE` to the parent iframe.
+- Widget-signin page (`/widget-signin`) auto-triggers OAuth when `?provider=google|apple` is in the URL.
+- **Sandboxed iframe fix**: Shopify iframes block `sessionStorage`, so widget return URL is passed via `?widget_return=` query param on the OAuth `redirectTo` URL instead. Auth callback reads it from `searchParams` and redirects back to the widget with `user_id`.
+- **Tested and confirmed working**: Google sign-in from the Shopify product page widget -> OAuth -> callback -> redirects back to widget with avatar + measurements loaded.
+
 ### UI polish
 - **No emojis** anywhere in the app — country code pickers use 2-letter text codes (NL, US, GB, etc.).
 - **Default theme is light** when logged out (was dark).
@@ -49,6 +56,7 @@
 | "new row violates row-level security policy" | Supabase Storage RLS blocks browser uploads for OAuth users | Upload through backend (service key) |
 | "photo_url is required" | Photo upload failed silently, empty string sent to backend | Throw on failure, never send empty URL |
 | Multiple GoTrueClient instances | Two `createClient` calls (`supabase.ts` + `supabase-auth.ts`) | Nothing imports `supabase.ts` anymore; all auth through single client |
+| Widget OAuth didn't redirect back | `sessionStorage` blocked in sandboxed Shopify iframe | Pass return URL via `?widget_return=` on OAuth `redirectTo` |
 
 ---
 
@@ -56,9 +64,11 @@
 
 | File | Change |
 |------|--------|
-| `frontend/lib/supabase-auth.ts` | Implicit flow, `User` interface extended, `ensureUserProfile()`, `isProfileComplete()`, `updateUserProfile()`, `signup()` stores date_of_birth/country/city |
-| `frontend/app/auth/callback/page.tsx` | Simplified for implicit flow, routes to complete-profile if data missing |
+| `frontend/lib/supabase-auth.ts` | Implicit flow, `User` interface extended, `ensureUserProfile()`, `isProfileComplete()`, `updateUserProfile()`, `signup()` stores date_of_birth/country/city, `signInWithSocial()` accepts `widgetReturn` option |
+| `frontend/app/auth/callback/page.tsx` | Simplified for implicit flow, routes to complete-profile if data missing, reads `widget_return` from query params for widget redirect |
 | `frontend/app/auth/complete-profile/page.tsx` | NEW: post-OAuth profile completion (birthday, phone, country, city) |
+| `frontend/app/widget-signin/page.tsx` | Added Google/Apple social login buttons, auto-triggers OAuth on `?provider=` param, passes `widgetReturn` to `signInWithSocial()` |
+| `frontend/public/test-viewer.html` | Login gate: close button, Google/Apple social buttons, divider, social sign-in URL builder |
 | `frontend/app/signup/page.tsx` | Birthday required, no emojis in country picker |
 | `frontend/app/onboarding/page.tsx` | Uses backend photo upload, better progress text |
 | `frontend/lib/api.ts` | Added `uploadPhotoViaBackend()` |
@@ -69,7 +79,7 @@
 
 ## Remaining tasks
 
-1. **Test Apple sign-in** — provider is configured, implicit flow should work the same as Google.
+1. **Test Apple sign-in from widget** — provider is configured, same flow as Google. Needs a test run on the Shopify product page.
 2. **Test OAuth complete-profile flow** — sign in with a fresh Google/Apple account to verify birthday/phone collection.
 3. **Verify geolocation** — `ensureUserProfile()` calls `detectGeoLocation()` for new OAuth users; confirm country/city stored.
 4. **Test email/password signup** — confirm birthday, country, city, phone all stored correctly.
