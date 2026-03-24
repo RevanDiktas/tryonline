@@ -407,6 +407,33 @@ export const garmentApi = {
   },
 };
 
+/**
+ * Upload photo via backend (uses service key, bypasses Supabase Storage RLS).
+ */
+export async function uploadPhotoViaBackend(
+  userId: string,
+  file: File,
+): Promise<{ url: string | null; error: string | null }> {
+  const base = getBase();
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('user_id', userId);
+  try {
+    const res = await fetch(`${base}/api/avatar/upload-photo`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      return { url: null, error: (err as { detail?: string }).detail || res.statusText };
+    }
+    const data = (await res.json()) as { url: string; path: string };
+    return { url: data.url, error: null };
+  } catch (e) {
+    return { url: null, error: e instanceof Error ? e.message : 'Upload failed' };
+  }
+}
+
 export async function createAvatarWithFallback(
   payload: CreateAvatarPayload,
   onProgress?: (progress: number, message: string) => void

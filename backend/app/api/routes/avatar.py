@@ -1,7 +1,7 @@
 """
 Avatar creation and retrieval endpoints
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Form
 from typing import Dict, Any
 from datetime import datetime
 import uuid
@@ -21,6 +21,41 @@ from app.config import get_settings
 settings = get_settings()
 
 router = APIRouter()
+
+
+@router.post("/upload-photo")
+async def upload_photo(
+    file: UploadFile = File(...),
+    user_id: str = Form(...),
+):
+    """
+    Upload a user photo to Supabase Storage using the service role key
+    (bypasses RLS). Returns the storage path and public URL.
+    """
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10 MB)")
+
+    ext = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "jpg"
+    filename = f"photo_{uuid.uuid4().hex[:8]}.{ext}"
+    storage_path = f"{user_id}/{filename}"
+
+    bucket = supabase_service.client.storage.from_(settings.photos_bucket)
+    try:
+        bucket.upload(
+            storage_path,
+            contents,
+            {"content-type": file.content_type or "image/jpeg", "x-upsert": "true"},
+        )
+    except Exception as e:
+        print(f"[Avatar] Photo upload error: {e}")
+        raise HTTPException(status_code=500, detail=f"Storage upload failed: {e}")
+
+    public_url = bucket.get_public_url(storage_path)
+    return {"path": storage_path, "url": public_url}
 
 # In-memory job storage (use Redis in production)
 jobs: Dict[str, Dict[str, Any]] = {}

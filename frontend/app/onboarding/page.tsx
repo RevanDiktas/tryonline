@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { TryonLogo } from '@/components/TryonLogo';
 import { useRouter } from 'next/navigation';
-import { getCurrentUser, createFitPassport, getFitPassport, User, uploadUserPhoto, saveUserPhoto, updateFitPassport } from '@/lib/supabase-auth';
-import { createAvatarWithFallback } from '@/lib/api';
+import { getCurrentUser, createFitPassport, getFitPassport, User, updateFitPassport } from '@/lib/supabase-auth';
+import { createAvatarWithFallback, uploadPhotoViaBackend } from '@/lib/api';
 
 type Step = 'info' | 'photo' | 'processing' | 'complete';
 
@@ -101,25 +101,21 @@ export default function OnboardingPage() {
     setStep('processing');
     
     try {
-      // Stage 1: Upload photo to Supabase Storage
       setProgress(5);
       setProgressMessage('Uploading photo...');
       
-      const { url: photoUrl, error: uploadError } = await uploadUserPhoto(currentUser.id, photoFile);
+      const { url: photoUrl, error: uploadError } = await uploadPhotoViaBackend(currentUser.id, photoFile);
       
-      if (uploadError) {
+      if (uploadError || !photoUrl) {
         console.error('Photo upload failed:', uploadError);
-        // Continue anyway - photo storage is optional for now
-      } else if (photoUrl) {
-        // Save photo record to database
-        await saveUserPhoto(currentUser.id, photoUrl);
+        throw new Error(uploadError || 'Photo upload failed. Please try again.');
       }
       
       // Stage 2: Create avatar via backend API (with fallback to mock)
       const result = await createAvatarWithFallback(
         {
           user_id: currentUser.id,
-          photo_url: photoUrl || '',
+          photo_url: photoUrl,
           height: parseInt(height),
           weight: weight ? parseInt(weight) : undefined,
           gender,
