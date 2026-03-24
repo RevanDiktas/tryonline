@@ -34,10 +34,8 @@ function AuthCallbackInner() {
       }
 
       // If the user came from the widget sign-in flow, redirect back to widget
-      let widgetReturn: string | null = null;
-      try { widgetReturn = sessionStorage.getItem('tryon_widget_return'); } catch (_) {}
+      const widgetReturn = searchParams.get('widget_return');
       if (widgetReturn) {
-        try { sessionStorage.removeItem('tryon_widget_return'); } catch (_) {}
         const displayName = user.name || user.email?.split('@')[0] || 'User';
         const sep = widgetReturn.includes('?') ? '&' : '?';
         window.location.href = widgetReturn + sep + 'user_id=' + encodeURIComponent(user.id) + '&display_name=' + encodeURIComponent(displayName);

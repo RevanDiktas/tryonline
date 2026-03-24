@@ -34,15 +34,13 @@ export default function WidgetSignInPage() {
   const handleSocialLogin = async (provider: 'google' | 'apple') => {
     setSocialLoading(provider);
     setErrors({});
-    const { url, error } = await signInWithSocial(provider);
+    const { url, error } = await signInWithSocial(provider, {
+      widgetReturn: returnUrl || undefined,
+    });
     if (error || !url) {
       setErrors({ form: error || 'Failed to start sign-in' });
       setSocialLoading(null);
       return;
-    }
-    // Store widget return URL so the callback page can redirect back
-    if (returnUrl) {
-      try { sessionStorage.setItem('tryon_widget_return', returnUrl); } catch (_) {}
     }
     window.location.href = url;
   };
