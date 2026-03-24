@@ -32,6 +32,18 @@ function AuthCallbackInner() {
         if (!cancelled) { setIsError(true); setMessage('Could not complete sign-in.'); }
         return;
       }
+
+      // If the user came from the widget sign-in flow, redirect back to widget
+      let widgetReturn: string | null = null;
+      try { widgetReturn = sessionStorage.getItem('tryon_widget_return'); } catch (_) {}
+      if (widgetReturn) {
+        try { sessionStorage.removeItem('tryon_widget_return'); } catch (_) {}
+        const displayName = user.name || user.email?.split('@')[0] || 'User';
+        const sep = widgetReturn.includes('?') ? '&' : '?';
+        window.location.href = widgetReturn + sep + 'user_id=' + encodeURIComponent(user.id) + '&display_name=' + encodeURIComponent(displayName);
+        return;
+      }
+
       if (!isProfileComplete(user)) {
         router.replace('/auth/complete-profile');
         return;
