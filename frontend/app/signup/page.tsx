@@ -127,6 +127,7 @@ function SignupContent() {
       if (!formData.contactName.trim()) newErrors.contactName = 'Contact name is required';
     } else {
       if (!formData.name.trim()) newErrors.name = 'Full name is required';
+      if (!formData.dateOfBirth.trim()) newErrors.dateOfBirth = 'Date of birth is required';
       if (!formData.city.trim()) newErrors.city = 'City is required';
     }
 
@@ -271,7 +272,7 @@ function SignupContent() {
 
   const isFormValid = isBrand
     ? formData.brandName.trim() && formData.contactName.trim() && formData.email.trim() && formData.phone.trim() && formData.country.trim() && formData.password && formData.confirmPassword && formData.password === formData.confirmPassword && formData.password.length >= 6
-    : formData.name.trim() && formData.email.trim() && formData.phone.trim() && formData.country.trim() && formData.city.trim() && formData.password && formData.confirmPassword && formData.password === formData.confirmPassword && formData.password.length >= 6;
+    : formData.name.trim() && formData.email.trim() && formData.phone.trim() && formData.dateOfBirth.trim() && formData.country.trim() && formData.city.trim() && formData.password && formData.confirmPassword && formData.password === formData.confirmPassword && formData.password.length >= 6;
 
   return (
     <div className={`min-h-screen flex items-center justify-center p-4 transition-colors ${dark ? 'bg-black' : 'bg-white'}`}>
@@ -500,13 +501,20 @@ function SignupContent() {
             {/* Date of birth — shopper only */}
             {!isBrand && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Date of Birth</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Date of Birth <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="date"
+                  required
                   value={formData.dateOfBirth}
-                  onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition"
+                  onChange={(e) => {
+                    setFormData({ ...formData, dateOfBirth: e.target.value });
+                    if (errors.dateOfBirth) setErrors({ ...errors, dateOfBirth: '' });
+                  }}
+                  className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-black focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${errors.dateOfBirth ? 'border-red-500' : 'border-gray-200'}`}
                 />
+                {errors.dateOfBirth && <p className="text-red-500 text-xs mt-1">{errors.dateOfBirth}</p>}
               </div>
             )}
 

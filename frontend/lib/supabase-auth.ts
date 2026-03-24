@@ -24,6 +24,9 @@ export interface User {
   email: string;
   name?: string;
   phone?: string;
+  date_of_birth?: string | null;
+  country?: string | null;
+  city?: string | null;
   user_type?: string;
   created_at?: string;
 }
@@ -60,20 +63,35 @@ function authUserToUser(a: SupabaseAuthUser): User {
   };
 }
 
+const USER_SELECT = 'id, email, name, phone, date_of_birth, country, city, user_type, created_at';
+
 export async function getCurrentUser(): Promise<User | null> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.user) return null;
   const { data: profile } = await supabase
     .from('users')
-    .select('id, email, name, phone, user_type, created_at')
+    .select(USER_SELECT)
     .eq('id', session.user.id)
     .single();
-  if (profile) {
-    return { id: profile.id, email: profile.email, name: profile.name, phone: profile.phone, user_type: profile.user_type, created_at: profile.created_at };
-  }
+  if (profile) return profile as User;
   const u = authUserToUser(session.user);
   const authCreated = (session.user as { created_at?: string }).created_at;
   return authCreated ? { ...u, created_at: authCreated } : u;
+}
+
+export function isProfileComplete(user: User): boolean {
+  return !!(user.phone && user.date_of_birth && user.country && user.city);
+}
+
+export async function updateUserProfile(
+  userId: string,
+  fields: { phone?: string; date_of_birth?: string; country?: string; city?: string },
+): Promise<User | null> {
+  await supabase.from('users').update({
+    ...fields,
+    updated_at: new Date().toISOString(),
+  }).eq('id', userId);
+  return getCurrentUser();
 }
 
 export async function login(email: string, password: string): Promise<{ user: User | null; error: string | null }> {
@@ -85,16 +103,14 @@ export async function login(email: string, password: string): Promise<{ user: Us
   const user = await getCurrentUser();
   if (user) return { user, error: null };
 
-  // Fallback: session might not be available yet (e.g. in iframe with cookie restrictions).
-  // Use the auth data directly + try to read the profile with the signed-in client.
   const { data: profile } = await supabase
     .from('users')
-    .select('id, email, name, phone, user_type, created_at')
+    .select(USER_SELECT)
     .eq('id', data.user.id)
     .single();
 
   if (profile) {
-    return { user: { id: profile.id, email: profile.email, name: profile.name, phone: profile.phone, user_type: profile.user_type, created_at: profile.created_at }, error: null };
+    return { user: profile as User, error: null };
   }
 
   // Last resort: construct user from auth metadata
@@ -143,17 +159,21 @@ export async function signup(options: SignupOptions): Promise<{ user: User | nul
     email: authData.user.email!,
     name: options.name ?? authData.user.email?.split('@')[0] ?? 'User',
     phone: options.phone ?? null,
+    date_of_birth: options.dateOfBirth ?? null,
+    country: options.country ?? null,
+    city: options.city ?? null,
     user_type: options.userType ?? 'shopper',
     updated_at: new Date().toISOString(),
   };
 
-  // Try INSERT first; if row already exists (e.g. from a DB trigger), fall back to UPDATE.
-  // Avoids PostgREST 406 issues with UPSERT on tables with multiple unique constraints.
   const { error: insertErr } = await supabase.from('users').insert(profileData);
   if (insertErr) {
     await supabase.from('users').update({
       name: profileData.name,
       phone: profileData.phone,
+      date_of_birth: profileData.date_of_birth,
+      country: profileData.country,
+      city: profileData.city,
       user_type: profileData.user_type,
       updated_at: profileData.updated_at,
     }).eq('id', authData.user.id);
@@ -256,7 +276,7 @@ export async function ensureUserProfile(): Promise<User | null> {
 
   const { data: existing } = await supabase
     .from('users')
-    .select('id, email, name, phone, user_type, created_at')
+    .select(USER_SELECT)
     .eq('id', authUser.id)
     .single();
 

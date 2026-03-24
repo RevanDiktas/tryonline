@@ -13,7 +13,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ensureUserProfile, hasFitPassport, getSession } from '@/lib/supabase-auth';
+import { ensureUserProfile, isProfileComplete, hasFitPassport, getSession } from '@/lib/supabase-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +30,10 @@ function AuthCallbackInner() {
       const user = await ensureUserProfile();
       if (!user) {
         if (!cancelled) { setIsError(true); setMessage('Could not complete sign-in.'); }
+        return;
+      }
+      if (!isProfileComplete(user)) {
+        router.replace('/auth/complete-profile');
         return;
       }
       const hasFP = await hasFitPassport(user.id);
