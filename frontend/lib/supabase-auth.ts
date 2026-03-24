@@ -13,7 +13,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    flowType: 'pkce',
+    flowType: 'implicit',
     detectSessionInUrl: true,
     persistSession: true,
   },
@@ -241,6 +241,53 @@ export async function exchangeCodeForSession(code: string): Promise<{ user: User
 
 export async function getSession() {
   return supabase.auth.getSession();
+}
+
+/**
+ * Ensures a row exists in the `users` table for the current OAuth user.
+ * Called once after implicit-flow sign-in on the callback page.
+ * Returns the full User object.
+ */
+export async function ensureUserProfile(): Promise<User | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) return null;
+
+  const authUser = session.user;
+
+  const { data: existing } = await supabase
+    .from('users')
+    .select('id, email, name, phone, user_type, created_at')
+    .eq('id', authUser.id)
+    .single();
+
+  if (existing) return existing as User;
+
+  const meta = authUser.user_metadata as { name?: string; full_name?: string } | undefined;
+  const name = meta?.name || meta?.full_name || authUser.email?.split('@')[0] || 'User';
+  const geo = await detectGeoLocation();
+
+  const profileData = {
+    id: authUser.id,
+    email: authUser.email!,
+    name,
+    user_type: 'shopper',
+    country: geo.country ?? null,
+    city: geo.city ?? null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error: insertErr } = await supabase.from('users').insert(profileData);
+  if (insertErr) {
+    await supabase.from('users').update({
+      name: profileData.name,
+      user_type: profileData.user_type,
+      country: profileData.country,
+      city: profileData.city,
+      updated_at: profileData.updated_at,
+    }).eq('id', authUser.id);
+  }
+
+  return await getCurrentUser();
 }
 
 export async function logout(): Promise<void> {

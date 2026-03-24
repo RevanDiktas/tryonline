@@ -2,13 +2,18 @@
 
 /**
  * OAuth return URL for Supabase (Google / Apple).
- * Handles both PKCE (?code=) and implicit (#access_token=) flows.
- * Uses the single shared Supabase client to avoid "Multiple GoTrueClient" errors.
+ *
+ * With implicit flow, Supabase redirects here with tokens in the URL fragment:
+ *   /auth/callback#access_token=...&refresh_token=...
+ *
+ * The shared Supabase client (detectSessionInUrl: true) auto-parses the
+ * fragment and sets up the session. This page just waits for that, then
+ * routes the user to dashboard or onboarding.
  */
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { exchangeCodeForSession, getCurrentUser, hasFitPassport, getSession } from '@/lib/supabase-auth';
+import { ensureUserProfile, hasFitPassport, getSession } from '@/lib/supabase-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +27,7 @@ function AuthCallbackInner() {
     let cancelled = false;
 
     const routeAfterAuth = async () => {
-      const user = await getCurrentUser();
+      const user = await ensureUserProfile();
       if (!user) {
         if (!cancelled) { setIsError(true); setMessage('Could not complete sign-in.'); }
         return;
@@ -31,7 +36,7 @@ function AuthCallbackInner() {
       if (hasFP) {
         router.replace(user.user_type === 'brand' ? '/brand' : '/dashboard');
       } else {
-        router.replace('/signup?step=onboarding');
+        router.replace('/onboarding');
       }
     };
 
@@ -39,6 +44,7 @@ function AuthCallbackInner() {
       const href = typeof window !== 'undefined' ? window.location.href : '';
       const url = new URL(href || 'https://tryon.global/');
 
+      // Check for OAuth error in query string
       const oauthError = url.searchParams.get('error') || searchParams.get('error');
       if (oauthError) {
         const desc = url.searchParams.get('error_description') || searchParams.get('error_description');
@@ -49,43 +55,26 @@ function AuthCallbackInner() {
         return;
       }
 
-      // --- PKCE: code in query string ---
-      const code = url.searchParams.get('code') || searchParams.get('code');
-      if (code) {
-        const { error } = await exchangeCodeForSession(code);
+      // Implicit flow: tokens are in the URL fragment.
+      // The Supabase client with detectSessionInUrl: true should have already
+      // parsed them. Give it a moment, then check for a valid session.
+      // We poll a few times because the client processes the fragment async.
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const { data: { session } } = await getSession();
         if (cancelled) return;
-        if (error) { setIsError(true); setMessage(error); return; }
-        await routeAfterAuth();
-        return;
-      }
-
-      // --- Implicit: tokens in URL fragment (#access_token=...&refresh_token=...) ---
-      const hash = typeof window !== 'undefined' ? window.location.hash : '';
-      if (hash && hash.includes('access_token')) {
-        const { data: { session }, error } = await getSession();
-        if (cancelled) return;
-        if (error || !session) {
-          setIsError(true);
-          setMessage(error?.message || 'Session could not be established from URL tokens.');
+        if (session) {
+          await routeAfterAuth();
           return;
         }
-        await routeAfterAuth();
-        return;
+        await new Promise(r => setTimeout(r, 300));
       }
 
-      // --- Fallback: maybe Supabase already consumed the fragment before React rendered ---
-      await new Promise(r => setTimeout(r, 600));
-      const { data: { session } } = await getSession();
-      if (cancelled) return;
-      if (session) {
-        await routeAfterAuth();
-        return;
+      if (!cancelled) {
+        setIsError(true);
+        setMessage(
+          'Sign-in could not be completed. Please try again from the login page.',
+        );
       }
-
-      setIsError(true);
-      setMessage(
-        'No authorization code received. Make sure Supabase \u2192 URL Configuration includes https://tryon.global/auth/callback, then try again.',
-      );
     };
 
     finish();
