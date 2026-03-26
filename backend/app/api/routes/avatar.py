@@ -204,7 +204,7 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
         jobs[job_id]["message"] = "Processing on GPU..."
         
         import asyncio
-        max_attempts = 60  # 5 minutes with 5 second intervals
+        max_attempts = 120  # 10 minutes with 5 second intervals
         
         for attempt in range(max_attempts):
             await asyncio.sleep(5)

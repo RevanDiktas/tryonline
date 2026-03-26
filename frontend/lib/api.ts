@@ -459,7 +459,7 @@ export async function createAvatarWithFallback(
       };
     }
     const { job_id } = (await createRes.json()) as { job_id: string };
-    const maxAttempts = 120;
+    const maxAttempts = 300;
     const intervalMs = 2000;
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise((r) => setTimeout(r, intervalMs));

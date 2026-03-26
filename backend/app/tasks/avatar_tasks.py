@@ -51,7 +51,7 @@ def create_avatar_task(
             raise Exception("Failed to submit job to GPU")
         
         # Poll for completion
-        max_attempts = 60
+        max_attempts = 120
         for attempt in range(max_attempts):
             asyncio.get_event_loop().run_until_complete(asyncio.sleep(5))
             
