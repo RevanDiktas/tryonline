@@ -196,7 +196,7 @@ function useEarthGrid(): EarthGrid | null {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      const W = 720, H = 360;
+      const W = 1024, H = 512;
       const canvas = document.createElement('canvas');
       canvas.width = W; canvas.height = H;
       const ctx = canvas.getContext('2d')!;
@@ -209,22 +209,25 @@ function useEarthGrid(): EarthGrid | null {
         for (let x = 0; x < W; x++) {
           const i = (y * W + x) * 4;
           const r = px[i], g = px[i + 1], b = px[i + 2];
-          const isOcean = (b > 30 && b >= r) || (b > 30 && b >= g) || (r < 40 && g < 60 && b > 25);
-          land[y][x] = !isOcean && (r + g + b) > 50;
+          // Ocean: blue-dominant with low red/green, or very dark blue
+          // More permissive land detection to catch deserts, snow, ice
+          const blueDom = b > 50 && b > r * 1.3 && b > g * 1.1;
+          const deepOcean = r < 30 && g < 50 && b > 40;
+          const isOcean = blueDom || deepOcean;
+          land[y][x] = !isOcean && (r + g + b) > 30;
         }
       }
 
-      for (let pass = 0; pass < 2; pass++) {
-        for (let y = 1; y < H - 1; y++) {
-          for (let x = 0; x < W; x++) {
-            if (!land[y][x]) continue;
-            let n = 0;
-            for (const [dy, dx] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) {
-              const ny = y + dy, nx = (x + dx + W) % W;
-              if (land[ny]?.[nx]) n++;
-            }
-            if (n < 3) land[y][x] = false;
+      // Single erosion pass, only remove very isolated pixels (< 2 neighbors)
+      for (let y = 1; y < H - 1; y++) {
+        for (let x = 0; x < W; x++) {
+          if (!land[y][x]) continue;
+          let n = 0;
+          for (const [dy, dx] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) {
+            const ny = y + dy, nx = (x + dx + W) % W;
+            if (land[ny]?.[nx]) n++;
           }
+          if (n < 2) land[y][x] = false;
         }
       }
 
@@ -616,11 +619,11 @@ function CityDot({ data, dark, onHover, hovered }: {
 }) {
   const dotRef = useRef<THREE.Mesh>(null);
   const ringRef = useRef<THREE.Mesh>(null);
-  const pos = useMemo(() => latLonToVec3(data.lat, data.lon, GLOBE_R + 0.015), [data.lat, data.lon]);
+  const pos = useMemo(() => latLonToVec3(data.lat, data.lon, GLOBE_R + 0.02), [data.lat, data.lon]);
 
   useFrame((state) => {
     if (dotRef.current) {
-      const target = hovered ? 0.03 : 0.018;
+      const target = hovered ? 0.035 : 0.022;
       const s = dotRef.current.scale.x;
       dotRef.current.scale.setScalar(s + (target - s) * 0.15);
     }
@@ -639,16 +642,16 @@ function CityDot({ data, dark, onHover, hovered }: {
     <group position={pos}>
       <mesh
         ref={dotRef}
-        scale={0.018}
+        scale={0.022}
         onPointerEnter={(e) => { e.stopPropagation(); onHover(data); }}
         onPointerLeave={() => onHover(null)}
       >
         <sphereGeometry args={[1, 12, 12]} />
         <meshBasicMaterial color={dotColor} />
       </mesh>
-      <mesh ref={ringRef} scale={0.03}>
+      <mesh ref={ringRef} scale={0.04}>
         <ringGeometry args={[0.6, 1, 32]} />
-        <meshBasicMaterial color={ringColor} transparent opacity={0.2} side={THREE.DoubleSide} />
+        <meshBasicMaterial color={ringColor} transparent opacity={0.25} side={THREE.DoubleSide} />
       </mesh>
     </group>
   );
@@ -793,15 +796,17 @@ function GlobeScene({ earth, dataPoints, cityPoints, dark,
       <InnerGlow dark={dark} />
       <GlobeAtmosphere dark={dark} />
       {dataPoints.map((d) => (
-        <DataDot
-          key={d.country}
-          data={d}
-          dark={dark}
-          onHover={onHoverCountry}
-          hovered={hoveredCountry === d.country}
-          selected={selectedCountry === d.country}
-          onClick={handleCountryClick}
-        />
+        selectedCountry === d.country ? null : (
+          <DataDot
+            key={d.country}
+            data={d}
+            dark={dark}
+            onHover={onHoverCountry}
+            hovered={hoveredCountry === d.country}
+            selected={false}
+            onClick={handleCountryClick}
+          />
+        )
       ))}
       {visibleCities.map((d) => (
         <CityDot
