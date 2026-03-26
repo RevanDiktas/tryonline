@@ -209,12 +209,11 @@ function useEarthGrid(): EarthGrid | null {
         for (let x = 0; x < W; x++) {
           const i = (y * W + x) * 4;
           const r = px[i], g = px[i + 1], b = px[i + 2];
-          // Ocean: blue-dominant with low red/green, or very dark blue
-          // More permissive land detection to catch deserts, snow, ice
-          const blueDom = b > 50 && b > r * 1.3 && b > g * 1.1;
-          const deepOcean = r < 30 && g < 50 && b > 40;
-          const isOcean = blueDom || deepOcean;
-          land[y][x] = !isOcean && (r + g + b) > 30;
+          // Blue-dominant = ocean; keep deserts (high r/g), snow/ice (all channels high)
+          const bDom = b > 35 && b >= r + 10 && b >= g;
+          const deepDark = (r + g + b) < 80 && b > r && b > g;
+          const isOcean = bDom || deepDark;
+          land[y][x] = !isOcean && (r + g + b) > 45;
         }
       }
 
@@ -619,17 +618,17 @@ function CityDot({ data, dark, onHover, hovered }: {
 }) {
   const dotRef = useRef<THREE.Mesh>(null);
   const ringRef = useRef<THREE.Mesh>(null);
-  const pos = useMemo(() => latLonToVec3(data.lat, data.lon, GLOBE_R + 0.02), [data.lat, data.lon]);
+  const pos = useMemo(() => latLonToVec3(data.lat, data.lon, GLOBE_R + 0.015), [data.lat, data.lon]);
 
   useFrame((state) => {
     if (dotRef.current) {
-      const target = hovered ? 0.035 : 0.022;
+      const target = hovered ? 0.022 : 0.013;
       const s = dotRef.current.scale.x;
       dotRef.current.scale.setScalar(s + (target - s) * 0.15);
     }
     if (ringRef.current) {
       const pulse = 1 + Math.sin(state.clock.elapsedTime * 4 + data.lat * 10) * 0.25;
-      ringRef.current.scale.setScalar((hovered ? 0.05 : 0.03) * pulse);
+      ringRef.current.scale.setScalar((hovered ? 0.035 : 0.022) * pulse);
       const m = ringRef.current.material as THREE.MeshBasicMaterial;
       m.opacity = hovered ? 0.5 : 0.2;
     }
@@ -642,14 +641,14 @@ function CityDot({ data, dark, onHover, hovered }: {
     <group position={pos}>
       <mesh
         ref={dotRef}
-        scale={0.022}
+        scale={0.013}
         onPointerEnter={(e) => { e.stopPropagation(); onHover(data); }}
         onPointerLeave={() => onHover(null)}
       >
         <sphereGeometry args={[1, 12, 12]} />
         <meshBasicMaterial color={dotColor} />
       </mesh>
-      <mesh ref={ringRef} scale={0.04}>
+      <mesh ref={ringRef} scale={0.022}>
         <ringGeometry args={[0.6, 1, 32]} />
         <meshBasicMaterial color={ringColor} transparent opacity={0.25} side={THREE.DoubleSide} />
       </mesh>
@@ -785,9 +784,20 @@ function GlobeScene({ earth, dataPoints, cityPoints, dark,
     ? cityPoints.filter((c) => c.country === selectedCountry)
     : [];
 
+  const handleGlobeClick = useCallback(() => {
+    if (selectedCountry) {
+      onSelectCountry(null);
+      animRef.current = {
+        start: camera.position.clone(),
+        end: new THREE.Vector3(0, 0.2, 8.5),
+        progress: 0,
+      };
+    }
+  }, [selectedCountry, onSelectCountry, camera]);
+
   return (
     <group ref={groupRef} rotation={[0.15, -0.6, 0.05]}>
-      <mesh>
+      <mesh onClick={handleGlobeClick}>
         <sphereGeometry args={[GLOBE_R - 0.005, 64, 64]} />
         <meshBasicMaterial color={dark ? '#020617' : '#1e1b4b'} />
       </mesh>
