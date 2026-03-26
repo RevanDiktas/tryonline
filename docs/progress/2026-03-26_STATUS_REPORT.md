@@ -2,35 +2,53 @@
 
 ## Completed today
 
-### RunPod payload fix — avatar results now delivered
-- **Root cause**: The RunPod handler was encoding `skin_detection_mask` (18.6 MB debug image) in the return payload, pushing total to 20.51 MB and exceeding RunPod's ~20 MB limit. RunPod rejected the response with 400 Bad Request.
-- **Fix**: Excluded `skin_detection_mask` from the return payload. Payload drops from 20.51 MB to ~1.9 MB. Skin detection and avatar texturing still work — only the debug visualization was removed.
-- **Pushed to `main`**, Docker image rebuilt and deployed on RunPod (build completed successfully, 6.71 GB image pushed to registry).
+### Brand dashboard — chart tooltip responsiveness
+- Disabled all Recharts animation (`isAnimationActive={false}`) on every Tooltip, Bar, Area, and Line component.
+- Tooltips now appear instantly on hover with zero lag.
 
-### Polling timeout increases — no more premature loading screen exits
-- Frontend polling: 4 min -> **10 min** (300 attempts x 2s)
-- Backend polling: 5 min -> **10 min** (120 attempts x 5s)
-- avatar_tasks polling: 5 min -> **10 min** (120 attempts x 5s)
-- Pushed to `feature/analytics` (Railway + Vercel auto-redeploy).
+### Brand dashboard — globe visualization overhaul
+Complete rewrite of the `RegionalSizeGlobe` component across 7 iterative commits:
 
-### SSL fix — `www.tryon.global` no longer shows security warning
-- Added `www.tryon.global` to Vercel domains with 308 permanent redirect to `tryon.global`.
-- `tryon.global` remains the primary production domain.
-- All three domains (`www.tryon.global`, `tryon.global`, `tryonline.vercel.app`) showing valid configuration.
+**Visual quality**
+- Earth dot density doubled: 80k -> 160k Fibonacci-distributed points.
+- Smoother dot sprite: 128px canvas with gaussian-like radial gradient falloff.
+- Brighter land colors for dark theme (cyan `#22d3ee` / `#67e8f9` instead of muted teal).
+- Globe sphere darkened (`#020617`) for maximum contrast.
+- Refined ocean detection heuristic to eliminate ocean noise while preserving deserts, snow, and ice coverage.
+- Higher resolution earth grid (1024x512 vs 720x360).
 
-### Shopify App Store review follow-up
-- App submitted ~1.5 weeks ago, still in "assigning a reviewer" stage.
-- Sent follow-up email to `app-review@shopify.com` requesting status update.
+**Country borders**
+- Fixed TopoJSON parser (was reading `geometry.coordinates` instead of `geometry.arcs` per the TopoJSON spec — borders were silently failing to render).
+- Borders fetched from CDN (`world-atlas@2/countries-110m.json`), rendered as line segments on globe surface.
+- Always faintly visible (0.15 base opacity), sharpen on zoom. Bright cyan color (`#a5f3fc`) for dark theme.
 
----
+**Country coverage**
+- Expanded country coordinates from 37 to 120+ countries across all continents (full Africa, Caribbean, Central Asia, more Southeast Asia, all smaller European states).
 
-## Key fixes
+**Click-to-zoom interaction**
+- Clicking a country data dot zooms the camera smoothly to that region (ease-out cubic animation, ~0.5s).
+- Country dot disappears when selected, replaced by gold city-level dots.
+- City dots: smaller scale (0.013), pulsing ring animation, hoverable with tooltip showing city name + size breakdown.
+- Click anywhere on the globe surface (or "Back to globe" button) to zoom back out.
+- Auto-rotation pauses while a country is selected.
 
-| Issue | Root cause | Fix |
-|-------|-----------|-----|
-| RunPod "Failed to return job results" 400 | `skin_detection_mask` (18.6 MB) pushed payload over 20 MB limit | Excluded debug image from return payload |
-| Loading screen quits while RunPod queued | Frontend timeout was 4 min, backend 5 min | Both increased to 10 min |
-| `www.tryon.global` SSL security warning | `www` subdomain not configured in Vercel | Added `www.tryon.global` with 308 redirect to `tryon.global` |
+**City-level data**
+- Backend: extended `/api/analytics/regional-size` to return `by_city` field (country -> city -> size distribution). City names normalized with `.title()` to prevent duplicates.
+- Frontend: 130+ major city coordinates pre-mapped (Amsterdam, Zaandam, Rotterdam, Paris, London, Milan, New York, Tokyo, etc.).
+- Fallback: if backend has no city data yet, generates city markers from known coordinates for countries with analytics data.
+
+### Earlier today (before dashboard work)
+
+**RunPod payload fix** — avatar results now delivered
+- Excluded `skin_detection_mask` (18.6 MB debug image) from return payload. Payload dropped from 20.51 MB to ~1.9 MB.
+- Pushed to `main`, Docker image rebuilt and deployed on RunPod.
+
+**Polling timeout increases**
+- Frontend: 4 min -> 10 min | Backend: 5 min -> 10 min | avatar_tasks: 5 min -> 10 min.
+
+**SSL fix** — `www.tryon.global` 308 redirect to `tryon.global`.
+
+**Shopify App Store review** — sent follow-up email to `app-review@shopify.com`.
 
 ---
 
@@ -38,6 +56,10 @@
 
 | File | Branch | Change |
 |------|--------|--------|
+| `frontend/components/analytics/RegionalSizeGlobe.tsx` | `feature/analytics` | Full rewrite: 160k dots, borders, click-to-zoom, city dots, smoother rendering |
+| `frontend/components/analytics/Charts.tsx` | `feature/analytics` | `isAnimationActive={false}` on all chart elements for instant tooltips |
+| `frontend/app/brand/page.tsx` | `feature/analytics` | Pass `by_city` prop to globe component |
+| `backend/app/api/routes/analytics.py` | `feature/analytics` | Add `by_city` to regional-size response, normalize city names |
 | `avatar-creation/pipelines/handler.py` | `main` | Excluded `skin_detection_mask` from return payload |
 | `backend/app/api/routes/avatar.py` | `feature/analytics` | Backend polling timeout 5 min -> 10 min |
 | `backend/app/tasks/avatar_tasks.py` | `feature/analytics` | Task polling timeout 5 min -> 10 min |
@@ -52,3 +74,5 @@
 3. **Test OAuth complete-profile flow** — fresh Google/Apple account to verify birthday/phone collection.
 4. **Shopify App Store review** — awaiting response from Shopify review team.
 5. **Apple secret rotation** — JWT expires ~August 2026.
+6. **Globe: light theme polish** — verify colors/contrast on light theme (tested mostly on dark today).
+7. **Globe: real city data** — once more events accumulate with city field populated, verify city-level analytics show real data instead of fallback markers.
