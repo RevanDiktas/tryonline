@@ -953,7 +953,8 @@ async def get_regional_size_distribution(
 
     for e in events:
         country = (e.get("country") or "Unknown").strip() or "Unknown"
-        city = (e.get("city") or "").strip() or ""
+        raw_city = (e.get("city") or "").strip()
+        city = raw_city.title() if raw_city else ""
         ed = e.get("event_data") or {}
         etype = e.get("event_type")
 

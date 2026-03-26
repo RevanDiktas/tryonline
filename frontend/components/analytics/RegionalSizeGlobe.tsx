@@ -113,7 +113,11 @@ const CC: Record<string, [number, number]> = {
 // ─── Major city coordinates for zoom detail ────────────────────────────────
 const CITY_COORDS: Record<string, [number, number]> = {
   'Amsterdam': [52.37, 4.90], 'Rotterdam': [51.92, 4.48], 'The Hague': [52.08, 4.30],
-  'Utrecht': [52.09, 5.11], 'Eindhoven': [51.44, 5.47],
+  'Utrecht': [52.09, 5.11], 'Eindhoven': [51.44, 5.47], 'Zaandam': [52.44, 4.83],
+  'Groningen': [53.22, 6.57], 'Tilburg': [51.56, 5.09], 'Almere': [52.35, 5.26],
+  'Breda': [51.59, 4.78], 'Nijmegen': [51.84, 5.87], 'Haarlem': [52.38, 4.64],
+  'Arnhem': [51.98, 5.91], 'Maastricht': [50.85, 5.69], 'Leiden': [52.16, 4.49],
+  'Delft': [52.01, 4.36], 'Dordrecht': [51.81, 4.67], 'Amersfoort': [52.16, 5.39],
   'London': [51.51, -0.13], 'Manchester': [53.48, -2.24], 'Birmingham': [52.49, -1.89],
   'Edinburgh': [55.95, -3.19], 'Leeds': [53.80, -1.55], 'Glasgow': [55.86, -4.25],
   'Paris': [48.86, 2.35], 'Lyon': [45.76, 4.84], 'Marseille': [43.30, 5.37],
@@ -562,9 +566,10 @@ interface CityData {
 }
 
 // ─── Data point dots ───────────────────────────────────────────────────────
-function DataDot({ data, dark, onHover, hovered }: {
+function DataDot({ data, dark, onHover, hovered, selected, onClick }: {
   data: CountryData; dark: boolean;
   onHover: (d: CountryData | null) => void; hovered: boolean;
+  selected: boolean; onClick: (d: CountryData) => void;
 }) {
   const dotRef = useRef<THREE.Mesh>(null);
   const ringRef = useRef<THREE.Mesh>(null);
@@ -572,19 +577,20 @@ function DataDot({ data, dark, onHover, hovered }: {
 
   useFrame((state) => {
     if (dotRef.current) {
-      const target = hovered ? 0.04 : 0.022;
+      const target = selected ? 0.045 : hovered ? 0.04 : 0.022;
       const s = dotRef.current.scale.x;
       dotRef.current.scale.setScalar(s + (target - s) * 0.15);
     }
     if (ringRef.current) {
       const pulse = 1 + Math.sin(state.clock.elapsedTime * 3 + data.lat) * 0.3;
-      ringRef.current.scale.setScalar((hovered ? 0.065 : 0.04) * pulse);
+      const base = selected ? 0.08 : hovered ? 0.065 : 0.04;
+      ringRef.current.scale.setScalar(base * pulse);
       const m = ringRef.current.material as THREE.MeshBasicMaterial;
-      m.opacity = hovered ? 0.6 : 0.2;
+      m.opacity = selected ? 0.7 : hovered ? 0.6 : 0.2;
     }
   });
 
-  const dotColor = dark ? '#f0fdfa' : '#0f766e';
+  const dotColor = selected ? (dark ? '#22d3ee' : '#0d9488') : dark ? '#f0fdfa' : '#0f766e';
   const ringColor = dark ? '#22d3ee' : '#14b8a6';
 
   return (
@@ -594,6 +600,7 @@ function DataDot({ data, dark, onHover, hovered }: {
         scale={0.022}
         onPointerEnter={(e) => { e.stopPropagation(); onHover(data); }}
         onPointerLeave={() => onHover(null)}
+        onClick={(e) => { e.stopPropagation(); onClick(data); }}
       >
         <sphereGeometry args={[1, 12, 12]} />
         <meshBasicMaterial color={dotColor} />
@@ -615,7 +622,7 @@ function CityDot({ data, dark, onHover, hovered }: {
 
   useFrame(() => {
     if (dotRef.current) {
-      const target = hovered ? 0.025 : 0.012;
+      const target = hovered ? 0.025 : 0.014;
       const s = dotRef.current.scale.x;
       dotRef.current.scale.setScalar(s + (target - s) * 0.15);
     }
@@ -625,7 +632,7 @@ function CityDot({ data, dark, onHover, hovered }: {
     <group position={pos}>
       <mesh
         ref={dotRef}
-        scale={0.012}
+        scale={0.014}
         onPointerEnter={(e) => { e.stopPropagation(); onHover(data); }}
         onPointerLeave={() => onHover(null)}
       >
@@ -637,13 +644,26 @@ function CityDot({ data, dark, onHover, hovered }: {
 }
 
 // ─── Globe Scene ───────────────────────────────────────────────────────────
-function GlobeScene({ earth, dataPoints, cityPoints, dark, onHoverCountry, onHoverCity, hoveredCountry, hoveredCity, zoomLevel, onZoomChange }: {
+type OrbitCtrl = {
+  enableZoom: boolean; enablePan: boolean; rotateSpeed: number;
+  enableDamping: boolean; dampingFactor: number;
+  minDistance: number; maxDistance: number;
+  target: THREE.Vector3;
+  update: () => void; dispose: () => void;
+};
+
+function GlobeScene({ earth, dataPoints, cityPoints, dark,
+  onHoverCountry, onHoverCity, hoveredCountry, hoveredCity,
+  selectedCountry, onSelectCountry, zoomLevel, onZoomChange,
+}: {
   earth: EarthGrid; dataPoints: CountryData[]; cityPoints: CityData[];
   dark: boolean;
   onHoverCountry: (d: CountryData | null) => void;
   onHoverCity: (d: CityData | null) => void;
   hoveredCountry: string | null;
   hoveredCity: string | null;
+  selectedCountry: string | null;
+  onSelectCountry: (country: string | null) => void;
   zoomLevel: number;
   onZoomChange: (z: number) => void;
 }) {
@@ -651,7 +671,11 @@ function GlobeScene({ earth, dataPoints, cityPoints, dark, onHoverCountry, onHov
   const { gl, camera } = useThree();
   const dragging = useRef(false);
   const dragTimer = useRef<ReturnType<typeof setTimeout>>();
-  const ctrlRef = useRef<{ enableZoom: boolean; enablePan: boolean; rotateSpeed: number; enableDamping: boolean; dampingFactor: number; minDistance: number; maxDistance: number; update: () => void; dispose: () => void } | null>(null);
+  const ctrlRef = useRef<OrbitCtrl | null>(null);
+
+  // Camera animation target for zoom-to-country
+  const animTarget = useRef<{ pos: THREE.Vector3; lookAt: THREE.Vector3 } | null>(null);
+  const animProgress = useRef(0);
 
   useEffect(() => {
     const down = () => {
@@ -680,13 +704,52 @@ function GlobeScene({ earth, dataPoints, cityPoints, dark, onHoverCountry, onHov
       c.dampingFactor = 0.05;
       c.minDistance = 3.5;
       c.maxDistance = 12;
-      ctrlRef.current = c as typeof ctrlRef.current;
+      ctrlRef.current = c as unknown as OrbitCtrl;
     });
     return () => { ctrlRef.current?.dispose(); };
   }, [camera, gl]);
 
+  const handleCountryClick = useCallback((d: CountryData) => {
+    if (selectedCountry === d.country) {
+      // Deselect — zoom back out
+      onSelectCountry(null);
+      animTarget.current = {
+        pos: new THREE.Vector3(0, 0.2, 8.5),
+        lookAt: new THREE.Vector3(0, 0, 0),
+      };
+      animProgress.current = 0;
+      return;
+    }
+
+    onSelectCountry(d.country);
+
+    // Compute world position of the data point, accounting for group rotation
+    const localPos = new THREE.Vector3(...latLonToVec3(d.lat, d.lon, GLOBE_R));
+    if (groupRef.current) {
+      localPos.applyMatrix4(groupRef.current.matrixWorld);
+    }
+    const dir = localPos.clone().normalize();
+    const targetCamPos = dir.clone().multiplyScalar(4.2);
+    // Slight upward offset for nicer viewing angle
+    targetCamPos.y += 0.15;
+
+    animTarget.current = {
+      pos: targetCamPos,
+      lookAt: new THREE.Vector3(0, 0, 0),
+    };
+    animProgress.current = 0;
+  }, [selectedCountry, onSelectCountry]);
+
   useFrame((_s, delta) => {
     ctrlRef.current?.update();
+
+    // Animate camera toward target
+    if (animTarget.current && animProgress.current < 1) {
+      animProgress.current = Math.min(1, animProgress.current + delta * 1.8);
+      const t = 1 - Math.pow(1 - animProgress.current, 3); // ease-out cubic
+      camera.position.lerp(animTarget.current.pos, t * 0.08);
+      if (animProgress.current >= 1) animTarget.current = null;
+    }
 
     const dist = camera.position.length();
     const maxDist = 12;
@@ -694,12 +757,15 @@ function GlobeScene({ earth, dataPoints, cityPoints, dark, onHoverCountry, onHov
     const z = 1 - (dist - minDist) / (maxDist - minDist);
     onZoomChange(Math.max(0, Math.min(1, z)));
 
-    if (groupRef.current && !dragging.current && !hoveredCountry && !hoveredCity) {
+    if (groupRef.current && !dragging.current && !hoveredCountry && !hoveredCity && !selectedCountry) {
       groupRef.current.rotation.y += delta * 0.04;
     }
   });
 
-  const showCities = zoomLevel > 0.35;
+  // Only show city dots for the selected country
+  const visibleCities = selectedCountry
+    ? cityPoints.filter((c) => c.country === selectedCountry)
+    : [];
 
   return (
     <group ref={groupRef} rotation={[0.15, -0.6, 0.05]}>
@@ -718,9 +784,11 @@ function GlobeScene({ earth, dataPoints, cityPoints, dark, onHoverCountry, onHov
           dark={dark}
           onHover={onHoverCountry}
           hovered={hoveredCountry === d.country}
+          selected={selectedCountry === d.country}
+          onClick={handleCountryClick}
         />
       ))}
-      {showCities && cityPoints.map((d) => (
+      {visibleCities.map((d) => (
         <CityDot
           key={`${d.country}-${d.city}`}
           data={d}
@@ -755,6 +823,7 @@ export default function RegionalSizeGlobe({
 }) {
   const [hoveredCountry, setHoveredCountry] = useState<CountryData | null>(null);
   const [hoveredCity, setHoveredCity] = useState<CityData | null>(null);
+  const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState(0);
   const earth = useEarthGrid();
 
@@ -780,9 +849,11 @@ export default function RegionalSizeGlobe({
       for (const [cityName, data] of Object.entries(cities)) {
         const coord = CITY_COORDS[cityName];
         if (!coord) {
-          // Offset from country center for unknown cities
-          const jitterLat = countryCoord[0] + (Math.random() - 0.5) * 3;
-          const jitterLon = countryCoord[1] + (Math.random() - 0.5) * 3;
+          // Deterministic offset from country center for unmapped cities
+          let hash = 0;
+          for (let i = 0; i < cityName.length; i++) hash = ((hash << 5) - hash + cityName.charCodeAt(i)) | 0;
+          const jitterLat = countryCoord[0] + ((hash % 100) / 100 - 0.5) * 2.5;
+          const jitterLon = countryCoord[1] + (((hash >> 8) % 100) / 100 - 0.5) * 2.5;
           pts.push({
             city: cityName, country, lat: jitterLat, lon: jitterLon,
             total: data.total, topSize: data.top_size, sizes: data.sizes,
@@ -800,6 +871,10 @@ export default function RegionalSizeGlobe({
 
   const handleHoverCountry = useCallback((d: CountryData | null) => { setHoveredCountry(d); setHoveredCity(null); }, []);
   const handleHoverCity = useCallback((d: CityData | null) => { setHoveredCity(d); setHoveredCountry(null); }, []);
+  const handleSelectCountry = useCallback((country: string | null) => {
+    setSelectedCountry(country);
+    setHoveredCity(null);
+  }, []);
 
   if (!earth) {
     return (
@@ -832,6 +907,8 @@ export default function RegionalSizeGlobe({
           onHoverCity={handleHoverCity}
           hoveredCountry={hoveredCountry?.country || null}
           hoveredCity={hoveredCity ? `${hoveredCity.country}-${hoveredCity.city}` : null}
+          selectedCountry={selectedCountry}
+          onSelectCountry={handleSelectCountry}
           zoomLevel={zoomLevel}
           onZoomChange={setZoomLevel}
         />
@@ -872,14 +949,21 @@ export default function RegionalSizeGlobe({
         </div>
       )}
 
-      {zoomLevel > 0.35 && (
-        <div className={`absolute top-3 left-3 text-[9px] px-2 py-1 rounded-md backdrop-blur-sm ${dark ? 'bg-black/40 text-cyan-300/60' : 'bg-white/60 text-teal-600/60'}`}>
-          City view
-        </div>
+      {selectedCountry && (
+        <button
+          onClick={() => handleSelectCountry(null)}
+          className={`absolute top-3 left-3 text-[10px] px-3 py-1.5 rounded-lg backdrop-blur-md cursor-pointer transition-colors ${
+            dark
+              ? 'bg-white/10 hover:bg-white/15 text-cyan-300 border border-white/10'
+              : 'bg-black/5 hover:bg-black/10 text-teal-700 border border-black/10'
+          }`}
+        >
+          ← Back to globe
+        </button>
       )}
 
       <div className={`absolute bottom-2 right-3 text-[9px] ${dark ? 'text-white/15' : 'text-gray-300'}`}>
-        Scroll to zoom  ·  Drag to rotate
+        {selectedCountry ? 'Click country dot again to zoom out' : 'Click a country dot to zoom in  ·  Drag to rotate'}
       </div>
     </div>
   );
