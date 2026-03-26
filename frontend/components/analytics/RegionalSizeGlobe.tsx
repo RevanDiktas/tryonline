@@ -290,7 +290,7 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
     const landBright = dark ? new THREE.Color('#67e8f9') : new THREE.Color('#a5f3fc');
     const coastCol  = dark ? new THREE.Color('#a5f3fc') : new THREE.Color('#e0f2fe');
 
-    const N = 80000;
+    const N = 160000;
     const golden = Math.PI * (3 - Math.sqrt(5));
 
     for (let i = 0; i < N; i++) {
@@ -326,7 +326,7 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
   return (
     <points geometry={geom}>
       <pointsMaterial
-        size={0.028}
+        size={0.02}
         map={dotTex}
         vertexColors
         transparent
@@ -434,11 +434,12 @@ function CountryBorders({ dark, zoomLevel }: { dark: boolean; zoomLevel: number 
   const geom = useBorderGeometry();
   const matRef = useRef<THREE.LineBasicMaterial>(null);
 
-  const opacity = Math.min(1, Math.max(0, (zoomLevel - 0.2) * 1.5));
+  // Always slightly visible, much stronger when zoomed in
+  const opacity = 0.15 + Math.min(0.85, Math.max(0, zoomLevel * 1.2));
 
   useFrame(() => {
     if (matRef.current) {
-      matRef.current.opacity += (opacity - matRef.current.opacity) * 0.1;
+      matRef.current.opacity += (opacity - matRef.current.opacity) * 0.12;
     }
   });
 
@@ -448,9 +449,9 @@ function CountryBorders({ dark, zoomLevel }: { dark: boolean; zoomLevel: number 
     <lineSegments geometry={geom}>
       <lineBasicMaterial
         ref={matRef}
-        color={dark ? '#67e8f9' : '#94a3b8'}
+        color={dark ? '#a5f3fc' : '#64748b'}
         transparent
-        opacity={0}
+        opacity={0.15}
         depthWrite={false}
         linewidth={1}
       />
@@ -673,9 +674,8 @@ function GlobeScene({ earth, dataPoints, cityPoints, dark,
   const dragTimer = useRef<ReturnType<typeof setTimeout>>();
   const ctrlRef = useRef<OrbitCtrl | null>(null);
 
-  // Camera animation target for zoom-to-country
-  const animTarget = useRef<{ pos: THREE.Vector3; lookAt: THREE.Vector3 } | null>(null);
-  const animProgress = useRef(0);
+  // Camera animation: store start + end so we can properly interpolate
+  const animRef = useRef<{ start: THREE.Vector3; end: THREE.Vector3; progress: number } | null>(null);
 
   useEffect(() => {
     const down = () => {
@@ -711,44 +711,49 @@ function GlobeScene({ earth, dataPoints, cityPoints, dark,
 
   const handleCountryClick = useCallback((d: CountryData) => {
     if (selectedCountry === d.country) {
-      // Deselect — zoom back out
       onSelectCountry(null);
-      animTarget.current = {
-        pos: new THREE.Vector3(0, 0.2, 8.5),
-        lookAt: new THREE.Vector3(0, 0, 0),
+      animRef.current = {
+        start: camera.position.clone(),
+        end: new THREE.Vector3(0, 0.2, 8.5),
+        progress: 0,
       };
-      animProgress.current = 0;
       return;
     }
 
     onSelectCountry(d.country);
 
-    // Compute world position of the data point, accounting for group rotation
+    // Get world position of the point, accounting for current globe rotation
     const localPos = new THREE.Vector3(...latLonToVec3(d.lat, d.lon, GLOBE_R));
     if (groupRef.current) {
+      groupRef.current.updateMatrixWorld();
       localPos.applyMatrix4(groupRef.current.matrixWorld);
     }
     const dir = localPos.clone().normalize();
-    const targetCamPos = dir.clone().multiplyScalar(4.2);
-    // Slight upward offset for nicer viewing angle
-    targetCamPos.y += 0.15;
+    const targetCamPos = dir.clone().multiplyScalar(4.0);
+    targetCamPos.y += 0.1;
 
-    animTarget.current = {
-      pos: targetCamPos,
-      lookAt: new THREE.Vector3(0, 0, 0),
+    animRef.current = {
+      start: camera.position.clone(),
+      end: targetCamPos,
+      progress: 0,
     };
-    animProgress.current = 0;
-  }, [selectedCountry, onSelectCountry]);
+  }, [selectedCountry, onSelectCountry, camera]);
 
   useFrame((_s, delta) => {
     ctrlRef.current?.update();
 
-    // Animate camera toward target
-    if (animTarget.current && animProgress.current < 1) {
-      animProgress.current = Math.min(1, animProgress.current + delta * 1.8);
-      const t = 1 - Math.pow(1 - animProgress.current, 3); // ease-out cubic
-      camera.position.lerp(animTarget.current.pos, t * 0.08);
-      if (animProgress.current >= 1) animTarget.current = null;
+    // Smooth camera animation: interpolate from start to end
+    if (animRef.current && animRef.current.progress < 1) {
+      animRef.current.progress = Math.min(1, animRef.current.progress + delta * 2.0);
+      const t = 1 - Math.pow(1 - animRef.current.progress, 3); // ease-out cubic
+      const { start, end } = animRef.current;
+      camera.position.set(
+        start.x + (end.x - start.x) * t,
+        start.y + (end.y - start.y) * t,
+        start.z + (end.z - start.z) * t,
+      );
+      camera.lookAt(0, 0, 0);
+      if (animRef.current.progress >= 1) animRef.current = null;
     }
 
     const dist = camera.position.length();
