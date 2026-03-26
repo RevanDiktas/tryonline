@@ -46,6 +46,8 @@ const tooltipStyle = (dark?: boolean) => ({
   labelStyle: { color: dark ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.6)', fontSize: 10, marginBottom: 2 },
   itemStyle: { color: dark ? 'rgba(255,255,255,0.85)' : '#fff', fontSize: 11, padding: 0 },
   cursor: { fill: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' },
+  isAnimationActive: false,
+  animationDuration: 0,
 });
 
 const gridStroke = (dark?: boolean) => dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
@@ -83,9 +85,10 @@ export function ConversionFunnelChart({
             labelStyle={tt.labelStyle}
             itemStyle={tt.itemStyle}
             cursor={tt.cursor}
+            isAnimationActive={false}
             formatter={(value: number | undefined) => [value ?? 0, '']}
           />
-          <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={28}>
+          <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={28} isAnimationActive={false}>
             {data.map((entry, i) => (
               <Cell key={i} fill={entry.fill} />
             ))}
@@ -112,10 +115,10 @@ export function VelocityChart({ velocity, dark }: { velocity: { tryon_velocity_7
           <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} vertical={false} />
           <XAxis dataKey="period" tick={tickStyle(dark)} axisLine={false} tickLine={false} />
           <YAxis tick={tickStyle(dark)} allowDecimals={false} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={tt.contentStyle} labelStyle={tt.labelStyle} itemStyle={tt.itemStyle} cursor={tt.cursor} formatter={(value: number | undefined) => [value ?? 0, '']} />
+          <Tooltip contentStyle={tt.contentStyle} labelStyle={tt.labelStyle} itemStyle={tt.itemStyle} cursor={tt.cursor} isAnimationActive={false} formatter={(value: number | undefined) => [value ?? 0, '']} />
           <Legend wrapperStyle={legendStyle(dark)} />
-          <Bar dataKey="TryOn" fill={colors.tryon} radius={[6, 6, 0, 0]} name="Try-on" />
-          <Bar dataKey="Purchase" fill={colors.purchase} radius={[6, 6, 0, 0]} name="Purchase" />
+          <Bar dataKey="TryOn" fill={colors.tryon} radius={[6, 6, 0, 0]} name="Try-on" isAnimationActive={false} />
+          <Bar dataKey="Purchase" fill={colors.purchase} radius={[6, 6, 0, 0]} name="Purchase" isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -156,11 +159,11 @@ export function SizeDistributionChart({
           <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} vertical={false} />
           <XAxis dataKey="size" tick={tickStyle(dark)} axisLine={false} tickLine={false} />
           <YAxis tick={tickStyle(dark)} allowDecimals={false} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={tt.contentStyle} labelStyle={tt.labelStyle} itemStyle={tt.itemStyle} cursor={tt.cursor} />
+          <Tooltip contentStyle={tt.contentStyle} labelStyle={tt.labelStyle} itemStyle={tt.itemStyle} cursor={tt.cursor} isAnimationActive={false} />
           <Legend wrapperStyle={legendStyle(dark)} />
-          <Bar dataKey="Recommended" fill={colors.recommended} radius={[4, 4, 0, 0]} name="Recommended" />
-          <Bar dataKey="Selected" fill={colors.selected} radius={[4, 4, 0, 0]} name="Selected" />
-          <Bar dataKey="Purchased" fill={colors.purchased} radius={[4, 4, 0, 0]} name="Purchased" />
+          <Bar dataKey="Recommended" fill={colors.recommended} radius={[4, 4, 0, 0]} name="Recommended" isAnimationActive={false} />
+          <Bar dataKey="Selected" fill={colors.selected} radius={[4, 4, 0, 0]} name="Selected" isAnimationActive={false} />
+          <Bar dataKey="Purchased" fill={colors.purchased} radius={[4, 4, 0, 0]} name="Purchased" isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -196,6 +199,7 @@ export function ExplorationTrendChart({ data, dark }: { data: { week_start: stri
             labelStyle={tt.labelStyle}
             itemStyle={tt.itemStyle}
             cursor={{ stroke: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }}
+            isAnimationActive={false}
             formatter={(value: number | undefined) => [(value ?? 0).toFixed(1), 'Avg sizes/session']}
             labelFormatter={(label) => `Week ${label}`}
           />
@@ -206,6 +210,7 @@ export function ExplorationTrendChart({ data, dark }: { data: { week_start: stri
             strokeWidth={2}
             fill="url(#explorationGradient)"
             name="Avg sizes per session"
+            isAnimationActive={false}
             dot={{ r: 3, fill: strokeColor, strokeWidth: 0 }}
             activeDot={{ r: 5, fill: strokeColor, strokeWidth: 2, stroke: dark ? '#000' : '#fff' }}
           />
@@ -245,11 +250,12 @@ export function RegionalSizeChart({ by_country, dark }: { by_country: Record<str
             labelStyle={tt.labelStyle}
             itemStyle={tt.itemStyle}
             cursor={tt.cursor}
+            isAnimationActive={false}
             formatter={(value: number | undefined, name?: string) => [`${value ?? 0}%`, name ?? '']}
           />
           <Legend wrapperStyle={legendStyle(dark)} />
           {sizes.map((s, i) => (
-            <Bar key={s} dataKey={s} stackId="a" fill={palette[i]} radius={[0, 0, 0, 0]} name={s} />
+            <Bar key={s} dataKey={s} stackId="a" fill={palette[i]} radius={[0, 0, 0, 0]} name={s} isAnimationActive={false} />
           ))}
         </BarChart>
       </ResponsiveContainer>

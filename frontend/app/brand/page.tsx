@@ -517,6 +517,7 @@ export default function BrandDashboardPage() {
                       by_country={(regionalSize.by_country ?? {}) as Record<string, Record<string, number>>}
                       raw_counts={(regionalSize as Record<string, unknown>).raw_counts as Record<string, Record<string, number>> | undefined}
                       top_size_by_country={(regionalSize.top_size_by_country ?? {}) as Record<string, string>}
+                      by_city={(regionalSize as Record<string, unknown>).by_city as Record<string, Record<string, { sizes: Record<string, number>; raw_counts: Record<string, number>; total: number; top_size: string }>> | undefined}
                       dark={dark}
                     />
                   ) : (
@@ -573,6 +574,7 @@ export default function BrandDashboardPage() {
                               by_country={(regionalSize!.by_country ?? {}) as Record<string, Record<string, number>>}
                               raw_counts={(regionalSize as Record<string, unknown>).raw_counts as Record<string, Record<string, number>> | undefined}
                               top_size_by_country={(regionalSize!.top_size_by_country ?? {}) as Record<string, string>}
+                              by_city={(regionalSize as Record<string, unknown>).by_city as Record<string, Record<string, { sizes: Record<string, number>; raw_counts: Record<string, number>; total: number; top_size: string }>> | undefined}
                               dark={dark}
                             />
                           </div>

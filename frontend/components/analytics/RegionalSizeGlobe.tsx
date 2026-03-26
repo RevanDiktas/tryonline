@@ -6,34 +6,170 @@ import * as THREE from 'three';
 
 const GLOBE_R = 2;
 
+// ─── Country coordinates (lat, lon) — comprehensive global coverage ─────────
 const CC: Record<string, [number, number]> = {
-  'Netherlands': [52.3, 4.9], 'United States': [39.8, -98.6],
-  'United Kingdom': [54.0, -2.0], 'Germany': [51.2, 10.4],
-  'France': [46.6, 2.2], 'Spain': [40.5, -3.7],
-  'Italy': [41.9, 12.5], 'Belgium': [50.8, 4.3],
-  'Switzerland': [46.8, 8.2], 'Austria': [47.5, 14.6],
-  'Denmark': [56.3, 9.5], 'Sweden': [60.1, 18.6],
-  'Norway': [60.5, 8.5], 'Poland': [51.9, 19.1],
-  'Portugal': [39.4, -8.2], 'Ireland': [53.1, -8.2],
-  'Finland': [61.9, 25.7], 'Greece': [39.1, 21.8],
-  'Canada': [56.1, -106.3], 'Australia': [-25.3, 133.8],
+  // Europe
+  'Netherlands': [52.3, 4.9], 'United Kingdom': [54.0, -2.0],
+  'Germany': [51.2, 10.4], 'France': [46.6, 2.2],
+  'Spain': [40.5, -3.7], 'Italy': [41.9, 12.5],
+  'Belgium': [50.8, 4.3], 'Switzerland': [46.8, 8.2],
+  'Austria': [47.5, 14.6], 'Denmark': [56.3, 9.5],
+  'Sweden': [60.1, 18.6], 'Norway': [60.5, 8.5],
+  'Poland': [51.9, 19.1], 'Portugal': [39.4, -8.2],
+  'Ireland': [53.1, -8.2], 'Finland': [61.9, 25.7],
+  'Greece': [39.1, 21.8], 'Czech Republic': [49.8, 15.5],
+  'Hungary': [47.2, 19.5], 'Romania': [45.9, 24.9],
+  'Bulgaria': [42.7, 25.5], 'Croatia': [45.1, 15.2],
+  'Slovakia': [48.7, 19.7], 'Slovenia': [46.2, 14.8],
+  'Serbia': [44.0, 21.0], 'Lithuania': [55.2, 23.9],
+  'Latvia': [56.9, 24.1], 'Estonia': [58.6, 25.0],
+  'Luxembourg': [49.8, 6.1], 'Iceland': [65.0, -18.0],
+  'Malta': [35.9, 14.4], 'Cyprus': [35.1, 33.4],
+  'Albania': [41.2, 20.2], 'North Macedonia': [41.5, 21.7],
+  'Bosnia and Herzegovina': [43.9, 17.7], 'Montenegro': [42.7, 19.4],
+  'Moldova': [47.4, 28.4], 'Belarus': [53.7, 27.9],
+  'Ukraine': [48.4, 31.2], 'Kosovo': [42.6, 20.9],
+  // North America
+  'United States': [39.8, -98.6], 'Canada': [56.1, -106.3],
+  'Mexico': [23.6, -102.6],
+  // Central America & Caribbean
+  'Guatemala': [15.8, -90.2], 'Honduras': [15.2, -86.2],
+  'El Salvador': [13.8, -88.9], 'Nicaragua': [12.9, -85.2],
+  'Costa Rica': [10.0, -84.0], 'Panama': [8.5, -80.8],
+  'Cuba': [21.5, -79.9], 'Jamaica': [18.1, -77.3],
+  'Dominican Republic': [18.7, -70.2], 'Haiti': [19.1, -72.3],
+  'Trinidad and Tobago': [10.4, -61.2], 'Puerto Rico': [18.2, -66.6],
+  // South America
+  'Brazil': [-14.2, -51.9], 'Argentina': [-38.4, -63.6],
+  'Colombia': [4.6, -74.3], 'Chile': [-35.7, -71.5],
+  'Peru': [-9.2, -75.0], 'Venezuela': [6.4, -66.6],
+  'Ecuador': [-1.8, -78.2], 'Bolivia': [-16.3, -63.6],
+  'Paraguay': [-23.4, -58.4], 'Uruguay': [-32.5, -55.8],
+  // Middle East
+  'Turkey': [39.0, 35.2], 'UAE': [23.4, 53.8],
+  'Saudi Arabia': [23.9, 45.1], 'Israel': [31.0, 34.9],
+  'Jordan': [30.6, 36.2], 'Lebanon': [33.9, 35.9],
+  'Iraq': [33.2, 43.7], 'Iran': [32.4, 53.7],
+  'Kuwait': [29.3, 47.5], 'Qatar': [25.4, 51.2],
+  'Bahrain': [26.0, 50.6], 'Oman': [21.5, 55.9],
+  'Yemen': [15.6, 48.5],
+  // Central Asia
+  'Kazakhstan': [48.0, 68.0], 'Uzbekistan': [41.4, 64.6],
+  'Turkmenistan': [39.0, 59.6], 'Kyrgyzstan': [41.2, 74.8],
+  'Tajikistan': [38.9, 71.3], 'Afghanistan': [33.9, 67.7],
+  'Pakistan': [30.4, 69.3],
+  // South Asia
+  'India': [20.6, 79.0], 'Bangladesh': [23.7, 90.4],
+  'Sri Lanka': [7.9, 80.8], 'Nepal': [28.4, 84.1],
+  // East Asia
   'Japan': [36.2, 138.3], 'South Korea': [35.9, 128.0],
-  'China': [35.9, 104.2], 'India': [20.6, 79.0],
-  'Brazil': [-14.2, -51.9], 'Mexico': [23.6, -102.6],
-  'Russia': [61.5, 105.3], 'Turkey': [39.0, 35.2],
-  'South Africa': [-30.6, 22.9], 'UAE': [23.4, 53.8],
-  'Singapore': [1.4, 103.8], 'New Zealand': [-40.9, 174.9],
-  'Argentina': [-38.4, -63.6], 'Indonesia': [-0.8, 113.9],
+  'China': [35.9, 104.2], 'Taiwan': [23.7, 121.0],
+  'Mongolia': [46.9, 103.8], 'Hong Kong': [22.3, 114.2],
+  // Southeast Asia
+  'Singapore': [1.4, 103.8], 'Indonesia': [-0.8, 113.9],
   'Thailand': [15.9, 100.9], 'Malaysia': [4.2, 101.9],
-  'Czech Republic': [49.8, 15.5], 'Hungary': [47.2, 19.5],
-  'Saudi Arabia': [23.9, 45.1], 'Colombia': [4.6, -74.3],
-  'Romania': [45.9, 24.9], 'Vietnam': [14.1, 108.3],
-  'Philippines': [12.9, 121.8],
+  'Vietnam': [14.1, 108.3], 'Philippines': [12.9, 121.8],
+  'Myanmar': [19.8, 96.0], 'Cambodia': [12.6, 104.9],
+  'Laos': [19.9, 102.5],
+  // Oceania
+  'Australia': [-25.3, 133.8], 'New Zealand': [-40.9, 174.9],
+  'Papua New Guinea': [-6.3, 143.9], 'Fiji': [-17.7, 178.0],
+  // Russia / Eurasia
+  'Russia': [61.5, 105.3], 'Georgia': [42.3, 43.4],
+  'Armenia': [40.1, 45.0], 'Azerbaijan': [40.1, 47.6],
+  // Africa — North
+  'Morocco': [31.8, -7.1], 'Algeria': [28.0, 1.7],
+  'Tunisia': [34.0, 9.5], 'Libya': [26.3, 17.2],
+  'Egypt': [26.8, 30.8], 'Sudan': [12.9, 30.2],
+  // Africa — West
+  'Nigeria': [9.1, 8.7], 'Ghana': [7.9, -1.0],
+  'Senegal': [14.5, -14.5], 'Ivory Coast': [7.5, -5.5],
+  'Mali': [17.6, -4.0], 'Burkina Faso': [12.4, -1.6],
+  'Guinea': [9.9, -11.6], 'Niger': [17.6, 8.1],
+  'Sierra Leone': [8.5, -11.8], 'Togo': [8.6, 1.2],
+  'Benin': [9.3, 2.3], 'Liberia': [6.4, -9.4],
+  'Mauritania': [21.0, -10.9], 'Gambia': [13.4, -16.6],
+  'Cape Verde': [16.0, -24.0], 'Guinea-Bissau': [12.0, -15.2],
+  // Africa — East
+  'Kenya': [-0.02, 37.9], 'Ethiopia': [9.1, 40.5],
+  'Tanzania': [-6.4, 34.9], 'Uganda': [1.4, 32.3],
+  'Rwanda': [-1.9, 29.9], 'Somalia': [5.2, 46.2],
+  'Eritrea': [15.2, 39.8], 'Djibouti': [11.6, 43.2],
+  'Madagascar': [-18.8, 46.9], 'Mauritius': [-20.3, 57.6],
+  // Africa — Central
+  'Democratic Republic of the Congo': [-4.0, 21.8],
+  'Republic of the Congo': [-0.2, 15.8],
+  'Cameroon': [7.4, 12.4], 'Gabon': [-0.8, 11.6],
+  'Central African Republic': [6.6, 20.9], 'Chad': [15.5, 18.7],
+  'Equatorial Guinea': [1.7, 10.3],
+  // Africa — Southern
+  'South Africa': [-30.6, 22.9], 'Namibia': [-22.6, 17.1],
+  'Botswana': [-22.3, 24.7], 'Zimbabwe': [-19.0, 29.2],
+  'Mozambique': [-18.7, 35.5], 'Zambia': [-13.1, 27.8],
+  'Malawi': [-13.3, 34.3], 'Angola': [-11.2, 17.9],
+  'Lesotho': [-29.6, 28.2], 'Eswatini': [-26.5, 31.5],
 };
 
-const SIZE_COLORS: Record<string, string> = {
-  'XS': '#cbd5e1', 'S': '#94a3b8', 'M': '#64748b',
-  'L': '#475569', 'XL': '#334155', 'XXL': '#1e293b',
+// ─── Major city coordinates for zoom detail ────────────────────────────────
+const CITY_COORDS: Record<string, [number, number]> = {
+  'Amsterdam': [52.37, 4.90], 'Rotterdam': [51.92, 4.48], 'The Hague': [52.08, 4.30],
+  'Utrecht': [52.09, 5.11], 'Eindhoven': [51.44, 5.47],
+  'London': [51.51, -0.13], 'Manchester': [53.48, -2.24], 'Birmingham': [52.49, -1.89],
+  'Edinburgh': [55.95, -3.19], 'Leeds': [53.80, -1.55], 'Glasgow': [55.86, -4.25],
+  'Paris': [48.86, 2.35], 'Lyon': [45.76, 4.84], 'Marseille': [43.30, 5.37],
+  'Toulouse': [43.60, 1.44], 'Nice': [43.71, 7.26], 'Bordeaux': [44.84, -0.58],
+  'Berlin': [52.52, 13.41], 'Munich': [48.14, 11.58], 'Hamburg': [53.55, 9.99],
+  'Frankfurt': [50.11, 8.68], 'Cologne': [50.94, 6.96], 'Stuttgart': [48.78, 9.18],
+  'Düsseldorf': [51.23, 6.78],
+  'Madrid': [40.42, -3.70], 'Barcelona': [41.39, 2.17], 'Valencia': [39.47, -0.38],
+  'Seville': [37.39, -5.98], 'Bilbao': [43.26, -2.93],
+  'Milan': [45.46, 9.19], 'Rome': [41.90, 12.50], 'Florence': [43.77, 11.25],
+  'Naples': [40.85, 14.27], 'Turin': [45.07, 7.69], 'Venice': [45.44, 12.32],
+  'Brussels': [50.85, 4.35], 'Antwerp': [51.22, 4.40],
+  'Zurich': [47.38, 8.54], 'Geneva': [46.20, 6.14], 'Basel': [47.56, 7.59],
+  'Vienna': [48.21, 16.37], 'Salzburg': [47.80, 13.04],
+  'Copenhagen': [55.68, 12.57], 'Stockholm': [59.33, 18.07],
+  'Oslo': [59.91, 10.75], 'Helsinki': [60.17, 24.94],
+  'Warsaw': [52.23, 21.01], 'Krakow': [50.06, 19.95],
+  'Lisbon': [38.72, -9.14], 'Porto': [41.16, -8.63],
+  'Dublin': [53.35, -6.26], 'Athens': [37.98, 23.73],
+  'Prague': [50.08, 14.44], 'Budapest': [47.50, 19.04],
+  'Bucharest': [44.43, 26.10],
+  'New York': [40.71, -74.01], 'Los Angeles': [34.05, -118.24],
+  'Chicago': [41.88, -87.63], 'Houston': [29.76, -95.37],
+  'San Francisco': [37.77, -122.42], 'Miami': [25.76, -80.19],
+  'Seattle': [47.61, -122.33], 'Boston': [42.36, -71.06],
+  'Dallas': [32.78, -96.80], 'Atlanta': [33.75, -84.39],
+  'Denver': [39.74, -104.99], 'Austin': [30.27, -97.74],
+  'Portland': [45.52, -122.68], 'Nashville': [36.16, -86.78],
+  'Toronto': [43.65, -79.38], 'Vancouver': [49.28, -123.12],
+  'Montreal': [45.50, -73.57], 'Calgary': [51.05, -114.07],
+  'Mexico City': [19.43, -99.13], 'Guadalajara': [20.67, -103.35],
+  'São Paulo': [-23.55, -46.63], 'Rio de Janeiro': [-22.91, -43.17],
+  'Buenos Aires': [-34.60, -58.38], 'Bogotá': [4.71, -74.07],
+  'Lima': [-12.05, -77.04], 'Santiago': [-33.45, -70.67],
+  'Tokyo': [35.68, 139.69], 'Osaka': [34.69, 135.50], 'Kyoto': [35.01, 135.77],
+  'Seoul': [37.57, 126.98], 'Busan': [35.18, 129.08],
+  'Beijing': [39.90, 116.41], 'Shanghai': [31.23, 121.47],
+  'Shenzhen': [22.54, 114.06], 'Guangzhou': [23.13, 113.26],
+  'Hong Kong': [22.32, 114.17],
+  'Mumbai': [19.08, 72.88], 'Delhi': [28.61, 77.23], 'Bangalore': [12.97, 77.59],
+  'Singapore': [1.35, 103.82],
+  'Bangkok': [13.76, 100.50], 'Ho Chi Minh City': [10.82, 106.63],
+  'Kuala Lumpur': [3.14, 101.69], 'Jakarta': [-6.21, 106.85],
+  'Manila': [14.60, 120.98],
+  'Sydney': [-33.87, 151.21], 'Melbourne': [-37.81, 144.96],
+  'Auckland': [-36.85, 174.76], 'Wellington': [-41.29, 174.78],
+  'Dubai': [25.20, 55.27], 'Abu Dhabi': [24.45, 54.65],
+  'Istanbul': [41.01, 28.98], 'Ankara': [39.93, 32.85],
+  'Tel Aviv': [32.09, 34.78], 'Riyadh': [24.71, 46.67],
+  'Doha': [25.29, 51.53], 'Muscat': [23.59, 58.54],
+  'Moscow': [55.76, 37.62], 'Saint Petersburg': [59.93, 30.32],
+  'Nairobi': [-1.29, 36.82], 'Lagos': [6.52, 3.38],
+  'Cairo': [30.04, 31.24], 'Casablanca': [33.57, -7.59],
+  'Cape Town': [-33.93, 18.42], 'Johannesburg': [-26.20, 28.05],
+  'Accra': [5.56, -0.19], 'Addis Ababa': [9.02, 38.75],
+  'Dar es Salaam': [-6.79, 39.28], 'Kampala': [0.35, 32.58],
 };
 
 function latLonToVec3(lat: number, lon: number, r: number): [number, number, number] {
@@ -46,9 +182,7 @@ function latLonToVec3(lat: number, lon: number, r: number): [number, number, num
   ];
 }
 
-// ─── Blue marble → land grid (channel-based detection) ─────────────────────
-// Ocean is blue-dominant, land is green/red-dominant. This is far more
-// reliable than brightness thresholding on a topology heightmap.
+// ─── Earth grid from blue marble image ─────────────────────────────────────
 type EarthGrid = { land: boolean[][]; coast: boolean[][]; w: number; h: number };
 
 function useEarthGrid(): EarthGrid | null {
@@ -65,8 +199,6 @@ function useEarthGrid(): EarthGrid | null {
       ctx.drawImage(img, 0, 0, W, H);
       const px = ctx.getImageData(0, 0, W, H).data;
 
-      // Detect ocean first (blue-dominant) — everything else is land.
-      // Much more reliable than trying to detect land colors directly.
       const land: boolean[][] = [];
       for (let y = 0; y < H; y++) {
         land[y] = [];
@@ -78,7 +210,6 @@ function useEarthGrid(): EarthGrid | null {
         }
       }
 
-      // Erode noise: two passes, require 3+ of 8 neighbors to survive
       for (let pass = 0; pass < 2; pass++) {
         for (let y = 1; y < H - 1; y++) {
           for (let x = 0; x < W; x++) {
@@ -93,7 +224,6 @@ function useEarthGrid(): EarthGrid | null {
         }
       }
 
-      // Pre-compute coastlines
       const coast: boolean[][] = [];
       for (let y = 0; y < H; y++) {
         coast[y] = [];
@@ -143,7 +273,7 @@ function createDotSprite(size = 64): THREE.Texture {
   return tex;
 }
 
-// ─── Earth dots — 55k Fibonacci points ─────────────────────────────────────
+// ─── Earth dots ────────────────────────────────────────────────────────────
 function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
   const dotTex = useMemo(() => createDotSprite(), []);
 
@@ -152,11 +282,11 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
     const col: number[] = [];
     const { land, coast, w: W, h: H } = earth;
 
-    const landBase = dark ? new THREE.Color('#4fd1c5') : new THREE.Color('#7dd3fc');
-    const landBright = dark ? new THREE.Color('#81e6d9') : new THREE.Color('#a5f3fc');
-    const coastCol = dark ? new THREE.Color('#b2f5ea') : new THREE.Color('#e0f2fe');
+    const landBase  = dark ? new THREE.Color('#22d3ee') : new THREE.Color('#7dd3fc');
+    const landBright = dark ? new THREE.Color('#67e8f9') : new THREE.Color('#a5f3fc');
+    const coastCol  = dark ? new THREE.Color('#a5f3fc') : new THREE.Color('#e0f2fe');
 
-    const N = 55000;
+    const N = 80000;
     const golden = Math.PI * (3 - Math.sqrt(5));
 
     for (let i = 0; i < N; i++) {
@@ -178,7 +308,7 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
         col.push(coastCol.r, coastCol.g, coastCol.b);
       } else {
         const c = Math.random() > 0.5 ? landBright : landBase;
-        const b = 0.65 + Math.random() * 0.35;
+        const b = 0.7 + Math.random() * 0.3;
         col.push(c.r * b, c.g * b, c.b * b);
       }
     }
@@ -192,11 +322,11 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
   return (
     <points geometry={geom}>
       <pointsMaterial
-        size={0.026}
+        size={0.028}
         map={dotTex}
         vertexColors
         transparent
-        opacity={0.9}
+        opacity={dark ? 1.0 : 0.9}
         depthWrite={false}
         sizeAttenuation
         blending={THREE.AdditiveBlending}
@@ -205,7 +335,126 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
   );
 }
 
-// ─── Atmosphere (GlowMesh from three-globe) ────────────────────────────────
+// ─── Country border lines from TopoJSON ────────────────────────────────────
+interface ArcGeometry { type: string; coordinates: number[][][] | number[][][][] }
+
+function useBorderGeometry(): THREE.BufferGeometry | null {
+  const [geom, setGeom] = useState<THREE.BufferGeometry | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+        const topo = await res.json();
+        if (cancelled) return;
+
+        const arcs: number[][][] = topo.arcs;
+        const transform = topo.transform;
+        const { scale, translate } = transform;
+
+        const decodeArc = (arcIdx: number): [number, number][] => {
+          const isNeg = arcIdx < 0;
+          const idx = isNeg ? ~arcIdx : arcIdx;
+          const arc = arcs[idx];
+          const coords: [number, number][] = [];
+          let x = 0, y = 0;
+          for (const pt of arc) {
+            x += pt[0]; y += pt[1];
+            coords.push([
+              x * scale[0] + translate[0],
+              y * scale[1] + translate[1],
+            ]);
+          }
+          if (isNeg) coords.reverse();
+          return coords;
+        };
+
+        const positions: number[] = [];
+
+        const processGeometry = (geom: ArcGeometry) => {
+          if (geom.type === 'Polygon') {
+            for (const ring of geom.coordinates as number[][][]) {
+              const coords: [number, number][] = [];
+              for (const arcIdx of ring) {
+                coords.push(...decodeArc(arcIdx as unknown as number));
+              }
+              for (let i = 0; i < coords.length - 1; i++) {
+                const [lon1, lat1] = coords[i];
+                const [lon2, lat2] = coords[i + 1];
+                const p1 = latLonToVec3(lat1, lon1, GLOBE_R + 0.003);
+                const p2 = latLonToVec3(lat2, lon2, GLOBE_R + 0.003);
+                positions.push(...p1, ...p2);
+              }
+            }
+          } else if (geom.type === 'MultiPolygon') {
+            for (const polygon of geom.coordinates as number[][][][]) {
+              for (const ring of polygon) {
+                const coords: [number, number][] = [];
+                for (const arcIdx of ring) {
+                  coords.push(...decodeArc(arcIdx as unknown as number));
+                }
+                for (let i = 0; i < coords.length - 1; i++) {
+                  const [lon1, lat1] = coords[i];
+                  const [lon2, lat2] = coords[i + 1];
+                  const p1 = latLonToVec3(lat1, lon1, GLOBE_R + 0.003);
+                  const p2 = latLonToVec3(lat2, lon2, GLOBE_R + 0.003);
+                  positions.push(...p1, ...p2);
+                }
+              }
+            }
+          }
+        };
+
+        const countries = topo.objects?.countries;
+        if (countries?.geometries) {
+          for (const g of countries.geometries) {
+            processGeometry(g as ArcGeometry);
+          }
+        }
+
+        const bg = new THREE.BufferGeometry();
+        bg.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        if (!cancelled) setGeom(bg);
+      } catch {
+        // silently fail — borders are an enhancement, not critical
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return geom;
+}
+
+function CountryBorders({ dark, zoomLevel }: { dark: boolean; zoomLevel: number }) {
+  const geom = useBorderGeometry();
+  const matRef = useRef<THREE.LineBasicMaterial>(null);
+
+  const opacity = Math.min(1, Math.max(0, (zoomLevel - 0.2) * 1.5));
+
+  useFrame(() => {
+    if (matRef.current) {
+      matRef.current.opacity += (opacity - matRef.current.opacity) * 0.1;
+    }
+  });
+
+  if (!geom) return null;
+
+  return (
+    <lineSegments geometry={geom}>
+      <lineBasicMaterial
+        ref={matRef}
+        color={dark ? '#67e8f9' : '#94a3b8'}
+        transparent
+        opacity={0}
+        depthWrite={false}
+        linewidth={1}
+      />
+    </lineSegments>
+  );
+}
+
+// ─── Atmosphere ────────────────────────────────────────────────────────────
 const GLOW_VERT = `
   uniform float hollowRadius;
   varying vec3 vVertexWorldPosition;
@@ -248,7 +497,7 @@ const GLOW_FRAG = `
 function GlobeAtmosphere({ dark }: { dark: boolean }) {
   const mat = useMemo(() => new THREE.ShaderMaterial({
     uniforms: {
-      glowColor: { value: dark ? new THREE.Color('#14b8a6') : new THREE.Color('#38bdf8') },
+      glowColor: { value: dark ? new THREE.Color('#06b6d4') : new THREE.Color('#38bdf8') },
       coefficient: { value: 0.08 },
       power: { value: 4.0 },
       hollowRadius: { value: GLOBE_R },
@@ -266,7 +515,7 @@ function GlobeAtmosphere({ dark }: { dark: boolean }) {
 function InnerGlow({ dark }: { dark: boolean }) {
   const mat = useMemo(() => new THREE.ShaderMaterial({
     uniforms: {
-      glowColor: { value: dark ? new THREE.Color('#0d9488') : new THREE.Color('#7dd3fc') },
+      glowColor: { value: dark ? new THREE.Color('#0891b2') : new THREE.Color('#7dd3fc') },
     },
     vertexShader: `
       varying vec3 vN; varying vec3 vP;
@@ -292,7 +541,7 @@ function InnerGlow({ dark }: { dark: boolean }) {
   return <mesh material={mat}><sphereGeometry args={[GLOBE_R + 0.005, 64, 64]} /></mesh>;
 }
 
-// ─── Data Point — small clean dot + pulsing ring ───────────────────────────
+// ─── Data types ────────────────────────────────────────────────────────────
 interface CountryData {
   country: string;
   lat: number;
@@ -302,6 +551,17 @@ interface CountryData {
   sizes: Record<string, number>;
 }
 
+interface CityData {
+  city: string;
+  country: string;
+  lat: number;
+  lon: number;
+  total: number;
+  topSize: string;
+  sizes: Record<string, number>;
+}
+
+// ─── Data point dots ───────────────────────────────────────────────────────
 function DataDot({ data, dark, onHover, hovered }: {
   data: CountryData; dark: boolean;
   onHover: (d: CountryData | null) => void; hovered: boolean;
@@ -312,53 +572,86 @@ function DataDot({ data, dark, onHover, hovered }: {
 
   useFrame((state) => {
     if (dotRef.current) {
-      const target = hovered ? 0.035 : 0.018;
+      const target = hovered ? 0.04 : 0.022;
       const s = dotRef.current.scale.x;
-      const ns = s + (target - s) * 0.15;
-      dotRef.current.scale.setScalar(ns);
+      dotRef.current.scale.setScalar(s + (target - s) * 0.15);
     }
     if (ringRef.current) {
       const pulse = 1 + Math.sin(state.clock.elapsedTime * 3 + data.lat) * 0.3;
-      const rs = hovered ? 0.06 * pulse : 0.035 * pulse;
-      ringRef.current.scale.setScalar(rs);
+      ringRef.current.scale.setScalar((hovered ? 0.065 : 0.04) * pulse);
       const m = ringRef.current.material as THREE.MeshBasicMaterial;
-      m.opacity = hovered ? 0.5 : 0.15;
+      m.opacity = hovered ? 0.6 : 0.2;
     }
   });
 
-  const dotColor = dark ? '#ffffff' : '#0f766e';
-  const ringColor = dark ? '#5eead4' : '#14b8a6';
+  const dotColor = dark ? '#f0fdfa' : '#0f766e';
+  const ringColor = dark ? '#22d3ee' : '#14b8a6';
 
   return (
     <group position={pos}>
-      {/* Core dot */}
       <mesh
         ref={dotRef}
-        scale={0.018}
+        scale={0.022}
         onPointerEnter={(e) => { e.stopPropagation(); onHover(data); }}
         onPointerLeave={() => onHover(null)}
       >
         <sphereGeometry args={[1, 12, 12]} />
         <meshBasicMaterial color={dotColor} />
       </mesh>
-      {/* Pulse ring */}
-      <mesh ref={ringRef} scale={0.035}>
+      <mesh ref={ringRef} scale={0.04}>
         <ringGeometry args={[0.6, 1, 32]} />
-        <meshBasicMaterial color={ringColor} transparent opacity={0.15} side={THREE.DoubleSide} />
+        <meshBasicMaterial color={ringColor} transparent opacity={0.2} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  );
+}
+
+function CityDot({ data, dark, onHover, hovered }: {
+  data: CityData; dark: boolean;
+  onHover: (d: CityData | null) => void; hovered: boolean;
+}) {
+  const dotRef = useRef<THREE.Mesh>(null);
+  const pos = useMemo(() => latLonToVec3(data.lat, data.lon, GLOBE_R + 0.015), [data.lat, data.lon]);
+
+  useFrame(() => {
+    if (dotRef.current) {
+      const target = hovered ? 0.025 : 0.012;
+      const s = dotRef.current.scale.x;
+      dotRef.current.scale.setScalar(s + (target - s) * 0.15);
+    }
+  });
+
+  return (
+    <group position={pos}>
+      <mesh
+        ref={dotRef}
+        scale={0.012}
+        onPointerEnter={(e) => { e.stopPropagation(); onHover(data); }}
+        onPointerLeave={() => onHover(null)}
+      >
+        <sphereGeometry args={[1, 10, 10]} />
+        <meshBasicMaterial color={dark ? '#fde68a' : '#d97706'} />
       </mesh>
     </group>
   );
 }
 
 // ─── Globe Scene ───────────────────────────────────────────────────────────
-function GlobeScene({ earth, dataPoints, dark, onHover, hoveredCountry }: {
-  earth: EarthGrid; dataPoints: CountryData[]; dark: boolean;
-  onHover: (d: CountryData | null) => void; hoveredCountry: string | null;
+function GlobeScene({ earth, dataPoints, cityPoints, dark, onHoverCountry, onHoverCity, hoveredCountry, hoveredCity, zoomLevel, onZoomChange }: {
+  earth: EarthGrid; dataPoints: CountryData[]; cityPoints: CityData[];
+  dark: boolean;
+  onHoverCountry: (d: CountryData | null) => void;
+  onHoverCity: (d: CityData | null) => void;
+  hoveredCountry: string | null;
+  hoveredCity: string | null;
+  zoomLevel: number;
+  onZoomChange: (z: number) => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
-  const { gl } = useThree();
+  const { gl, camera } = useThree();
   const dragging = useRef(false);
   const dragTimer = useRef<ReturnType<typeof setTimeout>>();
+  const ctrlRef = useRef<{ enableZoom: boolean; enablePan: boolean; rotateSpeed: number; enableDamping: boolean; dampingFactor: number; minDistance: number; maxDistance: number; update: () => void; dispose: () => void } | null>(null);
 
   useEffect(() => {
     const down = () => {
@@ -377,19 +670,45 @@ function GlobeScene({ earth, dataPoints, dark, onHover, hoveredCountry }: {
     };
   }, [gl]);
 
+  useEffect(() => {
+    import('three/addons/controls/OrbitControls.js').then(({ OrbitControls }) => {
+      const c = new OrbitControls(camera, gl.domElement);
+      c.enableZoom = true;
+      c.enablePan = false;
+      c.rotateSpeed = 0.3;
+      c.enableDamping = true;
+      c.dampingFactor = 0.05;
+      c.minDistance = 3.5;
+      c.maxDistance = 12;
+      ctrlRef.current = c as typeof ctrlRef.current;
+    });
+    return () => { ctrlRef.current?.dispose(); };
+  }, [camera, gl]);
+
   useFrame((_s, delta) => {
-    if (groupRef.current && !dragging.current && !hoveredCountry) {
+    ctrlRef.current?.update();
+
+    const dist = camera.position.length();
+    const maxDist = 12;
+    const minDist = 3.5;
+    const z = 1 - (dist - minDist) / (maxDist - minDist);
+    onZoomChange(Math.max(0, Math.min(1, z)));
+
+    if (groupRef.current && !dragging.current && !hoveredCountry && !hoveredCity) {
       groupRef.current.rotation.y += delta * 0.04;
     }
   });
+
+  const showCities = zoomLevel > 0.35;
 
   return (
     <group ref={groupRef} rotation={[0.15, -0.6, 0.05]}>
       <mesh>
         <sphereGeometry args={[GLOBE_R - 0.005, 64, 64]} />
-        <meshBasicMaterial color={dark ? '#030712' : '#1e1b4b'} />
+        <meshBasicMaterial color={dark ? '#020617' : '#1e1b4b'} />
       </mesh>
       <EarthDots earth={earth} dark={dark} />
+      <CountryBorders dark={dark} zoomLevel={zoomLevel} />
       <InnerGlow dark={dark} />
       <GlobeAtmosphere dark={dark} />
       {dataPoints.map((d) => (
@@ -397,50 +716,46 @@ function GlobeScene({ earth, dataPoints, dark, onHover, hoveredCountry }: {
           key={d.country}
           data={d}
           dark={dark}
-          onHover={onHover}
+          onHover={onHoverCountry}
           hovered={hoveredCountry === d.country}
+        />
+      ))}
+      {showCities && cityPoints.map((d) => (
+        <CityDot
+          key={`${d.country}-${d.city}`}
+          data={d}
+          dark={dark}
+          onHover={onHoverCity}
+          hovered={hoveredCity === `${d.country}-${d.city}`}
         />
       ))}
     </group>
   );
 }
 
-// ─── Orbit Controls ────────────────────────────────────────────────────────
-function Orbit() {
-  const { camera, gl } = useThree();
-  const ctrl = useRef<{ update: () => void; dispose: () => void } | null>(null);
-
-  useEffect(() => {
-    let c: { enableZoom: boolean; enablePan: boolean; rotateSpeed: number; enableDamping: boolean; dampingFactor: number; update: () => void; dispose: () => void };
-    import('three/addons/controls/OrbitControls.js').then(({ OrbitControls }) => {
-      c = new OrbitControls(camera, gl.domElement) as typeof c;
-      c.enableZoom = false;
-      c.enablePan = false;
-      c.rotateSpeed = 0.3;
-      c.enableDamping = true;
-      c.dampingFactor = 0.05;
-      ctrl.current = c;
-    });
-    return () => { if (ctrl.current) ctrl.current.dispose(); };
-  }, [camera, gl]);
-
-  useFrame(() => { ctrl.current?.update(); });
-  return null;
-}
+// ─── Size bar colors ───────────────────────────────────────────────────────
+const SIZE_COLORS: Record<string, string> = {
+  'XS': '#cbd5e1', 'S': '#94a3b8', 'M': '#64748b',
+  'L': '#475569', 'XL': '#334155', 'XXL': '#1e293b',
+};
 
 // ─── Main Component ────────────────────────────────────────────────────────
 export default function RegionalSizeGlobe({
   by_country,
   raw_counts,
   top_size_by_country,
+  by_city,
   dark = false,
 }: {
   by_country: Record<string, Record<string, number>>;
   raw_counts?: Record<string, Record<string, number>>;
   top_size_by_country?: Record<string, string>;
+  by_city?: Record<string, Record<string, { sizes: Record<string, number>; raw_counts: Record<string, number>; total: number; top_size: string }>>;
   dark?: boolean;
 }) {
-  const [hovered, setHovered] = useState<CountryData | null>(null);
+  const [hoveredCountry, setHoveredCountry] = useState<CountryData | null>(null);
+  const [hoveredCity, setHoveredCity] = useState<CityData | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(0);
   const earth = useEarthGrid();
 
   const dataPoints: CountryData[] = useMemo(() => {
@@ -456,15 +771,49 @@ export default function RegionalSizeGlobe({
       });
   }, [by_country, raw_counts, top_size_by_country]);
 
-  const handleHover = useCallback((d: CountryData | null) => setHovered(d), []);
+  const cityPoints: CityData[] = useMemo(() => {
+    if (!by_city) return [];
+    const pts: CityData[] = [];
+    for (const [country, cities] of Object.entries(by_city)) {
+      const countryCoord = CC[country];
+      if (!countryCoord) continue;
+      for (const [cityName, data] of Object.entries(cities)) {
+        const coord = CITY_COORDS[cityName];
+        if (!coord) {
+          // Offset from country center for unknown cities
+          const jitterLat = countryCoord[0] + (Math.random() - 0.5) * 3;
+          const jitterLon = countryCoord[1] + (Math.random() - 0.5) * 3;
+          pts.push({
+            city: cityName, country, lat: jitterLat, lon: jitterLon,
+            total: data.total, topSize: data.top_size, sizes: data.sizes,
+          });
+        } else {
+          pts.push({
+            city: cityName, country, lat: coord[0], lon: coord[1],
+            total: data.total, topSize: data.top_size, sizes: data.sizes,
+          });
+        }
+      }
+    }
+    return pts;
+  }, [by_city]);
+
+  const handleHoverCountry = useCallback((d: CountryData | null) => { setHoveredCountry(d); setHoveredCity(null); }, []);
+  const handleHoverCity = useCallback((d: CityData | null) => { setHoveredCity(d); setHoveredCountry(null); }, []);
 
   if (!earth) {
     return (
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-teal-900 border-t-teal-400' : 'border-teal-200 border-t-teal-500'}`} />
+        <div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-cyan-900 border-t-cyan-400' : 'border-teal-200 border-t-teal-500'}`} />
       </div>
     );
   }
+
+  const tooltipData = hoveredCity
+    ? { label: hoveredCity.city, sub: `${hoveredCity.country} — ${hoveredCity.total} event${hoveredCity.total !== 1 ? 's' : ''}`, sizes: hoveredCity.sizes, topSize: hoveredCity.topSize }
+    : hoveredCountry
+    ? { label: hoveredCountry.country, sub: `${hoveredCountry.totalCount} event${hoveredCountry.totalCount !== 1 ? 's' : ''}`, sizes: hoveredCountry.sizes, topSize: hoveredCountry.topSize }
+    : null;
 
   return (
     <div className="w-full h-full relative">
@@ -477,27 +826,30 @@ export default function RegionalSizeGlobe({
         <GlobeScene
           earth={earth}
           dataPoints={dataPoints}
+          cityPoints={cityPoints}
           dark={dark}
-          onHover={handleHover}
-          hoveredCountry={hovered?.country || null}
+          onHoverCountry={handleHoverCountry}
+          onHoverCity={handleHoverCity}
+          hoveredCountry={hoveredCountry?.country || null}
+          hoveredCity={hoveredCity ? `${hoveredCity.country}-${hoveredCity.city}` : null}
+          zoomLevel={zoomLevel}
+          onZoomChange={setZoomLevel}
         />
-        <Orbit />
       </Canvas>
 
-      {/* Tooltip */}
-      {hovered && (
+      {tooltipData && (
         <div
           className={`absolute top-14 right-4 rounded-xl px-4 py-3 shadow-2xl border backdrop-blur-xl text-xs z-10 ${
             dark ? 'bg-black/80 border-white/10 text-white' : 'bg-white/90 border-gray-200 text-gray-900'
           }`}
           style={{ minWidth: 170, pointerEvents: 'none' }}
         >
-          <div className="font-semibold text-sm mb-1">{hovered.country}</div>
+          <div className="font-semibold text-sm mb-0.5">{tooltipData.label}</div>
           <div className={`text-[10px] mb-2 ${dark ? 'text-white/35' : 'text-gray-400'}`}>
-            {hovered.totalCount} event{hovered.totalCount !== 1 ? 's' : ''}
+            {tooltipData.sub}
           </div>
           <div className="space-y-1.5">
-            {Object.entries(hovered.sizes)
+            {Object.entries(tooltipData.sizes)
               .sort(([, a], [, b]) => b - a)
               .map(([size, pct]) => (
                 <div key={size} className="flex items-center gap-2">
@@ -515,13 +867,19 @@ export default function RegionalSizeGlobe({
               ))}
           </div>
           <div className={`mt-2 pt-1.5 text-[10px] border-t ${dark ? 'border-white/8' : 'border-gray-100'}`}>
-            Top size: <strong>{hovered.topSize}</strong>
+            Top size: <strong>{tooltipData.topSize}</strong>
           </div>
         </div>
       )}
 
-      <div className={`absolute bottom-2 right-3 text-[9px] ${dark ? 'text-white/10' : 'text-gray-200'}`}>
-        Drag to rotate
+      {zoomLevel > 0.35 && (
+        <div className={`absolute top-3 left-3 text-[9px] px-2 py-1 rounded-md backdrop-blur-sm ${dark ? 'bg-black/40 text-cyan-300/60' : 'bg-white/60 text-teal-600/60'}`}>
+          City view
+        </div>
+      )}
+
+      <div className={`absolute bottom-2 right-3 text-[9px] ${dark ? 'text-white/15' : 'text-gray-300'}`}>
+        Scroll to zoom  ·  Drag to rotate
       </div>
     </div>
   );

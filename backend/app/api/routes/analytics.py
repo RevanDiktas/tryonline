@@ -574,10 +574,18 @@ class RegionalSizePoint(BaseModel):
     pct: float
 
 
+class CitySizeData(BaseModel):
+    sizes: dict[str, float] = {}
+    raw_counts: dict[str, int] = {}
+    total: int = 0
+    top_size: str = ""
+
+
 class RegionalSizeResponse(BaseModel):
     by_country: dict[str, dict[str, float]]  # country -> { size -> pct }
     raw_counts: dict[str, dict[str, int]]  # country -> { size -> count }
-    top_size_by_country: dict[str, str] = {}  # country -> most common size (for "typical size per region")
+    top_size_by_country: dict[str, str] = {}
+    by_city: dict[str, dict[str, CitySizeData]] = {}  # country -> { city -> CitySizeData }
 
 
 @router.get("/velocity", response_model=VelocityResponse)
@@ -928,7 +936,7 @@ async def get_regional_size_distribution(
 
     q = (
         supabase_service.client.table("analytics_events")
-        .select("event_type,event_data,country")
+        .select("event_type,event_data,country,city")
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
@@ -939,10 +947,13 @@ async def get_regional_size_distribution(
     r = q.execute()
     events = r.data or []
 
-    # country -> size -> count (from size_recommended, size_selected, purchase)
     country_size: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # country -> city -> size -> count
+    city_size: dict[str, dict[str, dict[str, int]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+
     for e in events:
         country = (e.get("country") or "Unknown").strip() or "Unknown"
+        city = (e.get("city") or "").strip() or ""
         ed = e.get("event_data") or {}
         etype = e.get("event_type")
 
@@ -952,6 +963,8 @@ async def get_regional_size_distribution(
             if sz:
                 size_key = sz.upper() if len(sz) <= 3 else sz
                 country_size[country][size_key] += 1
+                if city:
+                    city_size[country][city][size_key] += 1
         elif etype == "purchase":
             for it in (ed.get("items") or []):
                 raw_sz = it.get("size")
@@ -959,6 +972,8 @@ async def get_regional_size_distribution(
                 if sz:
                     size_key = sz.upper() if len(sz) <= 3 else sz
                     country_size[country][size_key] += 1
+                    if city:
+                        city_size[country][city][size_key] += 1
 
     by_country: dict[str, dict[str, float]] = {}
     raw_counts: dict[str, dict[str, int]] = {}
@@ -971,10 +986,27 @@ async def get_regional_size_distribution(
             for sz, cnt in size_counts.items()
         }
         if size_counts:
-            top_size = max(size_counts.items(), key=lambda x: x[1])
-            top_size_by_country[country] = top_size[0]
+            top = max(size_counts.items(), key=lambda x: x[1])
+            top_size_by_country[country] = top[0]
 
-    return RegionalSizeResponse(by_country=by_country, raw_counts=raw_counts, top_size_by_country=top_size_by_country)
+    by_city: dict[str, dict[str, CitySizeData]] = {}
+    for country, cities in city_size.items():
+        by_city[country] = {}
+        for city_name, sc in cities.items():
+            total = sum(sc.values())
+            by_city[country][city_name] = CitySizeData(
+                sizes={sz: round(cnt / total, 4) if total else 0.0 for sz, cnt in sc.items()},
+                raw_counts=dict(sc),
+                total=total,
+                top_size=max(sc.items(), key=lambda x: x[1])[0] if sc else "",
+            )
+
+    return RegionalSizeResponse(
+        by_country=by_country,
+        raw_counts=raw_counts,
+        top_size_by_country=top_size_by_country,
+        by_city=by_city,
+    )
 
 
 def _normalize_size(s: str | None) -> str:
