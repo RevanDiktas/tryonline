@@ -258,17 +258,18 @@ function gridLookup(grid: boolean[][], W: number, H: number, lat: number, lon: n
   return grid[y][x];
 }
 
-// ─── Dot sprite ────────────────────────────────────────────────────────────
-function createDotSprite(size = 64): THREE.Texture {
+// ─── Dot sprite (smooth gaussian-like falloff) ─────────────────────────────
+function createDotSprite(size = 128): THREE.Texture {
   const c = document.createElement('canvas');
   c.width = size; c.height = size;
   const ctx = c.getContext('2d')!;
   const h = size / 2;
   const g = ctx.createRadialGradient(h, h, 0, h, h, h);
   g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.3, 'rgba(255,255,255,0.9)');
-  g.addColorStop(0.55, 'rgba(255,255,255,0.35)');
-  g.addColorStop(0.8, 'rgba(255,255,255,0.05)');
+  g.addColorStop(0.15, 'rgba(255,255,255,0.85)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.5)');
+  g.addColorStop(0.55, 'rgba(255,255,255,0.2)');
+  g.addColorStop(0.75, 'rgba(255,255,255,0.05)');
   g.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
@@ -326,7 +327,7 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
   return (
     <points geometry={geom}>
       <pointsMaterial
-        size={0.02}
+        size={0.024}
         map={dotTex}
         vertexColors
         transparent
@@ -340,7 +341,7 @@ function EarthDots({ earth, dark }: { earth: EarthGrid; dark: boolean }) {
 }
 
 // ─── Country border lines from TopoJSON ────────────────────────────────────
-interface ArcGeometry { type: string; coordinates: number[][][] | number[][][][] }
+interface TopoGeom { type: string; arcs: number[][] | number[][][] }
 
 function useBorderGeometry(): THREE.BufferGeometry | null {
   const [geom, setGeom] = useState<THREE.BufferGeometry | null>(null);
@@ -353,14 +354,14 @@ function useBorderGeometry(): THREE.BufferGeometry | null {
         const topo = await res.json();
         if (cancelled) return;
 
-        const arcs: number[][][] = topo.arcs;
-        const transform = topo.transform;
-        const { scale, translate } = transform;
+        const topoArcs: number[][][] = topo.arcs;
+        const { scale, translate } = topo.transform;
 
         const decodeArc = (arcIdx: number): [number, number][] => {
           const isNeg = arcIdx < 0;
           const idx = isNeg ? ~arcIdx : arcIdx;
-          const arc = arcs[idx];
+          const arc = topoArcs[idx];
+          if (!arc) return [];
           const coords: [number, number][] = [];
           let x = 0, y = 0;
           for (const pt of arc) {
@@ -376,35 +377,30 @@ function useBorderGeometry(): THREE.BufferGeometry | null {
 
         const positions: number[] = [];
 
-        const processGeometry = (geom: ArcGeometry) => {
-          if (geom.type === 'Polygon') {
-            for (const ring of geom.coordinates as number[][][]) {
-              const coords: [number, number][] = [];
-              for (const arcIdx of ring) {
-                coords.push(...decodeArc(arcIdx as unknown as number));
-              }
-              for (let i = 0; i < coords.length - 1; i++) {
-                const [lon1, lat1] = coords[i];
-                const [lon2, lat2] = coords[i + 1];
-                const p1 = latLonToVec3(lat1, lon1, GLOBE_R + 0.003);
-                const p2 = latLonToVec3(lat2, lon2, GLOBE_R + 0.003);
-                positions.push(...p1, ...p2);
-              }
+        const addRing = (ring: number[]) => {
+          const coords: [number, number][] = [];
+          for (const arcIdx of ring) {
+            coords.push(...decodeArc(arcIdx));
+          }
+          for (let i = 0; i < coords.length - 1; i++) {
+            const [lon1, lat1] = coords[i];
+            const [lon2, lat2] = coords[i + 1];
+            positions.push(...latLonToVec3(lat1, lon1, GLOBE_R + 0.004));
+            positions.push(...latLonToVec3(lat2, lon2, GLOBE_R + 0.004));
+          }
+        };
+
+        const processGeometry = (g: TopoGeom) => {
+          if (g.type === 'Polygon') {
+            // arcs: [[arcIdx, arcIdx, ...], ...rings]
+            for (const ring of g.arcs as number[][]) {
+              addRing(ring);
             }
-          } else if (geom.type === 'MultiPolygon') {
-            for (const polygon of geom.coordinates as number[][][][]) {
+          } else if (g.type === 'MultiPolygon') {
+            // arcs: [[[arcIdx, ...], ...rings], ...polygons]
+            for (const polygon of g.arcs as number[][][]) {
               for (const ring of polygon) {
-                const coords: [number, number][] = [];
-                for (const arcIdx of ring) {
-                  coords.push(...decodeArc(arcIdx as unknown as number));
-                }
-                for (let i = 0; i < coords.length - 1; i++) {
-                  const [lon1, lat1] = coords[i];
-                  const [lon2, lat2] = coords[i + 1];
-                  const p1 = latLonToVec3(lat1, lon1, GLOBE_R + 0.003);
-                  const p2 = latLonToVec3(lat2, lon2, GLOBE_R + 0.003);
-                  positions.push(...p1, ...p2);
-                }
+                addRing(ring);
               }
             }
           }
@@ -413,15 +409,15 @@ function useBorderGeometry(): THREE.BufferGeometry | null {
         const countries = topo.objects?.countries;
         if (countries?.geometries) {
           for (const g of countries.geometries) {
-            processGeometry(g as ArcGeometry);
+            processGeometry(g as TopoGeom);
           }
         }
 
         const bg = new THREE.BufferGeometry();
         bg.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         if (!cancelled) setGeom(bg);
-      } catch {
-        // silently fail — borders are an enhancement, not critical
+      } catch (e) {
+        console.warn('Failed to load country borders:', e);
       }
     })();
     return () => { cancelled = true; };
@@ -619,26 +615,40 @@ function CityDot({ data, dark, onHover, hovered }: {
   onHover: (d: CityData | null) => void; hovered: boolean;
 }) {
   const dotRef = useRef<THREE.Mesh>(null);
+  const ringRef = useRef<THREE.Mesh>(null);
   const pos = useMemo(() => latLonToVec3(data.lat, data.lon, GLOBE_R + 0.015), [data.lat, data.lon]);
 
-  useFrame(() => {
+  useFrame((state) => {
     if (dotRef.current) {
-      const target = hovered ? 0.025 : 0.014;
+      const target = hovered ? 0.03 : 0.018;
       const s = dotRef.current.scale.x;
       dotRef.current.scale.setScalar(s + (target - s) * 0.15);
     }
+    if (ringRef.current) {
+      const pulse = 1 + Math.sin(state.clock.elapsedTime * 4 + data.lat * 10) * 0.25;
+      ringRef.current.scale.setScalar((hovered ? 0.05 : 0.03) * pulse);
+      const m = ringRef.current.material as THREE.MeshBasicMaterial;
+      m.opacity = hovered ? 0.5 : 0.2;
+    }
   });
+
+  const dotColor = dark ? '#fbbf24' : '#d97706';
+  const ringColor = dark ? '#fde68a' : '#f59e0b';
 
   return (
     <group position={pos}>
       <mesh
         ref={dotRef}
-        scale={0.014}
+        scale={0.018}
         onPointerEnter={(e) => { e.stopPropagation(); onHover(data); }}
         onPointerLeave={() => onHover(null)}
       >
-        <sphereGeometry args={[1, 10, 10]} />
-        <meshBasicMaterial color={dark ? '#fde68a' : '#d97706'} />
+        <sphereGeometry args={[1, 12, 12]} />
+        <meshBasicMaterial color={dotColor} />
+      </mesh>
+      <mesh ref={ringRef} scale={0.03}>
+        <ringGeometry args={[0.6, 1, 32]} />
+        <meshBasicMaterial color={ringColor} transparent opacity={0.2} side={THREE.DoubleSide} />
       </mesh>
     </group>
   );
@@ -846,33 +856,72 @@ export default function RegionalSizeGlobe({
   }, [by_country, raw_counts, top_size_by_country]);
 
   const cityPoints: CityData[] = useMemo(() => {
-    if (!by_city) return [];
-    const pts: CityData[] = [];
-    for (const [country, cities] of Object.entries(by_city)) {
-      const countryCoord = CC[country];
-      if (!countryCoord) continue;
-      for (const [cityName, data] of Object.entries(cities)) {
-        const coord = CITY_COORDS[cityName];
-        if (!coord) {
-          // Deterministic offset from country center for unmapped cities
-          let hash = 0;
-          for (let i = 0; i < cityName.length; i++) hash = ((hash << 5) - hash + cityName.charCodeAt(i)) | 0;
-          const jitterLat = countryCoord[0] + ((hash % 100) / 100 - 0.5) * 2.5;
-          const jitterLon = countryCoord[1] + (((hash >> 8) % 100) / 100 - 0.5) * 2.5;
-          pts.push({
-            city: cityName, country, lat: jitterLat, lon: jitterLon,
-            total: data.total, topSize: data.top_size, sizes: data.sizes,
-          });
-        } else {
-          pts.push({
-            city: cityName, country, lat: coord[0], lon: coord[1],
-            total: data.total, topSize: data.top_size, sizes: data.sizes,
-          });
+    // If backend returned city-level data, use it
+    if (by_city && Object.keys(by_city).length > 0) {
+      const pts: CityData[] = [];
+      for (const [country, cities] of Object.entries(by_city)) {
+        const countryCoord = CC[country];
+        if (!countryCoord) continue;
+        for (const [cityName, data] of Object.entries(cities)) {
+          const coord = CITY_COORDS[cityName];
+          if (!coord) {
+            let hash = 0;
+            for (let i = 0; i < cityName.length; i++) hash = ((hash << 5) - hash + cityName.charCodeAt(i)) | 0;
+            const jLat = countryCoord[0] + ((hash % 100) / 100 - 0.5) * 2.5;
+            const jLon = countryCoord[1] + (((hash >> 8) % 100) / 100 - 0.5) * 2.5;
+            pts.push({ city: cityName, country, lat: jLat, lon: jLon,
+              total: data.total, topSize: data.top_size, sizes: data.sizes });
+          } else {
+            pts.push({ city: cityName, country, lat: coord[0], lon: coord[1],
+              total: data.total, topSize: data.top_size, sizes: data.sizes });
+          }
         }
+      }
+      return pts;
+    }
+
+    // Fallback: generate city markers from CITY_COORDS for countries that have data
+    const CITY_TO_COUNTRY: Record<string, string> = {};
+    const countryCities: Record<string, string[]> = {
+      'Netherlands': ['Amsterdam', 'Rotterdam', 'The Hague', 'Utrecht', 'Eindhoven', 'Zaandam', 'Groningen'],
+      'United Kingdom': ['London', 'Manchester', 'Birmingham', 'Edinburgh', 'Leeds', 'Glasgow'],
+      'France': ['Paris', 'Lyon', 'Marseille', 'Nice', 'Bordeaux', 'Toulouse'],
+      'Germany': ['Berlin', 'Munich', 'Hamburg', 'Frankfurt', 'Cologne', 'Stuttgart'],
+      'Spain': ['Madrid', 'Barcelona', 'Valencia', 'Seville', 'Bilbao'],
+      'Italy': ['Milan', 'Rome', 'Florence', 'Naples', 'Turin', 'Venice'],
+      'Belgium': ['Brussels', 'Antwerp'],
+      'United States': ['New York', 'Los Angeles', 'Chicago', 'San Francisco', 'Miami', 'Seattle', 'Boston'],
+      'Canada': ['Toronto', 'Vancouver', 'Montreal'],
+      'Japan': ['Tokyo', 'Osaka', 'Kyoto'],
+      'South Korea': ['Seoul', 'Busan'],
+      'China': ['Beijing', 'Shanghai', 'Shenzhen', 'Guangzhou'],
+      'India': ['Mumbai', 'Delhi', 'Bangalore'],
+      'Australia': ['Sydney', 'Melbourne'],
+      'Brazil': ['São Paulo', 'Rio de Janeiro'],
+      'UAE': ['Dubai', 'Abu Dhabi'],
+      'Turkey': ['Istanbul', 'Ankara'],
+      'South Africa': ['Cape Town', 'Johannesburg'],
+    };
+    for (const [country, cities] of Object.entries(countryCities)) {
+      for (const city of cities) CITY_TO_COUNTRY[city] = country;
+    }
+
+    const pts: CityData[] = [];
+    for (const dp of dataPoints) {
+      const cities = countryCities[dp.country];
+      if (!cities) continue;
+      for (const cityName of cities) {
+        const coord = CITY_COORDS[cityName];
+        if (!coord) continue;
+        pts.push({
+          city: cityName, country: dp.country,
+          lat: coord[0], lon: coord[1],
+          total: 0, topSize: dp.topSize, sizes: dp.sizes,
+        });
       }
     }
     return pts;
-  }, [by_city]);
+  }, [by_city, dataPoints]);
 
   const handleHoverCountry = useCallback((d: CountryData | null) => { setHoveredCountry(d); setHoveredCity(null); }, []);
   const handleHoverCity = useCallback((d: CityData | null) => { setHoveredCity(d); setHoveredCountry(null); }, []);
