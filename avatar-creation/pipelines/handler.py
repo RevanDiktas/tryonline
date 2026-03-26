@@ -289,8 +289,7 @@ def handler(event: dict) -> dict:
         additional_files = {
             "face_crop": output_dir / "face_crop.png",
             "avatar_texture": output_dir / "avatar_texture.png",
-            "skin_detection_mask": output_dir / "skin_detection_mask.png",
-            # Also check for common GLB names
+            # skin_detection_mask excluded: ~18 MB debug image pushes payload over RunPod's 20 MB limit
             "avatar_glb_alt": output_dir / "avatar_textured.glb",
         }
         
