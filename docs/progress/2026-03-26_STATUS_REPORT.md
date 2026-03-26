@@ -69,10 +69,11 @@ Complete rewrite of the `RegionalSizeGlobe` component across 7 iterative commits
 
 ## Remaining tasks
 
-1. **Test avatar creation with new Docker image** — have colleague retry onboarding to confirm results now arrive in Supabase/dashboard.
-2. **Test Apple sign-in from widget** — provider is configured, same flow as Google.
-3. **Test OAuth complete-profile flow** — fresh Google/Apple account to verify birthday/phone collection.
-4. **Shopify App Store review** — awaiting response from Shopify review team.
-5. **Apple secret rotation** — JWT expires ~August 2026.
-6. **Globe: light theme polish** — verify colors/contrast on light theme (tested mostly on dark today).
-7. **Globe: real city data** — once more events accumulate with city field populated, verify city-level analytics show real data instead of fallback markers.
+1. **Add timer to mobile fit passport creation** — shoppers creating their fit passport on phone need a visible countdown/elapsed timer so they know the process is still running and how long it's been. Currently there's no time indicator, which causes uncertainty especially on slower connections or when RunPod is queued.
+2. **Test avatar creation with new Docker image** — have colleague retry onboarding to confirm results now arrive in Supabase/dashboard.
+3. **Test Apple sign-in from widget** — provider is configured, same flow as Google.
+4. **Test OAuth complete-profile flow** — fresh Google/Apple account to verify birthday/phone collection.
+5. **Shopify App Store review** — awaiting response from Shopify review team.
+6. **Apple secret rotation** — JWT expires ~August 2026.
+7. **Globe: light theme polish** — verify colors/contrast on light theme (tested mostly on dark today).
+8. **Globe: real city data** — once more events accumulate with city field populated, verify city-level analytics show real data instead of fallback markers.
