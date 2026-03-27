@@ -64,21 +64,23 @@ def _parse_date_range(
 
 
 def _call_rpc(fn_name: str, params: dict) -> Any:
-    """Call a Supabase Postgres function and return the parsed result."""
+    """Call a Supabase Postgres function and return the parsed result.
+    None values are stripped so PostgREST uses the function's DEFAULT values.
+    """
+    filtered = {k: v for k, v in params.items() if v is not None}
     try:
-        response = supabase_service.client.rpc(fn_name, params).execute()
+        response = supabase_service.client.rpc(fn_name, filtered).execute()
         return response.data
     except Exception as exc:
-        msg = str(exc).lower()
-        if "does not exist" in msg or "could not find" in msg:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    f"RPC function '{fn_name}' not found. "
-                    "Run docs/migrations/analytics_rpc_functions.sql in the Supabase SQL Editor first."
-                ),
-            )
-        raise
+        logger.error("RPC %s failed (params=%s): %s", fn_name, filtered, exc, exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Analytics function '{fn_name}' unavailable ({exc}). "
+                "If you recently ran the SQL migration, refresh PostgREST by running "
+                "NOTIFY pgrst, 'reload schema'; in the Supabase SQL Editor."
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------

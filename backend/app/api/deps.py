@@ -4,12 +4,15 @@ Shared authentication and verification dependencies for FastAPI routes.
 import base64
 import hashlib
 import hmac
+import logging
 
 import jwt
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -19,36 +22,45 @@ def get_current_user_id(
 ) -> str:
     """
     Verify the Supabase access token and return the authenticated user_id.
-    Raises 401 if token is missing/invalid, 503 if JWT secret is not configured.
+    Strategy: fast local JWT check first, then Supabase Auth API fallback
+    so auth works even if the JWT secret is misconfigured.
     """
-    settings = get_settings()
-    if not settings.supabase_jwt_secret:
-        raise HTTPException(
-            status_code=503,
-            detail="Authentication not configured (missing SUPABASE_JWT_SECRET)",
-        )
     if not credentials or not credentials.credentials:
-        raise HTTPException(
-            status_code=401,
-            detail="Authorization required",
-        )
+        raise HTTPException(status_code=401, detail="Authorization required")
+
+    token = credentials.credentials
+    settings = get_settings()
+
+    # --- Fast path: local HS256 verification ---
+    if settings.supabase_jwt_secret:
+        try:
+            payload = jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                audience="authenticated",
+                algorithms=["HS256"],
+            )
+            user_id = payload.get("sub")
+            if user_id:
+                return user_id
+        except jwt.ExpiredSignatureError:
+            logger.debug("Local JWT: token expired, trying Supabase Auth API")
+        except jwt.PyJWTError as exc:
+            logger.warning("Local JWT verification failed (%s), trying Supabase Auth API", exc)
+    else:
+        logger.warning("SUPABASE_JWT_SECRET not set — using Supabase Auth API for verification")
+
+    # --- Fallback: verify via Supabase Auth REST API ---
     try:
-        payload = jwt.decode(
-            credentials.credentials,
-            settings.supabase_jwt_secret,
-            audience="authenticated",
-            algorithms=["HS256"],
-        )
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token: missing sub")
-        return user_id
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidAudienceError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        from app.services.supabase import supabase_service
+        resp = supabase_service.client.auth.get_user(token)
+        if resp and resp.user and resp.user.id:
+            logger.info("Token verified via Supabase Auth API (user=%s)", resp.user.id)
+            return str(resp.user.id)
+    except Exception as exc:
+        logger.warning("Supabase Auth API verification also failed: %s", exc)
+
+    raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 def verify_shopify_webhook(body: bytes, hmac_header: str | None) -> bool:

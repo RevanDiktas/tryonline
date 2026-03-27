@@ -282,12 +282,14 @@ export async function refreshAccessToken(): Promise<string | null> {
 export async function getAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
   try {
+    // getSession reads from localStorage — the token may already be expired.
     let { data: { session } } = await supabase.auth.getSession();
     if (!session) return null;
 
-    // Proactively refresh if the token expires within 60 seconds
+    // Proactively refresh if the token is expired or will expire within 120s.
     const expiresAt = session.expires_at;
-    if (expiresAt && expiresAt - 60 < Math.floor(Date.now() / 1000)) {
+    const now = Math.floor(Date.now() / 1000);
+    if (!expiresAt || expiresAt - 120 < now) {
       const { data } = await supabase.auth.refreshSession();
       session = data.session;
     }
