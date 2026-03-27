@@ -1239,18 +1239,30 @@
       var returnUrl = u.toString();
       return (window.location.origin || 'https://tryon.global') + '/widget-signin?return=' + encodeURIComponent(returnUrl) + '&provider=' + provider;
     }
+    function handleSocialClick(provider) {
+      var url = buildSocialSignInUrl(provider);
+      if (inIframe) {
+        // OAuth redirects (Google, Apple) can't run inside a sandboxed iframe —
+        // open in a popup so the OAuth flow happens at the top level.
+        var w = 480, h = 640;
+        var left = (screen.width - w) / 2, top = (screen.height - h) / 2;
+        window.open(url, 'tryon_social_auth', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top);
+      } else {
+        window.location.href = url;
+      }
+    }
     if (googleBtn) {
       googleBtn.href = buildSocialSignInUrl('google');
       googleBtn.addEventListener('click', function(e) {
         e.preventDefault();
-        window.location.href = buildSocialSignInUrl('google');
+        handleSocialClick('google');
       });
     }
     if (appleBtn) {
       appleBtn.href = buildSocialSignInUrl('apple');
       appleBtn.addEventListener('click', function(e) {
         e.preventDefault();
-        window.location.href = buildSocialSignInUrl('apple');
+        handleSocialClick('apple');
       });
     }
 

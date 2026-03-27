@@ -269,10 +269,29 @@ export async function getSession() {
   return supabase.auth.getSession();
 }
 
+export async function refreshAccessToken(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+  try {
+    const { data } = await supabase.auth.refreshSession();
+    return data.session?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    let { data: { session } } = await supabase.auth.getSession();
+    if (!session) return null;
+
+    // Proactively refresh if the token expires within 60 seconds
+    const expiresAt = session.expires_at;
+    if (expiresAt && expiresAt - 60 < Math.floor(Date.now() / 1000)) {
+      const { data } = await supabase.auth.refreshSession();
+      session = data.session;
+    }
+
     return session?.access_token ?? null;
   } catch {
     return null;

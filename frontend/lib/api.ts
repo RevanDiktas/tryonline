@@ -1,7 +1,7 @@
 /**
  * Frontend API client — calls backend via /api/* (Next.js rewrites to NEXT_PUBLIC_API_URL).
  */
-import { getAccessToken } from './supabase-auth';
+import { getAccessToken, refreshAccessToken } from './supabase-auth';
 
 const getBase = () => {
   let apiUrl = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '');
@@ -35,6 +35,24 @@ async function fetchApi<T>(
       ...(rest.headers as Record<string, string>),
     },
   });
+
+  if (res.status === 401 && token) {
+    const freshToken = await refreshAccessToken();
+    if (freshToken && freshToken !== token) {
+      const retry = await fetch(url, {
+        ...rest,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${freshToken}`,
+          ...(rest.headers as Record<string, string>),
+        },
+      });
+      if (retry.ok) return retry.json() as Promise<T>;
+      const retryErr = await retry.json().catch(() => ({ detail: retry.statusText }));
+      throw new Error((retryErr as { detail?: string }).detail || retry.statusText);
+    }
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error((err as { detail?: string }).detail || res.statusText);

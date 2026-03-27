@@ -168,6 +168,8 @@ export default function BrandDashboardPage() {
 
   const [brandShop, setBrandShop] = useState<string | null>(null);
   const [hasGarments, setHasGarments] = useState(true);
+  const [brandLoaded, setBrandLoaded] = useState(false);
+  const [guideDismissed, setGuideDismissed] = useState(false);
 
   useEffect(() => {
     if (shopParam?.includes('.myshopify.com') && typeof window !== 'undefined') {
@@ -203,6 +205,7 @@ export default function BrandDashboardPage() {
           setHasGarments(garments.length > 0);
         }
       } catch {}
+      setBrandLoaded(true);
     }).catch(() => router.push('/login'));
   }, [router]);
 
@@ -356,9 +359,12 @@ export default function BrandDashboardPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-5 py-6 dashboard-fade-in">
-        {/* Getting Started Guide */}
-        {(!brandShop || !hasGarments) && (
-          <div className={`mb-6 rounded-xl border p-5 ${dark ? 'bg-white/[0.03] border-white/10' : 'bg-gradient-to-r from-blue-50 to-purple-50 border-blue-100'}`}>
+        {/* Getting Started Guide — only after brand data is loaded, and dismissible */}
+        {brandLoaded && !guideDismissed && (!brandShop || !hasGarments) && (
+          <div className={`mb-6 rounded-xl border p-5 relative ${dark ? 'bg-white/[0.03] border-white/10' : 'bg-gradient-to-r from-blue-50 to-purple-50 border-blue-100'}`}>
+            <button onClick={() => setGuideDismissed(true)} className={`absolute top-3 right-3 p-1 rounded transition ${dark ? 'text-white/30 hover:text-white/60' : 'text-gray-400 hover:text-gray-600'}`} aria-label="Dismiss">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
             <h3 className={`text-sm font-semibold mb-3 ${dark ? 'text-white' : 'text-gray-900'}`}>Getting Started</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className={`flex items-start gap-3 p-3 rounded-lg ${dark ? 'bg-white/5' : 'bg-white'}`}>

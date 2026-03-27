@@ -33,10 +33,24 @@ function AuthCallbackInner() {
         return;
       }
 
-      // If the user came from the widget sign-in flow, redirect back to widget
+      // If the user came from the widget sign-in flow
       const widgetReturn = searchParams.get('widget_return');
       if (widgetReturn) {
         const displayName = user.name || user.email?.split('@')[0] || 'User';
+
+        // When opened as a popup (social login from widget iframe),
+        // post user_id back to the opener and close the popup.
+        if (window.opener) {
+          try {
+            window.opener.postMessage(
+              { type: 'TRYON_USER_ID', user_id: user.id, display_name: displayName },
+              '*',
+            );
+          } catch (_) { /* cross-origin opener — fall through to redirect */ }
+          setTimeout(() => window.close(), 200);
+          return;
+        }
+
         const sep = widgetReturn.includes('?') ? '&' : '?';
         window.location.href = widgetReturn + sep + 'user_id=' + encodeURIComponent(user.id) + '&display_name=' + encodeURIComponent(displayName);
         return;
