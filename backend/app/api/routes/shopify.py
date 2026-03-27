@@ -11,7 +11,7 @@ import re
 from urllib.parse import urlencode, parse_qsl
 
 from pydantic import BaseModel
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, Query, Request, Response, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
 
 from app.config import get_settings
@@ -228,7 +228,12 @@ async def shopify_session(shop: str = Query(..., description="Shop myshopify dom
 @router.post("/webhooks/customers/data_request")
 async def gdpr_customers_data_request(request: Request):
     """Shopify sends this when a customer requests their data. We log it for manual processing."""
-    body = await request.json()
+    from app.api.deps import verify_shopify_webhook
+    import json
+    body_bytes = await request.body()
+    if not verify_shopify_webhook(body_bytes, request.headers.get("X-Shopify-Hmac-Sha256")):
+        raise HTTPException(status_code=401, detail="Invalid HMAC")
+    body = json.loads(body_bytes)
     shop = body.get("shop_domain", "unknown")
     customer_email = body.get("customer", {}).get("email", "unknown")
     print(f"[GDPR] Data request: shop={shop} customer={customer_email}")
@@ -238,7 +243,12 @@ async def gdpr_customers_data_request(request: Request):
 @router.post("/webhooks/customers/redact")
 async def gdpr_customers_redact(request: Request):
     """Shopify sends this when a customer requests deletion. Delete their analytics events."""
-    body = await request.json()
+    from app.api.deps import verify_shopify_webhook
+    import json
+    body_bytes = await request.body()
+    if not verify_shopify_webhook(body_bytes, request.headers.get("X-Shopify-Hmac-Sha256")):
+        raise HTTPException(status_code=401, detail="Invalid HMAC")
+    body = json.loads(body_bytes)
     shop = body.get("shop_domain", "unknown")
     customer = body.get("customer", {})
     customer_email = customer.get("email", "")
@@ -256,7 +266,12 @@ async def gdpr_customers_redact(request: Request):
 @router.post("/webhooks/shop/redact")
 async def gdpr_shop_redact(request: Request):
     """Shopify sends this 48h after app uninstall. Delete all shop data."""
-    body = await request.json()
+    from app.api.deps import verify_shopify_webhook
+    import json
+    body_bytes = await request.body()
+    if not verify_shopify_webhook(body_bytes, request.headers.get("X-Shopify-Hmac-Sha256")):
+        raise HTTPException(status_code=401, detail="Invalid HMAC")
+    body = json.loads(body_bytes)
     shop = body.get("shop_domain", "unknown")
     print(f"[GDPR] Shop redact: shop={shop}")
     try:

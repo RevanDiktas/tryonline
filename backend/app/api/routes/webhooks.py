@@ -24,15 +24,9 @@ ALLOWED_WEBHOOK_TOPICS = COMPLIANCE_TOPICS | {"app/uninstalled"}
 
 
 def _verify_shopify_hmac(body: bytes, hmac_header: str | None) -> bool:
-    """Verify Shopify webhook HMAC using app client secret. Shopify sends header as base64."""
-    secret = getattr(settings, "shopify_webhook_secret", None) or ""
-    if not secret:
-        return True  # Allow when not configured for dev
-    if not hmac_header:
-        return False
-    digest = hmac.new(secret.encode(), body, hashlib.sha256).digest()
-    computed_b64 = base64.b64encode(digest).decode("ascii")
-    return hmac.compare_digest(computed_b64, hmac_header)
+    """Verify Shopify webhook HMAC using the shared dependency."""
+    from app.api.deps import verify_shopify_webhook
+    return verify_shopify_webhook(body, hmac_header)
 
 
 def _get_session_id_from_order(order: dict[str, Any]) -> str | None:

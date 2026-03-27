@@ -31,5 +31,8 @@ PyJWT>=2.8.0
 # RunPod SDK
 runpod>=1.6.0
 
+# Rate Limiting
+slowapi>=0.1.9
+
 # Logging
 structlog>=23.2.0

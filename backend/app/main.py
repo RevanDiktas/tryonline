@@ -1,9 +1,14 @@
 """
 TryOn Backend API - Main Application Entry Point
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
 from app.api.routes import avatar, measurements, events, health, webhooks, analytics, products, addresses, checkout_profile, shopify, brand, garments
@@ -46,6 +51,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Rate limiter (in-memory; suitable for single-instance Railway deploy)
+limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please slow down."},
+    )
+
 # Include routers
 app.include_router(health.router, tags=["Health"])
 app.include_router(avatar.router, prefix="/api/avatar", tags=["Avatar"])
@@ -73,7 +90,9 @@ async def root():
 
 @app.get("/routes")
 async def list_routes():
-    """Debug: list all registered routes (confirm /api/shopify/* is present)."""
+    """Debug: list all registered routes. Only available when DEBUG=true."""
+    if not settings.debug:
+        raise HTTPException(status_code=404, detail="Not found")
     routes = []
     for r in app.routes:
         path = getattr(r, "path", None)

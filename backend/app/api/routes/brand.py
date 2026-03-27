@@ -1,12 +1,13 @@
 """
-Brand registration and management routes.
-POST /api/brand/register  — create brand record linked to an authenticated user
-GET  /api/brand/me         — get current user's brand record
+Brand registration and management routes — JWT-protected.
+POST /api/brand/register  -- create brand record linked to an authenticated user
+GET  /api/brand/me        -- get current user's brand record
 """
 from typing import Optional
 from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
+from app.api.deps import get_current_user_id
 from app.services.supabase import SupabaseService
 
 router = APIRouter()
@@ -14,7 +15,6 @@ supabase = SupabaseService()
 
 
 class BrandRegisterBody(BaseModel):
-    user_id: str
     brand_name: str
     email: str
     phone: Optional[str] = None
@@ -23,15 +23,14 @@ class BrandRegisterBody(BaseModel):
 
 
 @router.post("/register")
-async def register_brand(body: BrandRegisterBody):
+async def register_brand(body: BrandRegisterBody, user_id: str = Depends(get_current_user_id)):
     """
     Create a brand record linked to the authenticated user.
-    Called after Supabase auth signup when user_type='brand'.
     If a brand already exists for this shopify_domain (created by OAuth install),
     we link it to this user instead of creating a duplicate.
     """
     try:
-        existing = supabase.get_brand_by_user_id(body.user_id)
+        existing = supabase.get_brand_by_user_id(user_id)
         if existing:
             supabase.ensure_garments_bucket()
             supabase._create_brand_folder(existing["id"])
@@ -42,7 +41,7 @@ async def register_brand(body: BrandRegisterBody):
             if oauth_brand and not oauth_brand.get("user_id"):
                 brand_id = supabase.link_user_to_brand(
                     brand_id=str(oauth_brand["id"]),
-                    user_id=body.user_id,
+                    user_id=user_id,
                     name=body.brand_name,
                     email=body.email,
                 )
@@ -50,7 +49,7 @@ async def register_brand(body: BrandRegisterBody):
                     return {"ok": True, "brand_id": brand_id, "existing": True}
 
         brand_id = supabase.create_brand_for_user(
-            user_id=body.user_id,
+            user_id=user_id,
             name=body.brand_name,
             email=body.email,
             shopify_domain=body.shopify_domain,
@@ -66,8 +65,8 @@ async def register_brand(body: BrandRegisterBody):
 
 
 @router.get("/me")
-async def get_my_brand(user_id: str):
-    """Get the brand record for the given user_id."""
+async def get_my_brand(user_id: str = Depends(get_current_user_id)):
+    """Get the brand record for the authenticated user."""
     try:
         brand = supabase.get_brand_by_user_id(user_id)
         if not brand:

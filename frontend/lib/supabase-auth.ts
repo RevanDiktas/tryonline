@@ -269,6 +269,16 @@ export async function getSession() {
   return supabase.auth.getSession();
 }
 
+export async function getAccessToken(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Ensures a row exists in the `users` table for the current OAuth user.
  * Called once after implicit-flow sign-in on the callback page.

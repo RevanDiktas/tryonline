@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.services.supabase import supabase_service
@@ -46,9 +46,12 @@ async def analytics_debug(
     end: Optional[str] = Query(None),
 ):
     """
-    Debug endpoint: returns raw event count and sample to verify backend↔Supabase connection.
-    Use ?shop=demo.myshopify.com to match brand dashboard filter.
+    Debug endpoint: returns raw event count and sample to verify backend<>Supabase connection.
+    Only available when DEBUG=true.
     """
+    from app.config import get_settings
+    if not get_settings().debug:
+        raise HTTPException(status_code=404, detail="Not found")
     if not start:
         end_d = datetime.now(timezone.utc).date()
         start_d = end_d - timedelta(days=30)

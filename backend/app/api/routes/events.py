@@ -2,6 +2,8 @@
 Analytics event tracking endpoints — Category A
 """
 from fastapi import APIRouter, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.models.events import (
     AnalyticsEvent,
@@ -12,6 +14,7 @@ from app.models.events import (
 from app.services.supabase import supabase_service
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 def _get_client_info(request: Request) -> tuple[str | None, str | None]:
@@ -23,6 +26,7 @@ def _get_client_info(request: Request) -> tuple[str | None, str | None]:
 
 
 @router.post("/track", response_model=AnalyticsEventResponse)
+@limiter.limit("60/minute")
 async def track_event(request: Request, event: AnalyticsEvent):
     """
     Track an analytics event (Category A).

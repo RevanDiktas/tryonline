@@ -1,18 +1,19 @@
 """
-Garment CRUD + GLB file upload for brand dashboard.
-- GET    /api/garments?brand_id=...       — list garments for a brand
-- POST   /api/garments                    — create garment row
-- PUT    /api/garments/{garment_id}       — update garment row
-- DELETE /api/garments/{garment_id}       — delete garment row
-- POST   /api/garments/{garment_id}/upload — upload GLB file for a size
+Garment CRUD + GLB file upload for brand dashboard — JWT-protected.
+- GET    /api/garments                    -- list garments for the authenticated brand
+- POST   /api/garments                    -- create garment row
+- PUT    /api/garments/{garment_id}       -- update garment row
+- DELETE /api/garments/{garment_id}       -- delete garment row
+- POST   /api/garments/{garment_id}/upload -- upload GLB file for a size
 """
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app.api.deps import get_current_user_id
 from app.services.supabase import SupabaseService
 
 router = APIRouter()
@@ -24,8 +25,26 @@ VALID_FIT_TYPES = ["slim", "regular", "oversized"]
 VALID_SIZES = ["xs", "s", "m", "l", "xl", "xxl"]
 
 
+def _get_user_brand_id(user_id: str) -> str:
+    """Resolve the brand_id for an authenticated user. Raises 403 if no brand."""
+    brand = supabase.get_brand_by_user_id(user_id)
+    if not brand:
+        raise HTTPException(status_code=403, detail="No brand found for this user")
+    return str(brand["id"])
+
+
+def _verify_garment_ownership(garment_id: str, brand_id: str) -> dict:
+    """Load a garment and verify it belongs to the given brand. Raises 404/403."""
+    r = supabase.client.table("garments").select("*").eq("id", garment_id).limit(1).execute()
+    if not r.data:
+        raise HTTPException(status_code=404, detail="Garment not found")
+    garment = r.data[0]
+    if str(garment.get("brand_id")) != brand_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return garment
+
+
 class GarmentCreate(BaseModel):
-    brand_id: str
     name: str
     category: Optional[str] = None
     shopify_product_id: Optional[str] = None
@@ -43,8 +62,9 @@ class GarmentUpdate(BaseModel):
 
 
 @router.get("")
-async def list_garments(brand_id: str = Query(...)):
-    """List all garments for a brand."""
+async def list_garments(user_id: str = Depends(get_current_user_id)):
+    """List all garments for the authenticated user's brand."""
+    brand_id = _get_user_brand_id(user_id)
     try:
         r = supabase.client.table("garments").select("*").eq(
             "brand_id", brand_id
@@ -55,15 +75,17 @@ async def list_garments(brand_id: str = Query(...)):
 
 
 @router.post("")
-async def create_garment(body: GarmentCreate):
-    """Create a new garment row and its storage folder in the garments bucket."""
+async def create_garment(body: GarmentCreate, user_id: str = Depends(get_current_user_id)):
+    """Create a new garment for the authenticated user's brand."""
+    brand_id = _get_user_brand_id(user_id)
+
     if body.category and body.category not in VALID_CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Invalid category. Must be one of: {VALID_CATEGORIES}")
     if body.fit_type and body.fit_type not in VALID_FIT_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid fit_type. Must be one of: {VALID_FIT_TYPES}")
 
     row = {
-        "brand_id": body.brand_id,
+        "brand_id": brand_id,
         "name": body.name,
         "category": body.category,
         "shopify_product_id": body.shopify_product_id or None,
@@ -81,17 +103,15 @@ async def create_garment(body: GarmentCreate):
         garment_id = str(garment["id"])
         product_folder = body.shopify_product_id or garment_id
 
-        # Create the storage folder: garments/{brand_id}/{product_id}/
         supabase.ensure_garments_bucket()
         try:
             bucket = supabase.client.storage.from_(settings.garments_bucket)
-            placeholder_path = f"{body.brand_id}/{product_folder}/.folder"
+            placeholder_path = f"{brand_id}/{product_folder}/.folder"
             bucket.upload(
                 placeholder_path,
                 b"",
                 {"content-type": "application/octet-stream", "x-upsert": "true"},
             )
-            print(f"[Garments] Created folder: {settings.garments_bucket}/{body.brand_id}/{product_folder}/")
         except Exception as e:
             print(f"[Garments] Folder creation note: {e}")
 
@@ -103,8 +123,11 @@ async def create_garment(body: GarmentCreate):
 
 
 @router.put("/{garment_id}")
-async def update_garment(garment_id: str, body: GarmentUpdate):
-    """Update garment metadata (name, category, Shopify product ID, etc.)."""
+async def update_garment(garment_id: str, body: GarmentUpdate, user_id: str = Depends(get_current_user_id)):
+    """Update garment metadata. Verifies brand ownership."""
+    brand_id = _get_user_brand_id(user_id)
+    _verify_garment_ownership(garment_id, brand_id)
+
     updates = {}
     if body.name is not None:
         updates["name"] = body.name
@@ -138,73 +161,53 @@ async def update_garment(garment_id: str, body: GarmentUpdate):
 
 
 @router.delete("/{garment_id}")
-async def delete_garment(garment_id: str):
-    """Delete a garment and its storage files."""
-    try:
-        r = supabase.client.table("garments").select("brand_id, sizes").eq("id", garment_id).limit(1).execute()
-        if not r.data:
-            raise HTTPException(status_code=404, detail="Garment not found")
+async def delete_garment(garment_id: str, user_id: str = Depends(get_current_user_id)):
+    """Delete a garment. Verifies brand ownership."""
+    brand_id = _get_user_brand_id(user_id)
+    garment = _verify_garment_ownership(garment_id, brand_id)
 
-        garment = r.data[0]
-        brand_id = garment.get("brand_id")
-        sizes = garment.get("sizes") or {}
+    sizes = garment.get("sizes") or {}
+    if brand_id and sizes:
+        paths_to_delete = []
+        for path in sizes.values():
+            if path and isinstance(path, str) and not path.startswith("http"):
+                paths_to_delete.append(path)
+        if paths_to_delete:
+            try:
+                supabase.client.storage.from_(settings.garments_bucket).remove(paths_to_delete)
+            except Exception:
+                pass
 
-        # Delete storage files
-        if brand_id and sizes:
-            paths_to_delete = []
-            for path in sizes.values():
-                if path and isinstance(path, str) and not path.startswith("http"):
-                    paths_to_delete.append(path)
-            if paths_to_delete:
-                try:
-                    supabase.client.storage.from_(settings.garments_bucket).remove(paths_to_delete)
-                except Exception:
-                    pass
-
-        supabase.client.table("garments").delete().eq("id", garment_id).execute()
-        return {"ok": True}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    supabase.client.table("garments").delete().eq("id", garment_id).execute()
+    return {"ok": True}
 
 
 @router.post("/{garment_id}/sync")
-async def sync_garment_sizes(garment_id: str):
-    """Scan storage for existing GLB files and update the sizes JSONB column."""
+async def sync_garment_sizes(garment_id: str, user_id: str = Depends(get_current_user_id)):
+    """Scan storage for existing GLB files and update the sizes column."""
+    brand_id = _get_user_brand_id(user_id)
+    garment = _verify_garment_ownership(garment_id, brand_id)
+
+    product_id = garment.get("shopify_product_id") or garment_id
+    folder_path = f"{brand_id}/{product_id}"
+    bucket = supabase.client.storage.from_(settings.garments_bucket)
+
     try:
-        r = supabase.client.table("garments").select("brand_id, shopify_product_id, sizes").eq(
-            "id", garment_id
-        ).limit(1).execute()
-        if not r.data:
-            raise HTTPException(status_code=404, detail="Garment not found")
+        files = bucket.list(folder_path)
+    except Exception:
+        files = []
 
-        garment = r.data[0]
-        brand_id = garment["brand_id"]
-        product_id = garment.get("shopify_product_id") or garment_id
-        folder_path = f"{brand_id}/{product_id}"
-        bucket = supabase.client.storage.from_(settings.garments_bucket)
+    sizes = {}
+    for f in files:
+        name = f.get("name", "") if isinstance(f, dict) else str(f)
+        name_lower = name.lower()
+        for sz in VALID_SIZES:
+            if name_lower == f"{sz}.glb":
+                sizes[sz] = f"garments/{folder_path}/{name}"
+                break
 
-        try:
-            files = bucket.list(folder_path)
-        except Exception:
-            files = []
-
-        sizes = {}
-        for f in files:
-            name = f.get("name", "") if isinstance(f, dict) else str(f)
-            name_lower = name.lower()
-            for sz in VALID_SIZES:
-                if name_lower == f"{sz}.glb":
-                    sizes[sz] = f"garments/{folder_path}/{name}"
-                    break
-
-        supabase.client.table("garments").update({"sizes": sizes}).eq("id", garment_id).execute()
-        return {"ok": True, "sizes": sizes, "folder": folder_path}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    supabase.client.table("garments").update({"sizes": sizes}).eq("id", garment_id).execute()
+    return {"ok": True, "sizes": sizes, "folder": folder_path}
 
 
 @router.post("/{garment_id}/upload")
@@ -212,8 +215,12 @@ async def upload_garment_glb(
     garment_id: str,
     size: str = Form(..., description="Size key: xs, s, m, l, xl"),
     file: UploadFile = File(..., description="GLB file"),
+    user_id: str = Depends(get_current_user_id),
 ):
-    """Upload a GLB file for a specific size of a garment."""
+    """Upload a GLB file for a specific size. Verifies brand ownership."""
+    brand_id = _get_user_brand_id(user_id)
+    garment = _verify_garment_ownership(garment_id, brand_id)
+
     size_key = size.strip().lower()
     if size_key not in VALID_SIZES:
         raise HTTPException(status_code=400, detail=f"Invalid size. Must be one of: {VALID_SIZES}")
@@ -221,46 +228,31 @@ async def upload_garment_glb(
     if not file.filename or not file.filename.lower().endswith(".glb"):
         raise HTTPException(status_code=400, detail="Only .glb files are accepted")
 
-    try:
-        r = supabase.client.table("garments").select("brand_id, shopify_product_id, sizes").eq(
-            "id", garment_id
-        ).limit(1).execute()
-        if not r.data:
-            raise HTTPException(status_code=404, detail="Garment not found")
+    product_id = garment.get("shopify_product_id") or garment_id
+    current_sizes = garment.get("sizes") or {}
 
-        garment = r.data[0]
-        brand_id = garment["brand_id"]
-        product_id = garment.get("shopify_product_id") or garment_id
-        current_sizes = garment.get("sizes") or {}
+    filename = f"{size_key}.glb"
+    storage_path = f"{brand_id}/{product_id}/{filename}"
 
-        filename = f"{size_key}.glb"
-        storage_path = f"{brand_id}/{product_id}/{filename}"
+    content = await file.read()
+    bucket = supabase.client.storage.from_(settings.garments_bucket)
 
-        content = await file.read()
-        bucket = supabase.client.storage.from_(settings.garments_bucket)
+    old_path = current_sizes.get(size_key)
+    if old_path and isinstance(old_path, str) and not old_path.startswith("http"):
+        try:
+            bucket.remove([old_path])
+        except Exception:
+            pass
 
-        # Delete existing file if present
-        old_path = current_sizes.get(size_key)
-        if old_path and isinstance(old_path, str) and not old_path.startswith("http"):
-            try:
-                bucket.remove([old_path])
-            except Exception:
-                pass
+    bucket.upload(
+        storage_path,
+        content,
+        {"content-type": "model/gltf-binary", "x-upsert": "true"},
+    )
 
-        bucket.upload(
-            storage_path,
-            content,
-            {"content-type": "model/gltf-binary", "x-upsert": "true"},
-        )
+    full_url = bucket.get_public_url(storage_path)
 
-        full_url = bucket.get_public_url(storage_path)
+    current_sizes[size_key] = f"garments/{storage_path}"
+    supabase.client.table("garments").update({"sizes": current_sizes}).eq("id", garment_id).execute()
 
-        # Store the relative path in the sizes JSONB (backend resolves to full URL)
-        current_sizes[size_key] = f"garments/{storage_path}"
-        supabase.client.table("garments").update({"sizes": current_sizes}).eq("id", garment_id).execute()
-
-        return {"ok": True, "size": size_key, "url": full_url, "path": storage_path}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"ok": True, "size": size_key, "url": full_url, "path": storage_path}

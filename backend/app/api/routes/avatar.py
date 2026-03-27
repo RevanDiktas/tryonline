@@ -1,10 +1,13 @@
 """
 Avatar creation and retrieval endpoints
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Form, Depends, Request
 from typing import Dict, Any
 from datetime import datetime
 import uuid
+
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.models.avatar import (
     AvatarCreateRequest,
@@ -14,6 +17,7 @@ from app.models.avatar import (
     Measurements,
     ProcessingStatus,
 )
+from app.api.deps import get_current_user_id
 from app.services.supabase import supabase_service
 from app.services.runpod import runpod_service
 from app.config import get_settings
@@ -21,12 +25,15 @@ from app.config import get_settings
 settings = get_settings()
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/upload-photo")
+@limiter.limit("10/minute")
 async def upload_photo(
+    request: Request,
     file: UploadFile = File(...),
-    user_id: str = Form(...),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Upload a user photo to Supabase Storage using the service role key
@@ -62,32 +69,37 @@ jobs: Dict[str, Dict[str, Any]] = {}
 
 
 @router.post("/create", response_model=AvatarCreateResponse)
+@limiter.limit("5/minute")
 async def create_avatar(
-    request: AvatarCreateRequest,
-    background_tasks: BackgroundTasks
+    request: Request,
+    body: AvatarCreateRequest,
+    background_tasks: BackgroundTasks,
+    auth_user_id: str = Depends(get_current_user_id),
 ):
     """
     Start avatar creation process
     
-    1. Validates the request
+    1. Validates the request (user_id from JWT must match body)
     2. Updates fit_passport status to 'processing'
     3. Queues the job to RunPod (or mock)
     4. Returns job_id for status polling
     """
+    if body.user_id != auth_user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     # Generate job ID
     job_id = f"job-{uuid.uuid4().hex[:12]}"
     
     # Update fit_passport status
     await supabase_service.update_fit_passport_status(
-        user_id=request.user_id,
+        user_id=body.user_id,
         status="processing",
         progress_message="Starting avatar creation..."
     )
     
     # Store job info
     jobs[job_id] = {
-        "user_id": request.user_id,
+        "user_id": body.user_id,
         "status": ProcessingStatus.queued,
         "progress": 0,
         "message": "Preparing your avatar...",
@@ -102,12 +114,12 @@ async def create_avatar(
     background_tasks.add_task(
         process_avatar_job,
         job_id=job_id,
-        request=request
+        request=body
     )
     
     return AvatarCreateResponse(
         job_id=job_id,
-        user_id=request.user_id,
+        user_id=body.user_id,
         status=ProcessingStatus.queued,
         message="Avatar creation started",
         estimated_time_seconds=120
@@ -448,7 +460,9 @@ async def get_avatar_status(job_id: str):
 
 @router.get("/debug/test-upload")
 async def debug_test_upload():
-    """Diagnostic: test if Supabase storage upload works."""
+    """Diagnostic: test if Supabase storage upload works. Only available in debug mode."""
+    if not settings.debug:
+        raise HTTPException(status_code=404, detail="Not found")
     results = {}
     try:
         from app.config import get_settings

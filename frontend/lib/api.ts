@@ -1,9 +1,10 @@
 /**
  * Frontend API client — calls backend via /api/* (Next.js rewrites to NEXT_PUBLIC_API_URL).
  */
+import { getAccessToken } from './supabase-auth';
+
 const getBase = () => {
   let apiUrl = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '');
-  // Strip trailing /api so callers can always use /api/... paths
   if (apiUrl.endsWith('/api')) apiUrl = apiUrl.slice(0, -4);
   if (typeof window !== 'undefined') {
     return apiUrl || '';
@@ -20,10 +21,17 @@ async function fetchApi<T>(
   const url = params
     ? `${base}${path}?${new URLSearchParams(params)}`
     : `${base}${path}`;
+
+  const token = await getAccessToken();
+  const authHeaders: Record<string, string> = token
+    ? { Authorization: `Bearer ${token}` }
+    : {};
+
   const res = await fetch(url, {
     ...rest,
     headers: {
       'Content-Type': 'application/json',
+      ...authHeaders,
       ...(rest.headers as Record<string, string>),
     },
   });
@@ -395,9 +403,13 @@ export const garmentApi = {
     const formData = new FormData();
     formData.append('size', size);
     formData.append('file', file);
+    const tkn = await getAccessToken();
+    const hdrs: Record<string, string> = {};
+    if (tkn) hdrs['Authorization'] = `Bearer ${tkn}`;
     const res = await fetch(`${base}/api/garments/${garmentId}/upload`, {
       method: 'POST',
       body: formData,
+      headers: hdrs,
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -418,10 +430,16 @@ export async function uploadPhotoViaBackend(
   const formData = new FormData();
   formData.append('file', file);
   formData.append('user_id', userId);
+
+  const token = await getAccessToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   try {
     const res = await fetch(`${base}/api/avatar/upload-photo`, {
       method: 'POST',
       body: formData,
+      headers,
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -439,10 +457,15 @@ export async function createAvatarWithFallback(
   onProgress?: (progress: number, message: string) => void
 ): Promise<CreateAvatarResult> {
   const base = getBase();
+  const token = await getAccessToken();
+  const authHeaders: Record<string, string> = token
+    ? { Authorization: `Bearer ${token}` }
+    : {};
+
   try {
     const createRes = await fetch(`${base}/api/avatar/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({
         user_id: payload.user_id,
         photo_url: payload.photo_url,

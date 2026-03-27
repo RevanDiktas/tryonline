@@ -1,18 +1,18 @@
 """
-User addresses (Shopper Passport — shipping addresses).
-All routes require user_id so the frontend passes the authenticated user's id.
+User addresses (Shopper Passport -- shipping addresses).
+All routes require a valid Supabase JWT; user_id is extracted from the token.
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 
+from app.api.deps import get_current_user_id
 from app.services.supabase import supabase_service
 
 router = APIRouter()
 
 
 class AddressCreate(BaseModel):
-    user_id: str
     label: str
     name: str
     line1: str
@@ -25,7 +25,6 @@ class AddressCreate(BaseModel):
 
 
 class AddressUpdate(BaseModel):
-    user_id: str
     label: Optional[str] = None
     name: Optional[str] = None
     line1: Optional[str] = None
@@ -38,17 +37,17 @@ class AddressUpdate(BaseModel):
 
 
 @router.get("")
-async def list_addresses(user_id: str = Query(..., description="Current user id")):
-    """List all addresses for the user. Default first, then by created_at."""
+async def list_addresses(user_id: str = Depends(get_current_user_id)):
+    """List all addresses for the authenticated user."""
     addresses = await supabase_service.get_addresses(user_id)
     return {"addresses": addresses}
 
 
 @router.post("")
-async def create_address(body: AddressCreate):
-    """Create a new address. If is_default=True, other addresses are unset as default."""
+async def create_address(body: AddressCreate, user_id: str = Depends(get_current_user_id)):
+    """Create a new address for the authenticated user."""
     addr = await supabase_service.create_address(
-        user_id=body.user_id,
+        user_id=user_id,
         label=body.label.strip(),
         name=body.name.strip(),
         line1=body.line1.strip(),
@@ -65,11 +64,11 @@ async def create_address(body: AddressCreate):
 
 
 @router.patch("/{address_id}")
-async def update_address(address_id: str, body: AddressUpdate):
-    """Update an address. Verifies ownership via body.user_id."""
+async def update_address(address_id: str, body: AddressUpdate, user_id: str = Depends(get_current_user_id)):
+    """Update an address. Ownership verified via JWT user_id."""
     ok = await supabase_service.update_address(
         address_id=address_id,
-        user_id=body.user_id,
+        user_id=user_id,
         label=body.label.strip() if body.label else None,
         name=body.name.strip() if body.name else None,
         line1=body.line1.strip() if body.line1 else None,
@@ -82,17 +81,14 @@ async def update_address(address_id: str, body: AddressUpdate):
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Address not found or access denied")
-    addresses = await supabase_service.get_addresses(body.user_id)
+    addresses = await supabase_service.get_addresses(user_id)
     updated = next((a for a in addresses if str(a["id"]) == address_id), None)
     return {"address": updated or {"id": address_id}}
 
 
 @router.delete("/{address_id}")
-async def delete_address(
-    address_id: str,
-    user_id: str = Query(..., description="Current user id"),
-):
-    """Delete an address. Verifies ownership via user_id."""
+async def delete_address(address_id: str, user_id: str = Depends(get_current_user_id)):
+    """Delete an address. Ownership verified via JWT user_id."""
     ok = await supabase_service.delete_address(address_id, user_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Address not found or access denied")
