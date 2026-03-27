@@ -185,12 +185,13 @@ export async function signup(options: SignupOptions): Promise<{ user: User | nul
 
 export async function signInWithSocial(
   provider: 'google' | 'apple',
-  opts?: { widgetReturn?: string },
+  opts?: { widgetReturn?: string; widgetState?: string },
 ): Promise<{ url: string | null; error: string | null }> {
   let redirectTo = `${window.location.origin}/auth/callback`;
-  if (opts?.widgetReturn) {
-    redirectTo += `?widget_return=${encodeURIComponent(opts.widgetReturn)}`;
-  }
+  const params: string[] = [];
+  if (opts?.widgetReturn) params.push(`widget_return=${encodeURIComponent(opts.widgetReturn)}`);
+  if (opts?.widgetState) params.push(`widget_state=${encodeURIComponent(opts.widgetState)}`);
+  if (params.length) redirectTo += '?' + params.join('&');
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
     options: {

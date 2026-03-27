@@ -928,15 +928,23 @@
       return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile/i.test(ua) || touchOrNarrow;
     }
     function bindErrorSigninLinksInIframe() {
-      var inIframe = typeof window !== 'undefined' && window.self !== window.top;
-      if (!inIframe) return;
+      var isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+      if (!isInIframe) return;
       var wrap = document.getElementById('tryon-error-signin-wrap');
       if (!wrap) return;
       wrap.querySelectorAll('a.tryon-error-signin').forEach(function(a) {
         a.addEventListener('click', function(e) {
           e.preventDefault();
           var href = a.getAttribute('href');
-          if (href && href !== '#') window.location.href = href;
+          if (!href || href === '#') return;
+          var token = generateStateToken();
+          var url = href + (href.indexOf('?') >= 0 ? '&' : '?') + 'widget_state=' + encodeURIComponent(token);
+          var w = 500, h = 650;
+          var left = (screen.width - w) / 2;
+          var top = (screen.height - h) / 2;
+          var popup = window.open(url, 'tryon-signin', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',scrollbars=yes');
+          pollWidgetState(token);
+          if (!popup || popup.closed) window.location.href = url;
         });
       });
     }
@@ -1210,13 +1218,25 @@
       signinBtn.addEventListener('click', function(e) {
         e.preventDefault();
         if (inIframe) {
-          var url = buildWidgetSignInUrl(false);
-          window.location.href = url;
+          // Open email/password sign-in in a popup + poll for completion.
+          // This keeps the user on the PDP and avoids iframe navigation issues.
+          var token = generateStateToken();
+          var origin = window.location.origin || 'https://tryon.global';
+          var returnUrl = window.location.href;
+          var url = origin + '/widget-signin?return=' + encodeURIComponent(returnUrl)
+            + '&widget_state=' + encodeURIComponent(token)
+            + '&show_form=1';
+          var w = 500, h = 650;
+          var left = (screen.width - w) / 2;
+          var top = (screen.height - h) / 2;
+          var popup = window.open(url, 'tryon-signin', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',scrollbars=yes');
+          pollWidgetState(token);
+          if (!popup || popup.closed) {
+            window.location.href = url;
+          }
           return;
         }
-        if (!signinBtn.href || signinBtn.href === '#' || signinBtn.href === '') {
-          window.location.href = buildWidgetSignInUrl(false);
-        }
+        window.location.href = buildWidgetSignInUrl(false);
       });
     }
     // Close button on login gate
@@ -1230,36 +1250,92 @@
         }
       });
     }
-    // Social sign-in buttons on login gate.
-    // In a sandboxed iframe (Shopify), JavaScript window.open() is unreliable.
-    // Native <a target="_blank"> works with the sandbox allow-popups attribute,
-    // so we set href + target and let the browser handle the new-tab navigation.
+    // Social sign-in: open a popup for Google/Apple OAuth.
+    // Google's COOP headers nullify window.opener after navigating through
+    // their OAuth page, so we can't use postMessage.  BroadcastChannel is
+    // partitioned by top-level site (iframe vs popup have different partitions).
+    // Solution: the popup stores the user_id on the backend via a unique state
+    // token, and the iframe polls for it.
     var googleBtn = document.getElementById('tryon-google-btn');
     var appleBtn = document.getElementById('tryon-apple-btn');
-    function buildSocialSignInUrl(provider) {
-      var returnUrl = window.location.href;
-      return 'https://tryon.global/widget-signin?return=' + encodeURIComponent(returnUrl) + '&provider=' + provider;
-    }
-    if (googleBtn) {
-      googleBtn.href = buildSocialSignInUrl('google');
-      googleBtn.target = '_blank';
-      googleBtn.rel = 'noopener';
-    }
-    if (appleBtn) {
-      appleBtn.href = buildSocialSignInUrl('apple');
-      appleBtn.target = '_blank';
-      appleBtn.rel = 'noopener';
+    var _widgetStatePollTimer = null;
+    var _widgetStateVisHandler = null;
+
+    function generateStateToken() {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+      return 'ws-' + Math.random().toString(36).substring(2) + Date.now().toString(36);
     }
 
+    function reloadWithUser(userId, displayName) {
+      var u = new URL(window.location.href);
+      u.searchParams.set('user_id', userId);
+      if (displayName) u.searchParams.set('display_name', displayName);
+      window.location.href = u.toString();
+    }
+
+    function pollWidgetState(token) {
+      if (_widgetStatePollTimer) clearInterval(_widgetStatePollTimer);
+      var apiBase = config.apiUrl || '';
+      var pollUrl = apiBase + '/api/auth/widget-state/' + encodeURIComponent(token);
+
+      function checkState() {
+        fetch(pollUrl).then(function(r) { return r.json(); }).then(function(data) {
+          if (data && data.user_id) {
+            if (_widgetStatePollTimer) clearInterval(_widgetStatePollTimer);
+            if (_widgetStateVisHandler) document.removeEventListener('visibilitychange', _widgetStateVisHandler);
+            reloadWithUser(data.user_id, data.display_name);
+          }
+        }).catch(function() {});
+      }
+
+      _widgetStatePollTimer = setInterval(checkState, 2000);
+      setTimeout(function() { if (_widgetStatePollTimer) clearInterval(_widgetStatePollTimer); }, 5 * 60 * 1000);
+
+      _widgetStateVisHandler = function() { if (!document.hidden) checkState(); };
+      document.addEventListener('visibilitychange', _widgetStateVisHandler);
+    }
+
+    function openSocialSignIn(provider) {
+      var token = generateStateToken();
+      var origin = window.location.origin || 'https://tryon.global';
+      var returnUrl = window.location.href;
+      var url = origin + '/widget-signin?return=' + encodeURIComponent(returnUrl)
+        + '&provider=' + encodeURIComponent(provider)
+        + '&widget_state=' + encodeURIComponent(token);
+
+      var w = 500, h = 650;
+      var left = (screen.width - w) / 2;
+      var top = (screen.height - h) / 2;
+      var popup = window.open(url, 'tryon-signin', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',scrollbars=yes');
+
+      pollWidgetState(token);
+
+      if (!popup || popup.closed) {
+        console.warn('[TryOn] Popup blocked, falling back to redirect');
+        window.location.href = url;
+      }
+    }
+
+    if (googleBtn) {
+      googleBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        openSocialSignIn('google');
+      });
+    }
+    if (appleBtn) {
+      appleBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        openSocialSignIn('apple');
+      });
+    }
+
+    // Legacy postMessage handler (still works if window.opener is available)
     window.addEventListener('message', function(event) {
       if (event.data && event.data.type === 'TRYON_USER_ID' && event.data.user_id) {
         try {
           if (event.data.display_name) sessionStorage.setItem('tryon_user_name', event.data.display_name);
         } catch (e) {}
-        var u = new URL(window.location.href);
-        u.searchParams.set('user_id', event.data.user_id);
-        if (event.data.display_name) u.searchParams.set('display_name', event.data.display_name);
-        window.location.href = u.toString();
+        reloadWithUser(event.data.user_id, event.data.display_name);
       }
     });
 

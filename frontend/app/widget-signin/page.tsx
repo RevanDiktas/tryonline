@@ -21,6 +21,7 @@ export default function WidgetSignInPage() {
   const returnUrl = searchParams.get('return');
   const showForm = searchParams.get('show_form') === '1';
   const providerParam = searchParams.get('provider') as 'google' | 'apple' | null;
+  const widgetState = searchParams.get('widget_state');
 
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -31,11 +32,23 @@ export default function WidgetSignInPage() {
   const isPopup = typeof window !== 'undefined' && !!window.opener;
   const isIframeReturn = typeof window !== 'undefined' && !!returnUrl;
 
+  const completeWidgetState = async (userId: string, displayName: string) => {
+    if (!widgetState) return;
+    try {
+      await fetch(`/api/auth/widget-state/${widgetState}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, display_name: displayName }),
+      });
+    } catch (_) { /* best-effort */ }
+  };
+
   const handleSocialLogin = async (provider: 'google' | 'apple') => {
     setSocialLoading(provider);
     setErrors({});
     const { url, error } = await signInWithSocial(provider, {
       widgetReturn: returnUrl || undefined,
+      widgetState: widgetState || undefined,
     });
     if (error || !url) {
       setErrors({ form: error || 'Failed to start sign-in' });
@@ -59,6 +72,12 @@ export default function WidgetSignInPage() {
         const user = await getCurrentUser();
         if (user) {
           const displayName = user.name || user.email?.split('@')[0] || 'User';
+
+          if (widgetState) {
+            await completeWidgetState(user.id, displayName);
+            setTimeout(() => { try { window.close(); } catch (_) {} }, 400);
+            return;
+          }
           if (isPopup && window.opener) {
             try {
               window.opener.postMessage({ type: 'TRYON_USER_ID', user_id: user.id, display_name: displayName }, '*');
@@ -106,6 +125,12 @@ export default function WidgetSignInPage() {
         setLoading(false);
         return;
       }
+      if (user && widgetState) {
+        const displayName = user.name || user.email?.split('@')[0] || 'User';
+        await completeWidgetState(user.id, displayName);
+        setTimeout(() => { try { window.close(); } catch (_) {} }, 400);
+        return;
+      }
       if (user && isPopup && window.opener) {
         const displayName = user.name || user.email?.split('@')[0] || 'User';
         try {
@@ -148,7 +173,7 @@ export default function WidgetSignInPage() {
     );
   }
 
-  if (!isPopup && !returnUrl) {
+  if (!isPopup && !returnUrl && !widgetState) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center p-4">
         <div className="text-center">

@@ -33,13 +33,30 @@ function AuthCallbackInner() {
         return;
       }
 
-      // If the user came from the widget sign-in flow
       const widgetReturn = searchParams.get('widget_return');
-      if (widgetReturn) {
+      const widgetState = searchParams.get('widget_state');
+
+      if (widgetReturn || widgetState) {
         const displayName = user.name || user.email?.split('@')[0] || 'User';
 
-        // When opened as a popup (social login from widget iframe),
-        // post user_id back to the opener and close the popup.
+        // Backend-mediated state exchange: the widget iframe polls
+        // /api/auth/widget-state/{token} and picks up the user_id.
+        // This works even when Google's COOP nullifies window.opener.
+        if (widgetState) {
+          try {
+            await fetch(`/api/auth/widget-state/${widgetState}/complete`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: user.id, display_name: displayName }),
+            });
+          } catch (_) { /* best-effort */ }
+
+          if (!cancelled) setMessage('Signed in! You can close this window.');
+          setTimeout(() => { try { window.close(); } catch (_) {} }, 600);
+          return;
+        }
+
+        // Legacy fallback: try postMessage if opener is accessible
         if (window.opener) {
           try {
             window.opener.postMessage(
@@ -51,9 +68,11 @@ function AuthCallbackInner() {
           return;
         }
 
-        const sep = widgetReturn.includes('?') ? '&' : '?';
-        window.location.href = widgetReturn + sep + 'user_id=' + encodeURIComponent(user.id) + '&display_name=' + encodeURIComponent(displayName);
-        return;
+        if (widgetReturn) {
+          const sep = widgetReturn.includes('?') ? '&' : '?';
+          window.location.href = widgetReturn + sep + 'user_id=' + encodeURIComponent(user.id) + '&display_name=' + encodeURIComponent(displayName);
+          return;
+        }
       }
 
       if (!isProfileComplete(user)) {
