@@ -22,6 +22,81 @@ export default function OnboardingPage() {
   const [progressMessage, setProgressMessage] = useState('');
   const [error, setError] = useState('');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [timerDuration, setTimerDuration] = useState(5);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [flashActive, setFlashActive] = useState(false);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setShowCamera(true);
+      setError('');
+    } catch {
+      setError('Could not access camera. Please upload a photo instead.');
+    }
+  };
+
+  const stopCamera = () => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setShowCamera(false);
+    setCountdown(null);
+  };
+
+  const capturePhoto = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+
+    setFlashActive(true);
+    setTimeout(() => setFlashActive(false), 200);
+
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const file = new File([blob], 'camera-photo.jpg', { type: 'image/jpeg' });
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(blob));
+      stopCamera();
+    }, 'image/jpeg', 0.92);
+  };
+
+  const startCountdown = () => {
+    setCountdown(timerDuration);
+    let remaining = timerDuration;
+    countdownRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        if (countdownRef.current) clearInterval(countdownRef.current);
+        countdownRef.current = null;
+        setCountdown(null);
+        capturePhoto();
+      } else {
+        setCountdown(remaining);
+      }
+    }, 1000);
+  };
   const [measurementsResult, setMeasurementsResult] = useState<{
     height: number;
     chest?: number;
@@ -395,17 +470,32 @@ export default function OnboardingPage() {
                       </button>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full h-48 md:h-32 border-2 border-dashed border-gray-300 rounded-2xl flex flex-col items-center justify-center gap-2 hover:border-black hover:bg-gray-50 transition"
-                    >
-                      <div className="w-12 h-12 md:w-10 md:h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                        <svg className="w-6 h-6 md:w-5 md:h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="space-y-3">
+                      <button
+                        onClick={startCamera}
+                        className="w-full h-28 md:h-24 border-2 border-black rounded-2xl flex flex-col items-center justify-center gap-2 bg-black text-white hover:bg-gray-800 transition"
+                      >
+                        <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                        </svg>
+                        <span className="text-sm font-medium">Take Photo with Timer</span>
+                      </button>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 h-px bg-gray-200" />
+                        <span className="text-xs text-gray-400">or</span>
+                        <div className="flex-1 h-px bg-gray-200" />
+                      </div>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full h-16 md:h-14 border-2 border-dashed border-gray-300 rounded-2xl flex items-center justify-center gap-2 hover:border-black hover:bg-gray-50 transition"
+                      >
+                        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
-                      </div>
-                      <span className="text-gray-500 text-sm">Click to upload photo</span>
-                    </button>
+                        <span className="text-gray-500 text-sm">Upload from gallery</span>
+                      </button>
+                    </div>
                   )}
                   <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
                 </div>
@@ -549,6 +639,98 @@ export default function OnboardingPage() {
           )}
         </div>
       </div>
+
+      {/* Fullscreen camera overlay */}
+      {showCamera && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+          {/* Camera feed */}
+          <div className="flex-1 relative overflow-hidden">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+
+            {/* Flash effect */}
+            {flashActive && (
+              <div className="absolute inset-0 bg-white z-30 animate-pulse" />
+            )}
+
+            {/* Countdown overlay */}
+            {countdown !== null && (
+              <div className="absolute inset-0 flex items-center justify-center z-20">
+                <div className="relative">
+                  <span
+                    key={countdown}
+                    className="text-white text-[120px] font-bold drop-shadow-[0_4px_24px_rgba(0,0,0,0.5)] animate-[countPulse_1s_ease-out]"
+                    style={{ animationFillMode: 'forwards' }}
+                  >
+                    {countdown}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Close button */}
+            <button
+              onClick={stopCamera}
+              className="absolute top-4 left-4 z-20 w-10 h-10 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* A-pose hint */}
+            {countdown === null && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-black/50 backdrop-blur-sm rounded-full px-4 py-2">
+                <p className="text-white text-xs text-center">Position in A-pose, then press start</p>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom controls */}
+          {countdown === null && (
+            <div className="bg-black/80 backdrop-blur-sm px-6 py-6 pb-10 flex flex-col items-center gap-4">
+              {/* Timer selector */}
+              <div className="flex items-center gap-3">
+                <span className="text-white/60 text-xs">Timer:</span>
+                {[3, 5, 10].map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setTimerDuration(t)}
+                    className={`w-10 h-10 rounded-full text-sm font-semibold transition ${
+                      timerDuration === t
+                        ? 'bg-white text-black'
+                        : 'bg-white/20 text-white hover:bg-white/30'
+                    }`}
+                  >
+                    {t}s
+                  </button>
+                ))}
+              </div>
+
+              {/* Shutter button */}
+              <button
+                onClick={startCountdown}
+                className="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center transition hover:scale-105 active:scale-95"
+              >
+                <div className="w-16 h-16 rounded-full bg-white" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <style jsx>{`
+        @keyframes countPulse {
+          0% { transform: scale(0.5); opacity: 0; }
+          30% { transform: scale(1.1); opacity: 1; }
+          100% { transform: scale(1); opacity: 0.3; }
+        }
+      `}</style>
     </div>
   );
 }
