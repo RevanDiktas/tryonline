@@ -1230,50 +1230,25 @@
         }
       });
     }
-    // Social sign-in buttons on login gate
+    // Social sign-in buttons on login gate.
+    // In a sandboxed iframe (Shopify), JavaScript window.open() is unreliable.
+    // Native <a target="_blank"> works with the sandbox allow-popups attribute,
+    // so we set href + target and let the browser handle the new-tab navigation.
     var googleBtn = document.getElementById('tryon-google-btn');
     var appleBtn = document.getElementById('tryon-apple-btn');
     function buildSocialSignInUrl(provider) {
       var returnUrl = window.location.href;
-      var origin = 'https://tryon.global';
-      try { if (window.location.origin && window.location.origin !== 'null') origin = window.location.origin; } catch(e) {}
-      return origin + '/widget-signin?return=' + encodeURIComponent(returnUrl) + '&provider=' + provider;
-    }
-    function handleSocialClick(provider) {
-      var url = buildSocialSignInUrl(provider);
-      if (inIframe) {
-        var w = 480, h = 640;
-        var left = (screen.width - w) / 2, topPos = (screen.height - h) / 2;
-        var popup = window.open(url, 'tryon_social_auth', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + topPos);
-        if (!popup || popup.closed) {
-          // Popup blocked by sandbox — navigate the top-level page instead
-          try { window.top.location.href = url; } catch(e) {
-            window.location.href = url;
-          }
-        }
-      } else {
-        window.location.href = url;
-      }
+      return 'https://tryon.global/widget-signin?return=' + encodeURIComponent(returnUrl) + '&provider=' + provider;
     }
     if (googleBtn) {
-      googleBtn.removeAttribute('href');
-      googleBtn.style.cursor = 'pointer';
-      googleBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        handleSocialClick('google');
-        return false;
-      });
+      googleBtn.href = buildSocialSignInUrl('google');
+      googleBtn.target = '_blank';
+      googleBtn.rel = 'noopener';
     }
     if (appleBtn) {
-      appleBtn.removeAttribute('href');
-      appleBtn.style.cursor = 'pointer';
-      appleBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        handleSocialClick('apple');
-        return false;
-      });
+      appleBtn.href = buildSocialSignInUrl('apple');
+      appleBtn.target = '_blank';
+      appleBtn.rel = 'noopener';
     }
 
     window.addEventListener('message', function(event) {
