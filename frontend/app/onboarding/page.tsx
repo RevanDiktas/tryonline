@@ -34,6 +34,28 @@ export default function OnboardingPage() {
     thigh?: number;
     torso_length?: number;
   } | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (step === 'processing') {
+      setElapsedSeconds(0);
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [step]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -451,9 +473,17 @@ export default function OnboardingPage() {
               <h3 className="text-black text-lg font-medium mb-2">
                 {progressMessage || 'Creating your avatar and extracting measurements...'}
               </h3>
-              <p className="text-gray-400 text-sm">
-                This may take a moment
-              </p>
+              <div className="flex items-center justify-center gap-2 mt-3">
+                <div className="w-2 h-2 rounded-full bg-black animate-pulse" />
+                <span className="text-gray-500 text-sm font-mono tabular-nums">
+                  {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:{String(elapsedSeconds % 60).padStart(2, '0')}
+                </span>
+              </div>
+              {elapsedSeconds > 60 && (
+                <p className="text-gray-400 text-xs mt-2">
+                  Processing is busy, hang tight
+                </p>
+              )}
             </div>
           )}
 
