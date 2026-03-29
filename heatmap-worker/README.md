@@ -19,10 +19,10 @@ That fork ships under **NVIDIA’s license** (see fork `LICENSE.md`). It may res
 
 ## Build the image (any machine with Docker)
 
-From the **repository root** (`mvp_pipeline/`):
+From the **repository root** (`mvp_pipeline/`). **Context must be `heatmap-worker/`** (small upload; repo root caused RunPod builds to fail early):
 
 ```bash
-docker build -f heatmap-worker/Dockerfile -t tryonline-heatmap-worker:phase0.5 .
+docker build -f heatmap-worker/Dockerfile -t tryonline-heatmap-worker:phase0.5 heatmap-worker
 ```
 
 Optional: pin the fork to a commit (reproducible builds):
@@ -30,7 +30,7 @@ Optional: pin the fork to a commit (reproducible builds):
 ```bash
 docker build -f heatmap-worker/Dockerfile \
   --build-arg GARMENT_WARP_REF=<git-sha> \
-  -t tryonline-heatmap-worker:phase0.5 .
+  -t tryonline-heatmap-worker:phase0.5 heatmap-worker
 ```
 
 **Note:** First build may take **tens of minutes** (native compile). Use a machine or CI with enough CPU/RAM.
@@ -58,10 +58,10 @@ docker run --rm --gpus all tryonline-heatmap-worker:phase0.5 \
 1. **Serverless** → **+ New endpoint** → **Import Git Repository**.
 2. Select repo **`RevanDiktas/tryonline`** (or your org name + repo).
 3. **Branch:** **`feature/heatmap`** (tracks this worker on RunPod).
-4. **Dockerfile path:** `heatmap-worker/Dockerfile`  
-   RunPod builds with the **repository root** as context, so `COPY heatmap-worker/...` in the Dockerfile stays valid.
-5. **GPU:** pick a **CUDA** instance (e.g. RTX 4000 class); worker needs a real GPU at **runtime** (build uses `nvcc`, no GPU required during `docker build` on RunPod’s builders).
-6. Deploy and open the endpoint → **Builds** tab until status **Completed** (first build can take **a long time**; RunPod allows up to **160 minutes**).
+4. **Dockerfile path:** `heatmap-worker/Dockerfile`
+5. **Build context:** **`heatmap-worker`** (directory path in the repo — **not** `.`). Using the repo root made the context huge and caused **early build failures** on RunPod.
+6. **GPU:** pick a **CUDA** instance (e.g. RTX 4000 class); worker needs a real GPU at **runtime** (build uses `nvcc`, no GPU required during `docker build` on RunPod’s builders).
+7. Deploy and open the endpoint → **Builds** tab until status **Completed** (first build can take **a long time**; RunPod allows up to **160 minutes**).
 
 ### After deploy: trigger builds / updates
 

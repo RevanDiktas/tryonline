@@ -1,0 +1,5 @@
+# Context is this directory only; keep uploads tiny for RunPod.
+__pycache__/
+*.pyc
+.git
+*.md
