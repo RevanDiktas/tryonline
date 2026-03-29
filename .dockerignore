@@ -1,5 +1,5 @@
 # Root .dockerignore: keep Docker build context small when building from repo root.
-# Backend image (root Dockerfile) COPYs backend/; RunPod heatmap uses Dockerfile.runpod-heatmap + heatmap-worker/.
+# Backend image (root Dockerfile) COPYs backend/; RunPod heatmap uses heatmap-runpod/Dockerfile + heatmap-worker/.
 frontend/
 shopify_app/
 avatar-creation/

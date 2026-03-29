@@ -58,7 +58,7 @@ docker run --rm --gpus all tryonline-heatmap-worker:phase0.5 \
 1. **Serverless** → **+ New endpoint** → **Import Git Repository**.
 2. Select repo **`RevanDiktas/tryonline`** (or your org name + repo).
 3. **Branch:** **`feature/heatmap`** (tracks this worker on RunPod).
-4. **Dockerfile path:** **`Dockerfile.runpod-heatmap`** (repository root). RunPod’s GitHub builder often uses the **repo root** as context; `heatmap-worker/Dockerfile` + subfolder context then fails immediately with almost no logs.
+4. **Dockerfile path:** **`heatmap-runpod/Dockerfile`**. Use a normal `Dockerfile` filename inside a folder (see `docs/research/RUNPOD_HEATMAP_BUILD_RESEARCH.md`); odd root filenames + `runpod/pytorch` base were suspected when builds died right after “Creating cache directory.”
 5. **Build context:** **`.`** (repo root) or leave empty if that defaults to root.
 6. **GPU:** pick a **CUDA** instance (e.g. RTX 4000 class); worker needs a real GPU at **runtime** (build uses `nvcc`, no GPU required during `docker build` on RunPod’s builders).
 7. Deploy and open the endpoint → **Builds** tab until status **Completed** (first build can take **a long time**; RunPod allows up to **160 minutes**).

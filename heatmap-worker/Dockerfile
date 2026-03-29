@@ -1,16 +1,15 @@
 # Heatmap worker (Phase 0.5): NVIDIA Warp fork from GarmentCode + GPU smoke.
 # Build context: THIS DIRECTORY ONLY (heatmap-worker/) — keeps RunPod context small.
 # Local:  docker build -f heatmap-worker/Dockerfile heatmap-worker/
-# RunPod: use repo-root Dockerfile.runpod-heatmap + context "." (RunPod often ignores subdir context).
+# RunPod: use heatmap-runpod/Dockerfile + repo-root context (see docs/research/RUNPOD_HEATMAP_BUILD_RESEARCH.md).
 #
 # First build can take a long time (compiles Warp native libs + optional LLVM stack).
 
-FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
+FROM pytorch/pytorch:2.1.0-cuda11.8-cudnn8-devel
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     git-lfs \
-    build-essential \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 

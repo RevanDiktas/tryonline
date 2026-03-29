@@ -1,18 +1,17 @@
-# RunPod Serverless: heatmap worker (Garment-Warp + handler).
-# RunPod GitHub builds appear to use REPO ROOT as context; subdirectory context
-# breaks COPY. Use this file from the console, not heatmap-worker/Dockerfile.
+# RunPod Serverless (GitHub integration): heatmap worker — Garment-Warp + RunPod handler.
 #
-# Console: Dockerfile path = Dockerfile.runpod-heatmap, build context = . (or empty)
-# Local:    docker build -f Dockerfile.runpod-heatmap -t tryonline-heatmap .
+# Use a NORMAL path/name: heatmap-runpod/Dockerfile  (some RunPod flows choke on odd filenames.)
+# Build context: repository root (.)
 #
-# heatmap-worker/Dockerfile stays for local builds with context heatmap-worker/
+# Local: docker build --platform linux/amd64 -f heatmap-runpod/Dockerfile -t tryonline-heatmap .
+#
+# Public Docker Hub base (RunPod docs: avoid private registries; runpod/* pulls may fail on builders).
 
-FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
+FROM pytorch/pytorch:2.1.0-cuda11.8-cudnn8-devel
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     git-lfs \
-    build-essential \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
