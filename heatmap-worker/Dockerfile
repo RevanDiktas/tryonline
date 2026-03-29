@@ -32,8 +32,7 @@ WORKDIR /workspace
 COPY requirements.txt /workspace/requirements.txt
 RUN pip install --no-cache-dir -r /workspace/requirements.txt
 
-COPY scripts/ /workspace/scripts/
-COPY handler.py /workspace/handler.py
+COPY handler.py worker_core.py load_assets.py /workspace/
 
 ENV PYTHONUNBUFFERED=1
 CMD ["python", "-u", "/workspace/handler.py"]

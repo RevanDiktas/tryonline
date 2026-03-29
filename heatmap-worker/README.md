@@ -41,7 +41,7 @@ Default image `CMD` is **`handler.py`** (RunPod serverless loop). For a **one-sh
 
 ```bash
 docker run --rm --gpus all tryonline-heatmap-worker:phase0.5 \
-  python -u /workspace/scripts/smoke_gpu.py
+  python -u -c "from worker_core import run_smoke; raise SystemExit(run_smoke()[0])"
 ```
 
 ## Run on RunPod Serverless (recommended flow)

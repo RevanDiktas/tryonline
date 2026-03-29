@@ -1,5 +1,11 @@
 # RunPod GitHub build failures (heatmap worker) — research notes
 
+## Mental model (how this is supposed to work)
+
+1. **You push code to GitHub** — same as any other service.
+2. **RunPod does not run “a script that imports another script” in a special way** — it starts **one container** whose `CMD` runs **`python handler.py`**. That file calls `runpod.serverless.start(...)`. Everything else is normal Python: modules next to `handler.py` in `/workspace` are imported with plain `import`.
+3. **GitHub Actions → GHCR** is optional CI: it builds the same Dockerfile and pushes an image so RunPod can **pull a prebuilt image** instead of using RunPod’s flaky “build from GitHub” button.
+
 ## Symptom
 
 Serverless **Build Failed** within ~10–30s. UI logs often stop after:

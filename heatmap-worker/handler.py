@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """
-RunPod Serverless entrypoint (Phase 0.5+).
+RunPod Serverless entrypoint — single process, normal imports (all modules in /workspace).
+
 Jobs: input.action == "smoke" (default), or "load_assets" with body_url + garment_url.
 """
 from __future__ import annotations
 
-import sys
-
-# /workspace/scripts holds smoke_gpu.py (not installed as a package)
-sys.path.insert(0, "/workspace/scripts")
-
 import runpod
 
 from load_assets import _load_mesh_from_url, mesh_stats
-from smoke_gpu import run_smoke
+from worker_core import run_smoke
 
 
 def handler(job):

@@ -33,8 +33,8 @@ WORKDIR /workspace
 COPY heatmap-worker/requirements.txt /workspace/requirements.txt
 RUN pip install --no-cache-dir -r /workspace/requirements.txt
 
-COPY heatmap-worker/scripts/ /workspace/scripts/
-COPY heatmap-worker/handler.py /workspace/handler.py
+# Flat layout: one process, normal imports (no handler → scripts/ path hack).
+COPY heatmap-worker/handler.py heatmap-worker/worker_core.py heatmap-worker/load_assets.py /workspace/
 
 ENV PYTHONUNBUFFERED=1
 CMD ["python", "-u", "/workspace/handler.py"]
