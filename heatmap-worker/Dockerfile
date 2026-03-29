@@ -32,6 +32,7 @@ COPY heatmap-worker/requirements.txt /workspace/requirements.txt
 RUN pip install --no-cache-dir -r /workspace/requirements.txt
 
 COPY heatmap-worker/scripts/ /workspace/scripts/
+COPY heatmap-worker/handler.py /workspace/handler.py
 
 ENV PYTHONUNBUFFERED=1
-CMD ["python", "-u", "/workspace/scripts/smoke_gpu.py"]
+CMD ["python", "-u", "/workspace/handler.py"]

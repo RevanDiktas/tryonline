@@ -37,22 +37,61 @@ docker build -f heatmap-worker/Dockerfile \
 
 ## Run locally (needs NVIDIA GPU + nvidia-docker)
 
+Default image `CMD` is **`handler.py`** (RunPod serverless loop). For a **one-shot smoke** without RunPod:
+
 ```bash
-docker run --rm --gpus all tryonline-heatmap-worker:phase0.5
+docker run --rm --gpus all tryonline-heatmap-worker:phase0.5 \
+  python -u /workspace/scripts/smoke_gpu.py
 ```
 
-## Run on RunPod
+## Run on RunPod Serverless (recommended flow)
 
-1. Push the branch so RunPod (or your registry build) can clone this repo.
-2. **Serverless / Pod**: use the same `docker build` command (or point RunPod’s build at `heatmap-worker/Dockerfile` with **build context = repo root**).
-3. **Start command**: default `CMD` already runs `scripts/smoke_gpu.py`.
-4. After smoke passes, run **asset load** (signed Supabase URLs):
+**Do not reuse the existing `tryonline` avatar endpoint** for this image unless you intend to replace that worker. Create a **separate endpoint** (e.g. `tryonline-heatmap`) so builds and GPU settings stay independent.
 
-   ```bash
-   python /workspace/scripts/load_assets.py \
-     --body-url "https://..." \
-     --garment-url "https://..."
-   ```
+### Before the console
+
+1. **GitHub → RunPod:** [Settings → Connections](https://console.runpod.io/user/settings) → connect GitHub and allow access to **`tryonline`** (your repo).
+2. **Branch pushed:** e.g. `feature/warp-heatmap-worker` with this `heatmap-worker/` folder.
+
+### In the RunPod console
+
+1. **Serverless** → **+ New endpoint** → **Import Git Repository**.
+2. Select repo **`RevanDiktas/tryonline`** (or your org name + repo).
+3. **Branch:** `feature/warp-heatmap-worker` (or whatever tracks this worker).
+4. **Dockerfile path:** `heatmap-worker/Dockerfile`  
+   RunPod builds with the **repository root** as context, so `COPY heatmap-worker/...` in the Dockerfile stays valid.
+5. **GPU:** pick a **CUDA** instance (e.g. RTX 4000 class); worker needs a real GPU at **runtime** (build uses `nvcc`, no GPU required during `docker build` on RunPod’s builders).
+6. Deploy and open the endpoint → **Builds** tab until status **Completed** (first build can take **a long time**; RunPod allows up to **160 minutes**).
+
+### After deploy: trigger builds / updates
+
+RunPod’s GitHub integration typically **builds from a [GitHub Release](https://docs.runpod.io/serverless/github-integration#update-your-endpoint)**, not every push. After pushing commits, **create a release** (or use your team’s documented “redeploy” action) so a new image builds.
+
+### Test a job (smoke)
+
+Send a job whose `input` is:
+
+```json
+{ "input": { "action": "smoke" } }
+```
+
+Expect `ok: true` and a `devices` list in the output.
+
+### Test asset load (signed URLs)
+
+```json
+{
+  "input": {
+    "action": "load_assets",
+    "body_url": "https://.../body_apose.obj",
+    "garment_url": "https://.../m.glb"
+  }
+}
+```
+
+### Optional: Pods instead of Serverless
+
+You can start a **GPU Pod** with the same image from RunPod’s registry (after one successful Serverless build) and override command to `python /workspace/scripts/smoke_gpu.py` for quick manual checks—no `runpod` job queue involved.
 
 ## Next (Phase 1)
 

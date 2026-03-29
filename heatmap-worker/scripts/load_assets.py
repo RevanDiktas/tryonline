@@ -23,7 +23,7 @@ def _load_mesh_from_url(url: str, suffix: str) -> trimesh.Trimesh:
         f.write(data)
         path = f.name
     try:
-        loaded = trimesh.load(path, process=False, force="mesh")
+        loaded = trimesh.load(path, process=False)
     finally:
         Path(path).unlink(missing_ok=True)
 
@@ -39,10 +39,15 @@ def _load_mesh_from_url(url: str, suffix: str) -> trimesh.Trimesh:
     return mesh
 
 
-def _print_mesh(name: str, mesh: trimesh.Trimesh) -> None:
+def mesh_stats(name: str, mesh: trimesh.Trimesh) -> dict:
     v = np.asarray(mesh.vertices, dtype=np.float64)
     h = float(v[:, 1].max() - v[:, 1].min())
-    print(f"{name}: verts={len(v)} faces={len(mesh.faces)}  bbox_y_extents_mm≈{h:.1f} (assuming mm units)")
+    return {
+        "name": name,
+        "vertices": int(len(v)),
+        "faces": int(len(mesh.faces)),
+        "bbox_y_extent_assumed_mm": round(h, 2),
+    }
 
 
 def main() -> int:
@@ -58,8 +63,8 @@ def main() -> int:
         print("Load failed:", e, file=sys.stderr)
         return 1
 
-    _print_mesh("body", body)
-    _print_mesh("garment", garment)
+    print(mesh_stats("body", body))
+    print(mesh_stats("garment", garment))
     print("Asset load OK (no simulation).")
     return 0
 
