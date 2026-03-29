@@ -55,3 +55,36 @@ jobs:
           tags: |
             ${{ steps.n.outputs.image }}:latest
             ${{ steps.n.outputs.image }}:${{ github.sha }}
+
+  # Tiny image (~1 min) — proves GHCR + RunPod registry deploy works even when full Warp build fails.
+  build-minimal:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image name (GHCR must be lowercase)
+        id: n
+        run: |
+          o="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "image=ghcr.io/${o}/tryonline-heatmap-minimal" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: heatmap-runpod/Dockerfile.minimal
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.n.outputs.image }}:latest
+            ${{ steps.n.outputs.image }}:${{ github.sha }}

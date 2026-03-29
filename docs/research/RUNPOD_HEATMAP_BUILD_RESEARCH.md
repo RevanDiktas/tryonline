@@ -52,6 +52,8 @@ From [Deploy workers from Docker Hub](https://docs.runpod.io/serverless/workers/
 
 That duration is **too short** for a real `docker build` (even pulling a base image). It usually means **pre-build validation** failed, a **transient builder error**, or the UI is not showing stderr. Treat GitHub-integrated builds as unreliable until you see `Step 1/N` lines.
 
+**Isolation test:** point RunPod at **`heatmap-runpod/Dockerfile.minimal`** (same repo, context `.`). It only installs `runpod` on `python:3.10-slim`. If that **still** fails after “Creating cache directory”, the bug is entirely on **RunPod’s GitHub build path** — escalate to support with logs; do not keep changing application Dockerfiles.
+
 ## Fallback if GitHub builds keep failing
 
 ### A) GitHub Actions → GHCR (in this repo)

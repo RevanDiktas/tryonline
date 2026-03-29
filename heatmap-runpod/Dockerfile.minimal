@@ -1,0 +1,15 @@
+# Smallest possible worker: public base, pip install runpod, ~30s build.
+# RunPod console: Dockerfile path = heatmap-runpod/Dockerfile.minimal , context = .
+#
+# If THIS still fails right after "Creating cache directory", the problem is
+# RunPod's GitHub build service (or account/repo settings), not heatmap/Warp.
+
+FROM python:3.10-slim
+
+RUN pip install --no-cache-dir "runpod>=1.6.0"
+
+WORKDIR /workspace
+COPY heatmap-runpod/minimal_handler.py /workspace/handler.py
+
+ENV PYTHONUNBUFFERED=1
+CMD ["python", "-u", "/workspace/handler.py"]
