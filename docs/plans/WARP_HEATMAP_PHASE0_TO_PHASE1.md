@@ -25,7 +25,7 @@
 
 Starter layout in-repo: **`heatmap-worker/`** (see `heatmap-worker/README.md`).
 
-1. **Branch** (e.g. `feature/warp-heatmap-worker`) — worker code can live in `avatar-creation/` or new top-level `heatmap-worker/` (single responsibility: sim + export).
+1. **Branch** (e.g. `feature/heathmap`) — worker code can live in `avatar-creation/` or new top-level `heatmap-worker/` (single responsibility: sim + export).
 2. **Dockerfile** — CUDA **devel** image; clone **NvidiaWarp-GarmentCode**, `python build_lib.py`, `pip install -e .`; plus `trimesh` / `requests` (see `heatmap-worker/Dockerfile`).
 3. **RunPod smoke test** — one-shot script: `import warp as wp`; allocate a tiny array on GPU; log success.
 4. **Asset pull** — script accepts **signed URLs** or local paths; downloads **`body_apose.obj`** + **`m.glb`**; loads vertices/faces; logs **bounding box** and **vertex count** (sanity: heights ~order 10³ mm).
