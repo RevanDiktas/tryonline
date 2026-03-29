@@ -42,7 +42,7 @@ More context: `docs/research/RUNPOD_HEATMAP_BUILD_RESEARCH.md`.
 You keep **`RUNPOD_HEATMAP_ENDPOINT_ID`**; only the **image** changes.
 
 **Option 1 — RunPod builds from GitHub (often enough RAM on their builders)**  
-1. Endpoint → **Edit** → source **GitHub**, branch that contains this repo layout (e.g. **`feature/warpheatmap`**, **`feature/heatmap`**).  
+1. Endpoint → **Edit** → source **GitHub**, branch **`feature/heatmap`**.  
 2. **Dockerfile path:** `heatmap-runpod/Dockerfile` (not `Dockerfile.minimal`).  
 3. **Context:** `.` (repo root).  
 4. Save → **Rebuild**. First build can take **15–40+ minutes** (clone Garment-Warp + CUDA compile).

@@ -8,7 +8,7 @@ That fork ships under **NVIDIA’s license** (see fork `LICENSE.md`). It may res
 
 ## What you do in Git (this repo)
 
-1. **Branch:** use **`feature/heatmap`** on RunPod (canonical name for this worker; `feature/warp-heatmap-worker` / `feature/warpheatmap` may still exist as aliases).
+1. **Branch:** use **`feature/heatmap`** on RunPod and in git (single branch for this worker).
 2. **Commit** `heatmap-worker/` and **push** to GitHub:
    ```bash
    git add heatmap-worker/
