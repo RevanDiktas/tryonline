@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     
     # RunPod
     runpod_api_key: str = ""
-    runpod_endpoint_id: str = ""
+    runpod_endpoint_id: str = ""  # primary (e.g. avatar) serverless endpoint
+    runpod_heatmap_endpoint_id: str = ""  # heatmap / Warp worker endpoint
     
     # Storage Buckets
     photos_bucket: str = "photos"

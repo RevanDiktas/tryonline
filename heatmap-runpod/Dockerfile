@@ -21,11 +21,16 @@ ENV CUDA_PATH=/usr/local/cuda
 ARG GARMENT_WARP_REF=main
 
 WORKDIR /opt
+# Lower peak RAM during native/CUDA compile (helps GH Actions; safe on RunPod builders too).
+ENV MAKEFLAGS=-j2
+ENV CMAKE_BUILD_PARALLEL_LEVEL=2
+
 RUN git lfs install \
     && git clone https://github.com/maria-korosteleva/NvidiaWarp-GarmentCode.git \
     && cd NvidiaWarp-GarmentCode \
     && git checkout ${GARMENT_WARP_REF} \
     && git lfs pull \
+    && if [ -d tools/packman ]; then find tools/packman -type f -exec chmod a+x {} +; fi \
     && python build_lib.py --cuda_path=/usr/local/cuda \
     && pip install --no-cache-dir -e .
 

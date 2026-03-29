@@ -14,6 +14,7 @@ on:
     branches:
       - feature/heatmap
       - feature/warp-heatmap-worker
+      - feature/warpheatmap
     paths:
       - "heatmap-runpod/**"
       - "heatmap-worker/**"

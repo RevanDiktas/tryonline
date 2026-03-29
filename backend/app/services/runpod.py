@@ -16,7 +16,13 @@ class RunPodService:
         self.api_key = settings.runpod_api_key
         self.endpoint_id = settings.runpod_endpoint_id
         self.base_url = f"https://api.runpod.ai/v2/{self.endpoint_id}"
-        
+
+    def _heatmap_base_url(self) -> Optional[str]:
+        eid = (settings.runpod_heatmap_endpoint_id or "").strip()
+        if not eid:
+            return None
+        return f"https://api.runpod.ai/v2/{eid}"
+
     def _get_headers(self) -> Dict[str, str]:
         return {
             "Authorization": f"Bearer {self.api_key}",
@@ -151,6 +157,77 @@ class RunPodService:
                 timeout=30.0
             )
             return response.status_code == 200
+
+    async def submit_heatmap_job(self, input_payload: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """
+        Submit a job to the heatmap / Warp serverless endpoint (RUNPOD_HEATMAP_ENDPOINT_ID).
+        Same API key as avatar; payload is passed as {"input": ...}.
+        """
+        base = self._heatmap_base_url()
+        if not base:
+            print("[RunPod heatmap] RUNPOD_HEATMAP_ENDPOINT_ID not set")
+            return None
+        if not self.api_key:
+            print("[RunPod heatmap] RUNPOD_API_KEY not set")
+            return None
+        # Default input when omitted; explicit {} left as-is (e.g. tests).
+        if input_payload is None:
+            input_payload = {"action": "smoke"}
+        payload = {"input": input_payload}
+        url = f"{base}/run"
+        print(f"[RunPod heatmap] POST {url}")
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    json=payload,
+                    headers=self._get_headers(),
+                    timeout=30.0,
+                )
+                print(f"[RunPod heatmap] submit status: {response.status_code}")
+                if response.status_code != 200:
+                    print(f"[RunPod heatmap] body: {response.text[:800]}")
+                    return None
+                data = response.json()
+                job_id = data.get("id")
+                if not job_id:
+                    print(f"[RunPod heatmap] missing id in response: {data}")
+                    return None
+                print(f"[RunPod heatmap] job id: {job_id}")
+                return job_id
+        except Exception as e:
+            print(f"[RunPod heatmap] submit exception: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    async def get_heatmap_job_status(self, job_id: str) -> Dict[str, Any]:
+        """Poll heatmap endpoint job status (raw output; no avatar base64 decoding)."""
+        base = self._heatmap_base_url()
+        if not base:
+            return {"status": "ERROR", "error": "RUNPOD_HEATMAP_ENDPOINT_ID not set", "output": None}
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{base}/status/{job_id}",
+                    headers=self._get_headers(),
+                    timeout=120.0,
+                )
+                if response.status_code != 200:
+                    return {
+                        "status": "ERROR",
+                        "error": f"HTTP {response.status_code}: {response.text[:500]}",
+                        "output": None,
+                    }
+                data = response.json()
+                return {
+                    "status": data.get("status", "UNKNOWN"),
+                    "output": data.get("output"),
+                    "error": data.get("error"),
+                }
+        except Exception as e:
+            print(f"[RunPod heatmap] status exception: {e}")
+            return {"status": "ERROR", "error": str(e), "output": None}
 
 
 # Mock service for development without RunPod
