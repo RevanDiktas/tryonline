@@ -1,0 +1,4 @@
+# Installed after Garment-Warp fork (see Dockerfile). Runtime helpers only.
+numpy>=1.23,<3
+trimesh>=4.0.0
+requests>=2.28.0
