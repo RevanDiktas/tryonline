@@ -42,13 +42,34 @@ From [Deploy workers from Docker Hub](https://docs.runpod.io/serverless/workers/
 - **Build context:** `.` (repo root) or empty if that defaults to root
 - **Branch:** `feature/heatmap` (or your tracking branch)
 
+## “Failed” in ~2 seconds with no Docker steps
+
+That duration is **too short** for a real `docker build` (even pulling a base image). It usually means **pre-build validation** failed, a **transient builder error**, or the UI is not showing stderr. Treat GitHub-integrated builds as unreliable until you see `Step 1/N` lines.
+
 ## Fallback if GitHub builds keep failing
 
-1. **Build locally or in GitHub Actions** with  
-   `docker build --platform linux/amd64 -f heatmap-runpod/Dockerfile -t YOUR_DOCKERHUB/tryonline-heatmap:TAG .`  
-   then push to Docker Hub (or GHCR) and create the endpoint **from container registry** instead of GitHub.
+### A) GitHub Actions → GHCR (in this repo)
 
-2. **Download full build logs** from RunPod (download icon) and open a ticket with **help@runpod.io** including endpoint ID — early-stage failures are often visible only in the raw log bundle.
+Workflow: `.github/workflows/heatmap-runpod-image.yml`  
+Runs on push to `feature/heatmap` (and manual **Run workflow**). Pushes:
+
+- `ghcr.io/<github-owner-lowercase>/tryonline-heatmap:latest`
+- `ghcr.io/<github-owner-lowercase>/tryonline-heatmap:<sha>`
+
+**GitHub:** Repository **Settings → Actions → General → Workflow permissions** → allow **Read and write** (needed for `GITHUB_TOKEN` to push packages).
+
+**RunPod:** Create or edit the endpoint → **deploy from container registry** (not GitHub) → image `ghcr.io/revandiktas/tryonline-heatmap:latest` (adjust owner if different). Connect GHCR if RunPod asks for registry auth (PAT with `read:packages`).
+
+### B) Manual local build
+
+```bash
+docker build --platform linux/amd64 -f heatmap-runpod/Dockerfile -t YOUR_REGISTRY/tryonline-heatmap:TAG .
+docker push YOUR_REGISTRY/tryonline-heatmap:TAG
+```
+
+### C) Support
+
+**Download full build logs** from RunPod (download icon) and email **help@runpod.io** with endpoint ID.
 
 ## References
 

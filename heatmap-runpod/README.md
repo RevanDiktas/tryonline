@@ -1,3 +1,6 @@
-RunPod GitHub integration should point here: **`heatmap-runpod/Dockerfile`**, build context **repo root (`.`)**.
+**Preferred when RunPod’s “build from GitHub” fails silently:** use **GitHub Actions → GHCR**, then deploy the image from RunPod’s **container registry** flow.
 
-See `docs/research/RUNPOD_HEATMAP_BUILD_RESEARCH.md` for failure modes and fallbacks (e.g. build + push to Docker Hub).
+- Workflow: `.github/workflows/heatmap-runpod-image.yml` (pushes `ghcr.io/<owner>/tryonline-heatmap:latest`).
+- Dockerfile: **`heatmap-runpod/Dockerfile`**, Docker context **repo root (`.`)**.
+
+See `docs/research/RUNPOD_HEATMAP_BUILD_RESEARCH.md` for failure modes and RunPod settings.
