@@ -8,12 +8,12 @@ That fork ships under **NVIDIA’s license** (see fork `LICENSE.md`). It may res
 
 ## What you do in Git (this repo)
 
-1. **Branch:** use **`feature/heathmap`** on RunPod (canonical name for this worker; `feature/warp-heatmap-worker` / `feature/warpheatmap` may still exist as aliases).
+1. **Branch:** use **`feature/heatmap`** on RunPod (canonical name for this worker; `feature/warp-heatmap-worker` / `feature/warpheatmap` may still exist as aliases).
 2. **Commit** `heatmap-worker/` and **push** to GitHub:
    ```bash
    git add heatmap-worker/
    git commit -m "feat(heatmap-worker): Docker + Garment-Warp build + GPU smoke"
-   git push -u origin feature/heathmap
+   git push -u origin feature/heatmap
    ```
 3. You do **not** need to clone the Garment fork into a separate repo for day-to-day work—the **Dockerfile clones it at build time**.
 
@@ -51,13 +51,13 @@ docker run --rm --gpus all tryonline-heatmap-worker:phase0.5 \
 ### Before the console
 
 1. **GitHub → RunPod:** [Settings → Connections](https://console.runpod.io/user/settings) → connect GitHub and allow access to **`tryonline`** (your repo).
-2. **Branch pushed:** e.g. **`feature/heathmap`** with this `heatmap-worker/` folder.
+2. **Branch pushed:** e.g. **`feature/heatmap`** with this `heatmap-worker/` folder.
 
 ### In the RunPod console
 
 1. **Serverless** → **+ New endpoint** → **Import Git Repository**.
 2. Select repo **`RevanDiktas/tryonline`** (or your org name + repo).
-3. **Branch:** **`feature/heathmap`** (tracks this worker on RunPod).
+3. **Branch:** **`feature/heatmap`** (tracks this worker on RunPod).
 4. **Dockerfile path:** `heatmap-worker/Dockerfile`  
    RunPod builds with the **repository root** as context, so `COPY heatmap-worker/...` in the Dockerfile stays valid.
 5. **GPU:** pick a **CUDA** instance (e.g. RTX 4000 class); worker needs a real GPU at **runtime** (build uses `nvcc`, no GPU required during `docker build` on RunPod’s builders).
