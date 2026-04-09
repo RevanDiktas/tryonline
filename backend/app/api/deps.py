@@ -63,20 +63,42 @@ def get_current_user_id(
     raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
+def _webhook_hmac_secrets() -> list[str]:
+    """Secrets Shopify may use to sign webhooks (primary app, optional pilot app, optional explicit webhook secret)."""
+    settings = get_settings()
+    seen: set[str] = set()
+    out: list[str] = []
+    for s in (
+        settings.shopify_webhook_secret,
+        settings.shopify_client_secret,
+        settings.shopify_client_secret_pilot,
+    ):
+        t = (s or "").strip()
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
 def verify_shopify_webhook(body: bytes, hmac_header: str | None) -> bool:
     """
     Verify Shopify webhook HMAC-SHA256 signature.
-    In debug mode, allows requests when the secret is not configured.
+    Tries each configured secret (webhook override, primary client secret, pilot client secret)
+    so both the public app and a custom-distribution pilot can post to the same URLs.
+    In debug mode, allows requests when no secret is configured.
     In production, rejects all requests without a valid secret + signature.
     """
     settings = get_settings()
-    secret = settings.shopify_webhook_secret or ""
-    if not secret:
+    secrets_list = _webhook_hmac_secrets()
+    if not secrets_list:
         if settings.debug:
             return True
         return False
     if not hmac_header:
         return False
-    digest = hmac.new(secret.encode(), body, hashlib.sha256).digest()
-    computed = base64.b64encode(digest).decode("ascii")
-    return hmac.compare_digest(computed, hmac_header)
+    for secret in secrets_list:
+        digest = hmac.new(secret.encode(), body, hashlib.sha256).digest()
+        computed = base64.b64encode(digest).decode("ascii")
+        if hmac.compare_digest(computed, hmac_header):
+            return True
+    return False

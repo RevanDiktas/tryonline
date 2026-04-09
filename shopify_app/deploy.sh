@@ -42,8 +42,11 @@ rm -f extensions/tryon-widget/._* \
 # 5. Prevent macOS from creating ._* when CLI builds the bundle
 export COPYFILE_DISABLE=1
 
-# 6. Force CLI to use this copy (not the original project path) so the bundle is built in /tmp
-echo "Deploying from $DEPLOY_DIR ..."
-shopify app deploy --path "$DEPLOY_DIR" --allow-updates
+# 6. Deploy from cwd ($DEPLOY_DIR). Use config basename only — absolute paths break --config
+#    (CLI mangles /tmp/... into shopify.app.tmp...toml). Default: pilot TOML.
+#    Public Tryon: SHOPIFY_CONFIG=shopify.app.toml bash deploy.sh
+CONFIG_NAME="${SHOPIFY_CONFIG:-shopify.app.tryonraminpilot.toml}"
+echo "Deploying from $PWD (config: $CONFIG_NAME) ..."
+shopify app deploy --config "$CONFIG_NAME" --allow-updates
 
 echo "Done. You can remove $DEPLOY_DIR later if you want (rm -rf $DEPLOY_DIR)."

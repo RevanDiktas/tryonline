@@ -27,6 +27,30 @@ SHOPIFY_AUTH_SCOPE = "read_orders"  # Match shopify.app.toml
 STATE_COOKIE = "shopify_oauth_state"
 
 
+def _pilot_shop_domains() -> set[str]:
+    raw = (settings.shopify_pilot_shops or "").strip()
+    return {s.strip().lower() for s in raw.split(",") if s.strip()}
+
+
+def _oauth_creds_for_shop(shop: str) -> tuple[str, str] | None:
+    """
+    Return (client_id, client_secret) for OAuth authorize, token exchange, and callback HMAC.
+    Pilot-listed shops use SHOPIFY_CLIENT_ID_PILOT / SECRET when set; others use primary.
+    """
+    shop = shop.strip().lower()
+    if shop in _pilot_shop_domains():
+        cid = (settings.shopify_client_id_pilot or "").strip()
+        csec = (settings.shopify_client_secret_pilot or "").strip()
+        if cid and csec:
+            return cid, csec
+        return None
+    cid = (settings.shopify_client_id or "").strip()
+    csec = (settings.shopify_client_secret or "").strip()
+    if cid and csec:
+        return cid, csec
+    return None
+
+
 def _verify_hmac(params: dict, secret: str, received_hmac: str) -> bool:
     """Verify Shopify HMAC: params (without hmac) sorted, joined, HMAC-SHA256 with secret."""
     if not secret or not received_hmac:
@@ -50,16 +74,18 @@ async def shopify_auth(
     shop: str = Query(..., description="Shop myshopify domain"),
 ):
     """Redirect to Shopify OAuth authorize. Call this when embedded app has no session."""
-    if not settings.shopify_client_id or not settings.shopify_client_secret:
-        return {"error": "Shopify OAuth not configured"}
     shop = shop.strip().lower()
     if not SHOP_PATTERN.match(shop):
         return {"error": "Invalid shop hostname"}
+    creds = _oauth_creds_for_shop(shop)
+    if not creds:
+        return {"error": "Shopify OAuth not configured for this shop"}
+    client_id, _client_secret = creds
     state = secrets.token_urlsafe(32)
     base = (settings.backend_public_url or str(request.base_url)).rstrip("/")
     redirect_uri = f"{base}/api/shopify/auth/callback"
     params = {
-        "client_id": settings.shopify_client_id,
+        "client_id": client_id,
         "scope": SHOPIFY_AUTH_SCOPE,
         "redirect_uri": redirect_uri,
         "state": state,
@@ -112,7 +138,14 @@ async def shopify_auth_callback(
         )
     # Build param map for HMAC (all query params)
     q = dict(parse_qsl(str(request.url.query)))
-    if not _verify_hmac(q, settings.shopify_client_secret, hmac):
+    creds = _oauth_creds_for_shop(shop)
+    if not creds:
+        return RedirectResponse(
+            url=f"{settings.frontend_app_url.rstrip('/')}/app?error=oauth_not_configured",
+            status_code=302,
+        )
+    _cid, client_secret = creds
+    if not _verify_hmac(q, client_secret, hmac):
         return RedirectResponse(
             url=f"{settings.frontend_app_url.rstrip('/')}/app?error=hmac_failed",
             status_code=302,
@@ -120,8 +153,8 @@ async def shopify_auth_callback(
     import httpx
     token_url = f"https://{shop}/admin/oauth/access_token"
     payload = {
-        "client_id": settings.shopify_client_id,
-        "client_secret": settings.shopify_client_secret,
+        "client_id": creds[0],
+        "client_secret": client_secret,
         "code": code,
     }
     try:
@@ -134,6 +167,7 @@ async def shopify_auth_callback(
             status_code=302,
         )
     if r.status_code != 200:
+        print(f"[Shopify callback] token exchange HTTP {r.status_code}: {r.text[:800]}")
         return RedirectResponse(
             url=f"{settings.frontend_app_url.rstrip('/')}/app?error=token_exchange",
             status_code=302,
@@ -176,13 +210,17 @@ async def shopify_complete_install(body: CompleteInstallBody):
     shop = body.shop.strip().lower()
     if not SHOP_PATTERN.match(shop):
         return JSONResponse(content={"ok": False, "error": "invalid_shop"}, status_code=400)
+    creds = _oauth_creds_for_shop(shop)
+    if not creds:
+        return JSONResponse(content={"ok": False, "error": "oauth_not_configured"}, status_code=400)
+    client_id, client_secret = creds
     params = {"code": body.code, "shop": body.shop, "hmac": body.hmac, "state": body.state}
-    if not _verify_hmac(params, settings.shopify_client_secret or "", body.hmac):
+    if not _verify_hmac(params, client_secret, body.hmac):
         return JSONResponse(content={"ok": False, "error": "hmac_failed"}, status_code=400)
     token_url = f"https://{shop}/admin/oauth/access_token"
     payload = {
-        "client_id": settings.shopify_client_id,
-        "client_secret": settings.shopify_client_secret,
+        "client_id": client_id,
+        "client_secret": client_secret,
         "code": body.code,
     }
     try:
@@ -192,7 +230,7 @@ async def shopify_complete_install(body: CompleteInstallBody):
         print(f"[Shopify complete-install] network error: {e}")
         return JSONResponse(content={"ok": False, "error": "token_exchange"}, status_code=400)
     if r.status_code != 200:
-        print(f"[Shopify complete-install] token exchange failed: {r.status_code}")
+        print(f"[Shopify complete-install] token exchange failed: {r.status_code} {r.text[:800]}")
         return JSONResponse(content={"ok": False, "error": "token_exchange"}, status_code=400)
     data = r.json()
     access_token = data.get("access_token")

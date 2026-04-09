@@ -1,6 +1,8 @@
 """
 Supabase service for database and storage operations
 """
+import traceback
+
 from supabase import create_client, Client
 from functools import lru_cache
 from typing import Optional, Dict, Any, Tuple
@@ -528,8 +530,11 @@ class SupabaseService:
                 new_brand_id = str(ins.data[0]["id"])
                 self._create_brand_folder(new_brand_id)
                 return new_brand_id
-        except Exception:
-            pass
+            print(f"[Supabase] upsert_brand_for_shop: insert OK but no row returned shop={shop!r}")
+        except Exception as e:
+            print(
+                f"[Supabase] upsert_brand_for_shop error shop={shop!r}: {e}\n{traceback.format_exc()}"
+            )
         return None
 
     def get_brand_by_user_id(self, user_id: str) -> Optional[Dict[str, Any]]:

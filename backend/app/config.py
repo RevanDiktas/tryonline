@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     shopify_webhook_secret: str = ""  # For HMAC verification of orders/paid
     shopify_client_id: str = ""  # From Partners app (API key)
     shopify_client_secret: str = ""  # From Partners app (Client secret)
+    # Second app (e.g. custom-distribution pilot on raminstudios) — same callback URL, different credentials
+    shopify_client_id_pilot: str = ""
+    shopify_client_secret_pilot: str = ""
+    # Comma-separated *.myshopify.com hostnames that use pilot OAuth credentials (default: Ramin Studios store)
+    shopify_pilot_shops: str = "raminstudios.myshopify.com"
     frontend_app_url: str = "https://tryon-shopify-theta.vercel.app"  # Base URL of Shopify app frontend for OAuth redirect
     backend_public_url: str = ""  # Public URL of this API (e.g. https://api.railway.app) for OAuth callback
 

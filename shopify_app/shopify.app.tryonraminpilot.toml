@@ -1,0 +1,45 @@
+# Pilot app the Shopify CLI can actually see and deploy to.
+#
+# The browser-only app "Tryon Ramin pilot" (Klant-ID 8b432bde…) is not returned by
+# the Partners GraphQL API the CLI uses, so `app deploy` / `config link` fail with
+# "No app with client ID … found". This file uses the app created when you ran
+# `shopify app config link` → "create new app" → TryonRaminPilot.
+#
+# In Dev Dashboard, open app **TryonRaminPilot** and copy Instellingen → Klant-ID;
+# it must match the line below. Railway SHOPIFY_CLIENT_ID_PILOT / SECRET must be
+# for THIS app, not 8b432bde…
+#
+# https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "b4987086f74755a40c05b952d8a76573"
+name = "TryonRaminPilot"
+application_url = "https://tryon.global/app"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2026-01"
+
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/shopify/compliance"
+
+[access_scopes]
+scopes = "read_orders"
+optional_scopes = []
+use_legacy_install_flow = false
+
+[access.admin]
+direct_api_mode = "online"
+
+[auth]
+redirect_urls = [
+  "https://heroic-celebration-production-9f72.up.railway.app/api/shopify/auth/callback",
+  "https://tryon.global/app",
+]
+
+[pos]
+embedded = false
