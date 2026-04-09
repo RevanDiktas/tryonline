@@ -7,6 +7,7 @@ import { TryonLogo } from '@/components/TryonLogo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { login, hasAvatarFiles, getCurrentUser, signInWithSocial } from '@/lib/supabase-auth';
 import { isShopifyMode } from '@/lib/app-mode';
+import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 
 function LoginContent() {
   const router = useRouter();
@@ -15,6 +16,7 @@ function LoginContent() {
   const dark = theme === 'dark';
   const shopifyMode = isShopifyMode();
   const shopParam = searchParams.get('shop') ?? '';
+  useEnsureShopifyAdminOAuth(shopParam || null, searchParams.get('error'));
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);

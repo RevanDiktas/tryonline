@@ -8,6 +8,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { signup, signInWithSocial } from '@/lib/supabase-auth';
 import { registerBrand } from '@/lib/api';
 import { isShopifyMode } from '@/lib/app-mode';
+import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 
 const countryCodes = [
   { code: '+31', country: 'Netherlands', abbr: 'NL' },
@@ -74,6 +75,7 @@ function SignupContent() {
   // Determine initial state from query param or APP_MODE
   const typeParam = searchParams.get('type');
   const shopParam = searchParams.get('shop') ?? '';
+  useEnsureShopifyAdminOAuth(shopParam || null, searchParams.get('error'));
   const preselected = shopifyMode ? 'brand' : (typeParam === 'brand' ? 'brand' : typeParam === 'shopper' ? 'shopper' : null);
   const skipSelection = shopifyMode || preselected !== null;
 

@@ -8,6 +8,7 @@ import { TryonLogo } from '@/components/TryonLogo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, logout, type User } from '@/lib/supabase-auth';
 import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse } from '@/lib/api';
+import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 
 const CHART_HEIGHT = 200;
 
@@ -105,6 +106,7 @@ export default function BrandDashboardPage() {
   const searchParams = useSearchParams();
   const { theme, toggleTheme } = useTheme();
   const shopParam = searchParams.get('shop');
+  useEnsureShopifyAdminOAuth(shopParam, searchParams.get('error'));
   const dark = theme === 'dark';
   const [user, setUser] = useState<User | null>(null);
   const [authChecked, setAuthChecked] = useState(false);

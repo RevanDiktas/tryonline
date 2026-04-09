@@ -8,6 +8,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, type User } from '@/lib/supabase-auth';
 import { getMyBrand } from '@/lib/api';
 import { isShopifyMode } from '@/lib/app-mode';
+import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useRouter } from 'next/navigation';
 
 function HomePageContent() {
@@ -21,6 +22,7 @@ function HomePageContent() {
   const shopifyMode = isShopifyMode();
   const shop = searchParams.get('shop');
   const isShopifyApp = Boolean(shop?.includes('.myshopify.com'));
+  useEnsureShopifyAdminOAuth(shop, searchParams.get('error'));
 
   useEffect(() => {
     const checkAuth = async () => {
