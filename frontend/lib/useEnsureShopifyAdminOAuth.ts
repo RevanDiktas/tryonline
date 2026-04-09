@@ -2,6 +2,36 @@
 
 import { useEffect, useRef } from 'react';
 
+/** OAuth must not run inside the admin iframe — accounts.shopify.com sets X-Frame-Options: deny. */
+function navigateOAuthTopLevel(url: string): void {
+  if (typeof window === 'undefined') return;
+  if (window.self === window.top) {
+    window.location.assign(url);
+    return;
+  }
+  try {
+    const opened = window.open(url, '_top', 'noopener,noreferrer');
+    if (opened) {
+      opened.opener = null;
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_top';
+    a.rel = 'noopener noreferrer';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch {
+    window.location.assign(url);
+  }
+}
+
 /**
  * When the app loads inside Shopify admin (?shop=*.myshopify.com) but the backend
  * has no Admin API token yet (signup created the brand without OAuth), send the
@@ -33,11 +63,7 @@ export function useEnsureShopifyAdminOAuth(
         if (res.status === 401) {
           attempted.current = true;
           const url = `${window.location.origin}/api/shopify/auth?shop=${encodeURIComponent(s)}`;
-          try {
-            window.top!.location.href = url;
-          } catch {
-            window.location.href = url;
-          }
+          navigateOAuthTopLevel(url);
         }
       } catch {
         // network — ignore; user can refresh
