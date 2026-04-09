@@ -8,6 +8,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { login, hasAvatarFiles, getCurrentUser, signInWithSocial } from '@/lib/supabase-auth';
 import { isShopifyMode } from '@/lib/app-mode';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
+import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
 
 function LoginContent() {
   const router = useRouter();
@@ -15,8 +16,8 @@ function LoginContent() {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const shopifyMode = isShopifyMode();
-  const shopParam = searchParams.get('shop') ?? '';
-  useEnsureShopifyAdminOAuth(shopParam || null, searchParams.get('error'));
+  const resolvedShop = useResolvedShopifyShop();
+  useEnsureShopifyAdminOAuth(resolvedShop, searchParams.get('error'));
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -46,7 +47,9 @@ function LoginContent() {
 
       // Route based on user_type
       if (user.user_type === 'brand') {
-        router.push('/brand');
+        router.push(
+          resolvedShop ? `/brand?shop=${encodeURIComponent(resolvedShop)}` : '/brand'
+        );
       } else {
         // Shopper flow: check avatar → dashboard or onboarding
         const hasAvatar = await hasAvatarFiles(user.id);
@@ -190,7 +193,7 @@ function LoginContent() {
           <p className={`text-center text-sm mt-6 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
             Don&apos;t have an account?{' '}
             <Link
-              href={shopifyMode || shopParam ? `/signup?type=brand${shopParam ? `&shop=${encodeURIComponent(shopParam)}` : ''}` : '/signup'}
+              href={shopifyMode || resolvedShop ? `/signup?type=brand${resolvedShop ? `&shop=${encodeURIComponent(resolvedShop)}` : ''}` : '/signup'}
               className={dark ? 'text-white font-medium hover:underline' : 'text-black font-medium hover:underline'}
             >
               Create one

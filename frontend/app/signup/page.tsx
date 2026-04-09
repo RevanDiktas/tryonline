@@ -9,6 +9,7 @@ import { signup, signInWithSocial } from '@/lib/supabase-auth';
 import { registerBrand } from '@/lib/api';
 import { isShopifyMode } from '@/lib/app-mode';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
+import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
 
 const countryCodes = [
   { code: '+31', country: 'Netherlands', abbr: 'NL' },
@@ -74,8 +75,8 @@ function SignupContent() {
 
   // Determine initial state from query param or APP_MODE
   const typeParam = searchParams.get('type');
-  const shopParam = searchParams.get('shop') ?? '';
-  useEnsureShopifyAdminOAuth(shopParam || null, searchParams.get('error'));
+  const resolvedShop = useResolvedShopifyShop();
+  useEnsureShopifyAdminOAuth(resolvedShop, searchParams.get('error'));
   const preselected = shopifyMode ? 'brand' : (typeParam === 'brand' ? 'brand' : typeParam === 'shopper' ? 'shopper' : null);
   const skipSelection = shopifyMode || preselected !== null;
 
@@ -188,7 +189,7 @@ function SignupContent() {
           email: formData.email,
           phone: fullPhone,
           country: formData.country,
-          shopify_domain: formData.shopifyDomain || shopParam || undefined,
+          shopify_domain: formData.shopifyDomain || resolvedShop || undefined,
         });
         if (!brandRes.ok) {
           setErrors({ form: brandRes.error || 'Failed to create brand record' });
@@ -198,7 +199,9 @@ function SignupContent() {
 
       // Route directly — Supabase signup auto-signs in the user
       if (userType === 'brand') {
-        router.push('/brand');
+        router.push(
+          resolvedShop ? `/brand?shop=${encodeURIComponent(resolvedShop)}` : '/brand'
+        );
       } else {
         router.push('/onboarding');
       }

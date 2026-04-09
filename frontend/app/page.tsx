@@ -9,6 +9,7 @@ import { getCurrentUser, type User } from '@/lib/supabase-auth';
 import { getMyBrand } from '@/lib/api';
 import { isShopifyMode } from '@/lib/app-mode';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
+import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
 import { useRouter } from 'next/navigation';
 
 function HomePageContent() {
@@ -20,9 +21,9 @@ function HomePageContent() {
   const [brandName, setBrandName] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
   const shopifyMode = isShopifyMode();
-  const shop = searchParams.get('shop');
-  const isShopifyApp = Boolean(shop?.includes('.myshopify.com'));
-  useEnsureShopifyAdminOAuth(shop, searchParams.get('error'));
+  const resolvedShop = useResolvedShopifyShop();
+  const isShopifyApp = Boolean(resolvedShop);
+  useEnsureShopifyAdminOAuth(resolvedShop, searchParams.get('error'));
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -50,7 +51,12 @@ function HomePageContent() {
     );
   }
 
-  const dashboardUrl = user?.user_type === 'brand' ? (shop ? `/brand?shop=${encodeURIComponent(shop)}` : '/brand') : '/dashboard';
+  const dashboardUrl =
+    user?.user_type === 'brand'
+      ? resolvedShop
+        ? `/brand?shop=${encodeURIComponent(resolvedShop)}`
+        : '/brand'
+      : '/dashboard';
 
   return (
     <div className={`min-h-screen transition-colors ${dark ? 'bg-black' : 'bg-white'}`}>
@@ -105,7 +111,7 @@ function HomePageContent() {
           ) : isShopifyApp ? (
             <div className="flex flex-col sm:flex-row gap-4 justify-center max-w-lg mx-auto">
               <Link
-                href={shop ? `/signup?type=brand&shop=${encodeURIComponent(shop)}` : '/signup?type=brand'}
+                href={resolvedShop ? `/signup?type=brand&shop=${encodeURIComponent(resolvedShop)}` : '/signup?type=brand'}
                 className={`flex-1 group relative overflow-hidden px-8 py-5 font-semibold rounded-2xl border-2 transition text-center ${dark ? 'bg-transparent text-white border-white/30 hover:bg-white/10' : 'bg-white text-black border-black hover:bg-gray-50'}`}
               >
                 <span className="block text-lg">Launch Your Brand</span>

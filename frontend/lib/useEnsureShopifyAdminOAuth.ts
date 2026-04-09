@@ -42,13 +42,14 @@ export function useEnsureShopifyAdminOAuth(
   shop: string | null | undefined,
   oauthCallbackError: string | null | undefined
 ): void {
-  const attempted = useRef(false);
+  /** Avoid redirect loops for the same shop; allow OAuth again when `shop` changes (e.g. pilot vs primary domain). */
+  const redirectIssuedForShop = useRef<string | null>(null);
 
   useEffect(() => {
     const s = shop?.trim();
     if (!s || !s.includes('.myshopify.com')) return;
     if (oauthCallbackError) return;
-    if (attempted.current) return;
+    if (redirectIssuedForShop.current === s) return;
 
     let cancelled = false;
 
@@ -61,7 +62,7 @@ export function useEnsureShopifyAdminOAuth(
         if (res.ok) return;
 
         if (res.status === 401) {
-          attempted.current = true;
+          redirectIssuedForShop.current = s;
           const url = `${window.location.origin}/api/shopify/auth?shop=${encodeURIComponent(s)}`;
           navigateOAuthTopLevel(url);
         }

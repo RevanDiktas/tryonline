@@ -9,6 +9,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, logout, type User } from '@/lib/supabase-auth';
 import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse } from '@/lib/api';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
+import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
 
 const CHART_HEIGHT = 200;
 
@@ -106,7 +107,6 @@ export default function BrandDashboardPage() {
   const searchParams = useSearchParams();
   const { theme, toggleTheme } = useTheme();
   const shopParam = searchParams.get('shop');
-  useEnsureShopifyAdminOAuth(shopParam, searchParams.get('error'));
   const dark = theme === 'dark';
   const [user, setUser] = useState<User | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -124,6 +124,9 @@ export default function BrandDashboardPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [metricsRange, setMetricsRange] = useState<'7d' | '30d'>('30d');
   const [metricsShop, setMetricsShop] = useState('');
+  const [brandShop, setBrandShop] = useState<string | null>(null);
+  const resolvedShop = useResolvedShopifyShop(brandShop);
+  useEnsureShopifyAdminOAuth(resolvedShop, searchParams.get('error'));
 
   const fetchMetrics = useCallback(async () => {
     setMetricsLoading(true);
@@ -168,16 +171,9 @@ export default function BrandDashboardPage() {
 
   useEffect(() => { fetchMetrics(); }, [fetchMetrics]);
 
-  const [brandShop, setBrandShop] = useState<string | null>(null);
   const [hasGarments, setHasGarments] = useState(true);
   const [brandLoaded, setBrandLoaded] = useState(false);
   const [guideDismissed, setGuideDismissed] = useState(false);
-
-  useEffect(() => {
-    if (shopParam?.includes('.myshopify.com') && typeof window !== 'undefined') {
-      sessionStorage.setItem('tryon_shop_context', shopParam);
-    }
-  }, [shopParam]);
 
   useEffect(() => {
     getCurrentUser().then(async (u) => {
@@ -197,9 +193,6 @@ export default function BrandDashboardPage() {
           const domain = brand.shopify_domain as string;
           setBrandShop(domain);
           setMetricsShop((prev) => prev || domain);
-          if (typeof window !== 'undefined' && domain?.includes('.myshopify.com')) {
-            sessionStorage.setItem('tryon_shop_context', domain);
-          }
         }
         if (brand?.id) {
           const { garmentApi } = await import('@/lib/api');
