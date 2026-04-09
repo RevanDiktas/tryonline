@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const SHOPIFY_CLIENT_ID = process.env.NEXT_PUBLIC_SHOPIFY_CLIENT_ID || 'ec47b40d60204a8d7cf80aa50e313d19';
+import { SHOPIFY_EMBEDDED_CLIENT_ID } from '@/lib/shopify-embedded-client-id';
 const APP_BRIDGE_URL = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
 
 /**
@@ -31,7 +30,7 @@ export function GET(request: NextRequest) {
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <meta name="shopify-api-key" content="${escapeHtml(SHOPIFY_CLIENT_ID)}"/>
+  <meta name="shopify-api-key" content="${escapeHtml(SHOPIFY_EMBEDDED_CLIENT_ID)}"/>
   <script src="${APP_BRIDGE_URL}"></script>
 </head>
 <body style="margin:0;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;color:#666;padding:20px;">

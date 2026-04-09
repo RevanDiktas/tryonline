@@ -2,9 +2,9 @@
 
 import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { SHOPIFY_EMBEDDED_CLIENT_ID } from '@/lib/shopify-embedded-client-id';
 
 const SHOPIFY_APP_BRIDGE_URL = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
-const SHOPIFY_CLIENT_ID = process.env.NEXT_PUBLIC_SHOPIFY_CLIENT_ID || 'ec47b40d60204a8d7cf80aa50e313d19';
 
 /**
  * Embedded flow: Shopify loads /app first (App Bridge as first script) → we redirect to /?shop=...
@@ -37,7 +37,7 @@ export function ShopifyAppBridge() {
     if (!meta) {
       meta = document.createElement('meta');
       meta.setAttribute('name', 'shopify-api-key');
-      meta.setAttribute('content', SHOPIFY_CLIENT_ID);
+      meta.setAttribute('content', SHOPIFY_EMBEDDED_CLIENT_ID);
       document.head.appendChild(meta);
     }
 
