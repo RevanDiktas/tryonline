@@ -1122,21 +1122,20 @@
     let avatarCache = null;
     const garmentCache = {};
     /**
-     * Smallest bind-pose Y among loaded garment sizes (usually S) as ref for 1.8/ref scale shared by all sizes.
-     * Using M (taller bbox) made scale slightly smaller — cloth sat tighter on the body than S alone; min ref
-     * matches the “S looked right” coverage while keeping S/M/L grading consistent.
+     * Shared 1.8/refY scale: prefer M’s bind height so sleeve/cuff alignment matches how the garment was graded;
+     * min-ref was tighter overall and read as misaligned cuffs/hood with the avatar.
      */
     function garmentRefBindHeightY() {
-      let minY = Infinity;
-      for (let i = 0; i < SIZE_ORDER.length; i++) {
-        const g = garmentCache[SIZE_ORDER[i]];
+      const prefer = ['m', 's', 'l', 'xs', 'xl'];
+      for (let i = 0; i < prefer.length; i++) {
+        const g = garmentCache[prefer[i]];
         const y = g && Number(g.userData.tryonBindHeight);
-        if (y > 0 && y < minY) minY = y;
+        if (y > 0) return y;
       }
-      return minY === Infinity ? 0 : minY;
+      return 0;
     }
-    /** Uniform inflate so CLO shell clears avatar shoulders (depth); keep modest to avoid puffy silhouette. */
-    const TRYON_GARMENT_CLEARANCE = 1.014;
+    /** Extra uniform scale for a slightly roomier drape (hood, torso); too high skews cuffs vs wrists. */
+    const TRYON_GARMENT_CLEARANCE = 1.026;
     let viewerSceneReady = false;
     let viewerPreloadComplete = false;
     let currentSize = 'm';
@@ -1230,8 +1229,8 @@
           m.depthWrite = true;
           if (overAvatar) {
             m.polygonOffset = true;
-            m.polygonOffsetFactor = -18;
-            m.polygonOffsetUnits = -18;
+            m.polygonOffsetFactor = -12;
+            m.polygonOffsetUnits = -12;
           } else {
             m.polygonOffset = false;
           }
@@ -1817,7 +1816,7 @@
         const sA = rawA > 1e-9 ? 1.8 / rawA : 1;
         garmentRoot.scale.setScalar(sG);
         if (stackAvatar) avatarCache.scale.setScalar(sA);
-        console.log('[TryOn] Per-root scale: garment (1.8/minRefY)*clearance, avatar 1.8/rawAvatarY:', {
+        console.log('[TryOn] Per-root scale: garment (1.8/refY prefer M)*clearance, avatar 1.8/rawAvatarY:', {
           rawThisGarmentY: rawG,
           rawRefGarmentY: rawRef,
           clearance: TRYON_GARMENT_CLEARANCE,
