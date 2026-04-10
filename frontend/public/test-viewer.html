@@ -778,6 +778,38 @@
       else if (obj.parent) obj.parent.remove(obj);
     }
 
+    /** CLO/glTF often stacks transforms; after reparenting, world scale can collapse (~0) while bind-pose bbox stays fine. */
+    function resetSkinnedBindPose(root) {
+      root.traverse((o) => {
+        if (o.isSkinnedMesh && o.skeleton && typeof o.skeleton.pose === 'function') {
+          o.skeleton.pose();
+        }
+      });
+    }
+
+    /**
+     * Reset local scale on non-bone nodes whose world scale is degenerate (breaks bbox + can zero-out skinned draws).
+     * Never modifies Bone objects (would break rigs).
+     */
+    function fixDegenerateNodeScales(root) {
+      const pos = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scl = new THREE.Vector3();
+      root.updateMatrixWorld(true);
+      root.traverse((o) => {
+        if (o.isBone) return;
+        o.matrixAutoUpdate = true;
+        o.matrixWorld.decompose(pos, quat, scl);
+        const m = Math.max(Math.abs(scl.x), Math.abs(scl.y), Math.abs(scl.z));
+        if (m < 1e-6) {
+          console.warn('[TryOn] Fix degenerate world scale on', o.name || o.type, scl.toArray());
+          o.scale.set(1, 1, 1);
+          o.updateMatrix();
+        }
+      });
+      root.updateMatrixWorld(true);
+    }
+
     // DOM Elements
     const overlay = document.getElementById('overlay');
     const openBtn = document.getElementById('open-tryon');
@@ -1754,6 +1786,9 @@
         }
         const garmentRoot = garmentCache[key];
         detachFromParent(garmentRoot);
+        resetSkinnedBindPose(garmentRoot);
+        refreshSkinnedMeshes(garmentRoot);
+        fixDegenerateNodeScales(garmentRoot);
         refreshSkinnedMeshes(garmentRoot);
         prepareGarment(garmentRoot, { overAvatar: stackAvatar });
         garmentRoot.traverse((c) => { if (c.isMesh) c.renderOrder = stackAvatar ? 1 : 0; });
@@ -1803,6 +1838,7 @@
       }
 
       scene.add(currentModel);
+      currentModel.updateMatrixWorld(true);
       var targetY = modelSize.y / 2;
       controls.target.set(0, targetY, 0);
       controls.update();
@@ -1818,6 +1854,8 @@
       let garmentBbox = '';
       if (modelType === 'garment_only' && garmentCache[key] && currentModel.children.length) {
         const garmentRoot = currentModel.children.length > 1 ? currentModel.children[1] : currentModel.children[0];
+        resetSkinnedBindPose(garmentRoot);
+        fixDegenerateNodeScales(garmentRoot);
         refreshSkinnedMeshes(garmentRoot);
         const gbObj = new THREE.Box3().setFromObject(garmentRoot);
         const gsObj = gbObj.getSize(new THREE.Vector3());
