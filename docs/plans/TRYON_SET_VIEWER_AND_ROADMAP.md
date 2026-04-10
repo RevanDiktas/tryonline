@@ -111,4 +111,32 @@ When debugging the embedded viewer on `raminstudios.com`:
 3. **tryon-cart.js** / parent: optional second variant or documented manual bundle step.
 4. Theme block settings: optional **secondary product** metafield for pants (later).
 
+---
+
+## 8. Incident notes: garment missing / “flashed then disappeared” (2026-04-10)
+
+**Observed on production (`raminstudios.com`, zip-up PDP):**
+
+- Avatar loads from Supabase (signed-in path works).
+- Console shows `[TryOn] Garment from Supabase: Array(3)`, preload success, and e.g. `✓ Showing M | bbox: … | meshes: 72` — so **config + fetch + parse** can succeed even when the hoodie is **not visible** on the body.
+- **Sold out (`UITVERKOCHT`)** is **not** expected to strip GLBs; if the mesh vanished after a moment, treat it as a **viewer/state race or depth** issue, not inventory.
+
+**Console lines that look scary but are usually unrelated to the GLB:**
+
+1. **`sessionStorage` / sandbox / `allow-same-origin` (often `contentScript.js`)** — almost always a **browser extension** running in a restricted frame; not your Supabase garment URL.
+2. **`favicon.ico` 404** — cosmetic.
+3. **MetaMask** — wallet extension; ignore for try-on.
+4. **`postMessage` … origin `null`** and **Shopify web-pixels “unsafe attempt to load URL”** — **Shopify / analytics / pixel iframes**; different origin chain than `https://…supabase.co/.../object/public/...` used for GLBs. The garment should still appear in **Network** as a `200` on the `.glb` if the viewer actually requested it.
+
+**How to confirm the “correct” garment URL:**
+
+- In DevTools **Network**, filter by `glb` or `supabase` while opening TRYON. You want a **`200`** on the storage object URL returned by **`/api/products/.../tryon-config`** (or equivalent). If that request fails, fix config or bucket permissions; if it **succeeds** but the mesh is invisible, debug **Three.js scene** (materials, depth, timing).
+
+**Engineering follow-ups (already tracked in code):**
+
+- Deploy latest **`frontend/public/test-viewer.html`** (scene-ready + preload-complete gate before first paint; garment `depthWrite: false` + small Z nudge) to the host the storefront iframe uses, then retest.
+- Optional: filter console to **`[TryOn]`** or the viewer filename to avoid extension noise.
+
+---
+
 This file is the working spec; revise when Shopify app review status or product taxonomy changes.
