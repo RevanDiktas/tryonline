@@ -1208,7 +1208,8 @@
       return 0;
     }
     /** Extra uniform scale for a slightly roomier drape (hood, torso); too high skews cuffs vs wrists. */
-    const TRYON_GARMENT_CLEARANCE = 1.026;
+    /** Uniform garment scale on top of 1.8/refY; small bump clears shell vs avatar without huge puff. */
+    const TRYON_GARMENT_CLEARANCE = 1.038;
     /** Extra +Y on garment after foot/XZ align (m); shorter graded sizes often read cuffs low. */
     const TRYON_GARMENT_Y_NUDGE_BY_SIZE = { xs: 0.016, s: 0.016, m: 0, l: 0, xl: 0 };
     let viewerSceneReady = false;
@@ -1304,8 +1305,8 @@
           m.depthWrite = true;
           if (overAvatar) {
             m.polygonOffset = true;
-            m.polygonOffsetFactor = -12;
-            m.polygonOffsetUnits = -12;
+            m.polygonOffsetFactor = -17;
+            m.polygonOffsetUnits = -17;
           } else {
             m.polygonOffset = false;
           }
