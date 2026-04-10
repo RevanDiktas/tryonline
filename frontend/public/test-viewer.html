@@ -772,6 +772,12 @@
       return box;
     }
 
+    function detachFromParent(obj) {
+      if (!obj) return;
+      if (typeof obj.removeFromParent === 'function') obj.removeFromParent();
+      else if (obj.parent) obj.parent.remove(obj);
+    }
+
     // DOM Elements
     const overlay = document.getElementById('overlay');
     const openBtn = document.getElementById('open-tryon');
@@ -1726,11 +1732,13 @@
           avatarClone.traverse((c) => { if (c.isMesh) c.renderOrder = 0; });
           group.add(avatarClone);
         }
-        const garmentClone = cloneGltfRoot(garmentCache[key]);
-        refreshSkinnedMeshes(garmentClone);
-        prepareGarment(garmentClone, { overAvatar: stackAvatar });
-        garmentClone.traverse((c) => { if (c.isMesh) c.renderOrder = stackAvatar ? 1 : 0; });
-        group.add(garmentClone);
+        /* Do NOT SkeletonUtils.clone skinned CLO garments — clone collapses bone/skin state (bbox → 0). */
+        const garmentRoot = garmentCache[key];
+        detachFromParent(garmentRoot);
+        refreshSkinnedMeshes(garmentRoot);
+        prepareGarment(garmentRoot, { overAvatar: stackAvatar });
+        garmentRoot.traverse((c) => { if (c.isMesh) c.renderOrder = stackAvatar ? 1 : 0; });
+        group.add(garmentRoot);
         group.updateMatrixWorld(true);
         refreshSkinnedMeshes(group);
         let gbox = new THREE.Box3().setFromObject(group);
@@ -1743,7 +1751,8 @@
         const scale = gsize.y > 0.001 ? 1.8 / gsize.y : 1;
         group.scale.setScalar(scale);
       } else if (modelCache[key]) {
-        group = cloneGltfRoot(modelCache[key]);
+        group = modelCache[key];
+        detachFromParent(group);
         refreshSkinnedMeshes(group);
         prepareGarment(group, { overAvatar: false });
       } else {
