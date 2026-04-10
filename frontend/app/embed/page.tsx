@@ -67,7 +67,7 @@ function EmbedContent() {
       try {
         const [avatarRes, productRes] = await Promise.all([
           userId ? api.getAvatar(userId).catch(() => null) : null,
-          api.getProductTryonConfig(productId).catch(() => null),
+          api.getProductTryonConfig(productId, shop ? { shop } : undefined).catch(() => null),
         ])
         if (mounted && avatarRes?.measurements) {
           const m = avatarRes.measurements
@@ -101,7 +101,7 @@ function EmbedContent() {
       }
     })()
     return () => { mounted = false }
-  }, [userId, productId])
+  }, [userId, productId, shop])
 
   useEffect(() => {
     let mounted = true

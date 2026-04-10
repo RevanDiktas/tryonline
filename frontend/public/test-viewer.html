@@ -737,6 +737,15 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { clone as cloneSkinnedScene } from 'three/addons/utils/SkeletonUtils.js';
+
+    function cloneGltfRoot(root) {
+      try {
+        return cloneSkinnedScene(root);
+      } catch (e) {
+        return root.clone(true);
+      }
+    }
 
     // DOM Elements
     const overlay = document.getElementById('overlay');
@@ -898,7 +907,11 @@
     // Backend resolves relative paths to full Supabase URLs
     async function fetchProductConfig() {
       try {
-        const r = await fetch(config.apiUrl + '/api/products/' + encodeURIComponent(config.productId) + '/tryon-config');
+        var cfgPath = '/api/products/' + encodeURIComponent(config.productId) + '/tryon-config';
+        if (config.shopDomain) {
+          cfgPath += '?shop=' + encodeURIComponent(config.shopDomain);
+        }
+        const r = await fetch(config.apiUrl + cfgPath);
         if (!r.ok) return null;
         const d = await r.json();
         const base = window.location.origin;
@@ -1122,11 +1135,12 @@
             const applyMat = (m) => {
               const c = m.clone();
               c.side = THREE.DoubleSide;
-              c.depthWrite = false;
-              c.depthTest = true;
+              c.depthWrite = true;
+              /* Garments are often inside the avatar shell in bind pose; depth test would cull them. */
+              c.depthTest = false;
               c.polygonOffset = true;
-              c.polygonOffsetFactor = -2;
-              c.polygonOffsetUnits = -2;
+              c.polygonOffsetFactor = -1;
+              c.polygonOffsetUnits = -1;
               if (typeof c.opacity === 'number' && c.opacity < 0.01) c.opacity = 1;
               if (c.transparent === true && c.opacity >= 0.99) c.transparent = false;
               return c;
@@ -1223,7 +1237,7 @@
         });
         Object.entries(modelPaths).forEach(([size, path]) => {
           gltfLoader.load(path, (gltf) => {
-            garmentCache[size] = gltf.scene.clone();
+            garmentCache[size] = cloneGltfRoot(gltf.scene);
             prepareGarment(garmentCache[size]);
             onPreloadDone();
             if (size === firstSize && avatarCache) onFirstModelReady();
@@ -1235,7 +1249,7 @@
       } else {
         Object.entries(modelPaths).forEach(([size, path]) => {
           gltfLoader.load(path, (gltf) => {
-            modelCache[size] = gltf.scene.clone();
+            modelCache[size] = cloneGltfRoot(gltf.scene);
             prepareGarment(modelCache[size]);
             onPreloadDone();
             if (size === firstSize) onFirstModelReady();
@@ -1650,14 +1664,14 @@
 
       if (modelType === 'garment_only' && garmentCache[key]) {
         group = new THREE.Group();
-        const avatarClone = avatarCache ? avatarCache.clone() : null;
-        const garmentClone = garmentCache[key].clone();
+        const avatarClone = avatarCache ? cloneGltfRoot(avatarCache) : null;
+        const garmentClone = cloneGltfRoot(garmentCache[key]);
         if (avatarClone) {
           avatarClone.traverse((c) => { if (c.isMesh) c.renderOrder = 0; });
           group.add(avatarClone);
         }
         garmentClone.traverse((c) => { if (c.isMesh) c.renderOrder = 2; });
-        garmentClone.position.z += 0.03;
+        garmentClone.position.z += 0.06;
         group.add(garmentClone);
         group.updateMatrixWorld(true);
         const gbox = new THREE.Box3().setFromObject(group);
@@ -1665,7 +1679,7 @@
         const scale = gsize.y > 0.001 ? 1.8 / gsize.y : 1;
         group.scale.setScalar(scale);
       } else if (modelCache[key]) {
-        group = modelCache[key].clone();
+        group = cloneGltfRoot(modelCache[key]);
       } else {
         console.warn('[TryOn] No model in cache for size:', key);
         return;

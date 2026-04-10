@@ -20,20 +20,29 @@ class TryonConfigResponse(BaseModel):
 @router.get("/{product_id}/tryon-config", response_model=TryonConfigResponse)
 async def get_tryon_config(
     product_id: str,
+    shop: Optional[str] = Query(
+        None,
+        description="Shopify shop domain (e.g. raminstudios.myshopify.com) — required to pick the correct brand when handles collide",
+    ),
     base_url: Optional[str] = Query(None, description="Base URL for relative paths"),
 ):
     """
     Get tryon config for a product: model URLs per size, size chart.
     Resolves relative storage paths to full Supabase URLs.
+    When ``shop`` is provided, the garment row is scoped to that shop's brand so the
+    same product handle on another store cannot steal the wrong GLBs.
     """
     from app.config import get_settings
     settings = get_settings()
     storage_base = f"{settings.supabase_url.rstrip('/')}/storage/v1/object/public"
 
     try:
-        r = supabase_service.client.table("garments").select("sizes,size_chart").eq(
-            "shopify_product_id", product_id
-        ).limit(1).execute()
+        q = supabase_service.client.table("garments").select("sizes,size_chart")
+        brand = supabase_service.get_brand_by_shopify_domain(shop) if shop and shop.strip() else None
+        if brand and brand.get("id"):
+            q = q.eq("brand_id", str(brand["id"]))
+        q = q.eq("shopify_product_id", product_id).limit(1)
+        r = q.execute()
 
         if not r.data or len(r.data) == 0:
             raise HTTPException(status_code=404, detail="Garment not found")

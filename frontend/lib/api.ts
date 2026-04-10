@@ -276,16 +276,18 @@ export const api = {
 
   async getProductTryonConfig(
     productId: string,
-    baseUrl?: string
+    opts?: { baseUrl?: string; shop?: string }
   ): Promise<{
     product_id: string;
     model_urls: Record<string, string>;
     size_chart: Record<string, Record<string, number>>;
     model_type?: string;
   }> {
-    const params = baseUrl ? { base_url: baseUrl } : undefined;
+    const params: Record<string, string> = {};
+    if (opts?.baseUrl) params.base_url = opts.baseUrl;
+    if (opts?.shop) params.shop = opts.shop;
     return fetchApi(`/api/products/${encodeURIComponent(productId)}/tryon-config`, {
-      params,
+      params: Object.keys(params).length ? params : undefined,
     });
   },
 
