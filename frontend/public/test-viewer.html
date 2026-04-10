@@ -919,7 +919,6 @@
         for (const [k, v] of Object.entries(d.model_urls || {})) {
           urls[k] = (v && v.startsWith('http')) ? v : (base + (v.startsWith('/') ? v : '/' + v));
         }
-        console.log('[TryOn] tryon-config model_urls:', urls);
         return { modelUrls: urls, sizeChart: d.size_chart || {}, modelType: d.model_type || 'combined' };
       } catch (e) {
         console.warn('[TryOn] Fetch product config failed:', e);
@@ -1125,32 +1124,25 @@
       }, undefined, onError);
     }
 
+    /** Normal depth buffer — no depthTest:false (that caused see-through limbs and wrong layering). */
     function prepareGarment(scene) {
       scene.traverse((child) => {
+        if (!child.isMesh) return;
         child.visible = true;
-        if (child.isMesh) {
-          child.frustumCulled = false;
-          child.renderOrder = 10;
-          if (child.material) {
-            const mats = Array.isArray(child.material) ? child.material : [child.material];
-            const applyMat = (m) => {
-              const c = m.clone();
-              c.side = THREE.DoubleSide;
-              c.depthWrite = true;
-              /* Garments are often inside the avatar shell in bind pose; depth test would cull them. */
-              c.depthTest = false;
-              c.polygonOffset = true;
-              c.polygonOffsetFactor = -1;
-              c.polygonOffsetUnits = -1;
-              if (typeof c.opacity === 'number' && c.opacity < 0.01) c.opacity = 1;
-              if (c.transparent === true && c.opacity >= 0.99) c.transparent = false;
-              return c;
-            };
-            child.material = Array.isArray(child.material)
-              ? mats.map(applyMat)
-              : applyMat(mats[0]);
+        child.frustumCulled = false;
+        child.renderOrder = 0;
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        mats.forEach((m) => {
+          if (!m) return;
+          m.side = THREE.DoubleSide;
+          m.depthTest = true;
+          m.depthWrite = true;
+          m.polygonOffset = false;
+          if (typeof m.opacity === 'number' && m.opacity < 0.01) m.opacity = 1;
+          if (m.transparent === true && typeof m.opacity === 'number' && m.opacity >= 0.99) {
+            m.transparent = false;
           }
-        }
+        });
       });
     }
 
@@ -1568,7 +1560,10 @@
       renderer.setClearColor(0x000000, 0);
       renderer.setSize(w, h);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      // Match dashboard: no aggressive tone mapping (preserves textures)
+      if (THREE.ColorManagement) THREE.ColorManagement.enabled = true;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1;
       container.appendChild(renderer.domElement);
 
       // Controls
@@ -1671,8 +1666,7 @@
           avatarClone.traverse((c) => { if (c.isMesh) c.renderOrder = 0; });
           group.add(avatarClone);
         }
-        garmentClone.traverse((c) => { if (c.isMesh) c.renderOrder = 10; });
-        garmentClone.position.z += 0.06;
+        garmentClone.traverse((c) => { if (c.isMesh) c.renderOrder = 1; });
         group.add(garmentClone);
         group.updateMatrixWorld(true);
         const gbox = new THREE.Box3().setFromObject(group);
