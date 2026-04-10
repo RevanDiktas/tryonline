@@ -574,7 +574,9 @@
         userId: userId,
         displayName: displayName || null,
         preferredFit: p.get('preferred_fit') || null,
-        openDirect: openParam || inIframe
+        openDirect: openParam || inIframe,
+        /* Debug: ?try_garment_only=1 — skip avatar GLB; proves zip-up is a skinned/collapsed clone issue vs fetch */
+        tryGarmentOnly: p.get('try_garment_only') === '1'
       };
     })();
   </script>
@@ -747,6 +749,29 @@
       }
     }
 
+    function refreshSkinnedMeshes(root) {
+      root.updateMatrixWorld(true);
+      root.traverse((o) => {
+        if (o.isSkinnedMesh && o.skeleton) o.skeleton.update();
+      });
+    }
+
+    /** Bind-pose bounds (works when SkinnedMesh world AABB from three.js is ~0). */
+    function geometryWorldBounds(root) {
+      const box = new THREE.Box3();
+      root.updateMatrixWorld(true);
+      root.traverse((c) => {
+        if (!c.isMesh || !c.geometry) return;
+        const g = c.geometry;
+        if (!g.boundingBox) g.computeBoundingBox();
+        if (!g.boundingBox || g.boundingBox.isEmpty()) return;
+        const b = g.boundingBox.clone();
+        b.applyMatrix4(c.matrixWorld);
+        box.union(b);
+      });
+      return box;
+    }
+
     // DOM Elements
     const overlay = document.getElementById('overlay');
     const openBtn = document.getElementById('open-tryon');
@@ -768,7 +793,8 @@
       userId: null,
       displayName: null,
       preferredFit: null,
-      openDirect: false
+      openDirect: false,
+      tryGarmentOnly: false
     };
 
     // Session for attribution
@@ -1106,6 +1132,7 @@
     const gltfLoader = new GLTFLoader();
     gltfLoader.setCrossOrigin('anonymous');
     let modelsLoaded = 0;
+    let preloadTotalExpected = 0;
 
     // Avatar: GLB only — fresh loader per load (like dashboard), preserve all materials/textures
     function loadAvatarGlb(url, onSuccess, onError) {
@@ -1195,10 +1222,7 @@
 
     function onPreloadDone() {
       modelsLoaded++;
-      const useSeparate = modelType === 'garment_only' && avatarUrl;
-      const total = useSeparate
-        ? 1 + Object.keys(modelPaths).length
-        : Object.keys(modelPaths).length;
+      const total = preloadTotalExpected || Object.keys(modelPaths).length;
       preloadStatus.textContent = `⏳ Preloading... ${modelsLoaded}/${total}`;
       if (modelsLoaded >= total) {
         preloadStatus.textContent = '✓ All models ready';
@@ -1217,11 +1241,20 @@
     function preloadAllModels() {
       modelsLoaded = 0;
       viewerPreloadComplete = false;
-      const useSeparate = modelType === 'garment_only' && avatarUrl;
+      const tryGarmentOnly = !!config.tryGarmentOnly;
+      const useStackAvatar = modelType === 'garment_only' && avatarUrl && !tryGarmentOnly;
+      const nG = Object.keys(modelPaths).length;
+      if (modelType === 'garment_only' && tryGarmentOnly) {
+        preloadTotalExpected = nG;
+      } else if (useStackAvatar) {
+        preloadTotalExpected = 1 + nG;
+      } else {
+        preloadTotalExpected = nG;
+      }
       const firstSize = (currentSize && modelPaths[currentSize]) ? currentSize : Object.keys(modelPaths)[0];
-      console.log('[TryOn] Preload mode:', useSeparate ? 'garment_only (avatar+garments)' : 'combined', 'avatarUrl:', avatarUrl ? 'set' : 'none', 'modelPaths:', Object.keys(modelPaths));
-      if (useSeparate) {
-        // Load avatar first, then current size garment — show as soon as that's ready (faster first paint)
+      console.log('[TryOn] Preload:', useStackAvatar ? 'avatar+garments' : (tryGarmentOnly ? 'GARMENT ONLY (debug)' : 'combined'),
+        '| paths:', Object.keys(modelPaths));
+      if (useStackAvatar) {
         loadAvatarGlb(avatarUrl, (scene) => {
           let meshCount = 0;
           scene.traverse(c => {
@@ -1241,10 +1274,27 @@
         });
         Object.entries(modelPaths).forEach(([size, path]) => {
           gltfLoader.load(path, (gltf) => {
-            garmentCache[size] = cloneGltfRoot(gltf.scene);
-            prepareGarment(garmentCache[size], { overAvatar: true });
+            refreshSkinnedMeshes(gltf.scene);
+            const gb = geometryWorldBounds(gltf.scene);
+            const gs = gb.getSize(new THREE.Vector3());
+            console.log('[TryOn] Garment loaded', size, '| bind-pose geometry bbox:', gs.x.toFixed(4), gs.y.toFixed(4), gs.z.toFixed(4));
+            garmentCache[size] = gltf.scene;
             onPreloadDone();
             if (size === firstSize && avatarCache) onFirstModelReady();
+          }, undefined, (err) => {
+            console.error('[TryOn] Garment load failed:', size, path, err);
+            onPreloadDone();
+          });
+        });
+      } else if (modelType === 'garment_only' && tryGarmentOnly) {
+        Object.entries(modelPaths).forEach(([size, path]) => {
+          gltfLoader.load(path, (gltf) => {
+            refreshSkinnedMeshes(gltf.scene);
+            const gb = geometryWorldBounds(gltf.scene);
+            const gs = gb.getSize(new THREE.Vector3());
+            console.log('[TryOn] Garment only', size, '| bind-pose geometry bbox:', gs.x.toFixed(4), gs.y.toFixed(4), gs.z.toFixed(4));
+            garmentCache[size] = gltf.scene;
+            onPreloadDone();
           }, undefined, (err) => {
             console.error('[TryOn] Garment load failed:', size, path, err);
             onPreloadDone();
@@ -1253,8 +1303,7 @@
       } else {
         Object.entries(modelPaths).forEach(([size, path]) => {
           gltfLoader.load(path, (gltf) => {
-            modelCache[size] = cloneGltfRoot(gltf.scene);
-            prepareGarment(modelCache[size], { overAvatar: false });
+            modelCache[size] = gltf.scene;
             onPreloadDone();
             if (size === firstSize) onFirstModelReady();
           }, undefined, (err) => {
@@ -1671,21 +1720,32 @@
 
       if (modelType === 'garment_only' && garmentCache[key]) {
         group = new THREE.Group();
-        const avatarClone = avatarCache ? cloneGltfRoot(avatarCache) : null;
-        const garmentClone = cloneGltfRoot(garmentCache[key]);
-        if (avatarClone) {
+        const stackAvatar = avatarCache && !config.tryGarmentOnly;
+        if (stackAvatar) {
+          const avatarClone = cloneGltfRoot(avatarCache);
           avatarClone.traverse((c) => { if (c.isMesh) c.renderOrder = 0; });
           group.add(avatarClone);
         }
-        garmentClone.traverse((c) => { if (c.isMesh) c.renderOrder = 1; });
+        const garmentClone = cloneGltfRoot(garmentCache[key]);
+        refreshSkinnedMeshes(garmentClone);
+        prepareGarment(garmentClone, { overAvatar: stackAvatar });
+        garmentClone.traverse((c) => { if (c.isMesh) c.renderOrder = stackAvatar ? 1 : 0; });
         group.add(garmentClone);
         group.updateMatrixWorld(true);
-        const gbox = new THREE.Box3().setFromObject(group);
-        const gsize = gbox.getSize(new THREE.Vector3());
+        refreshSkinnedMeshes(group);
+        let gbox = new THREE.Box3().setFromObject(group);
+        let gsize = gbox.getSize(new THREE.Vector3());
+        if (Math.max(gsize.x, gsize.y, gsize.z) < 0.05) {
+          gbox = geometryWorldBounds(group);
+          gsize = gbox.getSize(new THREE.Vector3());
+          console.warn('[TryOn] Object3D bbox tiny — using bind-pose geometry bounds for scale');
+        }
         const scale = gsize.y > 0.001 ? 1.8 / gsize.y : 1;
         group.scale.setScalar(scale);
       } else if (modelCache[key]) {
         group = cloneGltfRoot(modelCache[key]);
+        refreshSkinnedMeshes(group);
+        prepareGarment(group, { overAvatar: false });
       } else {
         console.warn('[TryOn] No model in cache for size:', key);
         return;
@@ -1733,9 +1793,12 @@
       let garmentBbox = '';
       if (modelType === 'garment_only' && garmentCache[key] && currentModel.children.length) {
         const garmentRoot = currentModel.children.length > 1 ? currentModel.children[1] : currentModel.children[0];
-        const gb = new THREE.Box3().setFromObject(garmentRoot);
-        const gs = gb.getSize(new THREE.Vector3());
-        garmentBbox = ` | garment bbox: ${gs.x.toFixed(3)}×${gs.y.toFixed(3)}×${gs.z.toFixed(3)}`;
+        refreshSkinnedMeshes(garmentRoot);
+        const gbObj = new THREE.Box3().setFromObject(garmentRoot);
+        const gsObj = gbObj.getSize(new THREE.Vector3());
+        const gbGeo = geometryWorldBounds(garmentRoot);
+        const gsGeo = gbGeo.getSize(new THREE.Vector3());
+        garmentBbox = ` | garment Object3D bbox: ${gsObj.x.toFixed(3)}×${gsObj.y.toFixed(3)}×${gsObj.z.toFixed(3)} | geometry bbox: ${gsGeo.x.toFixed(3)}×${gsGeo.y.toFixed(3)}×${gsGeo.z.toFixed(3)}`;
       }
       console.log(`✓ Showing ${size.toUpperCase()} | bbox: ${modelSize.x.toFixed(2)}×${modelSize.y.toFixed(2)}×${modelSize.z.toFixed(2)} | meshes: ${meshCount}${garmentBbox}`);
     }
