@@ -772,6 +772,27 @@
       return box;
     }
 
+    /**
+     * Avatar and garment GLBs often use different scene pivots (feet vs center). Both sit at origin under
+     * the same parent with different scales → cuffs ride above wrists. After scaling, align garment so its
+     * bind bbox matches the avatar’s feet (min Y) and horizontal center (XZ) in the stack group’s space.
+     */
+    function alignStackedGarmentToAvatar(group, avatarRoot, garmentRoot) {
+      if (!avatarRoot || !garmentRoot) return;
+      group.updateMatrixWorld(true);
+      const boxA = geometryWorldBounds(avatarRoot);
+      const boxG = geometryWorldBounds(garmentRoot);
+      if (boxA.isEmpty() || boxG.isEmpty()) return;
+      const cA = boxA.getCenter(new THREE.Vector3());
+      const cG = boxG.getCenter(new THREE.Vector3());
+      garmentRoot.position.set(
+        cA.x - cG.x,
+        boxA.min.y - boxG.min.y,
+        cA.z - cG.z
+      );
+      group.updateMatrixWorld(true);
+    }
+
     function detachFromParent(obj) {
       if (!obj) return;
       if (typeof obj.removeFromParent === 'function') obj.removeFromParent();
@@ -1793,12 +1814,14 @@
          */
         if (stackAvatar) {
           detachFromParent(avatarCache);
+          avatarCache.position.set(0, 0, 0);
           avatarCache.traverse((c) => { if (c.isMesh) c.renderOrder = 0; });
           refreshSkinnedMeshes(avatarCache);
           group.add(avatarCache);
         }
         const garmentRoot = garmentCache[key];
         detachFromParent(garmentRoot);
+        garmentRoot.position.set(0, 0, 0);
         resetSkinnedBindPose(garmentRoot);
         refreshSkinnedMeshes(garmentRoot);
         fixDegenerateNodeScales(garmentRoot);
@@ -1816,6 +1839,7 @@
         const sA = rawA > 1e-9 ? 1.8 / rawA : 1;
         garmentRoot.scale.setScalar(sG);
         if (stackAvatar) avatarCache.scale.setScalar(sA);
+        if (stackAvatar) alignStackedGarmentToAvatar(group, avatarCache, garmentRoot);
         console.log('[TryOn] Per-root scale: garment (1.8/refY prefer M)*clearance, avatar 1.8/rawAvatarY:', {
           rawThisGarmentY: rawG,
           rawRefGarmentY: rawRef,
