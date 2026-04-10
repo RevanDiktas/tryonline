@@ -14,6 +14,46 @@ from app.config import get_settings
 settings = get_settings()
 
 
+def _canonical_shopify_domain(shop_domain: str) -> str:
+    """Normalize Shopify admin hostname to slug.myshopify.com (lowercase)."""
+    s = (shop_domain or "").strip().lower()
+    if not s:
+        return s
+    if s.endswith(".myshopify.com"):
+        return s
+    if "." in s:
+        return s
+    return f"{s}.myshopify.com"
+
+
+def _shopify_domain_lookup_keys(shop_domain: str) -> list[str]:
+    """Possible brands.shopify_domain values for the same shop (short slug vs full host)."""
+    s = (shop_domain or "").strip().lower()
+    if not s:
+        return []
+    canonical = _canonical_shopify_domain(s)
+    short = canonical[: -len(".myshopify.com")] if canonical.endswith(".myshopify.com") else ""
+    ordered = [canonical, s, short] if short else [canonical, s]
+    out: list[str] = []
+    seen: set[str] = set()
+    for k in ordered:
+        if k and k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out
+
+
+def _normalize_brand_shopify_domain_for_storage(shop_domain: str) -> str:
+    """Store canonical myshopify host when the value is a bare slug or *.myshopify.com."""
+    raw = (shop_domain or "").strip()
+    if not raw:
+        return raw
+    sl = raw.lower()
+    if sl.endswith(".myshopify.com") or "." not in sl:
+        return _canonical_shopify_domain(raw)
+    return raw
+
+
 @lru_cache()
 def get_supabase_client() -> Client:
     """Get cached Supabase client with service role key"""
@@ -495,9 +535,10 @@ class SupabaseService:
         if not shop_domain or not shop_domain.strip():
             return None
         try:
-            r = self.client.table("brands").select("id").eq("shopify_domain", shop_domain.strip()).limit(1).execute()
-            if r.data and len(r.data) > 0:
-                return str(r.data[0]["id"])
+            for key in _shopify_domain_lookup_keys(shop_domain):
+                r = self.client.table("brands").select("id").eq("shopify_domain", key).limit(1).execute()
+                if r.data and len(r.data) > 0:
+                    return str(r.data[0]["id"])
         except Exception:
             pass
         return None
@@ -506,15 +547,26 @@ class SupabaseService:
         """Create or update brand by shopify_domain; set shopify_access_token. Returns brand id or None."""
         if not shop_domain or not shop_domain.strip() or not shopify_access_token:
             return None
-        shop = shop_domain.strip()
+        shop = _canonical_shopify_domain(shop_domain)
+        if not shop:
+            return None
         try:
-            r = self.client.table("brands").select("id").eq("shopify_domain", shop).limit(1).execute()
-            if r.data and len(r.data) > 0:
-                brand_id = str(r.data[0]["id"])
-                self.client.table("brands").update({
+            brand_id = None
+            existing_domain: Optional[str] = None
+            for key in _shopify_domain_lookup_keys(shop_domain):
+                r = self.client.table("brands").select("id", "shopify_domain").eq("shopify_domain", key).limit(1).execute()
+                if r.data and len(r.data) > 0:
+                    brand_id = str(r.data[0]["id"])
+                    existing_domain = (r.data[0].get("shopify_domain") or "").strip()
+                    break
+            if brand_id:
+                upd: Dict[str, Any] = {
                     "shopify_access_token": shopify_access_token,
                     "updated_at": datetime.utcnow().isoformat(),
-                }).eq("id", brand_id).execute()
+                }
+                if existing_domain and existing_domain.lower() != shop:
+                    upd["shopify_domain"] = shop
+                self.client.table("brands").update(upd).eq("id", brand_id).execute()
                 return brand_id
             # Ensure garments bucket exists (garments/{brand_id}/{product_id}/...)
             self.ensure_garments_bucket()
@@ -533,7 +585,7 @@ class SupabaseService:
             print(f"[Supabase] upsert_brand_for_shop: insert OK but no row returned shop={shop!r}")
         except Exception as e:
             print(
-                f"[Supabase] upsert_brand_for_shop error shop={shop!r}: {e}\n{traceback.format_exc()}"
+                f"[Supabase] upsert_brand_for_shop error shop={shop_domain.strip()!r}: {e}\n{traceback.format_exc()}"
             )
         return None
 
@@ -554,9 +606,10 @@ class SupabaseService:
         if not shopify_domain or not shopify_domain.strip():
             return None
         try:
-            r = self.client.table("brands").select("*").eq("shopify_domain", shopify_domain.strip()).limit(1).execute()
-            if r.data and len(r.data) > 0:
-                return r.data[0]
+            for key in _shopify_domain_lookup_keys(shopify_domain):
+                r = self.client.table("brands").select("*").eq("shopify_domain", key).limit(1).execute()
+                if r.data and len(r.data) > 0:
+                    return r.data[0]
         except Exception as e:
             print(f"[Supabase] get_brand_by_shopify_domain error: {e}")
         return None
@@ -613,7 +666,7 @@ class SupabaseService:
             "status": "active",
         }
         if shopify_domain and shopify_domain.strip():
-            row["shopify_domain"] = shopify_domain.strip()
+            row["shopify_domain"] = _normalize_brand_shopify_domain_for_storage(shopify_domain)
         try:
             ins = self.client.table("brands").insert(row).execute()
             if ins.data and len(ins.data) > 0:
@@ -624,14 +677,34 @@ class SupabaseService:
             print(f"[Supabase] create_brand_for_user error: {e}")
         return None
 
+    def clear_shopify_tokens_matching_shop_domain(self, shop_domain: str) -> None:
+        """GDPR shop redact: clear token on any brands row whose shopify_domain matches this shop (slug or full host)."""
+        keys = _shopify_domain_lookup_keys(shop_domain)
+        if not keys:
+            return
+        try:
+            self.client.table("brands").update({
+                "shopify_access_token": None,
+                "is_active": False,
+            }).in_("shopify_domain", keys).execute()
+        except Exception as e:
+            print(f"[Supabase] clear_shopify_tokens_matching_shop_domain error: {e}")
+
     def has_shopify_session(self, shop_domain: str) -> bool:
         """Return True if we have a non-empty shopify_access_token for this shop."""
         if not shop_domain or not shop_domain.strip():
             return False
         try:
-            r = self.client.table("brands").select("shopify_access_token").eq("shopify_domain", shop_domain.strip()).limit(1).execute()
-            if r.data and len(r.data) > 0 and r.data[0].get("shopify_access_token"):
-                return True
+            for key in _shopify_domain_lookup_keys(shop_domain):
+                r = (
+                    self.client.table("brands")
+                    .select("shopify_access_token")
+                    .eq("shopify_domain", key)
+                    .limit(1)
+                    .execute()
+                )
+                if r.data and len(r.data) > 0 and r.data[0].get("shopify_access_token"):
+                    return True
         except Exception:
             pass
         return False

@@ -1,7 +1,7 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 
 const STORAGE_KEY = 'tryon_shop_context';
 
@@ -10,43 +10,28 @@ function isMyShopifyHost(s: string | null | undefined): s is string {
 }
 
 /**
- * Stable shop hostname for embedded admin: query ?shop= → sessionStorage → optional
- * shopify_domain from /api/brand/me (pass extraShop when brand row loads).
- * Without this, client navigations drop ?shop= and OAuth uses primary SHOPIFY_CLIENT_ID.
+ * Stable shop hostname for embedded admin.
+ * Precedence: ?shop= (Shopify iframe) → shopify_domain from /api/brand/me (extraShop) → sessionStorage.
+ * Important: extraShop must win over stale sessionStorage (e.g. prior dev-store context), otherwise
+ * OAuth and /api/shopify/session run for the wrong *.myshopify.com.
  */
 export function useResolvedShopifyShop(extraShop?: string | null): string | null {
   const searchParams = useSearchParams();
   const qp = searchParams.get('shop');
-  const [resolved, setResolved] = useState<string | null>(() => {
+
+  const resolved = useMemo(() => {
     if (isMyShopifyHost(qp)) return qp.trim().toLowerCase();
+    if (isMyShopifyHost(extraShop)) return extraShop.trim().toLowerCase();
     if (typeof window !== 'undefined') {
       const st = sessionStorage.getItem(STORAGE_KEY);
       if (isMyShopifyHost(st)) return st.trim().toLowerCase();
     }
     return null;
-  });
+  }, [qp, extraShop]);
 
   useEffect(() => {
-    if (isMyShopifyHost(qp)) {
-      const s = qp.trim().toLowerCase();
-      sessionStorage.setItem(STORAGE_KEY, s);
-      setResolved(s);
-      return;
-    }
-    if (typeof window !== 'undefined') {
-      const st = sessionStorage.getItem(STORAGE_KEY);
-      if (isMyShopifyHost(st)) {
-        setResolved((prev) => prev || st!.trim().toLowerCase());
-      }
-    }
-  }, [qp]);
-
-  useEffect(() => {
-    if (!isMyShopifyHost(extraShop)) return;
-    const s = extraShop.trim().toLowerCase();
-    sessionStorage.setItem(STORAGE_KEY, s);
-    setResolved((prev) => prev || s);
-  }, [extraShop]);
+    if (resolved) sessionStorage.setItem(STORAGE_KEY, resolved);
+  }, [resolved]);
 
   return resolved;
 }

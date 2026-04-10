@@ -125,8 +125,13 @@ export default function BrandDashboardPage() {
   const [metricsRange, setMetricsRange] = useState<'7d' | '30d'>('30d');
   const [metricsShop, setMetricsShop] = useState('');
   const [brandShop, setBrandShop] = useState<string | null>(null);
+  const [hasGarments, setHasGarments] = useState(true);
+  const [brandLoaded, setBrandLoaded] = useState(false);
+  const [guideDismissed, setGuideDismissed] = useState(false);
   const resolvedShop = useResolvedShopifyShop(brandShop);
-  useEnsureShopifyAdminOAuth(resolvedShop, searchParams.get('error'));
+  useEnsureShopifyAdminOAuth(resolvedShop, searchParams.get('error'), {
+    pauseOAuth: !brandLoaded,
+  });
 
   const fetchMetrics = useCallback(async () => {
     setMetricsLoading(true);
@@ -170,10 +175,6 @@ export default function BrandDashboardPage() {
   }, [metricsRange, metricsShop]);
 
   useEffect(() => { fetchMetrics(); }, [fetchMetrics]);
-
-  const [hasGarments, setHasGarments] = useState(true);
-  const [brandLoaded, setBrandLoaded] = useState(false);
-  const [guideDismissed, setGuideDismissed] = useState(false);
 
   useEffect(() => {
     getCurrentUser().then(async (u) => {

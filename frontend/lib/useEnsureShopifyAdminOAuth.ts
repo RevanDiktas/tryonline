@@ -38,14 +38,21 @@ function navigateOAuthTopLevel(url: string): void {
  * merchant through /api/shopify/auth once so the OAuth callback can call
  * upsert_brand_for_shop and set shopify_access_token on the existing row.
  */
+export type EnsureShopifyOAuthOptions = {
+  /** When true, skip session check / redirect until brand context is loaded (avoids OAuth for stale sessionStorage shop). */
+  pauseOAuth?: boolean;
+};
+
 export function useEnsureShopifyAdminOAuth(
   shop: string | null | undefined,
-  oauthCallbackError: string | null | undefined
+  oauthCallbackError: string | null | undefined,
+  options?: EnsureShopifyOAuthOptions
 ): void {
   /** Avoid redirect loops for the same shop; allow OAuth again when `shop` changes (e.g. pilot vs primary domain). */
   const redirectIssuedForShop = useRef<string | null>(null);
 
   useEffect(() => {
+    if (options?.pauseOAuth) return;
     const s = shop?.trim();
     if (!s || !s.includes('.myshopify.com')) return;
     if (oauthCallbackError) return;
@@ -74,5 +81,5 @@ export function useEnsureShopifyAdminOAuth(
     return () => {
       cancelled = true;
     };
-  }, [shop, oauthCallbackError]);
+  }, [shop, oauthCallbackError, options?.pauseOAuth]);
 }

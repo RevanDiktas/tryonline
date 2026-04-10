@@ -314,10 +314,7 @@ async def gdpr_shop_redact(request: Request):
     print(f"[GDPR] Shop redact: shop={shop}")
     try:
         supabase.client.table("analytics_events").delete().eq("shop_domain", shop).execute()
-        supabase.client.table("brands").update({
-            "shopify_access_token": None,
-            "is_active": False,
-        }).eq("shopify_domain", shop).execute()
+        supabase.clear_shopify_tokens_matching_shop_domain(shop)
     except Exception as e:
         print(f"[GDPR] Shop redact error: {e}")
     return {"ok": True}

@@ -2,7 +2,9 @@
   TryOn — "Try On" button app block for product pages.
   Renders a button that opens the TryOn widget in a modal iframe.
   On Add to Cart: calls Shopify /cart/add.js with the variant matching the selected size.
+  Guard: never render on cart (or any non-product template) if the block appears in shared JSON.
 {% endcomment %}
+{% if template.name == 'product' %}
 {% liquid
   assign widget_base = 'https://tryon.global'
   assign shop_domain = shop.permanent_domain
@@ -96,6 +98,7 @@
     })();
   </script>
 </div>
+{% endif %}
 
 {% schema %}
 {
