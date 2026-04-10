@@ -793,6 +793,38 @@
       group.updateMatrixWorld(true);
     }
 
+    /**
+     * Avatar body writes depth first; from the back the shell is closer than inner garment polys → depth
+     * test hides the cloth and skin shows. Disable depth write on the avatar so garment (renderOrder 1) wins.
+     */
+    function prepareStackedAvatarNoBodyDepthWrite(avatarRoot) {
+      if (!avatarRoot) return;
+      avatarRoot.traverse((c) => {
+        if (!c.isMesh) return;
+        const mats = Array.isArray(c.material) ? c.material : [c.material];
+        mats.forEach((m) => {
+          if (!m) return;
+          if (m.userData._tryonSavedDepthWrite === undefined) {
+            m.userData._tryonSavedDepthWrite = m.depthWrite !== false;
+          }
+          m.depthWrite = false;
+        });
+      });
+    }
+
+    function restoreAvatarDepthWriteFromTryon(avatarRoot) {
+      if (!avatarRoot) return;
+      avatarRoot.traverse((c) => {
+        if (!c.isMesh) return;
+        const mats = Array.isArray(c.material) ? c.material : [c.material];
+        mats.forEach((m) => {
+          if (!m || m.userData._tryonSavedDepthWrite === undefined) return;
+          m.depthWrite = m.userData._tryonSavedDepthWrite;
+          delete m.userData._tryonSavedDepthWrite;
+        });
+      });
+    }
+
     function detachFromParent(obj) {
       if (!obj) return;
       if (typeof obj.removeFromParent === 'function') obj.removeFromParent();
@@ -1157,6 +1189,8 @@
     }
     /** Extra uniform scale for a slightly roomier drape (hood, torso); too high skews cuffs vs wrists. */
     const TRYON_GARMENT_CLEARANCE = 1.026;
+    /** Extra +Y on garment after foot/XZ align (m); shorter graded sizes often read cuffs low. */
+    const TRYON_GARMENT_Y_NUDGE_BY_SIZE = { xs: 0.016, s: 0.016, m: 0, l: 0, xl: 0 };
     let viewerSceneReady = false;
     let viewerPreloadComplete = false;
     let currentSize = 'm';
@@ -1611,6 +1645,7 @@
     // ============================================
 
     function closeViewer() {
+      if (avatarCache) restoreAvatarDepthWriteFromTryon(avatarCache);
       track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
       overlay.classList.remove('active');
       // Make the entire page invisible + click-through so the iframe is a ghost
@@ -1647,8 +1682,11 @@
         } catch (e) {
           console.warn('[TryOn] postMessage failed:', e);
         }
+        /* postMessage is async; let parent run tryon-cart.js before iframe goes ghost */
+        setTimeout(() => closeViewer(), 100);
+      } else {
+        closeViewer();
       }
-      closeViewer();
     });
 
     closeBtn.addEventListener('click', () => closeViewer());
@@ -1807,6 +1845,7 @@
       if (modelType === 'garment_only' && garmentCache[key]) {
         group = new THREE.Group();
         const stackAvatar = avatarCache && !config.tryGarmentOnly;
+        if (avatarCache) restoreAvatarDepthWriteFromTryon(avatarCache);
         /*
          * Stacked models: Box3.setFromObject(group) can mis-report skinned AABB. Bind Y is captured at load.
          * Avatar may be in mm (~1800) and garment in m (~1.8): one parent scale = 1.8/max(rawY) always
@@ -1818,6 +1857,7 @@
           avatarCache.traverse((c) => { if (c.isMesh) c.renderOrder = 0; });
           refreshSkinnedMeshes(avatarCache);
           group.add(avatarCache);
+          prepareStackedAvatarNoBodyDepthWrite(avatarCache);
         }
         const garmentRoot = garmentCache[key];
         detachFromParent(garmentRoot);
@@ -1840,6 +1880,8 @@
         garmentRoot.scale.setScalar(sG);
         if (stackAvatar) avatarCache.scale.setScalar(sA);
         if (stackAvatar) alignStackedGarmentToAvatar(group, avatarCache, garmentRoot);
+        garmentRoot.position.y += TRYON_GARMENT_Y_NUDGE_BY_SIZE[key] || 0;
+        group.updateMatrixWorld(true);
         console.log('[TryOn] Per-root scale: garment (1.8/refY prefer M)*clearance, avatar 1.8/rawAvatarY:', {
           rawThisGarmentY: rawG,
           rawRefGarmentY: rawRef,

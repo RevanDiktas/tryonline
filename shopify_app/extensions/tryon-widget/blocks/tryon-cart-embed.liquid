@@ -1,8 +1,7 @@
 {% comment %}
-  TryOn — Cart listener app embed.
-  Listens for TRYON_ADD_TO_CART from the widget iframe and adds the item
-  to the store cart with tryon_session_id so the order can be attributed.
-  Enable this embed in Theme settings → App embeds.
+  TryOn — Cart listener app embed (optional if the Try On block is present).
+  The Try On block now loads the same tryon-cart.js; use this embed only if you need
+  the listener without the block, or keep both — the script binds once per page.
 {% endcomment %}
 {% schema %}
 {

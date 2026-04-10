@@ -3,8 +3,13 @@
  * Listens for TRYON_ADD_TO_CART from the widget iframe; resolves the correct
  * variant for the selected size via __tryonSizeVariantMap (set by Liquid block),
  * adds item to cart with tryon_session_id, and refreshes the cart UI.
+ *
+ * Bound once per page: the same file may load from the Try On block schema and/or
+ * the optional "TryOn cart" app embed — avoid duplicate listeners (double add).
  */
 (function () {
+  if (window.__tryonCartMessageBound) return;
+  window.__tryonCartMessageBound = true;
   var ATTR_KEY = 'tryon_session_id';
   var lastAddKey = '';
   var lastAddTime = 0;
@@ -62,6 +67,7 @@
     fetch(cartAddUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify(body),
     })
       .then(function (r) { return r.json(); })
