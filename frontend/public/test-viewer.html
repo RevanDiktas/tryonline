@@ -772,6 +772,21 @@
       return box;
     }
 
+    /**
+     * Bind bbox Y from GLB is in arbitrary units. Avatar pipelines often use millimeters (~1800),
+     * while CLO/glTF exports often use meters (~1.8). Mixing raw values in max(hG,hA) applies one
+     * uniform scale and crushes the smaller-unit asset to invisibility (zip-up) while the tee matched by luck.
+     */
+    function normalizeBindHeightToMeters(raw) {
+      const h = Number(raw);
+      if (!isFinite(h) || h <= 0) return 0;
+      if (h >= 0.25 && h <= 6) return h;
+      if (h >= 40 && h <= 260) return h / 100;
+      if (h >= 800) return h / 1000;
+      if (h > 6 && h < 800) return h / 1000;
+      return h;
+    }
+
     function detachFromParent(obj) {
       if (!obj) return;
       if (typeof obj.removeFromParent === 'function') obj.removeFromParent();
@@ -1795,12 +1810,20 @@
         group.add(garmentRoot);
         group.updateMatrixWorld(true);
         refreshSkinnedMeshes(group);
-        const hG = Number(garmentRoot.userData.tryonBindHeight) || 0;
-        const hA = stackAvatar ? (Number(avatarCache.userData.tryonBindHeight) || 0) : 0;
+        const rawG = Number(garmentRoot.userData.tryonBindHeight) || 0;
+        const rawA = stackAvatar ? (Number(avatarCache.userData.tryonBindHeight) || 0) : 0;
+        const hG = normalizeBindHeightToMeters(rawG);
+        const hA = normalizeBindHeightToMeters(rawA);
         const hRef = Math.max(hG, hA, 0.001);
         const scale = 1.8 / hRef;
         group.scale.setScalar(scale);
-        console.log('[TryOn] Scale from captured bind heights (m):', { garmentY: hG, avatarY: hA, scale: scale.toFixed(4) });
+        console.log('[TryOn] Scale from bind heights (normalized m):', {
+          garmentM: hG,
+          avatarM: hA,
+          rawGarment: rawG,
+          rawAvatar: stackAvatar ? rawA : null,
+          scale: scale.toFixed(4),
+        });
       } else if (modelCache[key]) {
         group = modelCache[key];
         detachFromParent(group);
