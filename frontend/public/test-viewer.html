@@ -1124,20 +1124,31 @@
       }, undefined, onError);
     }
 
-    /** Normal depth buffer — no depthTest:false (that caused see-through limbs and wrong layering). */
-    function prepareGarment(scene) {
+    /**
+     * Garment materials: normal depth (no depthTest:false — that broke arms/occlusion on the tee).
+     * When drawing a separate garment GLB over the body, CLO meshes often sit inside the avatar
+     * shell; without polygon offset every fragment fails depth test → “loaded but invisible.”
+     */
+    function prepareGarment(scene, opts) {
+      const overAvatar = !!(opts && opts.overAvatar);
       scene.traverse((child) => {
         if (!child.isMesh) return;
         child.visible = true;
         child.frustumCulled = false;
-        child.renderOrder = 0;
+        child.renderOrder = overAvatar ? 1 : 0;
         const mats = Array.isArray(child.material) ? child.material : [child.material];
         mats.forEach((m) => {
           if (!m) return;
           m.side = THREE.DoubleSide;
           m.depthTest = true;
           m.depthWrite = true;
-          m.polygonOffset = false;
+          if (overAvatar) {
+            m.polygonOffset = true;
+            m.polygonOffsetFactor = -4;
+            m.polygonOffsetUnits = -4;
+          } else {
+            m.polygonOffset = false;
+          }
           if (typeof m.opacity === 'number' && m.opacity < 0.01) m.opacity = 1;
           if (m.transparent === true && typeof m.opacity === 'number' && m.opacity >= 0.99) {
             m.transparent = false;
@@ -1231,7 +1242,7 @@
         Object.entries(modelPaths).forEach(([size, path]) => {
           gltfLoader.load(path, (gltf) => {
             garmentCache[size] = cloneGltfRoot(gltf.scene);
-            prepareGarment(garmentCache[size]);
+            prepareGarment(garmentCache[size], { overAvatar: true });
             onPreloadDone();
             if (size === firstSize && avatarCache) onFirstModelReady();
           }, undefined, (err) => {
@@ -1243,7 +1254,7 @@
         Object.entries(modelPaths).forEach(([size, path]) => {
           gltfLoader.load(path, (gltf) => {
             modelCache[size] = cloneGltfRoot(gltf.scene);
-            prepareGarment(modelCache[size]);
+            prepareGarment(modelCache[size], { overAvatar: false });
             onPreloadDone();
             if (size === firstSize) onFirstModelReady();
           }, undefined, (err) => {
@@ -1718,8 +1729,15 @@
       }
 
       let meshCount = 0;
-      currentModel.traverse(c => { if (c.isMesh) meshCount++; });
-      console.log(`✓ Showing ${size.toUpperCase()} | bbox: ${modelSize.x.toFixed(2)}×${modelSize.y.toFixed(2)}×${modelSize.z.toFixed(2)} | meshes: ${meshCount}`);
+      currentModel.traverse((c) => { if (c.isMesh) meshCount++; });
+      let garmentBbox = '';
+      if (modelType === 'garment_only' && garmentCache[key] && currentModel.children.length) {
+        const garmentRoot = currentModel.children.length > 1 ? currentModel.children[1] : currentModel.children[0];
+        const gb = new THREE.Box3().setFromObject(garmentRoot);
+        const gs = gb.getSize(new THREE.Vector3());
+        garmentBbox = ` | garment bbox: ${gs.x.toFixed(3)}×${gs.y.toFixed(3)}×${gs.z.toFixed(3)}`;
+      }
+      console.log(`✓ Showing ${size.toUpperCase()} | bbox: ${modelSize.x.toFixed(2)}×${modelSize.y.toFixed(2)}×${modelSize.z.toFixed(2)} | meshes: ${meshCount}${garmentBbox}`);
     }
 
     function animate() {
