@@ -1,7 +1,47 @@
 {
   "tryon-button": {
+    "name": "Try On",
     "button_label": {
       "label": "Button label"
+    },
+    "button_background": {
+      "label": "Background color"
+    },
+    "button_text_color": {
+      "label": "Text color"
+    },
+    "full_width": {
+      "label": "Full width"
+    },
+    "alignment": {
+      "label": "Alignment",
+      "options__1": {
+        "label": "Left"
+      },
+      "options__2": {
+        "label": "Center"
+      },
+      "options__3": {
+        "label": "Right"
+      }
+    },
+    "corner_radius": {
+      "label": "Corner radius"
+    },
+    "font_size": {
+      "label": "Font size"
+    },
+    "padding_vertical": {
+      "label": "Padding top/bottom"
+    },
+    "padding_horizontal": {
+      "label": "Padding left/right"
+    },
+    "margin_top": {
+      "label": "Space above"
+    },
+    "margin_bottom": {
+      "label": "Space below"
     }
   }
 }

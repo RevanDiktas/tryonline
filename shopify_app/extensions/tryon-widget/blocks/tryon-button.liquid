@@ -12,30 +12,50 @@
   assign variant = product.selected_or_first_available_variant
   assign variant_id = variant.id
   assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&open=1&v=3'
+
+  assign btn_bg = block.settings.button_background
+  assign btn_fg = block.settings.button_text_color
+  assign btn_radius = block.settings.corner_radius | default: 6
+  assign btn_pt = block.settings.padding_vertical | default: 14
+  assign btn_px = block.settings.padding_horizontal | default: 24
+  assign btn_fs = block.settings.font_size | default: 14
+  assign align = block.settings.alignment | default: 'left'
 %}
 
-<div class="tryon-app-block" {{ block.shopify_attributes }}>
+<div
+  id="tryon-root-{{ block.id }}"
+  class="tryon-app-block tryon-app-block--align-{{ align }}"
+  {{ block.shopify_attributes }}
+>
   <style>
-    .tryon-app-block { margin: 1rem 0; }
-    .tryon-btn {
+    #tryon-root-{{ block.id }} { margin: {{ block.settings.margin_top | default: 16 }}px 0 {{ block.settings.margin_bottom | default: 16 }}px; }
+    #tryon-root-{{ block.id }}.tryon-app-block--align-left { text-align: left; }
+    #tryon-root-{{ block.id }}.tryon-app-block--align-center { text-align: center; }
+    #tryon-root-{{ block.id }}.tryon-app-block--align-right { text-align: right; }
+    #tryon-root-{{ block.id }} .tryon-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 14px 24px;
-      background: #0a0a0a;
-      color: #fff;
+      box-sizing: border-box;
+      padding: {{ btn_pt }}px {{ btn_px }}px;
+      background: {{ btn_bg }};
+      color: {{ btn_fg }};
       border: none;
-      font-size: 14px;
+      font-size: {{ btn_fs }}px;
       font-weight: 500;
       letter-spacing: 0.05em;
       cursor: pointer;
-      border-radius: 6px;
-      transition: opacity 0.2s;
+      border-radius: {{ btn_radius }}px;
+      transition: opacity 0.2s, filter 0.2s;
+      max-width: 100%;
+      {% if block.settings.full_width %}
+      width: 100%;
+      {% endif %}
     }
-    .tryon-btn:hover { opacity: 0.9; }
+    #tryon-root-{{ block.id }} .tryon-btn:hover { opacity: 0.92; filter: brightness(1.05); }
   </style>
 
-  <button type="button" class="tryon-btn" data-tryon-open aria-label="Try on with TryOn">
+  <button type="button" class="tryon-btn" data-tryon-open aria-label="{{ block.settings.button_label | escape }}">
     {{ block.settings.button_label }}
   </button>
 
@@ -51,12 +71,13 @@
 
   <script>
     (function() {
-      var btn = document.querySelector('[data-tryon-open]');
+      var root = document.getElementById('tryon-root-{{ block.id }}');
+      if (!root) return;
+      var btn = root.querySelector('[data-tryon-open]');
       var iframe = document.getElementById('tryon-frame-{{ block.id }}');
       if (!btn || !iframe) return;
       var src = iframe.getAttribute('data-tryon-src');
 
-      /* Expose size → Shopify variant ID map globally for tryon-cart.js */
       window.__tryonSizeVariantMap = {};
       {% for v in product.variants %}
         window.__tryonSizeVariantMap['{{ v.option1 | downcase | strip }}'] = {{ v.id }};
@@ -113,6 +134,99 @@
       "id": "button_label",
       "label": "Button label",
       "default": "Try On"
+    },
+    {
+      "type": "header",
+      "content": "Appearance"
+    },
+    {
+      "type": "color",
+      "id": "button_background",
+      "label": "Background color",
+      "default": "#0a0a0a"
+    },
+    {
+      "type": "color",
+      "id": "button_text_color",
+      "label": "Text color",
+      "default": "#ffffff"
+    },
+    {
+      "type": "checkbox",
+      "id": "full_width",
+      "label": "Full width",
+      "default": false
+    },
+    {
+      "type": "select",
+      "id": "alignment",
+      "label": "Alignment",
+      "options": [
+        { "value": "left", "label": "Left" },
+        { "value": "center", "label": "Center" },
+        { "value": "right", "label": "Right" }
+      ],
+      "default": "left"
+    },
+    {
+      "type": "range",
+      "id": "corner_radius",
+      "min": 0,
+      "max": 40,
+      "step": 1,
+      "unit": "px",
+      "label": "Corner radius",
+      "default": 6
+    },
+    {
+      "type": "range",
+      "id": "font_size",
+      "min": 12,
+      "max": 22,
+      "step": 1,
+      "unit": "px",
+      "label": "Font size",
+      "default": 14
+    },
+    {
+      "type": "range",
+      "id": "padding_vertical",
+      "min": 8,
+      "max": 28,
+      "step": 1,
+      "unit": "px",
+      "label": "Padding top/bottom",
+      "default": 14
+    },
+    {
+      "type": "range",
+      "id": "padding_horizontal",
+      "min": 12,
+      "max": 48,
+      "step": 2,
+      "unit": "px",
+      "label": "Padding left/right",
+      "default": 24
+    },
+    {
+      "type": "range",
+      "id": "margin_top",
+      "min": 0,
+      "max": 48,
+      "step": 2,
+      "unit": "px",
+      "label": "Space above",
+      "default": 16
+    },
+    {
+      "type": "range",
+      "id": "margin_bottom",
+      "min": 0,
+      "max": 48,
+      "step": 2,
+      "unit": "px",
+      "label": "Space below",
+      "default": 16
     }
   ]
 }

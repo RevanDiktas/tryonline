@@ -1,0 +1,5 @@
+# Required so overrides merge with theme app extension defaults (bare YAML was ignored)
+extends: theme-check:theme-app-extension
+
+AssetSizeAppBlockJavaScript:
+  threshold_in_bytes: 20000
