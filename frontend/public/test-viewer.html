@@ -772,10 +772,12 @@
       return box;
     }
 
+    /** Negative Z tucks garment slightly “into” the rig (away from typical front camera); meters in stack group space. */
+    const TRYON_GARMENT_Z_PUSHBACK = -0.012;
+
     /**
-     * Avatar and garment GLBs often use different scene pivots (feet vs center). Both sit at origin under
-     * the same parent with different scales → cuffs ride above wrists. After scaling, align garment so its
-     * bind bbox matches the avatar’s feet (min Y) and horizontal center (XZ) in the stack group’s space.
+     * Same avatar + garment rigs should share origin in XZ; shifting by bbox center often slides the
+     * shell forward and shows wrists/heels. Only match feet on Y, keep X = 0, Z = pushback constant.
      */
     function alignStackedGarmentToAvatar(group, avatarRoot, garmentRoot) {
       if (!avatarRoot || !garmentRoot) return;
@@ -783,13 +785,7 @@
       const boxA = geometryWorldBounds(avatarRoot);
       const boxG = geometryWorldBounds(garmentRoot);
       if (boxA.isEmpty() || boxG.isEmpty()) return;
-      const cA = boxA.getCenter(new THREE.Vector3());
-      const cG = boxG.getCenter(new THREE.Vector3());
-      garmentRoot.position.set(
-        cA.x - cG.x,
-        boxA.min.y - boxG.min.y,
-        cA.z - cG.z
-      );
+      garmentRoot.position.set(0, boxA.min.y - boxG.min.y, TRYON_GARMENT_Z_PUSHBACK);
       group.updateMatrixWorld(true);
     }
 
