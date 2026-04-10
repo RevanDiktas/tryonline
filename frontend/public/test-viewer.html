@@ -794,16 +794,36 @@
     }
 
     /**
-     * Avatar body writes depth first; from the back the shell is closer than inner garment polys → depth
-     * test hides the cloth and skin shows. Disable depth write on the avatar so garment (renderOrder 1) wins.
+     * Torso/limbs: depthWrite off so garment (drawn after) wins from the back → less skin bleed.
+     * Head must keep depthWrite or the hood overwrites every head pixel (empty hood, “missing” face).
      */
     function prepareStackedAvatarNoBodyDepthWrite(avatarRoot) {
       if (!avatarRoot) return;
+      avatarRoot.updateMatrixWorld(true);
+      const full = geometryWorldBounds(avatarRoot);
+      if (full.isEmpty()) return;
+      const floorY = full.min.y;
+      const H = full.max.y - full.min.y;
+      if (H < 0.05) return;
+      let meshCount = 0;
+      avatarRoot.traverse((x) => { if (x.isMesh) meshCount++; });
+      if (meshCount <= 1) return;
+      const headReachY = floorY + H * 0.86;
+      const headFloorY = floorY + H * 0.68;
       avatarRoot.traverse((c) => {
-        if (!c.isMesh) return;
+        if (!c.isMesh || !c.geometry) return;
+        const g = c.geometry;
+        if (!g.boundingBox) g.computeBoundingBox();
+        if (!g.boundingBox || g.boundingBox.isEmpty()) return;
+        const b = g.boundingBox.clone().applyMatrix4(c.matrixWorld);
+        const name = (c.name || '') + ' ' + (g.name || '');
+        const nameHeadish = /head|face|skull|brow|jaw|ear|nose|mouth|hair|scalp|teeth|eye/i.test(name);
+        const boxHeadish = b.max.y >= headReachY && b.min.y >= headFloorY;
+        const keepDepthWrite = nameHeadish || boxHeadish;
         const mats = Array.isArray(c.material) ? c.material : [c.material];
         mats.forEach((m) => {
           if (!m) return;
+          if (keepDepthWrite) return;
           if (m.userData._tryonSavedDepthWrite === undefined) {
             m.userData._tryonSavedDepthWrite = m.depthWrite !== false;
           }
