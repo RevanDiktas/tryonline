@@ -1121,6 +1121,16 @@
     const modelCache = {};
     let avatarCache = null;
     const garmentCache = {};
+    /** Raw bind-pose bbox Y from one canonical garment (prefer M) so S/M/L share the same world scale factor; per-size 1.8/rawY warps grading vs a fixed avatar. */
+    function garmentRefBindHeightY() {
+      const prefer = ['m', 's', 'l', 'xs', 'xl'];
+      for (let i = 0; i < prefer.length; i++) {
+        const g = garmentCache[prefer[i]];
+        const y = g && Number(g.userData.tryonBindHeight);
+        if (y > 0) return y;
+      }
+      return 0;
+    }
     let viewerSceneReady = false;
     let viewerPreloadComplete = false;
     let currentSize = 'm';
@@ -1214,15 +1224,13 @@
           m.depthWrite = true;
           if (overAvatar) {
             m.polygonOffset = true;
-            m.polygonOffsetFactor = -4;
-            m.polygonOffsetUnits = -4;
+            m.polygonOffsetFactor = -10;
+            m.polygonOffsetUnits = -10;
           } else {
             m.polygonOffset = false;
           }
           if (typeof m.opacity === 'number' && m.opacity < 0.01) m.opacity = 1;
-          if (m.transparent === true && typeof m.opacity === 'number' && m.opacity >= 0.99) {
-            m.transparent = false;
-          }
+          /* Do not force transparent=false: glTF logos often use BLEND or MASK; forcing opaque shows the texture’s RGB in “transparent” pixels as a white box (Don McCurdy viewer keeps alpha). */
         });
       });
     }
@@ -1797,13 +1805,15 @@
         refreshSkinnedMeshes(group);
         const rawG = Number(garmentRoot.userData.tryonBindHeight) || 0;
         const rawA = stackAvatar ? (Number(avatarCache.userData.tryonBindHeight) || 0) : 0;
+        const rawRef = garmentRefBindHeightY() || rawG;
         group.scale.set(1, 1, 1);
-        const sG = rawG > 1e-9 ? 1.8 / rawG : 1;
+        const sG = rawRef > 1e-9 ? 1.8 / rawRef : 1;
         const sA = rawA > 1e-9 ? 1.8 / rawA : 1;
         garmentRoot.scale.setScalar(sG);
         if (stackAvatar) avatarCache.scale.setScalar(sA);
-        console.log('[TryOn] Per-root scale (1.8 / raw bind Y, each file’s own units):', {
-          rawGarmentY: rawG,
+        console.log('[TryOn] Per-root scale: avatar 1.8/rawAvatarY; garment 1.8/refY (shared across sizes, prefer M):', {
+          rawThisGarmentY: rawG,
+          rawRefGarmentY: rawRef,
           rawAvatarY: stackAvatar ? rawA : null,
           scaleGarment: Number(sG.toFixed(6)),
           scaleAvatar: stackAvatar ? Number(sA.toFixed(6)) : null,
