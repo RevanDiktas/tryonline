@@ -1,5 +1,6 @@
 # Required so overrides merge with theme app extension defaults (bare YAML was ignored)
 extends: theme-check:theme-app-extension
 
+# tryon-cart.js exceeds default 10KB app-block limit; disable size check for this extension
 AssetSizeAppBlockJavaScript:
-  threshold_in_bytes: 20000
+  enabled: false

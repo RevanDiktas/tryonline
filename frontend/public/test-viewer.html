@@ -1153,6 +1153,11 @@
       loader.load(loadUrl, (gltf) => {
         const s = gltf.scene;
         s.traverse(c => { if (c.isMesh) c.visible = true; });
+        refreshSkinnedMeshes(s);
+        const gb = geometryWorldBounds(s);
+        const gs = gb.getSize(new THREE.Vector3());
+        s.userData.tryonBindHeight = gs.y;
+        s.userData.tryonBindSize = { x: gs.x, y: gs.y, z: gs.z };
         onSuccess(s);
       }, undefined, onError);
     }
@@ -1284,6 +1289,8 @@
             const gb = geometryWorldBounds(gltf.scene);
             const gs = gb.getSize(new THREE.Vector3());
             console.log('[TryOn] Garment loaded', size, '| bind-pose geometry bbox:', gs.x.toFixed(4), gs.y.toFixed(4), gs.z.toFixed(4));
+            gltf.scene.userData.tryonBindHeight = gs.y;
+            gltf.scene.userData.tryonBindSize = { x: gs.x, y: gs.y, z: gs.z };
             garmentCache[size] = gltf.scene;
             onPreloadDone();
             if (size === firstSize && avatarCache) onFirstModelReady();
@@ -1299,6 +1306,8 @@
             const gb = geometryWorldBounds(gltf.scene);
             const gs = gb.getSize(new THREE.Vector3());
             console.log('[TryOn] Garment only', size, '| bind-pose geometry bbox:', gs.x.toFixed(4), gs.y.toFixed(4), gs.z.toFixed(4));
+            gltf.scene.userData.tryonBindHeight = gs.y;
+            gltf.scene.userData.tryonBindSize = { x: gs.x, y: gs.y, z: gs.z };
             garmentCache[size] = gltf.scene;
             onPreloadDone();
           }, undefined, (err) => {
@@ -1309,6 +1318,11 @@
       } else {
         Object.entries(modelPaths).forEach(([size, path]) => {
           gltfLoader.load(path, (gltf) => {
+            refreshSkinnedMeshes(gltf.scene);
+            const gb = geometryWorldBounds(gltf.scene);
+            const gs = gb.getSize(new THREE.Vector3());
+            gltf.scene.userData.tryonBindHeight = gs.y;
+            gltf.scene.userData.tryonBindSize = { x: gs.x, y: gs.y, z: gs.z };
             modelCache[size] = gltf.scene;
             onPreloadDone();
             if (size === firstSize) onFirstModelReady();
@@ -1727,12 +1741,17 @@
       if (modelType === 'garment_only' && garmentCache[key]) {
         group = new THREE.Group();
         const stackAvatar = avatarCache && !config.tryGarmentOnly;
+        /*
+         * Stacked SkinnedMesh: Box3.setFromObject(group) uses bad skinned AABB (garment → ~0) while
+         * avatar dominates height → wrong uniform scale and invisible cloth. Scale from bind heights
+         * captured at load (geometry bounds, root at identity). No SkeletonUtils clone — use loader roots.
+         */
         if (stackAvatar) {
-          const avatarClone = cloneGltfRoot(avatarCache);
-          avatarClone.traverse((c) => { if (c.isMesh) c.renderOrder = 0; });
-          group.add(avatarClone);
+          detachFromParent(avatarCache);
+          avatarCache.traverse((c) => { if (c.isMesh) c.renderOrder = 0; });
+          refreshSkinnedMeshes(avatarCache);
+          group.add(avatarCache);
         }
-        /* Do NOT SkeletonUtils.clone skinned CLO garments — clone collapses bone/skin state (bbox → 0). */
         const garmentRoot = garmentCache[key];
         detachFromParent(garmentRoot);
         refreshSkinnedMeshes(garmentRoot);
@@ -1741,15 +1760,12 @@
         group.add(garmentRoot);
         group.updateMatrixWorld(true);
         refreshSkinnedMeshes(group);
-        let gbox = new THREE.Box3().setFromObject(group);
-        let gsize = gbox.getSize(new THREE.Vector3());
-        if (Math.max(gsize.x, gsize.y, gsize.z) < 0.05) {
-          gbox = geometryWorldBounds(group);
-          gsize = gbox.getSize(new THREE.Vector3());
-          console.warn('[TryOn] Object3D bbox tiny — using bind-pose geometry bounds for scale');
-        }
-        const scale = gsize.y > 0.001 ? 1.8 / gsize.y : 1;
+        const hG = Number(garmentRoot.userData.tryonBindHeight) || 0;
+        const hA = stackAvatar ? (Number(avatarCache.userData.tryonBindHeight) || 0) : 0;
+        const hRef = Math.max(hG, hA, 0.001);
+        const scale = 1.8 / hRef;
         group.scale.setScalar(scale);
+        console.log('[TryOn] Scale from captured bind heights (m):', { garmentY: hG, avatarY: hA, scale: scale.toFixed(4) });
       } else if (modelCache[key]) {
         group = modelCache[key];
         detachFromParent(group);
@@ -1807,7 +1823,7 @@
         const gsObj = gbObj.getSize(new THREE.Vector3());
         const gbGeo = geometryWorldBounds(garmentRoot);
         const gsGeo = gbGeo.getSize(new THREE.Vector3());
-        garmentBbox = ` | garment Object3D bbox: ${gsObj.x.toFixed(3)}×${gsObj.y.toFixed(3)}×${gsObj.z.toFixed(3)} | geometry bbox: ${gsGeo.x.toFixed(3)}×${gsGeo.y.toFixed(3)}×${gsGeo.z.toFixed(3)}`;
+        garmentBbox = ` | captured bind Y: ${Number(garmentRoot.userData.tryonBindHeight).toFixed(3)} | live Object3D: ${gsObj.x.toFixed(3)}×${gsObj.y.toFixed(3)}×${gsObj.z.toFixed(3)} | live geometry: ${gsGeo.x.toFixed(3)}×${gsGeo.y.toFixed(3)}×${gsGeo.z.toFixed(3)}`;
       }
       console.log(`✓ Showing ${size.toUpperCase()} | bbox: ${modelSize.x.toFixed(2)}×${modelSize.y.toFixed(2)}×${modelSize.z.toFixed(2)} | meshes: ${meshCount}${garmentBbox}`);
     }
