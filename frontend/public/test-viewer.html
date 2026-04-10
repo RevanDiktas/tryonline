@@ -1044,6 +1044,8 @@
     const modelCache = {};
     let avatarCache = null;
     const garmentCache = {};
+    let viewerSceneReady = false;
+    let viewerPreloadComplete = false;
     let currentSize = 'm';
     let currentModel = null;
     let scene, camera, renderer, controls, loader;
@@ -1120,9 +1122,11 @@
             const applyMat = (m) => {
               const c = m.clone();
               c.side = THREE.DoubleSide;
+              c.depthWrite = false;
+              c.depthTest = true;
               c.polygonOffset = true;
-              c.polygonOffsetFactor = -1;
-              c.polygonOffsetUnits = -1;
+              c.polygonOffsetFactor = -2;
+              c.polygonOffsetUnits = -2;
               if (typeof c.opacity === 'number' && c.opacity < 0.01) c.opacity = 1;
               if (c.transparent === true && c.opacity >= 0.99) c.transparent = false;
               return c;
@@ -1161,6 +1165,16 @@
       return size;
     }
 
+    function tryPresentTryonModel() {
+      if (!viewerSceneReady || !viewerPreloadComplete) return;
+      if (!scene || !camera || !controls) return;
+      if (typeof showModel !== 'function' || !currentSize) return;
+      showModel(currentSize);
+      const key = currentSize.toLowerCase();
+      const hasAny = modelCache[key] || ((modelType === 'garment_only') && garmentCache[key]);
+      if (!hasAny && typeof showLoadError === 'function') showLoadError();
+    }
+
     function onPreloadDone() {
       modelsLoaded++;
       const useSeparate = modelType === 'garment_only' && avatarUrl;
@@ -1172,25 +1186,19 @@
         preloadStatus.textContent = '✓ All models ready';
         setTimeout(() => preloadStatus.classList.add('done'), 1000);
         console.log('✅ All models preloaded — instant size switching');
-        if (typeof showModel === 'function' && currentSize) {
-          showModel(currentSize);
-          var key = currentSize.toLowerCase();
-          var hasAny = modelCache[key] || ((modelType === 'garment_only') && garmentCache[key]);
-          if (!hasAny && typeof showLoadError === 'function') showLoadError();
-        }
+        viewerPreloadComplete = true;
+        tryPresentTryonModel();
       }
     }
 
     function onFirstModelReady() {
-      if (typeof showModel === 'function' && currentSize) {
-        showModel(currentSize);
-        var key = currentSize.toLowerCase();
-        var hasAny = modelCache[key] || ((modelType === 'garment_only') && garmentCache[key]);
-        if (!hasAny && typeof showLoadError === 'function') showLoadError();
-      }
+      /* Do not call showModel here: preload may finish before Three.js scene exists, which caused
+         a no-op displayModel; early paint also raced with the final preload pass (flicker). */
     }
 
     function preloadAllModels() {
+      modelsLoaded = 0;
+      viewerPreloadComplete = false;
       const useSeparate = modelType === 'garment_only' && avatarUrl;
       const firstSize = (currentSize && modelPaths[currentSize]) ? currentSize : Object.keys(modelPaths)[0];
       console.log('[TryOn] Preload mode:', useSeparate ? 'garment_only (avatar+garments)' : 'combined', 'avatarUrl:', avatarUrl ? 'set' : 'none', 'modelPaths:', Object.keys(modelPaths));
@@ -1407,7 +1415,7 @@
       track('widget_opened');
       tryonStartTime = Date.now();
       requestAnimationFrame(() => {
-        initScene(() => showModel(currentSize));
+        initScene(() => tryPresentTryonModel());
       });
     }
 
@@ -1517,6 +1525,7 @@
     // ============================================
     function initScene(onReady) {
       if (initialized) {
+        viewerSceneReady = true;
         if (onReady) onReady();
         return;
       }
@@ -1602,6 +1611,7 @@
           }
         }, 200);
       }
+      viewerSceneReady = true;
       if (onReady) onReady();
     }
 
@@ -1647,6 +1657,7 @@
           group.add(avatarClone);
         }
         garmentClone.traverse((c) => { if (c.isMesh) c.renderOrder = 2; });
+        garmentClone.position.z += 0.03;
         group.add(garmentClone);
         group.updateMatrixWorld(true);
         const gbox = new THREE.Box3().setFromObject(group);
