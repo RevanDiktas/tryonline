@@ -919,6 +919,7 @@
         for (const [k, v] of Object.entries(d.model_urls || {})) {
           urls[k] = (v && v.startsWith('http')) ? v : (base + (v.startsWith('/') ? v : '/' + v));
         }
+        console.log('[TryOn] tryon-config model_urls:', urls);
         return { modelUrls: urls, sizeChart: d.size_chart || {}, modelType: d.model_type || 'combined' };
       } catch (e) {
         console.warn('[TryOn] Fetch product config failed:', e);
@@ -1126,10 +1127,10 @@
 
     function prepareGarment(scene) {
       scene.traverse((child) => {
+        child.visible = true;
         if (child.isMesh) {
-          child.visible = true;
           child.frustumCulled = false;
-          child.renderOrder = 2;
+          child.renderOrder = 10;
           if (child.material) {
             const mats = Array.isArray(child.material) ? child.material : [child.material];
             const applyMat = (m) => {
@@ -1670,7 +1671,7 @@
           avatarClone.traverse((c) => { if (c.isMesh) c.renderOrder = 0; });
           group.add(avatarClone);
         }
-        garmentClone.traverse((c) => { if (c.isMesh) c.renderOrder = 2; });
+        garmentClone.traverse((c) => { if (c.isMesh) c.renderOrder = 10; });
         garmentClone.position.z += 0.06;
         group.add(garmentClone);
         group.updateMatrixWorld(true);

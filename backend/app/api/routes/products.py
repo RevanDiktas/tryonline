@@ -1,7 +1,7 @@
 """
 Product / garment tryon config — model URLs, size chart
 """
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -9,6 +9,70 @@ from pydantic import BaseModel
 from app.services.supabase import supabase_service
 
 router = APIRouter()
+
+# Theme Liquid passes product.handle (e.g. rs-zip-up). Brands may store it in either column.
+_GARMENT_SELECT_FULL = "sizes,size_chart,shopify_product_id,shopify_product_handle"
+_GARMENT_SELECT_FALLBACK = "sizes,size_chart,shopify_product_id"
+_HAS_SHOPIFY_PRODUCT_HANDLE: Optional[bool] = None
+
+
+def _norm_pid(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
+
+
+def _row_matches_product_id(row: dict[str, Any], product_id: str) -> bool:
+    want = _norm_pid(product_id)
+    if not want:
+        return False
+    for key in ("shopify_product_id", "shopify_product_handle"):
+        if _norm_pid(row.get(key)) == want:
+            return True
+    return False
+
+
+def _garment_select_columns() -> str:
+    """Prefer handle column when present; older DBs may not have shopify_product_handle."""
+    global _HAS_SHOPIFY_PRODUCT_HANDLE
+    if _HAS_SHOPIFY_PRODUCT_HANDLE is True:
+        return _GARMENT_SELECT_FULL
+    if _HAS_SHOPIFY_PRODUCT_HANDLE is False:
+        return _GARMENT_SELECT_FALLBACK
+    try:
+        supabase_service.client.table("garments").select("shopify_product_handle").limit(1).execute()
+        _HAS_SHOPIFY_PRODUCT_HANDLE = True
+    except Exception:
+        _HAS_SHOPIFY_PRODUCT_HANDLE = False
+    return _GARMENT_SELECT_FULL if _HAS_SHOPIFY_PRODUCT_HANDLE else _GARMENT_SELECT_FALLBACK
+
+
+def _find_garment_row(product_id: str, brand_id: Optional[str]) -> Optional[dict[str, Any]]:
+    cols = _garment_select_columns()
+    # Scoped: scan brand's garments (small); matches handle OR id, any casing.
+    if brand_id:
+        try:
+            r = (
+                supabase_service.client.table("garments")
+                .select(cols)
+                .eq("brand_id", brand_id)
+                .execute()
+            )
+            for row in r.data or []:
+                if _row_matches_product_id(row, product_id):
+                    return row
+        except Exception:
+            pass
+    # Exact column match (unscoped or second chance) — fresh builder each iteration
+    for field in ("shopify_product_id", "shopify_product_handle"):
+        try:
+            q = supabase_service.client.table("garments").select("sizes,size_chart")
+            if brand_id:
+                q = q.eq("brand_id", brand_id)
+            r = q.eq(field, product_id).limit(1).execute()
+            if r.data:
+                return r.data[0]
+        except Exception:
+            continue
+    return None
 
 class TryonConfigResponse(BaseModel):
     product_id: str
@@ -37,17 +101,12 @@ async def get_tryon_config(
     storage_base = f"{settings.supabase_url.rstrip('/')}/storage/v1/object/public"
 
     try:
-        q = supabase_service.client.table("garments").select("sizes,size_chart")
         brand = supabase_service.get_brand_by_shopify_domain(shop) if shop and shop.strip() else None
-        if brand and brand.get("id"):
-            q = q.eq("brand_id", str(brand["id"]))
-        q = q.eq("shopify_product_id", product_id).limit(1)
-        r = q.execute()
+        brand_id = str(brand["id"]) if brand and brand.get("id") else None
 
-        if not r.data or len(r.data) == 0:
+        row = _find_garment_row(product_id, brand_id)
+        if not row:
             raise HTTPException(status_code=404, detail="Garment not found")
-
-        row = r.data[0]
         sizes = row.get("sizes") or {}
         size_chart = row.get("size_chart") or {}
 

@@ -313,19 +313,18 @@ export default function GarmentsPage() {
                 />
               </div>
               <div>
-                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`} htmlFor="garment-shopify-product-id">Shopify Product ID *</label>
+                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`} htmlFor="garment-shopify-product-id">Shopify product handle *</label>
                 <input
                   id="garment-shopify-product-id"
                   name="shopify_product_id"
                   type="text"
                   value={form.shopify_product_id}
                   onChange={(e) => setForm({ ...form, shopify_product_id: e.target.value.trim() })}
-                  placeholder="e.g. 8234567890123"
+                  placeholder="e.g. rs-zip-up"
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'border-gray-200 text-black focus:ring-black'}`}
                 />
                 <p className={`text-xs mt-1 ${dark ? 'text-white/30' : 'text-gray-400'}`}>
-                  Find this in Shopify Admin &rarr; Products &rarr; click product &rarr; the number in the URL.
-                  Creates a storage folder and links to the TryOn widget on this product page.
+                  Must match the storefront URL slug: /products/<strong>handle</strong> (same value the theme sends to TryOn). Stored as product id + handle in the database.
                 </p>
               </div>
               <div>

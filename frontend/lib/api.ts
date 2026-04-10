@@ -365,6 +365,7 @@ export interface Garment {
   name: string;
   category: string | null;
   shopify_product_id: string | null;
+  shopify_product_handle?: string | null;
   fit_type: string;
   sizes: Record<string, string>;
   size_chart: Record<string, Record<string, number>>;

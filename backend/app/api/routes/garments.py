@@ -25,6 +25,13 @@ VALID_FIT_TYPES = ["slim", "regular", "oversized"]
 VALID_SIZES = ["xs", "s", "m", "l", "xl", "xxl"]
 
 
+def _storage_product_folder(garment: dict) -> str:
+    """Folder name under garments/{brand_id}/ — same as theme product.handle when using handles."""
+    pid = (garment.get("shopify_product_id") or "").strip()
+    ph = (garment.get("shopify_product_handle") or "").strip()
+    return pid or ph or str(garment.get("id"))
+
+
 def _get_user_brand_id(user_id: str) -> str:
     """Resolve the brand_id for an authenticated user. Raises 403 if no brand."""
     brand = supabase.get_brand_by_user_id(user_id)
@@ -84,16 +91,19 @@ async def create_garment(body: GarmentCreate, user_id: str = Depends(get_current
     if body.fit_type and body.fit_type not in VALID_FIT_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid fit_type. Must be one of: {VALID_FIT_TYPES}")
 
+    spid = (body.shopify_product_id or "").strip() or None
     row = {
         "brand_id": brand_id,
         "name": body.name,
         "category": body.category,
-        "shopify_product_id": body.shopify_product_id or None,
+        "shopify_product_id": spid,
         "fit_type": body.fit_type,
         "size_chart": body.size_chart or {},
         "sizes": {},
         "is_active": True,
     }
+    if spid:
+        row["shopify_product_handle"] = spid
     try:
         ins = supabase.client.table("garments").insert(row).execute()
         if not ins.data or len(ins.data) == 0:
@@ -101,7 +111,7 @@ async def create_garment(body: GarmentCreate, user_id: str = Depends(get_current
 
         garment = ins.data[0]
         garment_id = str(garment["id"])
-        product_folder = body.shopify_product_id or garment_id
+        product_folder = _storage_product_folder(garment) or garment_id
 
         supabase.ensure_garments_bucket()
         try:
@@ -119,7 +129,31 @@ async def create_garment(body: GarmentCreate, user_id: str = Depends(get_current
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        err = str(e)
+        if spid and "shopify_product_handle" in err.lower():
+            row.pop("shopify_product_handle", None)
+            try:
+                ins = supabase.client.table("garments").insert(row).execute()
+                if not ins.data or len(ins.data) == 0:
+                    raise HTTPException(status_code=500, detail="Insert returned no data")
+                garment = ins.data[0]
+                garment_id = str(garment["id"])
+                product_folder = _storage_product_folder(garment) or garment_id
+                supabase.ensure_garments_bucket()
+                try:
+                    bucket = supabase.client.storage.from_(settings.garments_bucket)
+                    placeholder_path = f"{brand_id}/{product_folder}/.folder"
+                    bucket.upload(
+                        placeholder_path,
+                        b"",
+                        {"content-type": "application/octet-stream", "x-upsert": "true"},
+                    )
+                except Exception as e2:
+                    print(f"[Garments] Folder creation note: {e2}")
+                return {"ok": True, "garment": garment}
+            except Exception as e2:
+                raise HTTPException(status_code=500, detail=str(e2))
+        raise HTTPException(status_code=500, detail=err)
 
 
 @router.put("/{garment_id}")
@@ -136,7 +170,9 @@ async def update_garment(garment_id: str, body: GarmentUpdate, user_id: str = De
             raise HTTPException(status_code=400, detail=f"Invalid category. Must be one of: {VALID_CATEGORIES}")
         updates["category"] = body.category
     if body.shopify_product_id is not None:
-        updates["shopify_product_id"] = body.shopify_product_id
+        v = (body.shopify_product_id or "").strip() or None
+        updates["shopify_product_id"] = v
+        updates["shopify_product_handle"] = v
     if body.fit_type is not None:
         if body.fit_type not in VALID_FIT_TYPES:
             raise HTTPException(status_code=400, detail=f"Invalid fit_type. Must be one of: {VALID_FIT_TYPES}")
@@ -157,7 +193,19 @@ async def update_garment(garment_id: str, body: GarmentUpdate, user_id: str = De
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        err = str(e)
+        if "shopify_product_handle" in err.lower() and "shopify_product_handle" in updates:
+            updates.pop("shopify_product_handle", None)
+            if not updates:
+                raise HTTPException(status_code=400, detail="No fields to update")
+            try:
+                r = supabase.client.table("garments").update(updates).eq("id", garment_id).execute()
+                if r.data and len(r.data) > 0:
+                    return {"ok": True, "garment": r.data[0]}
+            except Exception as e2:
+                raise HTTPException(status_code=500, detail=str(e2))
+            raise HTTPException(status_code=404, detail="Garment not found")
+        raise HTTPException(status_code=500, detail=err)
 
 
 @router.delete("/{garment_id}")
@@ -188,7 +236,7 @@ async def sync_garment_sizes(garment_id: str, user_id: str = Depends(get_current
     brand_id = _get_user_brand_id(user_id)
     garment = _verify_garment_ownership(garment_id, brand_id)
 
-    product_id = garment.get("shopify_product_id") or garment_id
+    product_id = _storage_product_folder(garment) or garment_id
     folder_path = f"{brand_id}/{product_id}"
     bucket = supabase.client.storage.from_(settings.garments_bucket)
 
@@ -228,7 +276,7 @@ async def upload_garment_glb(
     if not file.filename or not file.filename.lower().endswith(".glb"):
         raise HTTPException(status_code=400, detail="Only .glb files are accepted")
 
-    product_id = garment.get("shopify_product_id") or garment_id
+    product_id = _storage_product_folder(garment) or garment_id
     current_sizes = garment.get("sizes") or {}
 
     filename = f"{size_key}.glb"
