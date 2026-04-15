@@ -713,9 +713,8 @@ function DashboardPage() {
         {/* Main content area */}
         <main className="flex-1 min-w-0 px-4 md:px-8 py-8 md:py-10 dashboard-fade-in">
 
-        {/* --- PROFILE TAB --- */}
-        {activeTab === 'profile' && (
-          <>
+        {/* --- PROFILE TAB --- (always mounted, hidden via CSS to preserve Three.js canvas) */}
+        <div style={{ display: activeTab === 'profile' ? 'block' : 'none' }}>
         <div className="mb-8">
           <h2 className={`text-2xl font-bold mb-2 tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
             Welcome back, {(user.name || 'User').split(' ')[0]}
@@ -1078,8 +1077,7 @@ function DashboardPage() {
             </div>
           </div>
         </div>
-          </>
-        )}
+        </div>
 
         {/* --- MY CLOSET TAB --- */}
         {activeTab === 'closet' && (

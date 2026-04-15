@@ -1,24 +1,58 @@
 """
-Wishlist / Closet CRUD — JWT-protected endpoints for managing saved items.
-- GET    /api/wishlist                      — list saved items (optionally filtered by list_type)
-- POST   /api/wishlist                      — add item to wishlist
-- DELETE /api/wishlist/{item_id}            — remove item
-- GET    /api/wishlist/{product_id}/status  — check if product is wishlisted
+Wishlist / Closet CRUD — endpoints for managing saved items.
+
+Auth strategy:
+  - Dashboard (tryon.global, first-party): JWT via Authorization header
+  - Widget iframe (third-party on Shopify PDP): user_id in body/query param
+    (third-party storage partitioning blocks localStorage access to the JWT)
+  Both paths verify the user exists before accepting writes.
 """
+import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from app.api.deps import get_current_user_id
 from app.services.supabase import supabase_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+_optional_bearer = HTTPBearer(auto_error=False)
+
+
+def _resolve_user_id(
+    credentials: HTTPAuthorizationCredentials | None,
+    fallback_user_id: str | None,
+) -> str:
+    """Resolve user_id from JWT token (preferred) or fallback user_id param.
+    Validates that the user exists in the DB for the fallback path."""
+    # Try JWT first
+    if credentials and credentials.credentials:
+        try:
+            return get_current_user_id(credentials)
+        except HTTPException:
+            pass
+
+    # Fallback: explicit user_id (widget iframe path)
+    if fallback_user_id and fallback_user_id.strip():
+        uid = fallback_user_id.strip()
+        try:
+            r = supabase_service.client.table("users").select("id").eq("id", uid).limit(1).execute()
+            if r.data and len(r.data) > 0:
+                return uid
+        except Exception:
+            pass
+        raise HTTPException(status_code=401, detail="Invalid user_id")
+
+    raise HTTPException(status_code=401, detail="Authorization required")
 
 
 class WishlistAddPayload(BaseModel):
     product_id: str
     shop_domain: str
+    user_id: Optional[str] = None
     variant_id: Optional[str] = None
     product_name: Optional[str] = None
     product_image_url: Optional[str] = None
@@ -51,9 +85,12 @@ async def list_saved_items(
 @router.post("")
 async def add_to_wishlist(
     body: WishlistAddPayload,
-    user_id: str = Depends(get_current_user_id),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
 ):
-    """Add a product to the user's wishlist (idempotent via unique constraint)."""
+    """Add a product to the user's wishlist.
+    Accepts JWT auth OR user_id in body (for widget iframe)."""
+    user_id = _resolve_user_id(credentials, body.user_id)
+
     row = {
         "user_id": user_id,
         "list_type": "wishlist",
@@ -90,7 +127,7 @@ async def remove_saved_item(
     item_id: str,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Remove a saved item (ownership verified via user_id match)."""
+    """Remove a saved item (ownership verified via JWT user_id match)."""
     try:
         r = (
             supabase_service.client.table("saved_items")
@@ -116,9 +153,13 @@ async def remove_saved_item(
 async def get_wishlist_status(
     product_id: str,
     shop: str = Query(..., description="Shop domain"),
-    user_id: str = Depends(get_current_user_id),
+    uid: Optional[str] = Query(None, alias="user_id", description="User ID (widget fallback)"),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
 ):
-    """Check whether a product is in the user's wishlist."""
+    """Check whether a product is in the user's wishlist.
+    Accepts JWT auth OR user_id query param (for widget iframe)."""
+    user_id = _resolve_user_id(credentials, uid)
+
     try:
         r = (
             supabase_service.client.table("saved_items")

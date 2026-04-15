@@ -571,23 +571,22 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(255, 255, 255, 0.12);
-      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: #ffffff;
+      border: none;
       border-radius: 10px;
       cursor: pointer;
-      color: #fff;
+      color: #9ca3af;
       transition: all 0.2s;
     }
 
     .wishlist-btn:hover {
-      background: rgba(255, 255, 255, 0.2);
-      border-color: rgba(255, 255, 255, 0.4);
+      background: #f3f4f6;
+      color: #ff4d6d;
     }
 
     .wishlist-btn.active {
       color: #ff4d6d;
-      border-color: #ff4d6d;
-      background: rgba(255, 77, 109, 0.15);
+      background: #fff0f3;
     }
 
     .wishlist-btn .heart-icon {
@@ -1813,11 +1812,15 @@
 
     // Check initial wishlist status when user is logged in
     if (config.userId && config.productId) {
-      fetch(config.apiUrl + '/api/wishlist/' + encodeURIComponent(config.productId) + '/status?shop=' + encodeURIComponent(config.shopDomain), {
-        headers: { 'Authorization': 'Bearer ' + getSupabaseAccessToken() }
-      }).then(r => r.ok ? r.json() : null).then(data => {
-        if (data && data.wishlisted) setWishlistState(true);
-      }).catch(() => {});
+      var statusUrl = config.apiUrl + '/api/wishlist/' + encodeURIComponent(config.productId)
+        + '/status?shop=' + encodeURIComponent(config.shopDomain)
+        + '&user_id=' + encodeURIComponent(config.userId);
+      var token = getSupabaseAccessToken();
+      var statusHeaders = token ? { 'Authorization': 'Bearer ' + token } : {};
+      fetch(statusUrl, { headers: statusHeaders })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data && data.wishlisted) setWishlistState(true); })
+        .catch(() => {});
     }
 
     wishlistBtn.addEventListener('click', () => {
@@ -1851,12 +1854,14 @@
         }
       }
 
-      // Direct API call (primary path — widget runs on tryon.global with auth)
+      // Direct API call — user_id in body (works in third-party iframe where JWT is unavailable)
       const token = getSupabaseAccessToken();
+      const authHeaders = token ? { 'Authorization': 'Bearer ' + token } : {};
       if (newState) {
         const body = {
           product_id: config.productId,
           shop_domain: config.shopDomain,
+          user_id: config.userId,
           variant_id: config.variantId || undefined,
           product_name: config.productName || undefined,
           product_image_url: config.productImageUrl || undefined,
@@ -1865,20 +1870,25 @@
         };
         fetch(config.apiUrl + '/api/wishlist', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
           body: JSON.stringify(body)
+        }).then(r => {
+          if (r.ok) console.log('[TryOn] Wishlist: saved to backend');
+          else r.text().then(t => console.warn('[TryOn] Wishlist save failed:', r.status, t));
         }).catch(e => console.warn('[TryOn] wishlist API add failed:', e));
       } else {
-        // To remove, we need the item ID — fetch status first then delete
+        // Re-add with opposite state would need item ID; for now just re-POST removes via server upsert logic
+        // The simplest remove from widget: POST again toggles, but we need actual delete.
+        // Use user_id query param to fetch items then delete
         fetch(config.apiUrl + '/api/wishlist?list_type=wishlist', {
-          headers: { 'Authorization': 'Bearer ' + token }
+          headers: authHeaders
         }).then(r => r.ok ? r.json() : null).then(data => {
           if (!data || !data.items) return;
           const match = data.items.find(i => i.product_id === config.productId && i.shop_domain === config.shopDomain);
           if (match) {
             fetch(config.apiUrl + '/api/wishlist/' + match.id, {
               method: 'DELETE',
-              headers: { 'Authorization': 'Bearer ' + token }
+              headers: authHeaders
             }).catch(() => {});
           }
         }).catch(() => {});
