@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { TryonLogo } from '@/components/TryonLogo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, logout, type User } from '@/lib/supabase-auth';
-import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse } from '@/lib/api';
+import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse, type DwellMetrics, type DeviceMetricsResponse, type FitConfidenceResponse, type RepeatVisitorsResponse, type BodyShapeInsightsResponse, type ReturnMetricsData, type CohortComparisonData, type ReturnRiskResponse } from '@/lib/api';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
 
@@ -19,10 +19,15 @@ const SizeDistributionChart = dynamic(() => import('@/components/analytics/Chart
 const ExplorationTrendChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.ExplorationTrendChart })), { ssr: false });
 const RegionalSizeChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.RegionalSizeChart })), { ssr: false });
 const RegionalSizeGlobe = dynamic(() => import('@/components/analytics/RegionalSizeGlobe'), { ssr: false });
+const FullFunnelChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.FullFunnelChart })), { ssr: false });
+const DeviceBreakdownChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.DeviceBreakdownChart })), { ssr: false });
+const FitConfidenceChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.FitConfidenceChart })), { ssr: false });
+const DwellTimeChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.DwellTimeChart })), { ssr: false });
+const ReturnRiskChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.ReturnRiskChart })), { ssr: false });
 
 const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
-type Tab = 'roi' | 'fit' | 'trend';
+type Tab = 'roi' | 'fit' | 'trend' | 'returns' | 'engagement';
 
 function SunIcon() {
   return (
@@ -102,6 +107,18 @@ function EmptyState({ message, sub, dark }: { message: string; sub?: string; dar
   );
 }
 
+function LoadingSpinner({ dark }: { dark: boolean }) {
+  return (
+    <div className="py-24 flex justify-center">
+      <div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-white' : 'border-black/20 border-t-black'}`} />
+    </div>
+  );
+}
+
+const fmtPct = (v: number | null | undefined) => v != null ? `${(v * 100).toFixed(1)}%` : '—';
+const fmtEur = (v: number | null | undefined) => v != null ? `€${v.toFixed(2)}` : '—';
+const fmtHours = (v: number | null | undefined) => v != null ? `${v.toFixed(0)}h` : '—';
+
 export default function BrandDashboardPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -120,6 +137,14 @@ export default function BrandDashboardPage() {
   const [regionalSize, setRegionalSize] = useState<RegionalSizeData | null>(null);
   const [regionalView, setRegionalView] = useState<'globe' | 'chart'>('globe');
   const [metricsByProduct, setMetricsByProduct] = useState<MetricsByProductResponse | null>(null);
+  const [dwellMetrics, setDwellMetrics] = useState<DwellMetrics | null>(null);
+  const [deviceMetrics, setDeviceMetrics] = useState<DeviceMetricsResponse | null>(null);
+  const [fitConfidence, setFitConfidence] = useState<FitConfidenceResponse | null>(null);
+  const [repeatVisitors, setRepeatVisitors] = useState<RepeatVisitorsResponse | null>(null);
+  const [bodyShapeInsights, setBodyShapeInsights] = useState<BodyShapeInsightsResponse | null>(null);
+  const [returnMetrics, setReturnMetrics] = useState<ReturnMetricsData | null>(null);
+  const [cohortComparison, setCohortComparison] = useState<CohortComparisonData | null>(null);
+  const [returnRisk, setReturnRisk] = useState<ReturnRiskResponse | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [metricsRange, setMetricsRange] = useState<'7d' | '30d'>('30d');
@@ -154,23 +179,39 @@ export default function BrandDashboardPage() {
       () => api.getSizeStress(params),
       () => api.getRegionalSize(params),
       () => api.getMetricsByProduct(params),
+      () => api.getDwellMetrics(params),
+      () => api.getDeviceMetrics(params),
+      () => api.getFitConfidence(params),
+      () => api.getRepeatVisitors(params),
+      () => api.getBodyShapeInsights(params),
+      () => api.getReturnMetrics(params),
+      () => api.getCohortComparison(params),
+      () => api.getReturnRisk({ shop: metricsShop || undefined }),
     ];
     const results = await Promise.allSettled(calls.map((fn) => fn()));
-    const [m, fm, v, ar, et, ss, rs, mp] = results.map((r) =>
-      r.status === 'fulfilled' ? r.value : null
-    );
     const failures = results.filter((r) => r.status === 'rejected');
     if (failures.length > 0 && failures.length === results.length) {
       setFetchError('Backend unreachable.');
     }
-    if (m) setMetrics(m);
-    if (fm) setFitMetrics(fm);
-    if (v) setVelocity(v);
-    if (ar) setAtRisk(ar);
-    if (et && typeof et === 'object' && 'data' in et) setExplorationTrend((et as { data?: ExplorationTrendPoint[] }).data || []);
-    if (ss && typeof ss === 'object' && 'items' in ss) setSizeStress((ss as { items?: SizeStressItem[] }).items || []);
-    if (rs) setRegionalSize(rs);
-    if (mp) setMetricsByProduct(mp);
+    const val = (i: number) => results[i]?.status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<unknown>).value : null;
+    if (val(0)) setMetrics(val(0) as AnalyticsMetrics);
+    if (val(1)) setFitMetrics(val(1) as FitMetrics);
+    if (val(2)) setVelocity(val(2) as VelocityMetrics);
+    if (val(3)) setAtRisk(val(3) as AtRiskProductsResponse);
+    const et = val(4);
+    if (et && typeof et === 'object' && 'data' in (et as Record<string, unknown>)) setExplorationTrend(((et as Record<string, unknown>).data as ExplorationTrendPoint[]) || []);
+    const ss = val(5);
+    if (ss && typeof ss === 'object' && 'items' in (ss as Record<string, unknown>)) setSizeStress(((ss as Record<string, unknown>).items as SizeStressItem[]) || []);
+    if (val(6)) setRegionalSize(val(6) as RegionalSizeData);
+    if (val(7)) setMetricsByProduct(val(7) as MetricsByProductResponse);
+    if (val(8)) setDwellMetrics(val(8) as DwellMetrics);
+    if (val(9)) setDeviceMetrics(val(9) as DeviceMetricsResponse);
+    if (val(10)) setFitConfidence(val(10) as FitConfidenceResponse);
+    if (val(11)) setRepeatVisitors(val(11) as RepeatVisitorsResponse);
+    if (val(12)) setBodyShapeInsights(val(12) as BodyShapeInsightsResponse);
+    if (val(13)) setReturnMetrics(val(13) as ReturnMetricsData);
+    if (val(14)) setCohortComparison(val(14) as CohortComparisonData);
+    if (val(15)) setReturnRisk(val(15) as ReturnRiskResponse);
     setMetricsLoading(false);
   }, [metricsRange, metricsShop]);
 
@@ -229,8 +270,10 @@ export default function BrandDashboardPage() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'roi', label: 'ROI & Attribution' },
-    { id: 'fit', label: 'Fit Accuracy' },
+    { id: 'fit', label: 'Fit Intelligence' },
     { id: 'trend', label: 'Trend & Demand' },
+    { id: 'returns', label: 'Returns & Risk' },
+    { id: 'engagement', label: 'Engagement' },
   ];
 
   const panelClass = dark
@@ -241,12 +284,13 @@ export default function BrandDashboardPage() {
   const chartPanelMinH = { minHeight: CHART_HEIGHT };
   const borderCl = dark ? 'border-white/10' : 'border-black/10';
   const rowHover = dark ? 'hover:bg-white/5' : 'hover:bg-black/5';
+  const labelCl = dark ? 'text-white/45' : 'text-black/45';
+  const badgeCl = dark ? 'bg-white/10 text-white/70' : 'bg-black/10 text-black/70';
 
   return (
     <div className={`min-h-screen transition-colors ${dark ? 'bg-black text-white' : 'bg-white text-black'}`}>
       <header className={`sticky top-0 z-20 backdrop-blur-xl border-b ${dark ? 'bg-black/95 border-white/10' : 'bg-white/95 border-black/10'}`}>
         <div className="max-w-7xl mx-auto px-4 py-2 md:py-1.5 flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
-          {/* Mobile: row 1 — logo left, Refresh + theme + Sign out right (no overlap, nothing off-screen) */}
           <div className="flex items-center justify-between gap-2 md:contents">
             <TryonLogo href="/" className="h-4 w-auto rounded" />
             <div className="flex items-center gap-2 shrink-0 md:hidden">
@@ -267,7 +311,6 @@ export default function BrandDashboardPage() {
               <button onClick={handleLogout} className={`${dark ? 'text-white/40 hover:text-white/70' : 'text-black/40 hover:text-black/70'} text-[10px] transition-colors whitespace-nowrap`}>Sign out</button>
             </div>
           </div>
-          {/* Tabs + Garments: horizontal scroll on mobile so all are tappable; single row on desktop */}
           <nav className="flex gap-0.5 min-w-0 overflow-x-auto pb-1 -mx-1 md:overflow-visible md:pb-0 md:mx-0">
             {tabs.map(({ id, label }) => (
               <button
@@ -288,7 +331,6 @@ export default function BrandDashboardPage() {
             >
               Garments
             </Link>
-            {/* Mobile: shop + range at end of scroll so they stay accessible */}
             <div className="flex items-center gap-2 shrink-0 pl-2 md:hidden">
               <select
                 id="metrics-shop-mobile"
@@ -312,7 +354,6 @@ export default function BrandDashboardPage() {
               </select>
             </div>
           </nav>
-          {/* Desktop only: right group (unchanged) */}
           <div className="hidden md:flex items-center gap-2 ml-auto shrink-0">
             <select
               id="metrics-shop-desktop"
@@ -355,7 +396,6 @@ export default function BrandDashboardPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-5 py-6 dashboard-fade-in">
-        {/* Getting Started Guide — only after brand data is loaded, and dismissible */}
         {brandLoaded && !guideDismissed && (!brandShop || !hasGarments) && (
           <div className={`mb-6 rounded-xl border p-5 relative ${dark ? 'bg-white/[0.03] border-white/10' : 'bg-gradient-to-r from-blue-50 to-purple-50 border-blue-100'}`}>
             <button onClick={() => setGuideDismissed(true)} className={`absolute top-3 right-3 p-1 rounded transition ${dark ? 'text-white/30 hover:text-white/60' : 'text-gray-400 hover:text-gray-600'}`} aria-label="Dismiss">
@@ -403,27 +443,64 @@ export default function BrandDashboardPage() {
           </div>
         )}
 
+        {/* ═══ TAB 1: ROI & Attribution ═══ */}
         {tab === 'roi' && (
           <div className="space-y-6">
             {metricsLoading && !metrics ? (
-              <div className="py-24 flex justify-center"><div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-white' : 'border-black/20 border-t-black'}`} /></div>
+              <LoadingSpinner dark={dark} />
             ) : metrics ? (
               <>
+                {/* Full Funnel Overview */}
+                <div className={`${panelClass} p-5`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-4 ${labelCl}`}>Full funnel overview</p>
+                  <div style={{ height: CHART_HEIGHT }}>
+                    <FullFunnelChart
+                      widgetOpens={metrics.widget_opens ?? 0}
+                      tryons={metrics.tryons_started ?? 0}
+                      atc={metrics.add_to_carts ?? 0}
+                      purchases={metrics.purchases ?? 0}
+                      dark={dark}
+                    />
+                  </div>
+                </div>
+
+                {/* Core metrics grid */}
                 <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-10 gap-3">
+                  <MetricCell label="Widget Opens" value={metrics.widget_opens ?? 0} dark={dark} />
                   <MetricCell label="Tryons" value={metrics.tryons_started} dark={dark} />
                   <MetricCell label="ATC" value={metrics.add_to_carts} dark={dark} />
                   <MetricCell label="Purchases" value={metrics.purchases} dark={dark} />
                   <MetricCell label="Sessions" value={metrics.unique_sessions} dark={dark} />
-                  <MetricCell label="ATC %" value={metrics.tryon_atc_rate != null ? `${(metrics.tryon_atc_rate * 100).toFixed(1)}%` : '—'} highlight dark={dark} />
-                  <MetricCell label="Purchase %" value={metrics.tryon_purchase_rate != null ? `${(metrics.tryon_purchase_rate * 100).toFixed(1)}%` : '—'} highlight dark={dark} />
-                  <MetricCell label="Revenue" value={`€${(metrics.revenue_attributed ?? 0).toFixed(2)}`} dark={dark} />
-                  <MetricCell label="Rev/Tryon" value={metrics.revenue_per_tryon != null ? `€${metrics.revenue_per_tryon.toFixed(2)}` : '—'} dark={dark} />
-                  <MetricCell label="AOV" value={metrics.aov_tryon != null ? `€${metrics.aov_tryon.toFixed(2)}` : '—'} dark={dark} />
+                  <MetricCell label="Open→Tryon %" value={fmtPct(metrics.open_to_tryon_rate)} dark={dark} />
+                  <MetricCell label="ATC %" value={fmtPct(metrics.tryon_atc_rate)} highlight dark={dark} />
+                  <MetricCell label="Purchase %" value={fmtPct(metrics.tryon_purchase_rate)} highlight dark={dark} />
+                  <MetricCell label="Revenue" value={fmtEur(metrics.revenue_attributed)} dark={dark} />
+                  <MetricCell label="Rev/Tryon" value={fmtEur(metrics.revenue_per_tryon)} dark={dark} />
                 </div>
+                <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-10 gap-3">
+                  <MetricCell label="AOV" value={fmtEur(metrics.aov_tryon)} dark={dark} />
+                  <MetricCell
+                    label="Cart Abandon %"
+                    value={fmtPct(metrics.cart_abandonment_rate)}
+                    highlight={metrics.cart_abandonment_rate != null && metrics.cart_abandonment_rate > 0.5}
+                    dark={dark}
+                  />
+                  <MetricCell label="Avg Time to Purch" value={fmtHours(metrics.avg_time_to_purchase_hours)} dark={dark} />
+                  <MetricCell label="Same-Session %" value={fmtPct(metrics.same_session_purchase_rate)} dark={dark} />
+                  <MetricCell label="Returns" value={metrics.returns ?? 0} dark={dark} />
+                  <MetricCell label="Return Rate" value={fmtPct(metrics.return_rate)} dark={dark} />
+                  <MetricCell label="Revenue Lost" value={fmtEur(metrics.revenue_lost_to_returns)} dark={dark} />
+                  <MetricCell label="Bracket Orders" value={metrics.bracket_orders ?? 0} dark={dark} />
+                  <MetricCell label="Bracket Rate" value={fmtPct(metrics.bracket_rate)} dark={dark} />
+                </div>
+
+                {/* Conversion funnel chart */}
                 <div className={`${panelClass} p-5`} style={chartPanelMinH}>
-                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-4 ${dark ? 'text-white/45' : 'text-black/45'}`}>Conversion funnel</p>
+                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-4 ${labelCl}`}>Conversion funnel</p>
                   <div style={{ height: CHART_HEIGHT }}><ConversionFunnelChart tryons={metrics.tryons_started ?? 0} atc={metrics.add_to_carts ?? 0} purchases={metrics.purchases ?? 0} dark={dark} /></div>
                 </div>
+
+                {/* Products table */}
                 {metricsByProduct && (metricsByProduct.products?.length ?? 0) > 0 && (
                   <div className={`${panelClass} overflow-hidden`}>
                     <div className="overflow-x-auto">
@@ -443,7 +520,7 @@ export default function BrandDashboardPage() {
                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.tryons_started}</td>
                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.add_to_carts}</td>
                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.purchases}</td>
-<td className={`${tableCellClass} text-right font-mono tabular-nums`}>€{(p.revenue_attributed ?? 0).toFixed(2)}</td>
+                              <td className={`${tableCellClass} text-right font-mono tabular-nums`}>€{(p.revenue_attributed ?? 0).toFixed(2)}</td>
                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.aov_tryon != null ? `€${p.aov_tryon.toFixed(2)}` : '—'}</td>
                             </tr>
                           ))}
@@ -459,10 +536,11 @@ export default function BrandDashboardPage() {
           </div>
         )}
 
+        {/* ═══ TAB 2: Fit Intelligence ═══ */}
         {tab === 'fit' && (
           <div className="space-y-6">
             {metricsLoading && !fitMetrics ? (
-              <div className="py-24 flex justify-center"><div className={`w-8 h-8 border-2 rounded-full animate-spin ${dark ? 'border-white/20 border-t-white' : 'border-black/20 border-t-black'}`} /></div>
+              <LoadingSpinner dark={dark} />
             ) : fitMetrics ? (
               <>
                 <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
@@ -474,7 +552,7 @@ export default function BrandDashboardPage() {
                   <MetricCell label="Purch+size" value={String(fitMetrics.sessions_with_purchase_and_size ?? '—')} dark={dark} />
                 </div>
                 <div className={`${panelClass} p-5`} style={chartPanelMinH}>
-                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-2 ${dark ? 'text-white/45' : 'text-black/45'}`}>Size distribution</p>
+                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-2 ${labelCl}`}>Size distribution</p>
                   <p className={`text-xs mb-4 ${dark ? 'text-white/40' : 'text-black/40'}`}>Recommended = what we suggested · Selected = what they chose · Purchased = what they bought</p>
                   <div style={{ height: CHART_HEIGHT }}><SizeDistributionChart recommended={(fitMetrics.size_distribution_recommended ?? {}) as Record<string, number>} selected={(fitMetrics.size_distribution_selected ?? {}) as Record<string, number>} purchased={(fitMetrics.size_distribution_purchased ?? {}) as Record<string, number>} dark={dark} /></div>
                 </div>
@@ -483,6 +561,84 @@ export default function BrandDashboardPage() {
                   <SizeCell label="Selected" data={(fitMetrics.size_distribution_selected ?? {}) as Record<string, number>} dark={dark} />
                   <SizeCell label="Purchased" data={(fitMetrics.size_distribution_purchased ?? {}) as Record<string, number>} dark={dark} />
                 </div>
+
+                {/* Per-Product Fit Confidence */}
+                {fitConfidence && fitConfidence.products && fitConfidence.products.length > 0 && (
+                  <div className="space-y-4">
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Per-product fit confidence</p>
+                    <div className={`${panelClass} p-5`} style={chartPanelMinH}>
+                      <div style={{ height: CHART_HEIGHT }}>
+                        <FitConfidenceChart products={fitConfidence.products.slice(0, 10)} dark={dark} />
+                      </div>
+                    </div>
+                    <div className={`${panelClass} overflow-hidden`}>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead><tr className={`border-b ${borderCl}`}>
+                            <th className={tableHeaderClass}>Product</th>
+                            <th className={`${tableHeaderClass} text-right`}>Confidence</th>
+                            <th className={`${tableHeaderClass} text-right`}>Recommendations</th>
+                            <th className={`${tableHeaderClass} text-right`}>Accepted</th>
+                            <th className={`${tableHeaderClass} text-right`}>Size Up</th>
+                            <th className={`${tableHeaderClass} text-right`}>Size Down</th>
+                            <th className={tableHeaderClass}>Deviation</th>
+                          </tr></thead>
+                          <tbody>
+                            {fitConfidence.products.slice(0, 10).map((p, i) => (
+                              <tr key={p.product_id} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                                <td className={`${tableCellClass} font-medium`}>{p.product_id}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.fit_confidence_score.toFixed(1)}%</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.total_recommendations}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.acceptance_count}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.size_up_count}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.size_down_count}</td>
+                                <td className={tableCellClass}><span className={`px-1.5 py-0.5 rounded text-[10px] ${badgeCl}`}>{p.most_common_deviation ?? 'none'}</span></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Body Shape Insights */}
+                {bodyShapeInsights && bodyShapeInsights.insights && bodyShapeInsights.insights.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Body shape insights</p>
+                      <span className={`text-[10px] font-mono tabular-nums ${dark ? 'text-white/30' : 'text-black/30'}`}>
+                        {bodyShapeInsights.total_data_points} data points
+                      </span>
+                    </div>
+                    <div className={`${panelClass} overflow-hidden`}>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead><tr className={`border-b ${borderCl}`}>
+                            <th className={tableHeaderClass}>Product</th>
+                            <th className={tableHeaderClass}>Body Group</th>
+                            <th className={tableHeaderClass}>Recommended</th>
+                            <th className={tableHeaderClass}>Purchased</th>
+                            <th className={tableHeaderClass}>Deviation</th>
+                            <th className={`${tableHeaderClass} text-right`}>Shoppers</th>
+                          </tr></thead>
+                          <tbody>
+                            {bodyShapeInsights.insights.slice(0, 15).map((p, i) => (
+                              <tr key={`${p.product_id}-${p.measurement_group}-${i}`} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                                <td className={`${tableCellClass} font-medium`}>{p.product_id}</td>
+                                <td className={tableCellClass}>{p.measurement_group}</td>
+                                <td className={tableCellClass}>{p.recommended_size}</td>
+                                <td className={tableCellClass}>{p.actual_purchased_size}</td>
+                                <td className={tableCellClass}><span className={`px-1.5 py-0.5 rounded text-[10px] ${badgeCl}`}>{p.deviation}</span></td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.shopper_count}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <EmptyState message="No fit data" sub="Use widget + complete purchases" dark={dark} />
@@ -490,6 +646,7 @@ export default function BrandDashboardPage() {
           </div>
         )}
 
+        {/* ═══ TAB 3: Trend & Demand (UNCHANGED) ═══ */}
         {tab === 'trend' && (() => {
           const hasRegional = !!(regionalSize && typeof regionalSize.by_country === 'object' && regionalSize.by_country !== null && Object.keys(regionalSize.by_country as Record<string, unknown>).length > 0);
           const hasCountryTags = !!(hasRegional && regionalSize && regionalSize.top_size_by_country && typeof regionalSize.top_size_by_country === 'object' && Object.keys(regionalSize.top_size_by_country as Record<string, unknown>).length > 0);
@@ -569,7 +726,6 @@ export default function BrandDashboardPage() {
                         </button>
                       </div>
                       {regionalView === 'globe' ? (
-                        /* One full-height block so globe fills the whole square; country tags overlay at bottom (same line as "Drag to rotate") — mobile only */
                         <div className="relative w-full h-[380px]">
                           <div className="absolute inset-0">
                             <RegionalSizeGlobe
@@ -694,6 +850,235 @@ export default function BrandDashboardPage() {
           </div>
           );
         })()}
+
+        {/* ═══ TAB 4: Returns & Risk ═══ */}
+        {tab === 'returns' && (
+          <div className="space-y-6">
+            {metricsLoading && !returnMetrics ? (
+              <LoadingSpinner dark={dark} />
+            ) : returnMetrics ? (
+              <>
+                {/* Key metrics */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <MetricCell label="Total Returns" value={returnMetrics.total_returns ?? 0} dark={dark} />
+                  <MetricCell label="Return Rate" value={fmtPct(returnMetrics.return_rate)} highlight dark={dark} />
+                  <MetricCell label="Revenue Lost" value={fmtEur(returnMetrics.revenue_lost)} dark={dark} />
+                  <MetricCell label="Avg Days to Return" value={returnMetrics.avg_days_to_return != null ? `${Number(returnMetrics.avg_days_to_return).toFixed(1)}d` : '—'} dark={dark} />
+                </div>
+
+                {/* TryOn Cohort vs Baseline */}
+                {cohortComparison && (
+                  <div className={`${panelClass} p-5`}>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-4 ${labelCl}`}>TryOn cohort vs baseline</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-3">
+                        <p className={`text-xs font-semibold ${dark ? 'text-white/70' : 'text-black/70'}`}>TryOn Users</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <MetricCell label="Count" value={cohortComparison.tryon_users_count ?? '—'} dark={dark} />
+                          <MetricCell label="Purchases" value={cohortComparison.tryon_purchases ?? '—'} dark={dark} />
+                          <MetricCell label="AOV" value={fmtEur(cohortComparison.tryon_aov)} dark={dark} />
+                          <MetricCell label="Conv Rate" value={fmtPct(cohortComparison.tryon_conversion_rate)} highlight dark={dark} />
+                          <MetricCell label="Bracket Rate" value={fmtPct(cohortComparison.tryon_bracket_rate)} dark={dark} />
+                          <MetricCell label="Return Rate" value={fmtPct(cohortComparison.tryon_return_rate)} dark={dark} />
+                        </div>
+                      </div>
+                      <div className={`flex flex-col justify-center px-5 py-4 rounded-xl ${dark ? 'bg-white/[0.03]' : 'bg-black/[0.03]'}`}>
+                        <p className={`text-xs font-semibold mb-2 ${dark ? 'text-white/70' : 'text-black/70'}`}>Shopify Store Baseline</p>
+                        <p className={`text-xs leading-relaxed ${dark ? 'text-white/40' : 'text-black/40'}`}>
+                          Compare against your Shopify store baseline. The TryOn cohort metrics on the left are attributed to shoppers who used the virtual try-on widget before purchasing.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Top Returned Products */}
+                {returnMetrics.top_returned_products && Array.isArray(returnMetrics.top_returned_products) && returnMetrics.top_returned_products.length > 0 && (
+                  <div>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${labelCl}`}>Top returned products</p>
+                    <div className={`${panelClass} overflow-hidden`}>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead><tr className={`border-b ${borderCl}`}>
+                            <th className={tableHeaderClass}>Product</th>
+                            <th className={`${tableHeaderClass} text-right`}>Returns</th>
+                            <th className={`${tableHeaderClass} text-right`}>Purchases</th>
+                            <th className={`${tableHeaderClass} text-right`}>Return Rate</th>
+                          </tr></thead>
+                          <tbody>
+                            {returnMetrics.top_returned_products.slice(0, 10).map((p, i) => (
+                              <tr key={p.product_id} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                                <td className={`${tableCellClass} font-medium`}>{p.product_id}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.return_count}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.purchase_count}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{fmtPct(p.return_rate)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Return Risk Scoring */}
+                {returnRisk && (
+                  <div className="space-y-4">
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Return risk scoring</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <MetricCell label="Avg Risk Score" value={returnRisk.avg_risk_score != null ? Number(returnRisk.avg_risk_score).toFixed(1) : '—'} dark={dark} />
+                      <MetricCell label="Total Scored" value={returnRisk.total_scored ?? '—'} dark={dark} />
+                    </div>
+                    {returnRisk.high_risk_orders && returnRisk.high_risk_orders.length > 0 && (
+                      <>
+                        <div className={`${panelClass} p-5`} style={chartPanelMinH}>
+                          <div style={{ height: CHART_HEIGHT }}>
+                            <ReturnRiskChart orders={(returnRisk.high_risk_orders ?? []) as Array<{ order_id: string; risk_score: number; risk_factors: string[] }>} dark={dark} />
+                          </div>
+                        </div>
+                        <div className={`${panelClass} overflow-hidden`}>
+                          <div className="overflow-x-auto">
+                            <table className="w-full">
+                              <thead><tr className={`border-b ${borderCl}`}>
+                                <th className={tableHeaderClass}>Order</th>
+                                <th className={`${tableHeaderClass} text-right`}>Risk Score</th>
+                                <th className={tableHeaderClass}>Risk Factors</th>
+                                <th className={tableHeaderClass}>Product</th>
+                              </tr></thead>
+                              <tbody>
+                                {returnRisk.high_risk_orders.slice(0, 10).map((o, i) => (
+                                  <tr key={o.order_id} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                                    <td className={`${tableCellClass} font-medium font-mono`}>{o.order_id}</td>
+                                    <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{o.risk_score.toFixed(2)}</td>
+                                    <td className={tableCellClass}>
+                                      <div className="flex flex-wrap gap-1">
+                                        {(o.risk_factors ?? []).map((f, fi) => (
+                                          <span key={fi} className={`px-1.5 py-0.5 rounded text-[10px] ${badgeCl}`}>{f}</span>
+                                        ))}
+                                      </div>
+                                    </td>
+                                    <td className={`${tableCellClass} font-medium`}>{o.product_id ?? '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : !fetchError && (
+              <EmptyState message="No return data yet" sub="Return metrics will appear once orders are tracked" dark={dark} />
+            )}
+          </div>
+        )}
+
+        {/* ═══ TAB 5: Engagement ═══ */}
+        {tab === 'engagement' && (
+          <div className="space-y-6">
+            {metricsLoading && !dwellMetrics && !deviceMetrics && !repeatVisitors ? (
+              <LoadingSpinner dark={dark} />
+            ) : (dwellMetrics || deviceMetrics || repeatVisitors) ? (
+              <>
+                {/* Dwell Time */}
+                {dwellMetrics && (
+                  <div className="space-y-4">
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Dwell time</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <MetricCell label="Avg Dwell" value={(dwellMetrics as Record<string, unknown>).avg_dwell_seconds != null ? `${Number((dwellMetrics as Record<string, unknown>).avg_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
+                      <MetricCell label="Median Dwell" value={(dwellMetrics as Record<string, unknown>).median_dwell_seconds != null ? `${Number((dwellMetrics as Record<string, unknown>).median_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
+                      <MetricCell label="P90 Dwell" value={(dwellMetrics as Record<string, unknown>).p90_dwell_seconds != null ? `${Number((dwellMetrics as Record<string, unknown>).p90_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
+                      <MetricCell label="Dwell→Conv %" value={dwellMetrics.dwell_to_conversion != null ? `${Number(dwellMetrics.dwell_to_conversion).toFixed(1)}%` : '—'} highlight dark={dark} />
+                    </div>
+                    <div className={`${panelClass} p-5`} style={chartPanelMinH}>
+                      <div style={{ height: CHART_HEIGHT }}>
+                        <DwellTimeChart avg={dwellMetrics.avg_dwell_seconds ?? 0} median={dwellMetrics.median_dwell_seconds ?? 0} p90={dwellMetrics.p90_dwell_seconds ?? 0} dark={dark} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Device Breakdown */}
+                {deviceMetrics && (
+                  <div className="space-y-4">
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Device breakdown</p>
+                    <div className={`${panelClass} p-5`} style={chartPanelMinH}>
+                      <div style={{ height: CHART_HEIGHT }}>
+                        <DeviceBreakdownChart devices={(deviceMetrics.devices ?? []) as Array<{ device_type: string; tryons: number; purchases: number; conversion_rate?: number | null }>} dark={dark} />
+                      </div>
+                    </div>
+                    {deviceMetrics.devices && deviceMetrics.devices.length > 0 && (
+                      <div className={`${panelClass} overflow-hidden`}>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead><tr className={`border-b ${borderCl}`}>
+                              <th className={tableHeaderClass}>Device</th>
+                              <th className={`${tableHeaderClass} text-right`}>Tryons</th>
+                              <th className={`${tableHeaderClass} text-right`}>Add to Cart</th>
+                              <th className={`${tableHeaderClass} text-right`}>Purchases</th>
+                              <th className={`${tableHeaderClass} text-right`}>Conv Rate</th>
+                            </tr></thead>
+                            <tbody>
+                              {deviceMetrics.devices.map((d, i) => (
+                                <tr key={d.device_type} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                                  <td className={`${tableCellClass} font-medium`}>{d.device_type}</td>
+                                  <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{d.tryons ?? 0}</td>
+                                  <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{d.add_to_carts ?? 0}</td>
+                                  <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{d.purchases ?? 0}</td>
+                                  <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{fmtPct(d.conversion_rate)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Repeat Visitors */}
+                {repeatVisitors && (
+                  <div className="space-y-4">
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Repeat visitors</p>
+                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                      <MetricCell label="Unique Users" value={repeatVisitors.metrics?.unique_users ?? '—'} dark={dark} />
+                      <MetricCell label="Returning Users" value={repeatVisitors.metrics?.returning_users ?? '—'} dark={dark} />
+                      <MetricCell label="Returning %" value={fmtPct(repeatVisitors.metrics?.returning_user_rate)} highlight dark={dark} />
+                      <MetricCell label="High-Intent Users" value={repeatVisitors.metrics?.high_intent_users ?? '—'} dark={dark} />
+                      <MetricCell label="High-Intent Conv %" value={fmtPct(repeatVisitors.metrics?.high_intent_conversion_rate)} highlight dark={dark} />
+                    </div>
+                    {repeatVisitors.top_repeated_products && repeatVisitors.top_repeated_products.length > 0 && (
+                      <div className={`${panelClass} overflow-hidden`}>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead><tr className={`border-b ${borderCl}`}>
+                              <th className={tableHeaderClass}>Product</th>
+                              <th className={`${tableHeaderClass} text-right`}>Repeat Count</th>
+                              <th className={`${tableHeaderClass} text-right`}>Converted</th>
+                            </tr></thead>
+                            <tbody>
+                              {repeatVisitors.top_repeated_products.slice(0, 10).map((p, i) => (
+                                <tr key={p.product_id} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                                  <td className={`${tableCellClass} font-medium`}>{p.product_id}</td>
+                                  <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.repeat_count}</td>
+                                  <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.converted ? 'Yes' : 'No'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : !fetchError && (
+              <EmptyState message="No engagement data yet" sub="Engagement metrics will appear as users interact with the widget" dark={dark} />
+            )}
+          </div>
+        )}
       </main>
     </div>
   );

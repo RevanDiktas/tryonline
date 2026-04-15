@@ -12,6 +12,8 @@ import {
   AreaChart,
   Area,
   Cell,
+  PieChart,
+  Pie,
 } from 'recharts';
 
 const CHART_COLORS = {
@@ -257,6 +259,284 @@ export function RegionalSizeChart({ by_country, dark }: { by_country: Record<str
           {sizes.map((s, i) => (
             <Bar key={s} dataKey={s} stackId="a" fill={palette[i]} radius={[0, 0, 0, 0]} name={s} isAnimationActive={false} />
           ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ─── Full Funnel ─── */
+
+export function FullFunnelChart({
+  widgetOpens,
+  tryons,
+  atc,
+  purchases,
+  dark,
+}: {
+  widgetOpens: number;
+  tryons: number;
+  atc: number;
+  purchases: number;
+  dark?: boolean;
+}) {
+  const steps = [
+    { name: 'Widget Opens', value: widgetOpens },
+    { name: 'Try-On Start', value: tryons },
+    { name: 'Size Selected', value: Math.round((tryons + atc) / 2) },
+    { name: 'Add to Cart', value: atc },
+    { name: 'Purchase', value: purchases },
+  ];
+
+  const gradient = ['#3b82f6', '#6366f1', '#8b5cf6', '#22c55e', '#10b981'];
+  const maxVal = Math.max(...steps.map((s) => s.value), 1);
+  const tt = tooltipStyle(dark);
+
+  return (
+    <div className="h-[180px] w-full min-h-[160px] min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minHeight={160} initialDimension={{ width: 400, height: 160 }}>
+        <BarChart data={steps} layout="vertical" margin={{ top: 0, right: 60, left: 0, bottom: 0 }}>
+          <XAxis type="number" domain={[0, maxVal]} hide />
+          <YAxis type="category" dataKey="name" width={100} tick={tickStyle(dark)} axisLine={false} tickLine={false} />
+          <Tooltip
+            contentStyle={tt.contentStyle}
+            labelStyle={tt.labelStyle}
+            itemStyle={tt.itemStyle}
+            cursor={tt.cursor}
+            isAnimationActive={false}
+            formatter={(value: number | undefined) => [value ?? 0, '']}
+          />
+          <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={24} isAnimationActive={false} label={({ y, height, index }: { y: number; height: number; index: number }) => {
+            if (index === 0) return null;
+            const prev = steps[index - 1].value;
+            const cur = steps[index].value;
+            const drop = prev > 0 ? (((prev - cur) / prev) * 100).toFixed(0) : '0';
+            return (
+              <text x="100%" dx={-4} y={y + height / 2} textAnchor="end" dominantBaseline="middle" fontSize={9} fill={dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'}>
+                −{drop}%
+              </text>
+            );
+          }}>
+            {steps.map((_, i) => (
+              <Cell key={i} fill={gradient[i]} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ─── Device Breakdown ─── */
+
+const DEVICE_COLORS: Record<string, string> = {
+  mobile: '#0ea5e9',
+  desktop: '#22c55e',
+  tablet: '#f59e0b',
+  unknown: '#6b7280',
+};
+
+export function DeviceBreakdownChart({
+  devices,
+  dark,
+}: {
+  devices: Array<{ device_type: string; tryons: number; purchases: number; conversion_rate?: number | null }>;
+  dark?: boolean;
+}) {
+  if (!devices.length) return null;
+
+  const data = devices.map((d) => ({
+    name: d.device_type,
+    value: d.tryons,
+    conversion: d.conversion_rate ?? (d.tryons > 0 ? (d.purchases / d.tryons) * 100 : 0),
+    fill: DEVICE_COLORS[d.device_type.toLowerCase()] ?? '#6b7280',
+  }));
+
+  const tt = tooltipStyle(dark);
+
+  const renderLabel = ({ cx, cy, midAngle, outerRadius, name, conversion }: Record<string, number | string>) => {
+    const RADIAN = Math.PI / 180;
+    const radius = (outerRadius as number) + 18;
+    const x = (cx as number) + radius * Math.cos(-(midAngle as number) * RADIAN);
+    const y = (cy as number) + radius * Math.sin(-(midAngle as number) * RADIAN);
+    return (
+      <text x={x} y={y} textAnchor={x > (cx as number) ? 'start' : 'end'} dominantBaseline="central" fontSize={9} fill={dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)'}>
+        {name} {(conversion as number).toFixed(1)}%
+      </text>
+    );
+  };
+
+  return (
+    <div className="h-[180px] w-full min-h-[160px] min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minHeight={160} initialDimension={{ width: 400, height: 160 }}>
+        <PieChart>
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            outerRadius={55}
+            innerRadius={25}
+            paddingAngle={2}
+            isAnimationActive={false}
+            label={renderLabel}
+            labelLine={false}
+          >
+            {data.map((entry, i) => (
+              <Cell key={i} fill={entry.fill} />
+            ))}
+          </Pie>
+          <Tooltip
+            contentStyle={tt.contentStyle}
+            labelStyle={tt.labelStyle}
+            itemStyle={tt.itemStyle}
+            isAnimationActive={false}
+            formatter={(value: number | undefined, _name: string, props: { payload?: { conversion?: number } }) => {
+              const conv = props.payload?.conversion;
+              return [`${value ?? 0} try-ons (${conv != null ? conv.toFixed(1) : '0'}% conv)`, ''];
+            }}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ─── Fit Confidence ─── */
+
+export function FitConfidenceChart({
+  products,
+  dark,
+}: {
+  products: Array<{ product_id: string; fit_confidence_score: number; most_common_deviation?: string | null }>;
+  dark?: boolean;
+}) {
+  if (!products.length) return null;
+
+  const data = products.slice(0, 10).map((p) => ({
+    product: p.product_id.length > 14 ? p.product_id.slice(0, 14) + '…' : p.product_id,
+    score: p.fit_confidence_score,
+    deviation: p.most_common_deviation ?? '—',
+  }));
+
+  const scoreColor = (score: number) => (score > 80 ? '#22c55e' : score >= 60 ? '#f59e0b' : '#ef4444');
+  const tt = tooltipStyle(dark);
+
+  return (
+    <div className="h-[180px] w-full min-h-[160px] min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minHeight={160} initialDimension={{ width: 400, height: 160 }}>
+        <BarChart data={data} layout="vertical" margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
+          <XAxis type="number" domain={[0, 100]} tick={tickStyle(dark)} axisLine={false} tickLine={false} />
+          <YAxis type="category" dataKey="product" width={100} tick={tickStyle(dark)} axisLine={false} tickLine={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} horizontal={false} />
+          <Tooltip
+            contentStyle={tt.contentStyle}
+            labelStyle={tt.labelStyle}
+            itemStyle={tt.itemStyle}
+            cursor={tt.cursor}
+            isAnimationActive={false}
+            formatter={(value: number | undefined, _name: string, props: { payload?: { deviation?: string } }) => [`${value ?? 0} (${props.payload?.deviation ?? ''})`, 'Fit score']}
+          />
+          <Bar dataKey="score" radius={[0, 6, 6, 0]} maxBarSize={20} isAnimationActive={false}>
+            {data.map((entry, i) => (
+              <Cell key={i} fill={scoreColor(entry.score)} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ─── Dwell Time ─── */
+
+export function DwellTimeChart({
+  avg,
+  median,
+  p90,
+  dark,
+}: {
+  avg: number;
+  median: number;
+  p90: number;
+  dark?: boolean;
+}) {
+  const data = [
+    { label: 'Average', value: avg },
+    { label: 'Median', value: median },
+    { label: 'P90', value: p90 },
+  ];
+
+  const blues = ['#3b82f6', '#0ea5e9', '#06b6d4'];
+  const tt = tooltipStyle(dark);
+
+  return (
+    <div className="h-[160px] w-full min-h-[140px] min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minHeight={140} initialDimension={{ width: 400, height: 140 }}>
+        <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} vertical={false} />
+          <XAxis dataKey="label" tick={tickStyle(dark)} axisLine={false} tickLine={false} />
+          <YAxis tick={tickStyle(dark)} axisLine={false} tickLine={false} />
+          <Tooltip
+            contentStyle={tt.contentStyle}
+            labelStyle={tt.labelStyle}
+            itemStyle={tt.itemStyle}
+            cursor={tt.cursor}
+            isAnimationActive={false}
+            formatter={(value: number | undefined) => [`${(value ?? 0).toFixed(1)}s`, 'Dwell time']}
+          />
+          <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={40} isAnimationActive={false}>
+            {data.map((_, i) => (
+              <Cell key={i} fill={blues[i]} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ─── Return Risk ─── */
+
+export function ReturnRiskChart({
+  orders,
+  dark,
+}: {
+  orders: Array<{ order_id: string; risk_score: number; risk_factors: string[] }>;
+  dark?: boolean;
+}) {
+  if (!orders.length) return null;
+
+  const data = orders.slice(0, 10).map((o) => ({
+    order: o.order_id.length > 12 ? o.order_id.slice(0, 12) + '…' : o.order_id,
+    score: o.risk_score,
+    factors: o.risk_factors.join(', '),
+  }));
+
+  const riskColor = (score: number) => (score > 75 ? '#ef4444' : score >= 50 ? '#f59e0b' : '#22c55e');
+  const tt = tooltipStyle(dark);
+
+  return (
+    <div className="h-[180px] w-full min-h-[160px] min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minHeight={160} initialDimension={{ width: 400, height: 160 }}>
+        <BarChart data={data} layout="vertical" margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
+          <XAxis type="number" domain={[0, 100]} tick={tickStyle(dark)} axisLine={false} tickLine={false} />
+          <YAxis type="category" dataKey="order" width={90} tick={tickStyle(dark)} axisLine={false} tickLine={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} horizontal={false} />
+          <Tooltip
+            contentStyle={tt.contentStyle}
+            labelStyle={tt.labelStyle}
+            itemStyle={tt.itemStyle}
+            cursor={tt.cursor}
+            isAnimationActive={false}
+            formatter={(value: number | undefined, _name: string, props: { payload?: { factors?: string } }) => [`${value ?? 0} — ${props.payload?.factors ?? ''}`, 'Risk']}
+          />
+          <Bar dataKey="score" radius={[0, 6, 6, 0]} maxBarSize={20} isAnimationActive={false}>
+            {data.map((entry, i) => (
+              <Cell key={i} fill={riskColor(entry.score)} />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>

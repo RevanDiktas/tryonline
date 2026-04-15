@@ -160,6 +160,16 @@ export interface AnalyticsMetrics {
   revenue_attributed?: number;
   revenue_per_tryon?: number | null;
   aov_tryon?: number | null;
+  widget_opens?: number;
+  open_to_tryon_rate?: number | null;
+  cart_abandonment_rate?: number | null;
+  avg_time_to_purchase_hours?: number | null;
+  same_session_purchase_rate?: number | null;
+  returns?: number;
+  return_rate?: number | null;
+  revenue_lost_to_returns?: number;
+  bracket_orders?: number;
+  bracket_rate?: number | null;
   [key: string]: unknown;
 }
 
@@ -195,6 +205,99 @@ export interface MetricsByProductResponse {
   data?: unknown[];
   products?: unknown[];
   [key: string]: unknown;
+}
+
+// --- New analytics types ---
+export interface DwellMetrics {
+  total_sessions: number;
+  avg_dwell_seconds?: number | null;
+  median_dwell_seconds?: number | null;
+  p90_dwell_seconds?: number | null;
+  dwell_to_conversion?: number | null;
+}
+
+export interface DeviceMetric {
+  device_type: string;
+  tryons: number;
+  add_to_carts: number;
+  purchases: number;
+  conversion_rate?: number | null;
+}
+export interface DeviceMetricsResponse {
+  devices: DeviceMetric[];
+  total_events: number;
+}
+
+export interface ProductFitConfidence {
+  product_id: string;
+  total_recommendations: number;
+  acceptance_count: number;
+  size_up_count: number;
+  size_down_count: number;
+  fit_confidence_score: number;
+  most_common_deviation?: string | null;
+}
+export interface FitConfidenceResponse {
+  products: ProductFitConfidence[];
+}
+
+export interface RepeatVisitorMetrics {
+  unique_users: number;
+  returning_users: number;
+  returning_user_rate?: number | null;
+  repeat_product_tryons: number;
+  high_intent_users: number;
+  high_intent_conversion_rate?: number | null;
+}
+export interface RepeatVisitorsResponse {
+  metrics: RepeatVisitorMetrics;
+  top_repeated_products: Array<{ product_id: string; repeat_count: number; converted: boolean }>;
+}
+
+export interface BodyShapeInsight {
+  product_id: string;
+  measurement_group: string;
+  recommended_size: string;
+  actual_purchased_size: string;
+  deviation: string;
+  shopper_count: number;
+}
+export interface BodyShapeInsightsResponse {
+  insights: BodyShapeInsight[];
+  total_data_points: number;
+}
+
+export interface ReturnMetricsData {
+  total_purchases: number;
+  total_returns: number;
+  return_rate?: number | null;
+  revenue_lost: number;
+  top_returned_products: Array<{ product_id: string; return_count: number; purchase_count: number; return_rate?: number | null }>;
+  avg_days_to_return?: number | null;
+}
+
+export interface CohortComparisonData {
+  tryon_users_count: number;
+  tryon_purchases: number;
+  tryon_returns: number;
+  tryon_aov?: number | null;
+  tryon_return_rate?: number | null;
+  tryon_conversion_rate?: number | null;
+  tryon_bracket_rate?: number | null;
+  baseline_note?: string;
+}
+
+export interface OrderReturnRisk {
+  order_id: string;
+  session_id?: string | null;
+  risk_score: number;
+  risk_factors: string[];
+  product_id?: string | null;
+}
+export interface ReturnRiskResponse {
+  high_risk_orders: OrderReturnRisk[];
+  avg_risk_score?: number | null;
+  total_scored: number;
 }
 
 // --- Avatar ---
@@ -355,6 +458,40 @@ export const api = {
     return fetchApi('/api/analytics/metrics-by-product', {
       params: params as Record<string, string>,
     });
+  },
+
+  async getDwellMetrics(params: { start: string; end: string; shop?: string }): Promise<DwellMetrics> {
+    return fetchApi('/api/analytics/dwell-metrics', { params: params as Record<string, string> });
+  },
+
+  async getDeviceMetrics(params: { start: string; end: string; shop?: string }): Promise<DeviceMetricsResponse> {
+    return fetchApi('/api/analytics/device-metrics', { params: params as Record<string, string> });
+  },
+
+  async getFitConfidence(params: { start: string; end: string; shop?: string }): Promise<FitConfidenceResponse> {
+    return fetchApi('/api/analytics/fit-confidence-by-product', { params: params as Record<string, string> });
+  },
+
+  async getRepeatVisitors(params: { start: string; end: string; shop?: string }): Promise<RepeatVisitorsResponse> {
+    return fetchApi('/api/analytics/repeat-visitors', { params: params as Record<string, string> });
+  },
+
+  async getBodyShapeInsights(params: { start: string; end: string; shop?: string }): Promise<BodyShapeInsightsResponse> {
+    return fetchApi('/api/analytics/body-shape-insights', { params: params as Record<string, string> });
+  },
+
+  async getReturnMetrics(params: { start: string; end: string; shop?: string }): Promise<ReturnMetricsData> {
+    return fetchApi('/api/analytics/return-metrics', { params: params as Record<string, string> });
+  },
+
+  async getCohortComparison(params: { start: string; end: string; shop?: string }): Promise<CohortComparisonData> {
+    return fetchApi('/api/analytics/cohort-comparison', { params: params as Record<string, string> });
+  },
+
+  async getReturnRisk(params: { shop?: string }): Promise<ReturnRiskResponse> {
+    const p: Record<string, string> = {};
+    if (params.shop) p.shop = params.shop;
+    return fetchApi('/api/analytics/return-risk', { params: Object.keys(p).length ? p : undefined });
   },
 
   // --- Wishlist / Closet ---
