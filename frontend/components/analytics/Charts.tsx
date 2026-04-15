@@ -306,7 +306,10 @@ export function FullFunnelChart({
             isAnimationActive={false}
             formatter={(value: number | undefined) => [value ?? 0, '']}
           />
-          <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={24} isAnimationActive={false} label={({ y, height, index }: { y: number; height: number; index: number }) => {
+          <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={24} isAnimationActive={false} label={(props: Record<string, unknown>) => {
+            const y = Number(props.y ?? 0);
+            const height = Number(props.height ?? 0);
+            const index = Number(props.index ?? 0);
             if (index === 0) return null;
             const prev = steps[index - 1].value;
             const cur = steps[index].value;
