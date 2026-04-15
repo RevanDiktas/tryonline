@@ -1,5 +1,6 @@
 """
-Shopify webhooks — orders/paid for purchase attribution; GDPR compliance webhooks.
+Shopify webhooks — orders/paid for purchase attribution, refunds/create for return
+tracking, bracketing detection; GDPR compliance webhooks.
 """
 import base64
 import hmac
@@ -45,6 +46,19 @@ def _get_session_id_from_order(order: dict[str, Any]) -> str | None:
                 v = p.get("value")
                 return str(v) if v else None
     return None
+
+
+def _detect_bracketing(order: dict[str, Any]) -> tuple[bool, int]:
+    """Detect if an order contains bracketed items (same product, multiple sizes).
+    Returns (is_bracketed, bracket_item_count)."""
+    from collections import Counter
+    product_ids = Counter()
+    for li in order.get("line_items") or []:
+        pid = li.get("product_id")
+        if pid:
+            product_ids[pid] += 1
+    bracket_count = sum(c for c in product_ids.values() if c > 1)
+    return (bracket_count > 0, bracket_count)
 
 
 def _get_line_items_with_tryon(order: dict[str, Any]) -> list[dict[str, Any]]:
@@ -104,10 +118,13 @@ async def shopify_orders_paid(request: Request):
     currency = str(order.get("currency", "USD") or "USD")
 
     tryon_items = _get_line_items_with_tryon(order)
+    is_bracketed, bracket_count = _detect_bracketing(order)
     event_data: dict[str, Any] = {
         "order_id": order_id,
         "amount": total_price,
         "currency": currency,
+        "is_bracketed": is_bracketed,
+        "bracket_items": bracket_count,
     }
     if tryon_items:
         event_data["items"] = tryon_items
@@ -181,3 +198,83 @@ async def shopify_compliance_webhook(request: Request):
         pass
 
     return Response(status_code=200, content="OK", media_type="text/plain")
+
+
+@router.post("/shopify/refunds-created")
+async def shopify_refunds_created(request: Request):
+    """
+    Handle Shopify refunds/create webhook.
+    Tracks return events for return-rate analytics and revenue-lost calculations.
+    Idempotent by refund_id.
+    """
+    body = await request.body()
+    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
+    if not _verify_shopify_hmac(body, hmac_header):
+        raise HTTPException(status_code=401, detail="Invalid HMAC")
+
+    try:
+        refund = json.loads(body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    refund_id = str(refund.get("id") or "")
+    order_id = str(refund.get("order_id") or "")
+    if not refund_id:
+        raise HTTPException(status_code=400, detail="Missing refund id")
+
+    shop_domain = (
+        request.headers.get("X-Shopify-Shop-Domain")
+        or refund.get("shop_domain")
+    )
+
+    refund_line_items = refund.get("refund_line_items") or []
+    total_refunded = 0.0
+    returned_products: list[dict[str, Any]] = []
+    for rli in refund_line_items:
+        qty = int(rli.get("quantity", 0) or 0)
+        subtotal = float(rli.get("subtotal", 0) or 0)
+        total_refunded += subtotal
+        li = rli.get("line_item") or {}
+        returned_products.append({
+            "product_id": str(li.get("product_id") or ""),
+            "variant_id": str(li.get("variant_id") or ""),
+            "title": li.get("title") or li.get("name") or "",
+            "quantity": qty,
+            "subtotal": subtotal,
+        })
+
+    reason = refund.get("note") or ""
+    for tr in refund.get("transactions") or []:
+        if tr.get("kind") == "refund":
+            total_refunded = max(total_refunded, float(tr.get("amount", 0) or 0))
+
+    session_id: str | None = None
+    try:
+        r = supabase_service.client.table("analytics_events") \
+            .select("session_id") \
+            .eq("event_type", "purchase") \
+            .execute()
+        for row in r.data or []:
+            ed = row.get("event_data") or {}
+            if str(ed.get("order_id", "")) == order_id:
+                session_id = row.get("session_id")
+                break
+    except Exception:
+        pass
+
+    event_data: dict[str, Any] = {
+        "refund_id": refund_id,
+        "order_id": order_id,
+        "amount_refunded": total_refunded,
+        "reason": reason,
+        "items": returned_products,
+    }
+
+    event_id = await supabase_service.track_event(
+        event_type="return",
+        session_id=session_id,
+        shop_domain=shop_domain,
+        event_data=event_data,
+    )
+
+    return Response(status_code=200, content="OK")

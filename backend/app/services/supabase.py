@@ -760,7 +760,55 @@ class SupabaseService:
         # Drop None values so DB uses defaults
         row = {k: v for k, v in row.items() if v is not None}
         response = self.client.table("analytics_events").insert(row).execute()
-        return str(response.data[0]["id"]) if response.data else None
+        event_id = str(response.data[0]["id"]) if response.data else None
+
+        # Update tryon_sessions row with lifecycle data
+        if session_id and event_type in (
+            "size_recommended", "size_selected", "size_viewed",
+            "add_to_cart", "purchase",
+        ):
+            self._update_tryon_session(session_id, event_type, event_data)
+
+        return event_id
+
+    def _update_tryon_session(
+        self,
+        session_id: str,
+        event_type: str,
+        event_data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Progressively populate tryon_sessions with size/action/purchase data."""
+        ed = event_data or {}
+        update: Dict[str, Any] = {}
+        try:
+            if event_type == "size_recommended":
+                update["size_recommended"] = ed.get("size")
+            elif event_type == "size_selected":
+                update["size_selected"] = ed.get("size")
+            elif event_type == "size_viewed":
+                cur = self.client.table("tryon_sessions").select("sizes_viewed").eq("id", session_id).limit(1).execute()
+                existing = []
+                if cur.data and cur.data[0].get("sizes_viewed"):
+                    existing = cur.data[0]["sizes_viewed"]
+                    if isinstance(existing, str):
+                        existing = [existing]
+                new_size = ed.get("size")
+                if new_size and new_size not in existing:
+                    existing.append(new_size)
+                update["sizes_viewed"] = existing
+            elif event_type == "add_to_cart":
+                update["action"] = "add_to_cart"
+                if ed.get("size"):
+                    update["size_selected"] = ed["size"]
+            elif event_type == "purchase":
+                update["action"] = "purchased"
+                update["purchase_order_id"] = ed.get("order_id")
+                update["purchase_amount"] = ed.get("amount")
+
+            if update:
+                self.client.table("tryon_sessions").update(update).eq("id", session_id).execute()
+        except Exception:
+            pass
 
     async def track_purchase(
         self,

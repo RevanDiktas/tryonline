@@ -18,6 +18,10 @@ uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/sh
 topics = ["orders/paid"]
 uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/shopify/orders-paid"
 
+[[webhooks.subscriptions]]
+topics = ["refunds/create"]
+uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/shopify/refunds-created"
+
 [access_scopes]
 scopes = "read_orders"
 optional_scopes = []

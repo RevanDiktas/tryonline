@@ -33,6 +33,14 @@ class EventType(str, Enum):
     checkout_started = "checkout_started"
     purchase = "purchase"
 
+    # Wishlist events
+    wishlist_add = "wishlist_add"
+    wishlist_remove = "wishlist_remove"
+
+    # Post-purchase events
+    return_item = "return"
+    fit_feedback = "fit_feedback"
+
 
 class AnalyticsEvent(BaseModel):
     """Analytics event — matches analytics_events table"""

@@ -1901,6 +1901,9 @@
         if (btn.hidden) return;
         const size = btn.dataset.size;
         if (!modelPaths[size]) return;
+
+        track('size_viewed', { size: size });
+
         if (size === currentSize) return;
 
         sizeButtons.forEach(b => { if (!b.hidden) b.classList.remove('active'); });
