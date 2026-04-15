@@ -112,6 +112,20 @@ async def shopify_orders_paid(request: Request):
     if tryon_items:
         event_data["items"] = tryon_items
 
+    # Include raw line_items for closet population (product_id, title, price, variant_id)
+    raw_line_items = order.get("line_items") or []
+    if raw_line_items:
+        event_data["line_items"] = [
+            {
+                "product_id": str(li.get("product_id") or ""),
+                "variant_id": str(li.get("variant_id") or ""),
+                "title": li.get("title") or li.get("name") or "",
+                "price": str(li.get("price", "0")),
+                "quantity": li.get("quantity", 1),
+            }
+            for li in raw_line_items
+        ]
+
     event_id = await supabase_service.track_purchase(
         order_id=order_id,
         session_id=session_id,

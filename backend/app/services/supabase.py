@@ -804,11 +804,88 @@ class SupabaseService:
 
         try:
             response = self.client.table("analytics_events").insert(row).execute()
-            return str(response.data[0]["id"]) if response.data else None
+            event_id = str(response.data[0]["id"]) if response.data else None
         except Exception as e:
             if "duplicate" in str(e).lower() or "unique" in str(e).lower():
                 return None  # Idempotent: already processed
             raise
+
+        # Populate saved_items (closet) from order line_items
+        if user_id and event_id:
+            self._save_purchased_items_to_closet(
+                user_id=user_id,
+                shop_domain=shop_domain,
+                order_data=payload,
+                brand_name=None,
+            )
+
+        return event_id
+
+    def _save_purchased_items_to_closet(
+        self,
+        user_id: str,
+        shop_domain: Optional[str],
+        order_data: Dict[str, Any],
+        brand_name: Optional[str] = None,
+    ) -> None:
+        """Insert purchased line items into saved_items with list_type='closet'.
+        Promotes any matching wishlist item to closet via upsert."""
+        line_items = order_data.get("items") or []
+        currency = str(order_data.get("currency", "USD") or "USD")
+
+        # Resolve brand name from shop_domain if not provided
+        if not brand_name and shop_domain:
+            try:
+                brand = self.get_brand_by_shopify_domain(shop_domain)
+                if brand:
+                    brand_name = brand.get("name")
+            except Exception:
+                pass
+
+        # Also try to get line items from the raw Shopify order (nested in event_data)
+        raw_line_items = order_data.get("line_items") or []
+
+        items_to_save: list[Dict[str, Any]] = []
+
+        for li in raw_line_items:
+            product_id = str(li.get("product_id") or "").strip()
+            if not product_id:
+                continue
+            row = {
+                "user_id": user_id,
+                "list_type": "closet",
+                "product_id": product_id,
+                "shop_domain": shop_domain or "",
+                "variant_id": str(li.get("variant_id") or "").strip() or None,
+                "product_name": (li.get("title") or li.get("name") or "").strip() or None,
+                "product_price": float(li.get("price", 0) or 0),
+                "currency": currency,
+                "brand_name": brand_name,
+            }
+            items_to_save.append(row)
+
+        if not items_to_save:
+            return
+
+        for item in items_to_save:
+            try:
+                # Remove wishlist entry if it exists (promote to closet)
+                self.client.table("saved_items").delete().eq(
+                    "user_id", user_id
+                ).eq(
+                    "product_id", item["product_id"]
+                ).eq(
+                    "shop_domain", item["shop_domain"]
+                ).eq(
+                    "list_type", "wishlist"
+                ).execute()
+
+                self.client.table("saved_items").upsert(
+                    item,
+                    on_conflict="user_id,product_id,shop_domain,list_type",
+                ).execute()
+            except Exception as e:
+                print(f"[Supabase] _save_purchased_items_to_closet error for product {item.get('product_id')}: {e}")
 
 
 # Singleton instance

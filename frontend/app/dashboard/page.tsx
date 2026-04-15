@@ -1,13 +1,18 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { TryonLogo } from '@/components/TryonLogo';
 import type { WebGLRenderer } from 'three';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, getFitPassport, logout, updateFitPassport, User, FitPassport } from '@/lib/supabase-auth';
-import { api, type UserAddress, type AddressCreatePayload } from '@/lib/api';
+import { api, type UserAddress, type AddressCreatePayload, type SavedItem } from '@/lib/api';
+import dynamic from 'next/dynamic';
+import { Suspense } from 'react';
+
+const SavedItemsGrid = dynamic(() => import('@/components/SavedItemsGrid'), { ssr: false });
+const DashboardTryOnModal = dynamic(() => import('@/components/DashboardTryOnModal'), { ssr: false });
 
 function SunIcon() {
   return (
@@ -24,6 +29,38 @@ function MoonIcon() {
   );
 }
 
+type DashboardTab = 'profile' | 'closet' | 'wishlist';
+
+const TAB_CONFIG: { id: DashboardTab; label: string; icon: (active: boolean) => React.ReactNode }[] = [
+  {
+    id: 'profile',
+    label: 'Profile',
+    icon: (active) => (
+      <svg className="w-5 h-5" fill={active ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24" strokeWidth={active ? 0 : 1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'closet',
+    label: 'My Closet',
+    icon: (active) => (
+      <svg className="w-5 h-5" fill={active ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24" strokeWidth={active ? 0 : 1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'wishlist',
+    label: 'Wishlist',
+    icon: (active) => (
+      <svg className="w-5 h-5" fill={active ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24" strokeWidth={active ? 0 : 1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
+      </svg>
+    ),
+  },
+];
+
 interface Measurements {
   height: number;
   chest: number;
@@ -37,14 +74,45 @@ interface Measurements {
   torso_length: number;
 }
 
-export default function DashboardPage() {
+export default function DashboardPageWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+      </div>
+    }>
+      <DashboardPage />
+    </Suspense>
+  );
+}
+
+function DashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { theme, toggleTheme } = useTheme();
   const dark = theme === 'dark';
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<{ scene: any; setBackground: (hex: number) => void } | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [passport, setPassport] = useState<FitPassport | null>(null);
+
+  // Tab navigation
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<DashboardTab>(
+    (tabParam === 'closet' || tabParam === 'wishlist') ? tabParam : 'profile'
+  );
+  const [tryOnItem, setTryOnItem] = useState<SavedItem | null>(null);
+
+  const switchTab = useCallback((tab: DashboardTab) => {
+    setActiveTab(tab);
+    const url = new URL(window.location.href);
+    if (tab === 'profile') {
+      url.searchParams.delete('tab');
+    } else {
+      url.searchParams.set('tab', tab);
+    }
+    window.history.replaceState({}, '', url.toString());
+  }, []);
   const [isEditing, setIsEditing] = useState(false);
   const [measurements, setMeasurements] = useState<Measurements>({
     height: 0,
@@ -614,7 +682,40 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 md:px-6 py-8 md:py-10 dashboard-fade-in">
+      <div className="flex min-h-[calc(100vh-65px)]">
+        {/* Sidebar */}
+        <aside className={`w-16 md:w-56 shrink-0 border-r ${dark ? 'bg-black/50 border-white/10' : 'bg-white border-slate-200'}`}>
+          <nav className="sticky top-[65px] py-4 flex flex-col gap-1 px-2 md:px-3">
+            {TAB_CONFIG.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => switchTab(tab.id)}
+                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl transition-all text-left ${
+                    isActive
+                      ? dark
+                        ? 'bg-white/10 text-white'
+                        : 'bg-slate-100 text-slate-900'
+                      : dark
+                        ? 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="shrink-0">{tab.icon(isActive)}</span>
+                  <span className="hidden md:block text-sm font-medium">{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        {/* Main content area */}
+        <main className="flex-1 min-w-0 px-4 md:px-8 py-8 md:py-10 dashboard-fade-in">
+
+        {/* --- PROFILE TAB --- */}
+        {activeTab === 'profile' && (
+          <>
         <div className="mb-8">
           <h2 className={`text-2xl font-bold mb-2 tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
             Welcome back, {(user.name || 'User').split(' ')[0]}
@@ -977,7 +1078,59 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-      </main>
+          </>
+        )}
+
+        {/* --- MY CLOSET TAB --- */}
+        {activeTab === 'closet' && (
+          <>
+            <div className="mb-8">
+              <h2 className={`text-2xl font-bold mb-2 tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
+                My Closet
+              </h2>
+              <p className={dark ? 'text-white/60' : 'text-gray-500'}>
+                Items you&apos;ve purchased through TryOn. Try them on anytime.
+              </p>
+            </div>
+            <SavedItemsGrid
+              listType="closet"
+              dark={dark}
+              onTryOn={(item) => setTryOnItem(item)}
+            />
+          </>
+        )}
+
+        {/* --- WISHLIST TAB --- */}
+        {activeTab === 'wishlist' && (
+          <>
+            <div className="mb-8">
+              <h2 className={`text-2xl font-bold mb-2 tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
+                Wishlist
+              </h2>
+              <p className={dark ? 'text-white/60' : 'text-gray-500'}>
+                Items you&apos;ve hearted while trying on. Save from any store, try on from here.
+              </p>
+            </div>
+            <SavedItemsGrid
+              listType="wishlist"
+              dark={dark}
+              onTryOn={(item) => setTryOnItem(item)}
+            />
+          </>
+        )}
+
+        </main>
+      </div>
+
+      {/* TryOn Modal */}
+      {tryOnItem && (
+        <DashboardTryOnModal
+          item={tryOnItem}
+          passport={passport}
+          dark={dark}
+          onClose={() => setTryOnItem(null)}
+        />
+      )}
     </div>
   );
 }

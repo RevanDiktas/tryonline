@@ -356,7 +356,59 @@ export const api = {
       params: params as Record<string, string>,
     });
   },
+
+  // --- Wishlist / Closet ---
+
+  async getWishlist(listType?: 'wishlist' | 'closet'): Promise<{ items: SavedItem[] }> {
+    const params: Record<string, string> = {};
+    if (listType) params.list_type = listType;
+    return fetchApi('/api/wishlist', { params: Object.keys(params).length ? params : undefined });
+  },
+
+  async addToWishlist(payload: WishlistAddPayload): Promise<{ item: SavedItem }> {
+    return fetchApi('/api/wishlist', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async removeFromWishlist(itemId: string): Promise<{ ok: boolean }> {
+    return fetchApi(`/api/wishlist/${itemId}`, { method: 'DELETE' });
+  },
+
+  async getWishlistStatus(productId: string, shop: string): Promise<{ wishlisted: boolean; owned: boolean }> {
+    return fetchApi(`/api/wishlist/${encodeURIComponent(productId)}/status`, {
+      params: { shop },
+    });
+  },
 };
+
+// --- Saved Items (Wishlist + Closet) ---
+export interface SavedItem {
+  id: string;
+  user_id: string;
+  list_type: 'wishlist' | 'closet';
+  product_id: string;
+  variant_id: string | null;
+  shop_domain: string;
+  product_name: string | null;
+  product_image_url: string | null;
+  product_price: number | null;
+  currency: string;
+  brand_name: string | null;
+  created_at: string;
+}
+
+export interface WishlistAddPayload {
+  product_id: string;
+  shop_domain: string;
+  variant_id?: string;
+  product_name?: string;
+  product_image_url?: string;
+  product_price?: number;
+  currency?: string;
+  brand_name?: string;
+}
 
 // --- Garment Management ---
 export interface Garment {

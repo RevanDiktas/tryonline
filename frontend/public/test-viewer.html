@@ -487,6 +487,21 @@
         border-radius: 8px;
       }
 
+      .action-row {
+        margin-top: 12px;
+        gap: 8px;
+      }
+
+      .action-row .add-to-cart-btn {
+        margin-top: 0;
+      }
+
+      .wishlist-btn {
+        width: 40px;
+        min-width: 40px;
+        border-radius: 8px;
+      }
+
       .popup-header {
         padding: 10px 16px 8px;
       }
@@ -537,6 +552,47 @@
     .add-to-cart-btn:hover {
       opacity: 0.9;
     }
+
+    .action-row {
+      display: flex;
+      gap: 10px;
+      align-items: stretch;
+      margin-top: 20px;
+    }
+
+    .action-row .add-to-cart-btn {
+      margin-top: 0;
+      flex: 1;
+    }
+
+    .wishlist-btn {
+      width: 48px;
+      min-width: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+      cursor: pointer;
+      color: #fff;
+      transition: all 0.2s;
+    }
+
+    .wishlist-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .wishlist-btn.active {
+      color: #ff4d6d;
+      border-color: #ff4d6d;
+      background: rgba(255, 77, 109, 0.15);
+    }
+
+    .wishlist-btn .heart-icon {
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -575,8 +631,11 @@
         displayName: displayName || null,
         preferredFit: p.get('preferred_fit') || null,
         openDirect: openParam || inIframe,
-        /* Debug: ?try_garment_only=1 — skip avatar GLB; proves zip-up is a skinned/collapsed clone issue vs fetch */
-        tryGarmentOnly: p.get('try_garment_only') === '1'
+        tryGarmentOnly: p.get('try_garment_only') === '1',
+        productName: p.get('product_name') ? decodeURIComponent(p.get('product_name')) : null,
+        productImageUrl: p.get('product_image') ? decodeURIComponent(p.get('product_image')) : null,
+        productPrice: p.get('product_price') ? decodeURIComponent(p.get('product_price')) : null,
+        brandName: p.get('brand_name') ? decodeURIComponent(p.get('brand_name')) : null,
       };
     })();
   </script>
@@ -717,7 +776,17 @@
               <div class="fit-text" id="fit-text">
                 FITS VERY WELL, NOT TOO TIGHT, NOT TOO BAGGY, GREAT FOR A <em>RECOMMENDED FIT</em>
               </div>
-              <button class="add-to-cart-btn" id="add-to-cart">ADD TO CART</button>
+              <div class="action-row">
+                <button class="add-to-cart-btn" id="add-to-cart">ADD TO CART</button>
+                <button class="wishlist-btn" id="wishlist-btn" title="Add to Wishlist">
+                  <svg class="heart-icon heart-empty" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                  </svg>
+                  <svg class="heart-icon heart-filled" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" stroke="currentColor" stroke-width="2" style="display:none">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -889,6 +958,8 @@
     const fitText = document.getElementById('fit-text');
     const preloadStatus = document.getElementById('preload-status');
     const addToCartBtn = document.getElementById('add-to-cart');
+    const wishlistBtn = document.getElementById('wishlist-btn');
+    let isWishlisted = false;
 
     // Config (from URL params: product_id, variant_id, shop, user_id, preferred_fit)
     const isLocal = /^localhost$|^127\.0\.0\.1$/i.test(window.location.hostname);
@@ -1707,6 +1778,112 @@
     });
 
     closeBtn.addEventListener('click', () => closeViewer());
+
+    // --- Wishlist heart button ---
+    function getSupabaseAccessToken() {
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var key = localStorage.key(i);
+          if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+            var raw = localStorage.getItem(key);
+            if (raw) {
+              var parsed = JSON.parse(raw);
+              return parsed.access_token || (parsed.currentSession && parsed.currentSession.access_token) || '';
+            }
+          }
+        }
+      } catch (e) {}
+      return '';
+    }
+
+    function setWishlistState(active) {
+      isWishlisted = active;
+      const empty = wishlistBtn.querySelector('.heart-empty');
+      const filled = wishlistBtn.querySelector('.heart-filled');
+      if (active) {
+        wishlistBtn.classList.add('active');
+        empty.style.display = 'none';
+        filled.style.display = '';
+      } else {
+        wishlistBtn.classList.remove('active');
+        empty.style.display = '';
+        filled.style.display = 'none';
+      }
+    }
+
+    // Check initial wishlist status when user is logged in
+    if (config.userId && config.productId) {
+      fetch(config.apiUrl + '/api/wishlist/' + encodeURIComponent(config.productId) + '/status?shop=' + encodeURIComponent(config.shopDomain), {
+        headers: { 'Authorization': 'Bearer ' + getSupabaseAccessToken() }
+      }).then(r => r.ok ? r.json() : null).then(data => {
+        if (data && data.wishlisted) setWishlistState(true);
+      }).catch(() => {});
+    }
+
+    wishlistBtn.addEventListener('click', () => {
+      if (!config.userId) {
+        showLoginGate();
+        return;
+      }
+      const newState = !isWishlisted;
+      setWishlistState(newState);
+      track(newState ? 'wishlist_add' : 'wishlist_remove', { product_id: config.productId });
+
+      // Notify parent (Shopify PDP) via postMessage
+      if (window.parent !== window) {
+        try {
+          window.parent.postMessage({
+            type: 'TRYON_ADD_TO_WISHLIST',
+            payload: {
+              productId: config.productId,
+              variantId: config.variantId,
+              shop: config.shopDomain,
+              userId: config.userId,
+              productName: config.productName,
+              productImageUrl: config.productImageUrl,
+              productPrice: config.productPrice,
+              brandName: config.brandName,
+              action: newState ? 'add' : 'remove'
+            }
+          }, '*');
+        } catch (e) {
+          console.warn('[TryOn] wishlist postMessage failed:', e);
+        }
+      }
+
+      // Direct API call (primary path — widget runs on tryon.global with auth)
+      const token = getSupabaseAccessToken();
+      if (newState) {
+        const body = {
+          product_id: config.productId,
+          shop_domain: config.shopDomain,
+          variant_id: config.variantId || undefined,
+          product_name: config.productName || undefined,
+          product_image_url: config.productImageUrl || undefined,
+          product_price: config.productPrice ? parseFloat(config.productPrice) : undefined,
+          brand_name: config.brandName || undefined,
+        };
+        fetch(config.apiUrl + '/api/wishlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify(body)
+        }).catch(e => console.warn('[TryOn] wishlist API add failed:', e));
+      } else {
+        // To remove, we need the item ID — fetch status first then delete
+        fetch(config.apiUrl + '/api/wishlist?list_type=wishlist', {
+          headers: { 'Authorization': 'Bearer ' + token }
+        }).then(r => r.ok ? r.json() : null).then(data => {
+          if (!data || !data.items) return;
+          const match = data.items.find(i => i.product_id === config.productId && i.shop_domain === config.shopDomain);
+          if (match) {
+            fetch(config.apiUrl + '/api/wishlist/' + match.id, {
+              method: 'DELETE',
+              headers: { 'Authorization': 'Bearer ' + token }
+            }).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    });
 
     // Size button clicks - INSTANT switching
     sizeButtons.forEach(btn => {
