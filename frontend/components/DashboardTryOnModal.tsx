@@ -64,6 +64,14 @@ export default function DashboardTryOnModal({ item, passport, dark, onClose }: D
       }
     : undefined;
 
+  const productUrl = (() => {
+    const domain = item.shop_domain?.replace(/\/$/, '');
+    const handle = item.product_id;
+    if (!domain || !handle) return undefined;
+    const base = domain.startsWith('http') ? domain : `https://${domain}`;
+    return `${base}/products/${handle}`;
+  })();
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
@@ -121,6 +129,7 @@ export default function DashboardTryOnModal({ item, passport, dark, onClose }: D
               productName={item.product_name || undefined}
               preferredFit={(passport?.preferred_fit as 'slim' | 'regular' | 'loose') || 'regular'}
               theme={dark ? 'dark' : 'light'}
+              productUrl={productUrl}
             />
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-4">

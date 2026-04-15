@@ -1,14 +1,13 @@
 'use client'
 
-import { Suspense, useRef, useState, useEffect } from 'react'
+import { Suspense, useRef, useState, useEffect, useMemo, useCallback } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Environment, ContactShadows } from '@react-three/drei'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as THREE from 'three'
-import { Check, ChevronDown, Ruler, Sparkles, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
+import { Check, Ruler, RotateCcw, ExternalLink } from 'lucide-react'
 import { recommendSize, type PreferredFit } from '@/lib/sizeRecommendation'
 
-// Types
 interface FitResult {
   size: string
   fit: 'tight' | 'recommended' | 'loose'
@@ -21,7 +20,7 @@ interface FitResult {
 
 interface TryOnViewerProps {
   avatarUrl?: string
-  garmentUrls?: Record<string, string> // size -> URL
+  garmentUrls?: Record<string, string>
   userMeasurements?: {
     chest: number
     waist: number
@@ -33,51 +32,74 @@ interface TryOnViewerProps {
   productName?: string
   onSizeSelect?: (size: string) => void
   onAddToCart?: (size: string) => void
-  /** Fired when try-on has loaded and is ready (for analytics: tryon_started) */
   onTryonReady?: () => void
-  /** Fired when recommended size is determined (for analytics: size_recommended) */
   onSizeRecommended?: (size: string) => void
-  /** Preferred fit — biases recommendation (slim = tighter, loose = roomier) */
   preferredFit?: PreferredFit
-  /** Theme for viewer background — syncs with day/night mode */
   theme?: 'light' | 'dark'
+  /** URL to the product page on the store (used for redirect button) */
+  productUrl?: string
 }
 
-// Avatar Model Component
-function AvatarModel({ url }: { url: string }) {
-  const { scene } = useGLTF(url)
+// ---------------------------------------------------------------------------
+// Geometry-based bounding box (works for SkinnedMesh bind pose)
+// Ported from test-viewer.html — the PDP widget uses this to get accurate
+// heights even when Object3D world AABB from three.js is ~0 for skinned meshes.
+// ---------------------------------------------------------------------------
+function geometryWorldBounds(root: THREE.Object3D): THREE.Box3 {
+  const box = new THREE.Box3()
+  root.updateMatrixWorld(true)
+  root.traverse((c) => {
+    if (!(c instanceof THREE.Mesh) || !c.geometry) return
+    const g = c.geometry as THREE.BufferGeometry
+    if (!g.boundingBox) g.computeBoundingBox()
+    if (!g.boundingBox || g.boundingBox.isEmpty()) return
+    const b = g.boundingBox.clone()
+    b.applyMatrix4(c.matrixWorld)
+    box.union(b)
+  })
+  return box
+}
+
+function computeBindHeight(root: THREE.Object3D): number {
+  const box = geometryWorldBounds(root)
+  if (box.isEmpty()) return 0
+  const size = new THREE.Vector3()
+  box.getSize(size)
+  return size.y
+}
+
+const TARGET_HEIGHT = 1.8
+const GARMENT_CLEARANCE = 1.038
+const GARMENT_Z_PUSHBACK = -0.012
+
+// ---------------------------------------------------------------------------
+// Aligned scene: loads avatar + garment, normalizes both to TARGET_HEIGHT,
+// aligns garment feet to avatar feet — identical to the PDP widget.
+// ---------------------------------------------------------------------------
+function AlignedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; garmentUrl: string }) {
+  const avatarGltf = useGLTF(avatarUrl)
+  const garmentGltf = useGLTF(garmentUrl)
   const groupRef = useRef<THREE.Group>(null)
+  const avatarRef = useRef<THREE.Object3D | null>(null)
+  const garmentRef = useRef<THREE.Object3D | null>(null)
+  const lastGarmentUrl = useRef('')
 
   useEffect(() => {
-    // Preserve texture — only set shadow; do NOT replace material
-    scene.traverse((child) => {
+    const avatar = avatarGltf.scene
+    const garment = garmentGltf.scene
+
+    avatar.scale.setScalar(1)
+    avatar.position.set(0, 0, 0)
+    garment.scale.setScalar(1)
+    garment.position.set(0, 0, 0)
+
+    avatar.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.castShadow = true
         child.receiveShadow = true
       }
     })
-  }, [scene])
-
-  // Subtle breathing animation
-  useFrame((state) => {
-    if (groupRef.current) {
-      groupRef.current.position.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.02
-    }
-  })
-
-  return (
-    <group ref={groupRef}>
-      <primitive object={scene} scale={1} position={[0, -0.9, 0]} />
-    </group>
-  )
-}
-
-// Garment Model Component with Body Masking
-function GarmentModel({ url, bodyMaskEnabled = true }: { url: string; bodyMaskEnabled?: boolean }) {
-  const { scene } = useGLTF(url)
-
-  useEffect(() => {
-    scene.traverse((child) => {
+    garment.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.castShadow = true
         if (child.material) {
@@ -87,12 +109,50 @@ function GarmentModel({ url, bodyMaskEnabled = true }: { url: string; bodyMaskEn
         }
       }
     })
-  }, [scene])
 
-  return <primitive object={scene} scale={1} position={[0, -0.9, 0]} />
+    const rawA = computeBindHeight(avatar)
+    const rawG = computeBindHeight(garment)
+
+    const sA = rawA > 1e-9 ? TARGET_HEIGHT / rawA : 1
+    const sG = rawG > 1e-9 ? (TARGET_HEIGHT / rawG) * GARMENT_CLEARANCE : GARMENT_CLEARANCE
+
+    avatar.scale.setScalar(sA)
+    garment.scale.setScalar(sG)
+
+    if (groupRef.current) {
+      groupRef.current.updateMatrixWorld(true)
+    }
+
+    const boxA = geometryWorldBounds(avatar)
+    const boxG = geometryWorldBounds(garment)
+    if (!boxA.isEmpty() && !boxG.isEmpty()) {
+      garment.position.set(0, boxA.min.y - boxG.min.y, GARMENT_Z_PUSHBACK)
+    }
+
+    avatarRef.current = avatar
+    garmentRef.current = garment
+    lastGarmentUrl.current = garmentUrl
+
+    if (groupRef.current) {
+      groupRef.current.updateMatrixWorld(true)
+    }
+  }, [avatarGltf, garmentGltf, avatarUrl, garmentUrl])
+
+  useFrame((state) => {
+    if (avatarRef.current) {
+      avatarRef.current.position.y =
+        (avatarRef.current.position.y || 0) + Math.sin(state.clock.elapsedTime * 0.5) * 0.0003
+    }
+  })
+
+  return (
+    <group ref={groupRef} position={[0, -0.9, 0]}>
+      <primitive object={avatarGltf.scene} />
+      <primitive object={garmentGltf.scene} />
+    </group>
+  )
 }
 
-// Placeholder Avatar (for demo without actual GLB)
 function PlaceholderAvatar() {
   const meshRef = useRef<THREE.Mesh>(null)
 
@@ -104,17 +164,14 @@ function PlaceholderAvatar() {
 
   return (
     <group>
-      {/* Body */}
       <mesh ref={meshRef} position={[0, -0.2, 0]}>
         <capsuleGeometry args={[0.25, 0.6, 16, 32]} />
         <meshStandardMaterial color="#e8beac" roughness={0.7} />
       </mesh>
-      {/* Head */}
       <mesh position={[0, 0.65, 0]}>
         <sphereGeometry args={[0.15, 32, 32]} />
         <meshStandardMaterial color="#e8beac" roughness={0.7} />
       </mesh>
-      {/* Arms */}
       <mesh position={[-0.35, 0, 0]} rotation={[0, 0, 0.3]}>
         <capsuleGeometry args={[0.06, 0.4, 8, 16]} />
         <meshStandardMaterial color="#e8beac" roughness={0.7} />
@@ -123,7 +180,6 @@ function PlaceholderAvatar() {
         <capsuleGeometry args={[0.06, 0.4, 8, 16]} />
         <meshStandardMaterial color="#e8beac" roughness={0.7} />
       </mesh>
-      {/* Legs */}
       <mesh position={[-0.12, -0.8, 0]}>
         <capsuleGeometry args={[0.08, 0.5, 8, 16]} />
         <meshStandardMaterial color="#e8beac" roughness={0.7} />
@@ -136,16 +192,13 @@ function PlaceholderAvatar() {
   )
 }
 
-// Placeholder Garment (T-shirt shape)
 function PlaceholderGarment({ color = '#1d1d1f' }: { color?: string }) {
   return (
     <group position={[0, 0.05, 0.01]}>
-      {/* Torso */}
       <mesh>
         <boxGeometry args={[0.52, 0.55, 0.2]} />
         <meshStandardMaterial color={color} roughness={0.8} side={THREE.DoubleSide} />
       </mesh>
-      {/* Sleeves */}
       <mesh position={[-0.35, 0.15, 0]} rotation={[0, 0, 0.5]}>
         <boxGeometry args={[0.15, 0.25, 0.12]} />
         <meshStandardMaterial color={color} roughness={0.8} />
@@ -158,7 +211,6 @@ function PlaceholderGarment({ color = '#1d1d1f' }: { color?: string }) {
   )
 }
 
-// Camera Controls Component
 function CameraController({ resetTrigger }: { resetTrigger: number }) {
   const { camera } = useThree()
   const controlsRef = useRef<any>(null)
@@ -186,18 +238,15 @@ function CameraController({ resetTrigger }: { resetTrigger: number }) {
   )
 }
 
-// Size Button Component
 function SizeButton({
   size,
   isActive,
   isRecommended,
-  fit,
   onClick,
 }: {
   size: string
   isActive: boolean
   isRecommended: boolean
-  fit?: 'tight' | 'recommended' | 'loose'
   onClick: () => void
 }) {
   return (
@@ -229,62 +278,9 @@ function SizeButton({
   )
 }
 
-// Fit Indicator Component
-function FitIndicator({ fit, measurements }: { fit: FitResult['fit']; measurements?: FitResult['measurements'] }) {
-  const config = {
-    tight: {
-      label: 'Too Tight',
-      color: 'bg-red-500/10 text-red-600',
-      icon: '↓',
-      description: 'May feel restrictive',
-    },
-    recommended: {
-      label: 'Perfect Fit',
-      color: 'bg-green-500/10 text-green-600',
-      icon: '✓',
-      description: 'Ideal for your body',
-    },
-    loose: {
-      label: 'Relaxed Fit',
-      color: 'bg-orange-500/10 text-orange-600',
-      icon: '↑',
-      description: 'Extra room throughout',
-    },
-  }
-
-  const { label, color, description } = config[fit]
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="glass-panel p-4"
-    >
-      <div className="flex items-center gap-3 mb-2">
-        <span className={`fit-pill ${fit}`}>
-          <Sparkles className="w-3 h-3" />
-          {label}
-        </span>
-      </div>
-      <p className="text-xs text-[#86868b]">{description}</p>
-      
-      {measurements && (
-        <div className="mt-3 pt-3 border-t border-black/5 space-y-2">
-          {Object.entries(measurements).map(([area, data]) => (
-            <div key={area} className="flex justify-between text-xs">
-              <span className="text-[#86868b] capitalize">{area}</span>
-              <span className={`font-medium ${data.diff > 0 ? 'text-green-600' : data.diff < -2 ? 'text-red-600' : 'text-[#1d1d1f]'}`}>
-                {data.diff > 0 ? '+' : ''}{data.diff.toFixed(1)} cm
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </motion.div>
-  )
-}
-
-// Main TryOn Viewer Component
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 export default function TryOnViewer({
   avatarUrl,
   garmentUrls,
@@ -304,6 +300,7 @@ export default function TryOnViewer({
   onSizeRecommended,
   preferredFit = 'regular',
   theme: themeProp,
+  productUrl,
 }: TryOnViewerProps) {
   const [selectedSize, setSelectedSize] = useState<string>('M')
   const hasSetInitialSize = useRef(false)
@@ -311,7 +308,6 @@ export default function TryOnViewer({
   const [showMeasurements, setShowMeasurements] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
-  // Preload avatar + all garments when widget opens (instant size switching)
   useEffect(() => {
     const urls: string[] = []
     if (avatarUrl) urls.push(avatarUrl)
@@ -319,25 +315,20 @@ export default function TryOnViewer({
     urls.forEach((url) => useGLTF.preload(url))
   }, [avatarUrl, garmentUrls])
 
-  // Calculate fit for each size (handle case variations)
   const getChart = (size: string) =>
     sizeChart[size] ?? sizeChart[size.toLowerCase()] ?? sizeChart[size.toUpperCase()]
 
-  const calculateFit = (size: string): FitResult => {
+  const calculateFit = useCallback((size: string): FitResult => {
     const chart = getChart(size)
     if (!chart) return { size, fit: 'recommended', measurements: { chest: { user: 0, garment: 0, diff: 0 }, waist: { user: 0, garment: 0, diff: 0 }, hips: { user: 0, garment: 0, diff: 0 } } }
     const chestDiff = chart.chest - userMeasurements.chest
     const waistDiff = chart.waist - userMeasurements.waist
     const hipsDiff = chart.hips - userMeasurements.hips
-
-    // Determine fit based on ease (garment - body)
     const avgEase = (chestDiff + waistDiff + hipsDiff) / 3
     let fit: 'tight' | 'recommended' | 'loose'
-    
     if (avgEase < 0) fit = 'tight'
     else if (avgEase > 8) fit = 'loose'
     else fit = 'recommended'
-
     return {
       size,
       fit,
@@ -347,23 +338,20 @@ export default function TryOnViewer({
         hips: { user: userMeasurements.hips, garment: chart.hips, diff: hipsDiff },
       },
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sizeChart, userMeasurements])
 
-  // Find recommended size — use algo with preferred_fit when available
-  const allFits = Object.keys(sizeChart).map(calculateFit)
-  const recommendedSize = recommendSize(
+  const recommendedSize = useMemo(() => recommendSize(
     { chest: userMeasurements.chest, waist: userMeasurements.waist, hips: userMeasurements.hips },
     sizeChart,
     preferredFit
-  )
-  const currentFit = calculateFit(selectedSize)
+  ), [userMeasurements, sizeChart, preferredFit])
 
   const handleSizeSelect = (size: string) => {
     setSelectedSize(size)
     onSizeSelect?.(size)
   }
 
-  // Simulate loading; fire tryon_started when ready
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsLoading(false)
@@ -372,7 +360,6 @@ export default function TryOnViewer({
     return () => clearTimeout(timer)
   }, [onTryonReady])
 
-  // Set initial selected size to recommended when ready
   useEffect(() => {
     if (!isLoading && recommendedSize && !hasSetInitialSize.current) {
       hasSetInitialSize.current = true
@@ -380,7 +367,6 @@ export default function TryOnViewer({
     }
   }, [isLoading, recommendedSize])
 
-  // Fire size_recommended once when we have it
   const hasFiredRecommended = useRef(false)
   useEffect(() => {
     if (!isLoading && recommendedSize && !hasFiredRecommended.current) {
@@ -389,24 +375,26 @@ export default function TryOnViewer({
     }
   }, [isLoading, recommendedSize, onSizeRecommended])
 
+  const activeGarmentUrl = garmentUrls
+    ? (garmentUrls[selectedSize] ?? garmentUrls[selectedSize.toLowerCase()] ?? garmentUrls[selectedSize.toUpperCase()])
+    : undefined
+
   return (
     <div className="relative w-full h-full min-h-[600px] flex flex-col lg:flex-row">
-      {/* 3D Viewer - background matches theme when provided */}
       <div
         className="flex-1 relative"
         style={themeProp ? { background: themeProp === 'dark' ? '#0a0a0a' : '#f9fafb' } : undefined}
       >
         <Canvas
           className="viewer-canvas"
-          gl={{ 
-            alpha: !themeProp, 
+          gl={{
+            alpha: !themeProp,
             antialias: true,
             powerPreference: 'high-performance',
           }}
           camera={{ position: [0, 0, 2.5], fov: 45 }}
           style={{ background: themeProp ? (themeProp === 'dark' ? '#0a0a0a' : '#f9fafb') : 'transparent' }}
         >
-          {/* Lighting */}
           <ambientLight intensity={0.6} />
           <directionalLight
             position={[5, 5, 5]}
@@ -416,10 +404,8 @@ export default function TryOnViewer({
           />
           <directionalLight position={[-3, 3, -3]} intensity={0.4} />
 
-          {/* Environment for reflections */}
           <Environment preset="city" />
 
-          {/* Subtle ground shadow */}
           <ContactShadows
             position={[0, -1.1, 0]}
             opacity={0.3}
@@ -429,25 +415,19 @@ export default function TryOnViewer({
           />
 
           <Suspense fallback={null}>
-            {/* Avatar */}
-            {avatarUrl ? (
-              <AvatarModel url={avatarUrl} />
+            {avatarUrl && activeGarmentUrl ? (
+              <AlignedScene avatarUrl={avatarUrl} garmentUrl={activeGarmentUrl} />
             ) : (
-              <PlaceholderAvatar />
-            )}
-
-            {/* Garment */}
-            {garmentUrls && (garmentUrls[selectedSize] ?? garmentUrls[selectedSize.toLowerCase()] ?? garmentUrls[selectedSize.toUpperCase()]) ? (
-              <GarmentModel url={garmentUrls[selectedSize] ?? garmentUrls[selectedSize.toLowerCase()] ?? garmentUrls[selectedSize.toUpperCase()]!} />
-            ) : (
-              <PlaceholderGarment />
+              <>
+                <PlaceholderAvatar />
+                <PlaceholderGarment />
+              </>
             )}
           </Suspense>
 
           <CameraController resetTrigger={resetCamera} />
         </Canvas>
 
-        {/* Loading Overlay */}
         <AnimatePresence>
           {isLoading && (
             <motion.div
@@ -463,7 +443,6 @@ export default function TryOnViewer({
           )}
         </AnimatePresence>
 
-        {/* Camera Controls - Bottom Left */}
         <div className="absolute bottom-4 left-4 flex gap-2">
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -475,31 +454,30 @@ export default function TryOnViewer({
           </motion.button>
         </div>
 
-        {/* Brand Badge - Top Left */}
         <div className="absolute top-4 left-4">
           <div className="glass-panel px-4 py-2 flex items-center gap-2">
             <div className="w-6 h-6 rounded-full bg-[#1d1d1f] flex items-center justify-center">
-              <span className="text-white text-xs font-bold">SB</span>
+              <span className="text-white text-xs font-bold">
+                {(brandName || 'SB').substring(0, 2).toUpperCase()}
+              </span>
             </div>
             <span className="text-xs font-medium text-[#1d1d1f]">{brandName}</span>
           </div>
         </div>
       </div>
 
-      {/* Control Panel - Right Side */}
+      {/* Control Panel */}
       <motion.div
         initial={{ opacity: 0, x: 20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ delay: 0.3 }}
         className="w-full lg:w-80 p-4 lg:p-6 space-y-4"
       >
-        {/* Product Info */}
         <div className="glass-panel p-5">
           <h2 className="text-lg font-semibold text-[#1d1d1f] mb-1">{productName}</h2>
           <p className="text-sm text-[#86868b]">See how it fits on your body</p>
         </div>
 
-        {/* Size Selector */}
         <div className="glass-panel p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-[#1d1d1f]">Select Size</h3>
@@ -511,7 +489,7 @@ export default function TryOnViewer({
               Size Guide
             </button>
           </div>
-          
+
           <div className="flex flex-wrap gap-2">
             {Object.keys(sizeChart).map((size) => (
               <SizeButton
@@ -519,13 +497,11 @@ export default function TryOnViewer({
                 size={size}
                 isActive={selectedSize === size}
                 isRecommended={size === recommendedSize}
-                fit={calculateFit(size).fit}
                 onClick={() => handleSizeSelect(size)}
               />
             ))}
           </div>
 
-          {/* Recommended Badge */}
           <motion.div
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
@@ -536,10 +512,6 @@ export default function TryOnViewer({
           </motion.div>
         </div>
 
-        {/* Fit Indicator */}
-        <FitIndicator fit={currentFit.fit} measurements={currentFit.measurements} />
-
-        {/* Measurements Panel */}
         <AnimatePresence>
           {showMeasurements && (
             <motion.div
@@ -571,18 +543,33 @@ export default function TryOnViewer({
           )}
         </AnimatePresence>
 
-        {/* Add to Cart Button */}
-        <motion.button
-          whileHover={{ scale: 1.01 }}
-          whileTap={{ scale: 0.99 }}
-          onClick={() => onAddToCart?.(selectedSize)}
-          className="w-full py-4 bg-[#1d1d1f] text-white rounded-2xl font-semibold
-                     shadow-lg shadow-black/20 hover:bg-[#2d2d2f] transition-colors"
-        >
-          Add Size {selectedSize} to Cart
-        </motion.button>
+        {/* View on Store / redirect to PDP */}
+        {productUrl ? (
+          <motion.a
+            href={productUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
+            className="w-full py-4 bg-[#1d1d1f] text-white rounded-2xl font-semibold
+                       shadow-lg shadow-black/20 hover:bg-[#2d2d2f] transition-colors
+                       flex items-center justify-center gap-2"
+          >
+            View on Store
+            <ExternalLink className="w-4 h-4" />
+          </motion.a>
+        ) : onAddToCart ? (
+          <motion.button
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
+            onClick={() => onAddToCart?.(selectedSize)}
+            className="w-full py-4 bg-[#1d1d1f] text-white rounded-2xl font-semibold
+                       shadow-lg shadow-black/20 hover:bg-[#2d2d2f] transition-colors"
+          >
+            Add Size {selectedSize} to Cart
+          </motion.button>
+        ) : null}
 
-        {/* Privacy Note */}
         <p className="text-[10px] text-center text-[#86868b]">
           Your body data is encrypted and never shared. <a href="#" className="underline">Privacy Policy</a>
         </p>

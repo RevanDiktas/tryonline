@@ -1,22 +1,15 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { api, type SavedItem } from '@/lib/api';
+
+const GarmentPreview3D = dynamic(() => import('@/components/GarmentPreview3D'), { ssr: false });
 
 interface SavedItemsGridProps {
   listType: 'wishlist' | 'closet';
   dark: boolean;
   onTryOn: (item: SavedItem) => void;
-}
-
-function PlaceholderImage({ dark }: { dark: boolean }) {
-  return (
-    <div className={`w-full h-full flex items-center justify-center ${dark ? 'bg-white/5' : 'bg-slate-100'}`}>
-      <svg className={`w-10 h-10 ${dark ? 'text-white/20' : 'text-slate-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    </div>
-  );
 }
 
 function HeartIcon({ filled }: { filled: boolean }) {
@@ -135,18 +128,14 @@ export default function SavedItemsGrid({ listType, dark, onTryOn }: SavedItemsGr
                 key={item.id}
                 className={`group rounded-2xl overflow-hidden transition-all duration-200 hover:scale-[1.02] ${dark ? 'bg-white/[0.04] hover:bg-white/[0.07]' : 'bg-white shadow-sm hover:shadow-md'}`}
               >
-                {/* Product Image */}
+                {/* 3D Garment Preview */}
                 <div className="aspect-[4/5] relative overflow-hidden">
-                  {item.product_image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.product_image_url}
-                      alt={item.product_name || 'Product'}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <PlaceholderImage dark={dark} />
-                  )}
+                  <GarmentPreview3D
+                    productId={item.product_id}
+                    shopDomain={item.shop_domain}
+                    dark={dark}
+                    fallbackImageUrl={item.product_image_url}
+                  />
 
                   {/* Badges */}
                   <div className="absolute top-3 left-3 flex gap-2">
