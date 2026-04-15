@@ -80,9 +80,6 @@ function AlignedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; garmentUrl
   const avatarGltf = useGLTF(avatarUrl)
   const garmentGltf = useGLTF(garmentUrl)
   const groupRef = useRef<THREE.Group>(null)
-  const avatarRef = useRef<THREE.Object3D | null>(null)
-  const garmentRef = useRef<THREE.Object3D | null>(null)
-  const lastGarmentUrl = useRef('')
 
   useEffect(() => {
     const avatar = avatarGltf.scene
@@ -129,21 +126,10 @@ function AlignedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; garmentUrl
       garment.position.set(0, boxA.min.y - boxG.min.y, GARMENT_Z_PUSHBACK)
     }
 
-    avatarRef.current = avatar
-    garmentRef.current = garment
-    lastGarmentUrl.current = garmentUrl
-
     if (groupRef.current) {
       groupRef.current.updateMatrixWorld(true)
     }
   }, [avatarGltf, garmentGltf, avatarUrl, garmentUrl])
-
-  useFrame((state) => {
-    if (avatarRef.current) {
-      avatarRef.current.position.y =
-        (avatarRef.current.position.y || 0) + Math.sin(state.clock.elapsedTime * 0.5) * 0.0003
-    }
-  })
 
   return (
     <group ref={groupRef} position={[0, -0.9, 0]}>
@@ -383,17 +369,17 @@ export default function TryOnViewer({
     <div className="relative w-full h-full min-h-[600px] flex flex-col lg:flex-row">
       <div
         className="flex-1 relative"
-        style={themeProp ? { background: themeProp === 'dark' ? '#0a0a0a' : '#f9fafb' } : undefined}
+        style={{ background: '#ffffff' }}
       >
         <Canvas
           className="viewer-canvas"
           gl={{
-            alpha: !themeProp,
+            alpha: false,
             antialias: true,
             powerPreference: 'high-performance',
           }}
           camera={{ position: [0, 0, 2.5], fov: 45 }}
-          style={{ background: themeProp ? (themeProp === 'dark' ? '#0a0a0a' : '#f9fafb') : 'transparent' }}
+          style={{ background: '#ffffff' }}
         >
           <ambientLight intensity={0.6} />
           <directionalLight
