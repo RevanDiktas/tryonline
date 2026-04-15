@@ -27,6 +27,10 @@ topics = ["app/uninstalled"]
 compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
 uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/shopify/compliance"
 
+[[webhooks.subscriptions]]
+topics = ["orders/paid"]
+uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/shopify/orders-paid"
+
 [access_scopes]
 scopes = "read_orders"
 optional_scopes = []

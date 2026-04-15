@@ -11,7 +11,7 @@
   assign product_id = product.handle
   assign variant = product.selected_or_first_available_variant
   assign variant_id = variant.id
-  assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&open=1&v=22'
+  assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&open=1&v=23'
 
   assign btn_bg = block.settings.button_background
   assign btn_fg = block.settings.button_text_color
@@ -78,11 +78,102 @@
       if (!btn || !iframe) return;
       var src = iframe.getAttribute('data-tryon-src');
 
-      window.__tryonSizeVariantMap = {};
+      var sizeMap = {};
       {% for v in product.variants %}
-        window.__tryonSizeVariantMap['{{ v.option1 | downcase | strip }}'] = {{ v.id }};
+        sizeMap['{{ v.option1 | downcase | strip }}'] = {{ v.id }};
       {% endfor %}
+      window.__tryonSizeVariantMap = sizeMap;
       window.__tryonFallbackVariantId = {{ variant_id }};
+
+      var SIZE_ALIASES = {xs:['xs','extra small'],s:['s','small'],m:['m','medium'],l:['l','large'],xl:['xl','extra large']};
+
+      function resolveVariant(size) {
+        var keys = SIZE_ALIASES[size] || [size];
+        for (var i = 0; i < keys.length; i++) {
+          if (sizeMap[keys[i]] != null) return sizeMap[keys[i]];
+        }
+        return window.__tryonFallbackVariantId;
+      }
+
+      function cartRoot() {
+        return (window.Shopify && window.Shopify.routes && window.Shopify.routes.root) || '/';
+      }
+
+      function tryonAddToCart(payload) {
+        var size = (payload.size || '').toLowerCase().trim();
+        var vid = resolveVariant(size);
+        if (!vid || isNaN(vid)) {
+          console.warn('[TryOn] No variant for size "' + size + '" — map keys:', Object.keys(sizeMap).join(', '));
+          return;
+        }
+
+        var sizeUp = size === 'xs' ? 'XS' : size === 'xl' ? 'XL' : size.length ? size.charAt(0).toUpperCase() + size.slice(1) : '';
+        var props = { _tryon_size: size, Size: sizeUp };
+        if (payload.session_id) props.tryon_session_id = payload.session_id;
+
+        var body = { items: [{ id: Number(vid), quantity: 1, properties: props }] };
+
+        var themeCart = document.querySelector('cart-drawer') || document.querySelector('cart-notification');
+        if (themeCart && typeof themeCart.getSectionsToRender === 'function') {
+          try {
+            var ids = themeCart.getSectionsToRender().map(function(s) { return s.id; });
+            body.sections = ids.slice(0, 5).join(',');
+            body.sections_url = window.location.pathname.split('?')[0];
+          } catch (e) {}
+        }
+
+        console.log('[TryOn] Adding to cart:', sizeUp, '→ variant', vid);
+
+        fetch(cartRoot() + 'cart/add.js', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.items) {
+            console.log('[TryOn] ✅ Added to cart:', sizeUp, '— variant', vid);
+            refreshCartAfterAdd(data);
+          } else {
+            console.warn('[TryOn] Cart rejected (variant ' + vid + '):', data.message || data.description || JSON.stringify(data));
+          }
+        })
+        .catch(function(err) { console.error('[TryOn] Cart add failed:', err); });
+      }
+
+      function refreshCartAfterAdd(addResp) {
+        var themeCart = document.querySelector('cart-drawer') || document.querySelector('cart-notification');
+
+        if (themeCart && typeof themeCart.renderContents === 'function' && addResp && addResp.sections) {
+          try {
+            themeCart.renderContents(addResp);
+            document.dispatchEvent(new CustomEvent('cart:refresh', { detail: addResp }));
+            return;
+          } catch (e) {}
+        }
+
+        fetch(cartRoot() + 'cart.js')
+          .then(function(r) { return r.json(); })
+          .then(function(cart) {
+            var c = String(cart.item_count);
+            var sels = [
+              '.cart-count-bubble span', '[data-cart-count]', '.cart-count',
+              '#cart-icon-bubble span[aria-hidden]', '.cart-count-bubble',
+              'span.cart-count', '.cart-drawer__count'
+            ];
+            sels.forEach(function(sel) {
+              try { document.querySelectorAll(sel).forEach(function(el) { el.textContent = c; }); } catch (e) {}
+            });
+            document.dispatchEvent(new CustomEvent('cart:refresh', { detail: cart }));
+            if (window.Shopify && typeof window.Shopify.onCartUpdate === 'function') window.Shopify.onCartUpdate(cart);
+            var toggle = document.querySelector(
+              '[data-cart-drawer-toggle], cart-drawer summary, .js-drawer-open-right, [aria-controls="cart-drawer"], .js-cart-link, a[href="/cart"]'
+            );
+            if (toggle) { try { toggle.click(); } catch (e) {} }
+          })
+          .catch(function() {});
+      }
 
       btn.addEventListener('click', function() {
         iframe.src = src;
@@ -105,7 +196,10 @@
         if (e.data.type === 'TRYON_CLOSE') {
           close();
         }
-        if (e.data.type === 'TRYON_ADD_TO_CART') {
+        if (e.data.type === 'TRYON_ADD_TO_CART' && e.data.payload) {
+          if (!window.__tryonCartMessageBound) {
+            tryonAddToCart(e.data.payload);
+          }
           close();
         }
         if (e.data.type === 'TRYON_USER_ID' && e.data.user_id && iframe) {

@@ -773,6 +773,7 @@ class SupabaseService:
     ) -> Optional[str]:
         """
         Insert purchase event. Idempotent by order_id.
+        Enriches with brand_id (from shop_domain) and user_id (from tryon_sessions).
         Returns event_id or None if duplicate (already processed).
         """
         payload = event_data or {}
@@ -780,9 +781,22 @@ class SupabaseService:
         payload["amount"] = amount
         payload["currency"] = currency
 
+        brand_id = self._resolve_brand_id(shop_domain) if shop_domain else None
+
+        user_id: Optional[str] = None
+        if session_id:
+            try:
+                r = self.client.table("tryon_sessions").select("user_id").eq("id", session_id).single().execute()
+                if r.data and r.data.get("user_id"):
+                    user_id = str(r.data["user_id"])
+            except Exception:
+                pass
+
         row = {
             "event_type": "purchase",
+            "user_id": user_id,
             "session_id": session_id,
+            "brand_id": brand_id,
             "shop_domain": shop_domain,
             "event_data": payload,
         }
