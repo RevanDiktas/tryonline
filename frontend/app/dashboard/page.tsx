@@ -93,6 +93,7 @@ function DashboardPage() {
   const dark = theme === 'dark';
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<{ scene: any; setBackground: (hex: number) => void } | null>(null);
+  const avatarInitRef = useRef<(() => void) | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [passport, setPassport] = useState<FitPassport | null>(null);
 
@@ -357,7 +358,7 @@ function DashboardPage() {
     }
   }, [user, editingAddress, loadAddresses, resetAddressForm]);
 
-  // Initialize Three.js scene for avatar
+  // Initialize Three.js scene for avatar — robust against WebGL context loss
   useEffect(() => {
     if (!canvasRef.current) return;
 
@@ -365,13 +366,27 @@ function DashboardPage() {
     let rotation = 0;
     let renderer: WebGLRenderer | null = null;
     let currentModel: any = null;
+    let disposed = false;
+
+    const canvas = canvasRef.current;
 
     const initThreeJS = async () => {
+      if (disposed || !canvasRef.current) return;
+
+      // Clean up previous renderer if it exists (context restore path)
+      if (renderer) {
+        cancelAnimationFrame(animationId);
+        renderer.dispose();
+        renderer = null;
+      }
+      sceneRef.current = null;
+      currentModel = null;
+      rotation = 0;
+
       const THREE = await import('three');
       const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
 
-      const canvas = canvasRef.current;
-      if (!canvas) return;
+      if (disposed || !canvasRef.current) return;
 
       const scene = new THREE.Scene();
       const isDark = typeof window !== 'undefined' && localStorage.getItem('tryon-theme') === 'dark';
@@ -392,170 +407,109 @@ function DashboardPage() {
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.3;
 
-      // Lighting — brighter so avatar appears true to original color
       const ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
       scene.add(ambientLight);
-
       const frontLight = new THREE.DirectionalLight(0xffffff, 1.5);
       frontLight.position.set(2, 3, 3);
       scene.add(frontLight);
-
       const backLight = new THREE.DirectionalLight(0xffffff, 1.0);
       backLight.position.set(-2, 2, -3);
       scene.add(backLight);
-
       const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
       fillLight.position.set(0, 2, 2);
       scene.add(fillLight);
 
-      // Load GLB avatar model from user's fit passport
       const loader = new GLTFLoader();
-      
-      // Get avatar URL from passport - this should be the generated avatar_textured.glb from Supabase
-      // The backend stores it at: avatars/{user_id}/avatar_textured.glb
       const avatarUrl = passport?.avatarUrl;
-      
-      // If no avatar URL in passport, show loading message
+
       if (!avatarUrl) {
-        console.warn('[Dashboard] ⚠️ No avatar URL in passport yet. Passport data:', passport);
-        console.warn('[Dashboard] Avatar may still be generating. Will retry when passport updates.');
-        
-        // Show loading placeholder
-        const loadingText = document.createElement('div');
-        loadingText.style.position = 'absolute';
-        loadingText.style.top = '50%';
-        loadingText.style.left = '50%';
-        loadingText.style.transform = 'translate(-50%, -50%)';
-        loadingText.style.color = '#666';
-        loadingText.style.textAlign = 'center';
-        loadingText.style.fontSize = '14px';
-        loadingText.textContent = 'Loading your avatar...';
-        if (canvas.parentElement) {
-          canvas.parentElement.appendChild(loadingText);
-        }
-        
-        // Still animate the scene
         const animate = () => {
+          if (disposed) return;
           animationId = requestAnimationFrame(animate);
-          if (renderer) renderer.render(scene, camera);
+          if (renderer && !renderer.getContext().isContextLost()) renderer.render(scene, camera);
         };
         animate();
         return;
       }
-      
-      console.log('[Dashboard] ============================================');
-      console.log('[Dashboard] ✓ Loading user-generated avatar from Supabase');
-      console.log('[Dashboard] Avatar URL:', avatarUrl);
-      console.log('[Dashboard] Passport data:', { 
-        hasAvatarUrl: !!passport?.avatarUrl, 
-        avatarUrl: passport?.avatarUrl,
-        userId: passport?.user_id
-      });
-      console.log('[Dashboard] ============================================');
-      
-      // Remove previous model if exists
-      if (currentModel) {
-        scene.remove(currentModel);
-        currentModel = null;
-      }
-      
-      // Add cache busting to ensure we get the latest version
-      // Append timestamp query param to force browser to fetch fresh file
-      const cacheBustUrl = avatarUrl.includes('?') 
-        ? `${avatarUrl}&t=${Date.now()}` 
+
+      const cacheBustUrl = avatarUrl.includes('?')
+        ? `${avatarUrl}&t=${Date.now()}`
         : `${avatarUrl}?t=${Date.now()}`;
-      
-      console.log('[Dashboard] Loading with cache-busted URL:', cacheBustUrl);
-      
+
       loader.load(
         cacheBustUrl,
         (gltf) => {
+          if (disposed) return;
           const model = gltf.scene;
           currentModel = model;
-          
-          // Center and scale the model
+
           const box = new THREE.Box3().setFromObject(model);
           const center = box.getCenter(new THREE.Vector3());
           const size = box.getSize(new THREE.Vector3());
-          
-          // Scale to fit view
+
           const maxDim = Math.max(size.x, size.y, size.z);
           const scale = 1.8 / maxDim;
           model.scale.setScalar(scale);
-          
-          // Center
           model.position.x = -center.x * scale;
           model.position.y = -center.y * scale + 0.9;
           model.position.z = -center.z * scale;
 
           scene.add(model);
-          console.log('[Dashboard] ============================================');
-          console.log('[Dashboard] ✓✓✓ Avatar model loaded successfully! ✓✓✓');
-          console.log('[Dashboard] Model URL:', avatarUrl);
-          console.log('[Dashboard] Model vertices:', model.children.length, 'children');
-          console.log('[Dashboard] ============================================');
 
-          // Animation loop with rotation
           const animate = () => {
+            if (disposed) return;
             animationId = requestAnimationFrame(animate);
             rotation += 0.008;
             model.rotation.y = rotation;
-            if (renderer) renderer.render(scene, camera);
+            if (renderer && !renderer.getContext().isContextLost()) renderer.render(scene, camera);
           };
           animate();
         },
-        (progress) => {
-          // Loading progress
-          if (progress.lengthComputable) {
-            const percent = (progress.loaded / progress.total) * 100;
-            console.log(`[Dashboard] Loading avatar: ${percent.toFixed(1)}%`);
-          }
-        },
+        undefined,
         (error) => {
-          console.error('[Dashboard] ✗ Error loading user avatar from Supabase:', error);
-          console.error('[Dashboard] Failed URL:', avatarUrl);
-          console.error('[Dashboard] Error details:', error);
-          
-          // Show error message to user
-          console.error('[Dashboard] ⚠️ Could not load your generated avatar. Please refresh the page or contact support if the issue persists.');
-          
-          // Don't load fallback - the user should see their actual avatar
-          // Just show a placeholder message
-          const errorText = document.createElement('div');
-          errorText.style.position = 'absolute';
-          errorText.style.top = '50%';
-          errorText.style.left = '50%';
-          errorText.style.transform = 'translate(-50%, -50%)';
-          errorText.style.color = '#666';
-          errorText.style.textAlign = 'center';
-          errorText.style.fontSize = '14px';
-          errorText.textContent = 'Avatar loading...';
-          if (canvasRef.current?.parentElement) {
-            canvasRef.current.parentElement.appendChild(errorText);
-          }
-          
-          // Still animate the scene
+          console.error('[Dashboard] Error loading avatar:', error);
           const animate = () => {
+            if (disposed) return;
             animationId = requestAnimationFrame(animate);
-            if (renderer) renderer.render(scene, camera);
+            if (renderer && !renderer.getContext().isContextLost()) renderer.render(scene, camera);
           };
           animate();
         }
       );
     };
 
+    // Store init function so we can re-call it on context restore or tab switch
+    avatarInitRef.current = initThreeJS;
+
+    // Handle WebGL context loss/restore
+    const handleContextLost = (e: Event) => {
+      e.preventDefault();
+      console.warn('[Dashboard] WebGL context lost — will restore');
+      cancelAnimationFrame(animationId);
+    };
+    const handleContextRestored = () => {
+      console.log('[Dashboard] WebGL context restored — re-initializing');
+      initThreeJS();
+    };
+
+    canvas.addEventListener('webglcontextlost', handleContextLost);
+    canvas.addEventListener('webglcontextrestored', handleContextRestored);
+
     initThreeJS();
 
     return () => {
+      disposed = true;
+      avatarInitRef.current = null;
       sceneRef.current = null;
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-      }
+      canvas.removeEventListener('webglcontextlost', handleContextLost);
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored);
+      cancelAnimationFrame(animationId);
       if (renderer) {
         renderer.dispose();
+        renderer = null;
       }
     };
-  }, [passport]); // Reload when passport changes (including avatarUrl)
+  }, [passport]);
 
   // Sync GLB viewer background with theme
   useEffect(() => {
@@ -563,6 +517,19 @@ function DashboardPage() {
       sceneRef.current.setBackground(dark ? 0x0a0a0a : 0xf9fafb);
     }
   }, [theme, dark]);
+
+  // Re-init avatar when TryOn modal closes (its WebGL context may have killed ours)
+  const prevTryOnItem = useRef<SavedItem | null>(null);
+  useEffect(() => {
+    const wasTryingOn = prevTryOnItem.current !== null;
+    prevTryOnItem.current = tryOnItem;
+    if (wasTryingOn && tryOnItem === null && avatarInitRef.current) {
+      const gl = canvasRef.current?.getContext('webgl2') || canvasRef.current?.getContext('webgl');
+      if (!gl || gl.isContextLost()) {
+        avatarInitRef.current();
+      }
+    }
+  }, [tryOnItem]);
 
   const handleLogout = async () => {
     await logout();
