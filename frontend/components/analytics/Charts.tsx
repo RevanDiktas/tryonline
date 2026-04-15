@@ -292,6 +292,22 @@ export function FullFunnelChart({
   const maxVal = Math.max(...steps.map((s) => s.value), 1);
   const tt = tooltipStyle(dark);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const renderDropLabel = (props: any) => {
+    const y = Number(props.y ?? 0);
+    const height = Number(props.height ?? 0);
+    const index = Number(props.index ?? 0);
+    if (index === 0) return null;
+    const prev = steps[index - 1].value;
+    const cur = steps[index].value;
+    const drop = prev > 0 ? (((prev - cur) / prev) * 100).toFixed(0) : '0';
+    return (
+      <text x="100%" dx={-4} y={y + height / 2} textAnchor="end" dominantBaseline="middle" fontSize={9} fill={dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'}>
+        −{drop}%
+      </text>
+    );
+  };
+
   return (
     <div className="h-[180px] w-full min-h-[160px] min-w-0">
       <ResponsiveContainer width="100%" height="100%" minHeight={160} initialDimension={{ width: 400, height: 160 }}>
@@ -306,20 +322,7 @@ export function FullFunnelChart({
             isAnimationActive={false}
             formatter={(value: number | undefined) => [value ?? 0, '']}
           />
-          <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={24} isAnimationActive={false} label={(props: Record<string, unknown>) => {
-            const y = Number(props.y ?? 0);
-            const height = Number(props.height ?? 0);
-            const index = Number(props.index ?? 0);
-            if (index === 0) return null;
-            const prev = steps[index - 1].value;
-            const cur = steps[index].value;
-            const drop = prev > 0 ? (((prev - cur) / prev) * 100).toFixed(0) : '0';
-            return (
-              <text x="100%" dx={-4} y={y + height / 2} textAnchor="end" dominantBaseline="middle" fontSize={9} fill={dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'}>
-                −{drop}%
-              </text>
-            );
-          }}>
+          <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={24} isAnimationActive={false} label={renderDropLabel}>
             {steps.map((_, i) => (
               <Cell key={i} fill={gradient[i]} />
             ))}
@@ -357,14 +360,16 @@ export function DeviceBreakdownChart({
 
   const tt = tooltipStyle(dark);
 
-  const renderLabel = ({ cx, cy, midAngle, outerRadius, name, conversion }: Record<string, number | string>) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const renderLabel = (props: any) => {
+    const { cx, cy, midAngle, outerRadius, name, conversion } = props;
     const RADIAN = Math.PI / 180;
-    const radius = (outerRadius as number) + 18;
-    const x = (cx as number) + radius * Math.cos(-(midAngle as number) * RADIAN);
-    const y = (cy as number) + radius * Math.sin(-(midAngle as number) * RADIAN);
+    const radius = Number(outerRadius ?? 0) + 18;
+    const x = Number(cx ?? 0) + radius * Math.cos(-Number(midAngle ?? 0) * RADIAN);
+    const y = Number(cy ?? 0) + radius * Math.sin(-Number(midAngle ?? 0) * RADIAN);
     return (
-      <text x={x} y={y} textAnchor={x > (cx as number) ? 'start' : 'end'} dominantBaseline="central" fontSize={9} fill={dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)'}>
-        {name} {(conversion as number).toFixed(1)}%
+      <text x={x} y={y} textAnchor={x > Number(cx ?? 0) ? 'start' : 'end'} dominantBaseline="central" fontSize={9} fill={dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)'}>
+        {name} {Number(conversion ?? 0).toFixed(1)}%
       </text>
     );
   };
@@ -395,8 +400,11 @@ export function DeviceBreakdownChart({
             labelStyle={tt.labelStyle}
             itemStyle={tt.itemStyle}
             isAnimationActive={false}
-            formatter={(value: number | undefined, _name: string, props: { payload?: { conversion?: number } }) => {
-              const conv = props.payload?.conversion;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            formatter={(...args: any[]) => {
+              const value = args[0] as number | undefined;
+              const props = args[2] as { payload?: { conversion?: number } } | undefined;
+              const conv = props?.payload?.conversion;
               return [`${value ?? 0} try-ons (${conv != null ? conv.toFixed(1) : '0'}% conv)`, ''];
             }}
           />
@@ -439,7 +447,8 @@ export function FitConfidenceChart({
             itemStyle={tt.itemStyle}
             cursor={tt.cursor}
             isAnimationActive={false}
-            formatter={(value: number | undefined, _name: string, props: { payload?: { deviation?: string } }) => [`${value ?? 0} (${props.payload?.deviation ?? ''})`, 'Fit score']}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            formatter={(...args: any[]) => { const v = args[0] as number | undefined; const p = args[2] as { payload?: { deviation?: string } } | undefined; return [`${v ?? 0} (${p?.payload?.deviation ?? ''})`, 'Fit score']; }}
           />
           <Bar dataKey="score" radius={[0, 6, 6, 0]} maxBarSize={20} isAnimationActive={false}>
             {data.map((entry, i) => (
@@ -533,7 +542,8 @@ export function ReturnRiskChart({
             itemStyle={tt.itemStyle}
             cursor={tt.cursor}
             isAnimationActive={false}
-            formatter={(value: number | undefined, _name: string, props: { payload?: { factors?: string } }) => [`${value ?? 0} — ${props.payload?.factors ?? ''}`, 'Risk']}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            formatter={(...args: any[]) => { const v = args[0] as number | undefined; const p = args[2] as { payload?: { factors?: string } } | undefined; return [`${v ?? 0} — ${p?.payload?.factors ?? ''}`, 'Risk']; }}
           />
           <Bar dataKey="score" radius={[0, 6, 6, 0]} maxBarSize={20} isAnimationActive={false}>
             {data.map((entry, i) => (
