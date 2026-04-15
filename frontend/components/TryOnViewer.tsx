@@ -2,7 +2,7 @@
 
 import { Suspense, useRef, useState, useEffect, useMemo, useCallback } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls, useGLTF, Environment, ContactShadows } from '@react-three/drei'
+import { OrbitControls, useGLTF, Environment } from '@react-three/drei'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as THREE from 'three'
 import { Check, Ruler, RotateCcw, ExternalLink } from 'lucide-react'
@@ -71,7 +71,7 @@ function computeBindHeight(root: THREE.Object3D): number {
 const TARGET_HEIGHT = 1.8
 const GARMENT_CLEARANCE = 1.038
 const GARMENT_Z_PUSHBACK = -0.012
-const AVATAR_Z_OFFSET = -0.035
+const AVATAR_Z_OFFSET = -0.018
 
 // ---------------------------------------------------------------------------
 // Aligned scene: loads avatar + garment, normalizes both to TARGET_HEIGHT,
@@ -212,15 +212,17 @@ function CameraController({ resetTrigger }: { resetTrigger: number }) {
   return (
     <OrbitControls
       ref={controlsRef}
-      enablePan={false}
+      enablePan={true}
       enableZoom={true}
-      minDistance={1.5}
-      maxDistance={4}
-      minPolarAngle={Math.PI / 4}
-      maxPolarAngle={Math.PI / 1.5}
+      minDistance={1}
+      maxDistance={5}
+      minPolarAngle={0}
+      maxPolarAngle={Math.PI}
       target={[0, 0, 0]}
       dampingFactor={0.05}
       rotateSpeed={0.5}
+      panSpeed={0.8}
+      touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
     />
   )
 }
@@ -394,13 +396,7 @@ export default function TryOnViewer({
 
           <Environment preset="city" />
 
-          <ContactShadows
-            position={[0, -1.1, 0]}
-            opacity={0.3}
-            scale={3}
-            blur={2.5}
-            far={1.5}
-          />
+          {/* Clean white — no floor shadow */}
 
           <Suspense fallback={null}>
             {avatarUrl && activeGarmentUrl ? (
