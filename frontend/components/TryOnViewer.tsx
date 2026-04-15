@@ -71,7 +71,7 @@ function computeBindHeight(root: THREE.Object3D): number {
 const TARGET_HEIGHT = 1.8
 const GARMENT_CLEARANCE = 1.038
 const GARMENT_Z_PUSHBACK = -0.012
-const AVATAR_Z_OFFSET = -0.018
+const AVATAR_Z_OFFSET = -0.010
 
 // ---------------------------------------------------------------------------
 // Aligned scene: loads avatar + garment, normalizes both to TARGET_HEIGHT,
