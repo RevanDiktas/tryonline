@@ -129,14 +129,14 @@ export default function SavedItemsGrid({ listType, dark, onTryOn }: SavedItemsGr
             </h4>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {storeItems.map((item) => (
               <div
                 key={item.id}
                 className={`group rounded-2xl overflow-hidden transition-all duration-200 hover:scale-[1.02] ${dark ? 'bg-white/[0.04] hover:bg-white/[0.07]' : 'bg-white shadow-sm hover:shadow-md'}`}
               >
                 {/* Product Image */}
-                <div className="aspect-[4/5] relative overflow-hidden">
+                <div className="aspect-square relative overflow-hidden">
                   {item.product_image_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -173,24 +173,23 @@ export default function SavedItemsGrid({ listType, dark, onTryOn }: SavedItemsGr
                 </div>
 
                 {/* Product Info */}
-                <div className="p-4">
-                  <p className={`text-sm font-semibold mb-1 truncate ${dark ? 'text-white' : 'text-slate-900'}`}>
+                <div className="p-3">
+                  <p className={`text-xs font-semibold mb-0.5 truncate ${dark ? 'text-white' : 'text-slate-900'}`}>
                     {item.product_name || item.product_id}
                   </p>
-                  <p className={`text-xs mb-3 ${dark ? 'text-white/40' : 'text-slate-400'}`}>
+                  <p className={`text-[11px] mb-2 ${dark ? 'text-white/40' : 'text-slate-400'}`}>
                     {item.brand_name || item.shop_domain}
                   </p>
                   {item.product_price != null && (
-                    <p className={`text-sm font-bold mb-3 ${dark ? 'text-white' : 'text-slate-900'}`}>
+                    <p className={`text-xs font-bold mb-2 ${dark ? 'text-white' : 'text-slate-900'}`}>
                       {item.currency === 'EUR' ? '\u20AC' : item.currency === 'GBP' ? '\u00A3' : '$'}
                       {Number(item.product_price).toFixed(2)}
                     </p>
                   )}
 
-                  {/* Try On Button */}
                   <button
                     onClick={() => onTryOn(item)}
-                    className={`w-full py-2.5 text-sm font-medium rounded-xl transition-all duration-200 ${dark ? 'bg-white text-black hover:bg-white/90' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
+                    className={`w-full py-2 text-xs font-medium rounded-xl transition-all duration-200 ${dark ? 'bg-white text-black hover:bg-white/90' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                   >
                     Try On
                   </button>

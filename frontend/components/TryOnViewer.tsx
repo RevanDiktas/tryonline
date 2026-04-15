@@ -71,6 +71,7 @@ function computeBindHeight(root: THREE.Object3D): number {
 const TARGET_HEIGHT = 1.8
 const GARMENT_CLEARANCE = 1.038
 const GARMENT_Z_PUSHBACK = -0.012
+const AVATAR_Z_OFFSET = -0.035
 
 // ---------------------------------------------------------------------------
 // Aligned scene: loads avatar + garment, normalizes both to TARGET_HEIGHT,
@@ -86,7 +87,7 @@ function AlignedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; garmentUrl
     const garment = garmentGltf.scene
 
     avatar.scale.setScalar(1)
-    avatar.position.set(0, 0, 0)
+    avatar.position.set(0, 0, AVATAR_Z_OFFSET)
     garment.scale.setScalar(1)
     garment.position.set(0, 0, 0)
 
@@ -381,6 +382,7 @@ export default function TryOnViewer({
           camera={{ position: [0, 0, 2.5], fov: 45 }}
           style={{ background: '#ffffff' }}
         >
+          <color attach="background" args={['#ffffff']} />
           <ambientLight intensity={0.6} />
           <directionalLight
             position={[5, 5, 5]}
@@ -453,12 +455,7 @@ export default function TryOnViewer({
       </div>
 
       {/* Control Panel */}
-      <motion.div
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: 0.3 }}
-        className="w-full lg:w-80 p-4 lg:p-6 space-y-4"
-      >
+      <div className="w-full lg:w-80 p-4 lg:p-6 space-y-4 overflow-y-auto">
         <div className="glass-panel p-5">
           <h2 className="text-lg font-semibold text-[#1d1d1f] mb-1">{productName}</h2>
           <p className="text-sm text-[#86868b]">See how it fits on your body</p>
@@ -559,7 +556,7 @@ export default function TryOnViewer({
         <p className="text-[10px] text-center text-[#86868b]">
           Your body data is encrypted and never shared. <a href="#" className="underline">Privacy Policy</a>
         </p>
-      </motion.div>
+      </div>
     </div>
   )
 }
