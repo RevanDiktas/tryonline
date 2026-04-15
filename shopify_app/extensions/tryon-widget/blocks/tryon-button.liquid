@@ -73,12 +73,21 @@
     style="display:none;position:fixed;inset:0;width:100%;height:100%;z-index:999999;border:none;background:transparent;"
   ></iframe>
 
+  <button
+    id="tryon-close-{{ block.id }}"
+    aria-label="Close TryOn"
+    style="display:none;position:fixed;top:12px;right:12px;z-index:1000000;width:44px;height:44px;border-radius:50%;border:none;background:rgba(0,0,0,0.6);color:#fff;font-size:22px;line-height:1;cursor:pointer;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:background 0.15s;"
+    onmouseover="this.style.background='rgba(0,0,0,0.85)'"
+    onmouseout="this.style.background='rgba(0,0,0,0.6)'"
+  >&#x2715;</button>
+
   <script>
     (function() {
       var root = document.getElementById('tryon-root-{{ block.id }}');
       if (!root) return;
       var btn = root.querySelector('[data-tryon-open]');
       var iframe = document.getElementById('tryon-frame-{{ block.id }}');
+      var closeBtn = document.getElementById('tryon-close-{{ block.id }}');
       if (!btn || !iframe) return;
       var src = iframe.getAttribute('data-tryon-src');
 
@@ -182,13 +191,22 @@
       btn.addEventListener('click', function() {
         iframe.src = src;
         iframe.style.display = 'block';
+        if (closeBtn) closeBtn.style.display = 'block';
         document.body.style.overflow = 'hidden';
       });
 
       function close() {
         iframe.style.display = 'none';
+        if (closeBtn) closeBtn.style.display = 'none';
         iframe.src = '';
         document.body.style.overflow = '';
+      }
+
+      if (closeBtn) {
+        closeBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          close();
+        });
       }
 
       document.addEventListener('keydown', function(e) {
