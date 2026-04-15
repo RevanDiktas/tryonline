@@ -987,9 +987,9 @@ export default function BrandDashboardPage() {
                   <div className="space-y-4">
                     <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Dwell time</p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <MetricCell label="Avg Dwell" value={(dwellMetrics as Record<string, unknown>).avg_dwell_seconds != null ? `${Number((dwellMetrics as Record<string, unknown>).avg_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
-                      <MetricCell label="Median Dwell" value={(dwellMetrics as Record<string, unknown>).median_dwell_seconds != null ? `${Number((dwellMetrics as Record<string, unknown>).median_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
-                      <MetricCell label="P90 Dwell" value={(dwellMetrics as Record<string, unknown>).p90_dwell_seconds != null ? `${Number((dwellMetrics as Record<string, unknown>).p90_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
+                      <MetricCell label="Avg Dwell" value={dwellMetrics.avg_dwell_seconds != null ? `${Number(dwellMetrics.avg_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
+                      <MetricCell label="Median Dwell" value={dwellMetrics.median_dwell_seconds != null ? `${Number(dwellMetrics.median_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
+                      <MetricCell label="P90 Dwell" value={dwellMetrics.p90_dwell_seconds != null ? `${Number(dwellMetrics.p90_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
                       <MetricCell label="Dwell→Conv %" value={dwellMetrics.dwell_to_conversion != null ? `${Number(dwellMetrics.dwell_to_conversion).toFixed(1)}%` : '—'} highlight dark={dark} />
                     </div>
                     <div className={`${panelClass} p-5`} style={chartPanelMinH}>
