@@ -2119,3 +2119,266 @@ async def get_return_risk(
     )
     _cache[key] = result
     return result
+
+
+# ---------------------------------------------------------------------------
+# Time-Series Trends (weekly key metrics)
+# ---------------------------------------------------------------------------
+
+class TimeSeriesPoint(BaseModel):
+    week_start: str  # YYYY-MM-DD (Monday)
+    widget_opens: int = 0
+    tryons: int = 0
+    add_to_carts: int = 0
+    purchases: int = 0
+    returns: int = 0
+    revenue: float = 0.0
+    conversion_rate: Optional[float] = None
+    atc_rate: Optional[float] = None
+    return_rate: Optional[float] = None
+
+
+class TimeSeriesResponse(BaseModel):
+    weeks: list[TimeSeriesPoint]
+
+
+@router.get("/time-series", response_model=TimeSeriesResponse)
+async def get_time_series(
+    start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
+    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+):
+    key = _cache_key("time_series", start=start, end=end, shop=shop, brand_id=brand_id)
+    if key in _cache:
+        return _cache[key]
+
+    if not start:
+        end_d = datetime.now(timezone.utc).date()
+        start_d = end_d - timedelta(days=90)
+    else:
+        start_d = datetime.strptime(start, "%Y-%m-%d").date()
+        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
+
+    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
+    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+
+    q = (
+        supabase_service.client.table("analytics_events")
+        .select("event_type,session_id,event_data,created_at")
+        .gte("created_at", start_ts)
+        .lte("created_at", end_ts)
+    )
+    if shop:
+        q = q.eq("shop_domain", shop)
+    if brand_id:
+        q = q.eq("brand_id", brand_id)
+    r = q.execute()
+    events = r.data or []
+
+    week_data: dict[str, dict[str, Any]] = defaultdict(lambda: {
+        "widget_opens": 0, "tryon_sessions": set(), "atc_sessions": set(),
+        "purchases": 0, "returns": 0, "revenue": 0.0,
+    })
+
+    for e in events:
+        created = e.get("created_at")
+        if not created:
+            continue
+        try:
+            dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            week_start = (dt.date() - timedelta(days=dt.weekday())).isoformat()
+        except (ValueError, TypeError):
+            continue
+
+        etype = e.get("event_type")
+        sid = e.get("session_id") or ""
+        ed = e.get("event_data") or {}
+        w = week_data[week_start]
+
+        if etype == "widget_opened":
+            w["widget_opens"] += 1
+        elif etype == "tryon_started" and sid:
+            w["tryon_sessions"].add(sid)
+        elif etype == "add_to_cart" and sid:
+            w["atc_sessions"].add(sid)
+        elif etype == "purchase":
+            w["purchases"] += 1
+            w["revenue"] += float(ed.get("amount", 0) or 0)
+        elif etype == "return":
+            w["returns"] += 1
+
+    weeks_out: list[TimeSeriesPoint] = []
+    for week_start in sorted(week_data.keys()):
+        w = week_data[week_start]
+        tryons = len(w["tryon_sessions"])
+        atcs = len(w["atc_sessions"])
+        purchases = w["purchases"]
+        returns = w["returns"]
+        weeks_out.append(TimeSeriesPoint(
+            week_start=week_start,
+            widget_opens=w["widget_opens"],
+            tryons=tryons,
+            add_to_carts=atcs,
+            purchases=purchases,
+            returns=returns,
+            revenue=round(w["revenue"], 2),
+            conversion_rate=round(purchases / tryons * 100, 2) if tryons else None,
+            atc_rate=round(atcs / tryons * 100, 2) if tryons else None,
+            return_rate=round(returns / purchases * 100, 2) if purchases else None,
+        ))
+
+    result = TimeSeriesResponse(weeks=weeks_out)
+    _cache[key] = result
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Fit-to-Purchase Correlation
+# ---------------------------------------------------------------------------
+
+class FitPurchaseCorrelationBucket(BaseModel):
+    deviation: str  # "accepted", "size_up_1", "size_down_1", "size_up_2+", "size_down_2+"
+    sessions: int
+    purchases: int
+    returns: int
+    purchase_rate: Optional[float] = None
+    return_rate: Optional[float] = None
+
+
+class FitPurchaseCorrelationResponse(BaseModel):
+    buckets: list[FitPurchaseCorrelationBucket]
+    total_sessions_with_recommendation: int
+    overall_acceptance_rate: Optional[float] = None
+
+
+@router.get("/fit-purchase-correlation", response_model=FitPurchaseCorrelationResponse)
+async def get_fit_purchase_correlation(
+    start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
+    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+):
+    """
+    Shows the relationship between fit recommendation accuracy and purchase/return outcomes.
+    Groups sessions by size deviation (accepted, sized up, sized down) and shows
+    purchase rate and return rate for each group.
+    """
+    key = _cache_key("fit_purchase_correlation", start=start, end=end, shop=shop, brand_id=brand_id)
+    if key in _cache:
+        return _cache[key]
+
+    if not start:
+        end_d = datetime.now(timezone.utc).date()
+        start_d = end_d - timedelta(days=90)
+    else:
+        start_d = datetime.strptime(start, "%Y-%m-%d").date()
+        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
+
+    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
+    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+
+    q = (
+        supabase_service.client.table("analytics_events")
+        .select("event_type,session_id,product_id,event_data,created_at")
+        .gte("created_at", start_ts)
+        .lte("created_at", end_ts)
+    )
+    if shop:
+        q = q.eq("shop_domain", shop)
+    if brand_id:
+        q = q.eq("brand_id", brand_id)
+    r = q.execute()
+    events = r.data or []
+
+    session_rec: dict[str, str] = {}
+    session_sel: dict[str, str] = {}
+    session_purchased: set[str] = set()
+    session_returned: set[str] = set()
+
+    for e in events:
+        sid = e.get("session_id")
+        ed = e.get("event_data") or {}
+        etype = e.get("event_type")
+        raw = ed.get("size")
+        sz = str(raw).strip() if raw is not None and raw != "" else ""
+
+        if not sid:
+            continue
+
+        if etype == "size_recommended" and sz:
+            session_rec[sid] = sz
+        elif etype in ("size_selected", "add_to_cart") and sz:
+            if sid not in session_sel:
+                session_sel[sid] = sz
+        elif etype == "purchase":
+            session_purchased.add(sid)
+        elif etype == "return":
+            session_returned.add(sid)
+
+    sessions_with_both = set(session_rec.keys()) & set(session_sel.keys())
+    total_with_rec = len(session_rec)
+
+    bucket_counts: dict[str, dict[str, int]] = defaultdict(lambda: {
+        "sessions": 0, "purchases": 0, "returns": 0,
+    })
+
+    accepted_count = 0
+    for sid in sessions_with_both:
+        rec = session_rec[sid]
+        sel = session_sel[sid]
+        o_rec = _size_to_ordinal(rec)
+        o_sel = _size_to_ordinal(sel)
+
+        if _normalize_size(rec) == _normalize_size(sel):
+            bucket_name = "accepted"
+            accepted_count += 1
+        elif o_rec is not None and o_sel is not None:
+            diff = o_sel - o_rec
+            if diff == 1:
+                bucket_name = "size_up_1"
+            elif diff >= 2:
+                bucket_name = "size_up_2+"
+            elif diff == -1:
+                bucket_name = "size_down_1"
+            else:
+                bucket_name = "size_down_2+"
+        else:
+            bucket_name = "other"
+
+        bucket_counts[bucket_name]["sessions"] += 1
+        if sid in session_purchased:
+            bucket_counts[bucket_name]["purchases"] += 1
+        if sid in session_returned:
+            bucket_counts[bucket_name]["returns"] += 1
+
+    display_order = ["accepted", "size_up_1", "size_down_1", "size_up_2+", "size_down_2+", "other"]
+    buckets_out: list[FitPurchaseCorrelationBucket] = []
+    for name in display_order:
+        if name not in bucket_counts:
+            continue
+        b = bucket_counts[name]
+        sessions = b["sessions"]
+        purchases = b["purchases"]
+        returns = b["returns"]
+        buckets_out.append(FitPurchaseCorrelationBucket(
+            deviation=name,
+            sessions=sessions,
+            purchases=purchases,
+            returns=returns,
+            purchase_rate=round(purchases / sessions * 100, 2) if sessions else None,
+            return_rate=round(returns / purchases * 100, 2) if purchases else None,
+        ))
+
+    overall_acceptance = (
+        round(accepted_count / len(sessions_with_both) * 100, 2)
+        if sessions_with_both else None
+    )
+
+    result = FitPurchaseCorrelationResponse(
+        buckets=buckets_out,
+        total_sessions_with_recommendation=total_with_rec,
+        overall_acceptance_rate=overall_acceptance,
+    )
+    _cache[key] = result
+    return result

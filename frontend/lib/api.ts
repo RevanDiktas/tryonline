@@ -300,6 +300,38 @@ export interface ReturnRiskResponse {
   total_scored: number;
 }
 
+// --- Time-Series Trends ---
+export interface TimeSeriesPoint {
+  week_start: string;
+  widget_opens: number;
+  tryons: number;
+  add_to_carts: number;
+  purchases: number;
+  returns: number;
+  revenue: number;
+  conversion_rate?: number | null;
+  atc_rate?: number | null;
+  return_rate?: number | null;
+}
+export interface TimeSeriesResponse {
+  weeks: TimeSeriesPoint[];
+}
+
+// --- Fit-to-Purchase Correlation ---
+export interface FitPurchaseCorrelationBucket {
+  deviation: string;
+  sessions: number;
+  purchases: number;
+  returns: number;
+  purchase_rate?: number | null;
+  return_rate?: number | null;
+}
+export interface FitPurchaseCorrelationResponse {
+  buckets: FitPurchaseCorrelationBucket[];
+  total_sessions_with_recommendation: number;
+  overall_acceptance_rate?: number | null;
+}
+
 // --- Avatar ---
 export interface CreateAvatarPayload {
   user_id: string;
@@ -486,6 +518,14 @@ export const api = {
 
   async getCohortComparison(params: { start: string; end: string; shop?: string }): Promise<CohortComparisonData> {
     return fetchApi('/api/analytics/cohort-comparison', { params: params as Record<string, string> });
+  },
+
+  async getTimeSeries(params: { start: string; end: string; shop?: string }): Promise<TimeSeriesResponse> {
+    return fetchApi('/api/analytics/time-series', { params: params as Record<string, string> });
+  },
+
+  async getFitPurchaseCorrelation(params: { start: string; end: string; shop?: string }): Promise<FitPurchaseCorrelationResponse> {
+    return fetchApi('/api/analytics/fit-purchase-correlation', { params: params as Record<string, string> });
   },
 
   async getReturnRisk(params: { shop?: string }): Promise<ReturnRiskResponse> {

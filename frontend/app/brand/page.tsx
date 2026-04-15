@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { TryonLogo } from '@/components/TryonLogo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, logout, type User } from '@/lib/supabase-auth';
-import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse, type DwellMetrics, type DeviceMetricsResponse, type FitConfidenceResponse, type RepeatVisitorsResponse, type BodyShapeInsightsResponse, type ReturnMetricsData, type CohortComparisonData, type ReturnRiskResponse } from '@/lib/api';
+import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse, type DwellMetrics, type DeviceMetricsResponse, type FitConfidenceResponse, type RepeatVisitorsResponse, type BodyShapeInsightsResponse, type ReturnMetricsData, type CohortComparisonData, type ReturnRiskResponse, type TimeSeriesResponse, type FitPurchaseCorrelationResponse } from '@/lib/api';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
 
@@ -24,6 +24,8 @@ const DeviceBreakdownChart = dynamic(() => import('@/components/analytics/Charts
 const FitConfidenceChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.FitConfidenceChart })), { ssr: false });
 const DwellTimeChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.DwellTimeChart })), { ssr: false });
 const ReturnRiskChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.ReturnRiskChart })), { ssr: false });
+const TimeSeriesChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.TimeSeriesChart })), { ssr: false });
+const FitPurchaseCorrelationChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.FitPurchaseCorrelationChart })), { ssr: false });
 
 const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
@@ -145,6 +147,8 @@ export default function BrandDashboardPage() {
   const [returnMetrics, setReturnMetrics] = useState<ReturnMetricsData | null>(null);
   const [cohortComparison, setCohortComparison] = useState<CohortComparisonData | null>(null);
   const [returnRisk, setReturnRisk] = useState<ReturnRiskResponse | null>(null);
+  const [timeSeries, setTimeSeries] = useState<TimeSeriesResponse | null>(null);
+  const [fitPurchaseCorrelation, setFitPurchaseCorrelation] = useState<FitPurchaseCorrelationResponse | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [metricsRange, setMetricsRange] = useState<'7d' | '30d'>('30d');
@@ -187,6 +191,8 @@ export default function BrandDashboardPage() {
       () => api.getReturnMetrics(params),
       () => api.getCohortComparison(params),
       () => api.getReturnRisk({ shop: metricsShop || undefined }),
+      () => api.getTimeSeries(params),
+      () => api.getFitPurchaseCorrelation(params),
     ];
     const results = await Promise.allSettled(calls.map((fn) => fn()));
     const failures = results.filter((r) => r.status === 'rejected');
@@ -212,6 +218,8 @@ export default function BrandDashboardPage() {
     if (val(13)) setReturnMetrics(val(13) as ReturnMetricsData);
     if (val(14)) setCohortComparison(val(14) as CohortComparisonData);
     if (val(15)) setReturnRisk(val(15) as ReturnRiskResponse);
+    if (val(16)) setTimeSeries(val(16) as TimeSeriesResponse);
+    if (val(17)) setFitPurchaseCorrelation(val(17) as FitPurchaseCorrelationResponse);
     setMetricsLoading(false);
   }, [metricsRange, metricsShop]);
 
@@ -464,6 +472,51 @@ export default function BrandDashboardPage() {
                   </div>
                 </div>
 
+                {/* Weekly Trends */}
+                {timeSeries && timeSeries.weeks.length > 1 && (
+                  <div className="space-y-4">
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Weekly trends</p>
+                    <div className={`${panelClass} p-5`}>
+                      <p className={`text-[9px] font-semibold uppercase tracking-[0.2em] mb-3 ${labelCl}`}>Rates</p>
+                      <TimeSeriesChart weeks={timeSeries.weeks} metrics={['conversion_rate', 'atc_rate']} dark={dark} />
+                    </div>
+                    <div className={`${panelClass} p-5`}>
+                      <p className={`text-[9px] font-semibold uppercase tracking-[0.2em] mb-3 ${labelCl}`}>Volume</p>
+                      <TimeSeriesChart weeks={timeSeries.weeks} metrics={['tryons', 'add_to_carts', 'purchases']} dark={dark} />
+                    </div>
+                    <div className={`${panelClass} overflow-hidden`}>
+                      <table className="w-full text-left text-[11px]">
+                        <thead>
+                          <tr className={tableHeaderClass}>
+                            <th className="px-4 py-2 font-semibold">Week</th>
+                            <th className="px-4 py-2 font-semibold text-right">Opens</th>
+                            <th className="px-4 py-2 font-semibold text-right">Try-Ons</th>
+                            <th className="px-4 py-2 font-semibold text-right">ATC</th>
+                            <th className="px-4 py-2 font-semibold text-right">Purchases</th>
+                            <th className="px-4 py-2 font-semibold text-right">Revenue</th>
+                            <th className="px-4 py-2 font-semibold text-right">Conv %</th>
+                            <th className="px-4 py-2 font-semibold text-right">ATC %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {timeSeries.weeks.map((w) => (
+                            <tr key={w.week_start} className={rowHover}>
+                              <td className={`px-4 py-2 ${borderCl}`}>{w.week_start}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{w.widget_opens}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{w.tryons}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{w.add_to_carts}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{w.purchases}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>€{w.revenue.toFixed(2)}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{w.conversion_rate != null ? `${w.conversion_rate.toFixed(1)}%` : '—'}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{w.atc_rate != null ? `${w.atc_rate.toFixed(1)}%` : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
                 {/* Core metrics grid */}
                 <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-10 gap-3">
                   <MetricCell label="Widget Opens" value={metrics.widget_opens ?? 0} dark={dark} />
@@ -561,6 +614,51 @@ export default function BrandDashboardPage() {
                   <SizeCell label="Selected" data={(fitMetrics.size_distribution_selected ?? {}) as Record<string, number>} dark={dark} />
                   <SizeCell label="Purchased" data={(fitMetrics.size_distribution_purchased ?? {}) as Record<string, number>} dark={dark} />
                 </div>
+
+                {/* Fit-to-Purchase Correlation */}
+                {fitPurchaseCorrelation && fitPurchaseCorrelation.buckets.length > 0 && (
+                  <div className="space-y-4">
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Fit-to-purchase correlation</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <MetricCell label="Sessions w/ Rec" value={fitPurchaseCorrelation.total_sessions_with_recommendation} dark={dark} />
+                      <MetricCell label="Acceptance Rate" value={fitPurchaseCorrelation.overall_acceptance_rate != null ? `${fitPurchaseCorrelation.overall_acceptance_rate.toFixed(1)}%` : '—'} highlight dark={dark} />
+                      <MetricCell label="Buckets" value={fitPurchaseCorrelation.buckets.length} dark={dark} />
+                    </div>
+                    <div className={`${panelClass} p-5`}>
+                      <FitPurchaseCorrelationChart buckets={fitPurchaseCorrelation.buckets} dark={dark} />
+                    </div>
+                    <div className={`${panelClass} overflow-hidden`}>
+                      <table className="w-full text-left text-[11px]">
+                        <thead>
+                          <tr className={tableHeaderClass}>
+                            <th className="px-4 py-2 font-semibold">Deviation</th>
+                            <th className="px-4 py-2 font-semibold text-right">Sessions</th>
+                            <th className="px-4 py-2 font-semibold text-right">Purchases</th>
+                            <th className="px-4 py-2 font-semibold text-right">Returns</th>
+                            <th className="px-4 py-2 font-semibold text-right">Purchase %</th>
+                            <th className="px-4 py-2 font-semibold text-right">Return %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {fitPurchaseCorrelation.buckets.map((b) => (
+                            <tr key={b.deviation} className={rowHover}>
+                              <td className={`px-4 py-2 font-medium ${borderCl}`}>
+                                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${b.deviation === 'accepted' ? 'bg-green-500/15 text-green-400' : b.deviation.startsWith('size_up') ? 'bg-amber-500/15 text-amber-400' : b.deviation.startsWith('size_down') ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-500/15 text-gray-400'}`}>
+                                  {b.deviation === 'accepted' ? 'Accepted' : b.deviation === 'size_up_1' ? '↑ +1 size' : b.deviation === 'size_down_1' ? '↓ -1 size' : b.deviation === 'size_up_2+' ? '↑↑ +2 sizes' : b.deviation === 'size_down_2+' ? '↓↓ -2 sizes' : b.deviation}
+                                </span>
+                              </td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{b.sessions}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{b.purchases}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{b.returns}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{b.purchase_rate != null ? `${b.purchase_rate.toFixed(1)}%` : '—'}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{b.return_rate != null ? `${b.return_rate.toFixed(1)}%` : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
 
                 {/* Per-Product Fit Confidence */}
                 {fitConfidence && fitConfidence.products && fitConfidence.products.length > 0 && (

@@ -14,6 +14,8 @@ import {
   Cell,
   PieChart,
   Pie,
+  LineChart,
+  Line,
 } from 'recharts';
 
 const CHART_COLORS = {
@@ -550,6 +552,143 @@ export function ReturnRiskChart({
               <Cell key={i} fill={riskColor(entry.score)} />
             ))}
           </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ─── Time-Series Trends ─── */
+
+interface TimeSeriesPoint {
+  week_start: string;
+  widget_opens: number;
+  tryons: number;
+  add_to_carts: number;
+  purchases: number;
+  returns: number;
+  revenue: number;
+  conversion_rate?: number | null;
+  atc_rate?: number | null;
+  return_rate?: number | null;
+}
+
+type TimeSeriesMetric = 'conversion_rate' | 'atc_rate' | 'return_rate' | 'tryons' | 'add_to_carts' | 'purchases' | 'revenue' | 'widget_opens';
+
+const TS_METRIC_CONFIG: Record<TimeSeriesMetric, { label: string; color: string; unit: string }> = {
+  conversion_rate: { label: 'Conversion %', color: '#22c55e', unit: '%' },
+  atc_rate: { label: 'ATC %', color: '#f59e0b', unit: '%' },
+  return_rate: { label: 'Return %', color: '#ef4444', unit: '%' },
+  tryons: { label: 'Try-Ons', color: '#0ea5e9', unit: '' },
+  add_to_carts: { label: 'Add to Cart', color: '#f59e0b', unit: '' },
+  purchases: { label: 'Purchases', color: '#22c55e', unit: '' },
+  revenue: { label: 'Revenue', color: '#10b981', unit: '€' },
+  widget_opens: { label: 'Widget Opens', color: '#3b82f6', unit: '' },
+};
+
+export function TimeSeriesChart({
+  weeks,
+  metrics,
+  dark,
+}: {
+  weeks: TimeSeriesPoint[];
+  metrics: TimeSeriesMetric[];
+  dark?: boolean;
+}) {
+  if (!weeks.length) return null;
+
+  const chartData = weeks.map((w) => ({
+    ...w,
+    week: w.week_start.slice(5),
+  }));
+
+  const tt = tooltipStyle(dark);
+
+  return (
+    <div className="h-[220px] w-full min-h-[180px] min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minHeight={180} initialDimension={{ width: 600, height: 200 }}>
+        <LineChart data={chartData} margin={{ top: 4, right: 24, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} vertical={false} />
+          <XAxis dataKey="week" tick={tickStyle(dark)} axisLine={false} tickLine={false} />
+          <YAxis tick={tickStyle(dark)} axisLine={false} tickLine={false} allowDecimals />
+          <Tooltip
+            contentStyle={tt.contentStyle}
+            labelStyle={tt.labelStyle}
+            itemStyle={tt.itemStyle}
+            cursor={{ stroke: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }}
+            isAnimationActive={false}
+            labelFormatter={(label) => `Week ${label}`}
+          />
+          <Legend wrapperStyle={legendStyle(dark)} />
+          {metrics.map((m) => {
+            const cfg = TS_METRIC_CONFIG[m];
+            return (
+              <Line
+                key={m}
+                type="monotone"
+                dataKey={m}
+                stroke={cfg.color}
+                strokeWidth={2}
+                name={cfg.label}
+                dot={{ r: 3, fill: cfg.color, strokeWidth: 0 }}
+                activeDot={{ r: 5, fill: cfg.color, strokeWidth: 2, stroke: dark ? '#000' : '#fff' }}
+                isAnimationActive={false}
+                connectNulls
+              />
+            );
+          })}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ─── Fit-to-Purchase Correlation ─── */
+
+const DEVIATION_LABELS: Record<string, string> = {
+  accepted: 'Accepted Rec.',
+  size_up_1: 'Sized Up +1',
+  size_down_1: 'Sized Down -1',
+  'size_up_2+': 'Sized Up +2',
+  'size_down_2+': 'Sized Down -2',
+  other: 'Other',
+};
+
+export function FitPurchaseCorrelationChart({
+  buckets,
+  dark,
+}: {
+  buckets: Array<{ deviation: string; sessions: number; purchases: number; returns: number; purchase_rate?: number | null; return_rate?: number | null }>;
+  dark?: boolean;
+}) {
+  if (!buckets.length) return null;
+
+  const data = buckets.map((b) => ({
+    name: DEVIATION_LABELS[b.deviation] ?? b.deviation,
+    sessions: b.sessions,
+    purchaseRate: b.purchase_rate ?? 0,
+    returnRate: b.return_rate ?? 0,
+  }));
+
+  const tt = tooltipStyle(dark);
+
+  return (
+    <div className="h-[220px] w-full min-h-[180px] min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minHeight={180} initialDimension={{ width: 600, height: 200 }}>
+        <BarChart data={data} margin={{ top: 4, right: 24, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} vertical={false} />
+          <XAxis dataKey="name" tick={tickStyle(dark)} axisLine={false} tickLine={false} />
+          <YAxis tick={tickStyle(dark)} axisLine={false} tickLine={false} unit="%" />
+          <Tooltip
+            contentStyle={tt.contentStyle}
+            labelStyle={tt.labelStyle}
+            itemStyle={tt.itemStyle}
+            cursor={tt.cursor}
+            isAnimationActive={false}
+          />
+          <Legend wrapperStyle={legendStyle(dark)} />
+          <Bar dataKey="purchaseRate" name="Purchase %" fill="#22c55e" radius={[4, 4, 0, 0]} maxBarSize={32} isAnimationActive={false} />
+          <Bar dataKey="returnRate" name="Return %" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={32} isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
     </div>
