@@ -81,13 +81,13 @@
     <h1>Drape Test <span>Internal — not visible to shoppers</span></h1>
 
     <div class="field">
-      <label>Backend URL</label>
-      <input id="apiUrl" value="https://tryonline-production.up.railway.app" placeholder="https://..." />
+      <label>RunPod API Key</label>
+      <input id="runpodApiKey" type="password" placeholder="rpa_XXXXXXXXXX" />
     </div>
 
     <div class="field">
-      <label>Supabase URL</label>
-      <input id="supabaseUrl" value="" placeholder="https://xxx.supabase.co" />
+      <label>RunPod Draping Endpoint ID</label>
+      <input id="runpodEndpointId" value="e86juazm1b4mig" placeholder="e86juazm1b4mig" />
     </div>
 
     <hr />
@@ -262,6 +262,33 @@ function showBadge(type) {
   }
 }
 
+const TARGET_HEIGHT = 1.8;
+const GARMENT_Z_PUSHBACK = -0.012;
+
+function normalizeModel(model, name) {
+  model.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const rawH = size.y;
+
+  if (rawH > 0.001 && (rawH < 0.5 || rawH > 50)) {
+    const s = TARGET_HEIGHT / rawH;
+    model.scale.setScalar(s);
+    model.updateMatrixWorld(true);
+    const newBox = new THREE.Box3().setFromObject(model);
+    const newSize = newBox.getSize(new THREE.Vector3());
+    log(`  ${name}: scaled ${rawH.toFixed(3)} → ${newSize.y.toFixed(3)}m (factor ${s.toFixed(4)})`, 'info');
+  }
+
+  model.updateMatrixWorld(true);
+  const finalBox = new THREE.Box3().setFromObject(model);
+  const center = finalBox.getCenter(new THREE.Vector3());
+  const finalSize = finalBox.getSize(new THREE.Vector3());
+  model.position.x = -center.x;
+  model.position.y = -center.y + finalSize.y / 2;
+  model.position.z = -center.z;
+}
+
 // ---- Load GLBs ----
 function loadGlb(url, name) {
   return new Promise((resolve, reject) => {
@@ -271,13 +298,9 @@ function loadGlb(url, name) {
       model.traverse(c => {
         if (c.isMesh) {
           c.frustumCulled = false;
-          if (c.material) {
-            c.material.needsUpdate = true;
-          }
+          if (c.material) c.material.needsUpdate = true;
         }
-        if (c.isSkinnedMesh) {
-          c.skeleton.pose();
-        }
+        if (c.isSkinnedMesh) c.skeleton.pose();
       });
 
       if (gltf.animations && gltf.animations.length > 0) {
@@ -286,7 +309,7 @@ function loadGlb(url, name) {
 
       const box = new THREE.Box3().setFromObject(model);
       const h = box.max.y - box.min.y;
-      log(`  ${name}: loaded, height=${h.toFixed(3)}m, meshes=${model.children.length}`, 'ok');
+      log(`  ${name}: loaded, raw height=${h.toFixed(3)}m`, 'ok');
       resolve(model);
     }, undefined, (err) => {
       log(`  ${name}: FAILED — ${err.message || err}`, 'err');
@@ -308,17 +331,21 @@ window.loadPreview = async function() {
   setStatus('Loading...', 'loading');
 
   try {
+    if (avatarMesh) { scene.remove(avatarMesh); avatarMesh = null; }
+    if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
+
     if (avatarUrl) {
-      if (avatarMesh) { scene.remove(avatarMesh); avatarMesh = null; }
       avatarMesh = await loadGlb(avatarUrl, 'Avatar');
-      avatarMesh.position.set(0, 0, 0);
+      normalizeModel(avatarMesh, 'Avatar');
       scene.add(avatarMesh);
     }
 
     if (garmentUrl) {
-      if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
       garmentMesh = await loadGlb(garmentUrl, 'Garment (static)');
-      garmentMesh.position.set(0, 0, 0);
+      normalizeModel(garmentMesh, 'Garment');
+      if (avatarMesh) {
+        garmentMesh.position.z += GARMENT_Z_PUSHBACK;
+      }
       scene.add(garmentMesh);
       showBadge('static');
     }
@@ -334,15 +361,24 @@ window.loadPreview = async function() {
 window.runDrape = async function() {
   const bodyObjUrl = document.getElementById('bodyObjUrl').value.trim();
   const garmentObjUrl = document.getElementById('garmentObjUrl').value.trim();
+  const runpodKey = document.getElementById('runpodApiKey').value.trim();
+  const endpointId = document.getElementById('runpodEndpointId').value.trim();
 
   if (!bodyObjUrl || !garmentObjUrl) {
     log('Both Body OBJ URL and Garment OBJ URL are required', 'err');
     return;
   }
+  if (!runpodKey) {
+    log('RunPod API Key is required — find it at runpod.io → Settings → API Keys', 'err');
+    return;
+  }
+  if (!endpointId) {
+    log('RunPod Endpoint ID is required', 'err');
+    return;
+  }
 
   const fabricPreset = document.getElementById('fabricPreset').value;
   const simMode = document.getElementById('simMode').value;
-  const apiUrl = document.getElementById('apiUrl').value.trim().replace(/\/$/, '');
 
   const btn = document.getElementById('btnDrape');
   btn.disabled = true;
@@ -352,46 +388,51 @@ window.runDrape = async function() {
   log(`Garment OBJ: ${garmentObjUrl.substring(0, 80)}...`, 'info');
   log(`Fabric:      ${fabricPreset}`, 'info');
   log(`Mode:        ${simMode}`, 'info');
+  log(`Endpoint:    ${endpointId}`, 'info');
 
   try {
-    // Call RunPod directly via our test endpoint
-    log('Sending request to draping test endpoint...', 'info');
+    log('Calling RunPod directly (bypassing Railway)...', 'info');
 
-    const resp = await fetch(`${apiUrl}/api/draping/test-run`, {
+    const runUrl = `https://api.runpod.ai/v2/${endpointId}/runsync`;
+    const resp = await fetch(runUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${runpodKey}`,
+      },
       body: JSON.stringify({
-        body_obj_url: bodyObjUrl,
-        garment_obj_url: garmentObjUrl,
-        fabric_preset: fabricPreset,
-        simulation_mode: simMode,
+        input: {
+          body_obj_url: bodyObjUrl,
+          garment_obj_url: garmentObjUrl,
+          fabric_config: { preset: fabricPreset },
+          simulation_mode: simMode,
+          garment_id: 'test',
+          size: 'test',
+          user_id: 'test',
+        }
       }),
     });
 
     if (!resp.ok) {
       const errText = await resp.text();
-      throw new Error(`HTTP ${resp.status}: ${errText}`);
+      throw new Error(`RunPod HTTP ${resp.status}: ${errText.substring(0, 300)}`);
     }
 
-    const data = await resp.json();
+    const result = await resp.json();
+    const data = result.output || {};
+
+    if (!data.success) {
+      throw new Error(data.error || 'RunPod returned success=false');
+    }
+
     log(`Response received!`, 'ok');
     log(`  Method:     ${data.simulation_method}`, 'ok');
     log(`  Vertices:   ${data.vertex_count}`, 'ok');
     log(`  Time:       ${data.processing_time_seconds}s`, 'ok');
+    log(`  OBJ size:   ${(data.obj_size_bytes / 1024).toFixed(1)} KB`, 'ok');
+    log(`  GLB size:   ${(data.glb_size_bytes / 1024).toFixed(1)} KB`, 'ok');
 
-    if (data.draped_glb_url) {
-      log(`  GLB URL:    ${data.draped_glb_url.substring(0, 80)}...`, 'ok');
-      log('Loading draped mesh into viewer...', 'info');
-
-      if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
-      garmentMesh = await loadGlb(data.draped_glb_url, 'Garment (DRAPED)');
-      garmentMesh.position.set(0, 0, 0);
-      scene.add(garmentMesh);
-      showBadge('draped');
-
-      setStatus('Draped!', 'done');
-      log('=== DRAPING COMPLETE ===', 'ok');
-    } else if (data.draped_glb_base64) {
+    if (data.draped_glb_base64) {
       log('Decoding base64 GLB...', 'info');
       const binary = atob(data.draped_glb_base64);
       const bytes = new Uint8Array(binary.length);
@@ -401,19 +442,24 @@ window.runDrape = async function() {
 
       if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
       garmentMesh = await loadGlb(blobUrl, 'Garment (DRAPED)');
-      garmentMesh.position.set(0, 0, 0);
+      normalizeModel(garmentMesh, 'Draped Garment');
+      if (avatarMesh) garmentMesh.position.z += GARMENT_Z_PUSHBACK;
       scene.add(garmentMesh);
       showBadge('draped');
 
       setStatus('Draped!', 'done');
       log('=== DRAPING COMPLETE ===', 'ok');
     } else {
-      throw new Error('No draped GLB in response');
+      throw new Error('No draped_glb_base64 in RunPod response');
     }
 
   } catch (e) {
     setStatus('Failed', 'error');
     log(`ERROR: ${e.message}`, 'err');
+    if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+      log('CORS blocked? Try running: curl the endpoint from terminal instead.', 'warn');
+      log('Or run the backend locally: cd backend && uvicorn app.main:app --port 8000', 'warn');
+    }
     log('=== DRAPING FAILED ===', 'err');
   } finally {
     btn.disabled = false;
