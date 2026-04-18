@@ -1,0 +1,75 @@
+{
+  "_comment": "Default fabric properties for medium-weight cotton (CLO3D typical values converted to simulation units)",
+  "stretch_compliance": 0.001,
+  "bend_compliance": 0.01,
+  "thickness": 0.003,
+  "density": 0.3,
+  "friction": 0.3,
+  "damping": 0.01,
+  "presets": {
+    "cotton_light": {
+      "stretch_compliance": 0.002,
+      "bend_compliance": 0.02,
+      "thickness": 0.002,
+      "density": 0.15,
+      "friction": 0.4,
+      "damping": 0.005
+    },
+    "cotton_medium": {
+      "stretch_compliance": 0.001,
+      "bend_compliance": 0.01,
+      "thickness": 0.003,
+      "density": 0.3,
+      "friction": 0.3,
+      "damping": 0.01
+    },
+    "denim": {
+      "stretch_compliance": 0.0003,
+      "bend_compliance": 0.003,
+      "thickness": 0.005,
+      "density": 0.5,
+      "friction": 0.5,
+      "damping": 0.02
+    },
+    "silk": {
+      "stretch_compliance": 0.005,
+      "bend_compliance": 0.05,
+      "thickness": 0.001,
+      "density": 0.1,
+      "friction": 0.15,
+      "damping": 0.002
+    },
+    "jersey_knit": {
+      "stretch_compliance": 0.008,
+      "bend_compliance": 0.04,
+      "thickness": 0.002,
+      "density": 0.2,
+      "friction": 0.35,
+      "damping": 0.008
+    },
+    "wool": {
+      "stretch_compliance": 0.0008,
+      "bend_compliance": 0.008,
+      "thickness": 0.004,
+      "density": 0.4,
+      "friction": 0.45,
+      "damping": 0.015
+    },
+    "polyester": {
+      "stretch_compliance": 0.002,
+      "bend_compliance": 0.015,
+      "thickness": 0.002,
+      "density": 0.2,
+      "friction": 0.25,
+      "damping": 0.006
+    },
+    "leather": {
+      "stretch_compliance": 0.0001,
+      "bend_compliance": 0.001,
+      "thickness": 0.008,
+      "density": 0.7,
+      "friction": 0.6,
+      "damping": 0.03
+    }
+  }
+}

@@ -65,6 +65,7 @@ class GarmentUpdate(BaseModel):
     shopify_product_id: Optional[str] = None
     fit_type: Optional[str] = None
     size_chart: Optional[dict] = None
+    fabric_config: Optional[dict] = None
     is_active: Optional[bool] = None
 
 
@@ -179,6 +180,8 @@ async def update_garment(garment_id: str, body: GarmentUpdate, user_id: str = De
         updates["fit_type"] = body.fit_type
     if body.size_chart is not None:
         updates["size_chart"] = body.size_chart
+    if body.fabric_config is not None:
+        updates["fabric_config"] = body.fabric_config
     if body.is_active is not None:
         updates["is_active"] = body.is_active
 
@@ -304,3 +307,68 @@ async def upload_garment_glb(
     supabase.client.table("garments").update({"sizes": current_sizes}).eq("id", garment_id).execute()
 
     return {"ok": True, "size": size_key, "url": full_url, "path": storage_path}
+
+
+@router.post("/{garment_id}/upload-obj")
+async def upload_garment_obj(
+    garment_id: str,
+    size: str = Form(..., description="Size key: xs, s, m, l, xl"),
+    file: UploadFile = File(..., description="OBJ mesh file (triangulated)"),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Upload an OBJ mesh for cloth draping simulation. Stored alongside GLB files."""
+    brand_id = _get_user_brand_id(user_id)
+    garment = _verify_garment_ownership(garment_id, brand_id)
+
+    size_key = size.strip().lower()
+    if size_key not in VALID_SIZES:
+        raise HTTPException(status_code=400, detail=f"Invalid size. Must be one of: {VALID_SIZES}")
+
+    if not file.filename or not file.filename.lower().endswith(".obj"):
+        raise HTTPException(status_code=400, detail="Only .obj files are accepted")
+
+    product_id = _storage_product_folder(garment) or garment_id
+    current_obj_sizes = garment.get("obj_sizes") or {}
+
+    filename = f"{size_key}.obj"
+    storage_path = f"{brand_id}/{product_id}/{filename}"
+
+    content = await file.read()
+    bucket = supabase.client.storage.from_(settings.garments_bucket)
+
+    old_path = current_obj_sizes.get(size_key)
+    if old_path and isinstance(old_path, str) and not old_path.startswith("http"):
+        try:
+            bucket.remove([old_path])
+        except Exception:
+            pass
+
+    bucket.upload(
+        storage_path,
+        content,
+        {"content-type": "model/obj", "x-upsert": "true"},
+    )
+
+    full_url = bucket.get_public_url(storage_path)
+
+    current_obj_sizes[size_key] = f"garments/{storage_path}"
+    supabase.client.table("garments").update({"obj_sizes": current_obj_sizes}).eq("id", garment_id).execute()
+
+    return {"ok": True, "size": size_key, "url": full_url, "path": storage_path}
+
+
+@router.put("/{garment_id}/fabric")
+async def update_fabric_config(
+    garment_id: str,
+    fabric_config: dict,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Update fabric material properties for cloth simulation."""
+    brand_id = _get_user_brand_id(user_id)
+    _verify_garment_ownership(garment_id, brand_id)
+
+    valid_keys = {"stretch_compliance", "bend_compliance", "thickness", "density", "friction", "damping", "preset"}
+    filtered = {k: v for k, v in fabric_config.items() if k in valid_keys}
+
+    supabase.client.table("garments").update({"fabric_config": filtered}).eq("id", garment_id).execute()
+    return {"ok": True, "fabric_config": filtered}

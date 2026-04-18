@@ -411,16 +411,23 @@ export const api = {
 
   async getProductTryonConfig(
     productId: string,
-    opts?: { baseUrl?: string; shop?: string }
+    opts?: { baseUrl?: string; shop?: string; user_id?: string }
   ): Promise<{
     product_id: string;
     model_urls: Record<string, string>;
     size_chart: Record<string, Record<string, number>>;
     model_type?: string;
+    category?: string;
+    fit_type?: string;
+    draped_urls?: Record<string, string> | null;
+    has_obj?: boolean;
+    garment_id?: string | null;
+    draping_available?: boolean;
   }> {
     const params: Record<string, string> = {};
     if (opts?.baseUrl) params.base_url = opts.baseUrl;
     if (opts?.shop) params.shop = opts.shop;
+    if (opts?.user_id) params.user_id = opts.user_id;
     return fetchApi(`/api/products/${encodeURIComponent(productId)}/tryon-config`, {
       params: Object.keys(params).length ? params : undefined,
     });

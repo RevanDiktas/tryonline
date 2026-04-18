@@ -11,7 +11,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
-from app.api.routes import auth, avatar, measurements, events, health, webhooks, analytics, products, addresses, checkout_profile, shopify, brand, garments, wishlist
+from app.api.routes import auth, avatar, measurements, events, health, webhooks, analytics, products, addresses, checkout_profile, shopify, brand, garments, wishlist, draping
 
 
 settings = get_settings()
@@ -78,6 +78,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(brand.router, prefix="/api/brand", tags=["Brand"])
 app.include_router(garments.router, prefix="/api/garments", tags=["Garments"])
 app.include_router(wishlist.router, prefix="/api/wishlist", tags=["Wishlist"])
+app.include_router(draping.router, prefix="/api/draping", tags=["Draping"])
 
 
 @app.get("/")
