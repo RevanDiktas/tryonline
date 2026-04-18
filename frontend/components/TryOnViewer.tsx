@@ -6,7 +6,7 @@ import { OrbitControls, useGLTF, Environment } from '@react-three/drei'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as THREE from 'three'
 import { Check, Ruler, RotateCcw, ExternalLink } from 'lucide-react'
-import { recommendSize, type PreferredFit } from '@/lib/sizeRecommendation'
+import { recommendSize, type PreferredFit, type GarmentCategory, type GarmentFitType, type SizeRecommendation } from '@/lib/sizeRecommendation'
 
 interface FitResult {
   size: string
@@ -26,8 +26,13 @@ interface TryOnViewerProps {
     waist: number
     hips: number
     height: number
+    inseam?: number
+    shoulder_width?: number
+    arm_length?: number
+    thigh?: number
+    neck?: number
   }
-  sizeChart?: Record<string, { chest: number; waist: number; hips: number }>
+  sizeChart?: Record<string, Record<string, number>>
   brandName?: string
   productName?: string
   onSizeSelect?: (size: string) => void
@@ -36,8 +41,9 @@ interface TryOnViewerProps {
   onSizeRecommended?: (size: string) => void
   preferredFit?: PreferredFit
   theme?: 'light' | 'dark'
-  /** URL to the product page on the store (used for redirect button) */
   productUrl?: string
+  garmentCategory?: GarmentCategory
+  garmentFitType?: GarmentFitType
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +296,8 @@ export default function TryOnViewer({
   preferredFit = 'regular',
   theme: themeProp,
   productUrl,
+  garmentCategory = 'tops',
+  garmentFitType = 'regular',
 }: TryOnViewerProps) {
   const [selectedSize, setSelectedSize] = useState<string>('M')
   const hasSetInitialSize = useRef(false)
@@ -307,34 +315,45 @@ export default function TryOnViewer({
   const getChart = (size: string) =>
     sizeChart[size] ?? sizeChart[size.toLowerCase()] ?? sizeChart[size.toUpperCase()]
 
+  const sizeRec: SizeRecommendation = useMemo(() => recommendSize(
+    userMeasurements,
+    sizeChart,
+    preferredFit,
+    garmentCategory,
+    garmentFitType,
+  ), [userMeasurements, sizeChart, preferredFit, garmentCategory, garmentFitType])
+
+  const recommendedSize = sizeRec.recommendedSize
+
   const calculateFit = useCallback((size: string): FitResult => {
+    const sizeData = sizeRec.allSizes.find(
+      (s) => s.size.toLowerCase() === size.toLowerCase()
+    )
+    if (sizeData) {
+      const chart = getChart(size) ?? {}
+      return {
+        size,
+        fit: sizeData.fit,
+        measurements: {
+          chest: { user: userMeasurements.chest, garment: chart.chest ?? 0, diff: (chart.chest ?? 0) - userMeasurements.chest },
+          waist: { user: userMeasurements.waist, garment: chart.waist ?? 0, diff: (chart.waist ?? 0) - userMeasurements.waist },
+          hips: { user: userMeasurements.hips, garment: chart.hips ?? 0, diff: (chart.hips ?? 0) - userMeasurements.hips },
+        },
+      }
+    }
     const chart = getChart(size)
     if (!chart) return { size, fit: 'recommended', measurements: { chest: { user: 0, garment: 0, diff: 0 }, waist: { user: 0, garment: 0, diff: 0 }, hips: { user: 0, garment: 0, diff: 0 } } }
-    const chestDiff = chart.chest - userMeasurements.chest
-    const waistDiff = chart.waist - userMeasurements.waist
-    const hipsDiff = chart.hips - userMeasurements.hips
-    const avgEase = (chestDiff + waistDiff + hipsDiff) / 3
-    let fit: 'tight' | 'recommended' | 'loose'
-    if (avgEase < 0) fit = 'tight'
-    else if (avgEase > 8) fit = 'loose'
-    else fit = 'recommended'
     return {
       size,
-      fit,
+      fit: 'recommended',
       measurements: {
-        chest: { user: userMeasurements.chest, garment: chart.chest, diff: chestDiff },
-        waist: { user: userMeasurements.waist, garment: chart.waist, diff: waistDiff },
-        hips: { user: userMeasurements.hips, garment: chart.hips, diff: hipsDiff },
+        chest: { user: userMeasurements.chest, garment: chart.chest ?? 0, diff: (chart.chest ?? 0) - userMeasurements.chest },
+        waist: { user: userMeasurements.waist, garment: chart.waist ?? 0, diff: (chart.waist ?? 0) - userMeasurements.waist },
+        hips: { user: userMeasurements.hips, garment: chart.hips ?? 0, diff: (chart.hips ?? 0) - userMeasurements.hips },
       },
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sizeChart, userMeasurements])
-
-  const recommendedSize = useMemo(() => recommendSize(
-    { chest: userMeasurements.chest, waist: userMeasurements.waist, hips: userMeasurements.hips },
-    sizeChart,
-    preferredFit
-  ), [userMeasurements, sizeChart, preferredFit])
+  }, [sizeRec, sizeChart, userMeasurements])
 
   const handleSizeSelect = (size: string) => {
     setSelectedSize(size)
@@ -487,7 +506,12 @@ export default function TryOnViewer({
             className="mt-4 flex items-center gap-2 text-xs text-[#34C759]"
           >
             <Check className="w-3.5 h-3.5" />
-            <span className="font-medium">Size {recommendedSize} is your best match</span>
+            <span className="font-medium">
+              Size {recommendedSize} is your best match
+              {sizeRec.confidence > 0 && (
+                <span className="ml-1 text-[#86868b] font-normal">({sizeRec.confidence}% confident)</span>
+              )}
+            </span>
           </motion.div>
         </div>
 

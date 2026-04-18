@@ -19,6 +19,8 @@ export default function DashboardTryOnModal({ item, passport, dark, onClose }: D
     model_urls: Record<string, string>;
     size_chart: Record<string, Record<string, number>>;
     model_type?: string;
+    category?: string;
+    fit_type?: string;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,11 @@ export default function DashboardTryOnModal({ item, passport, dark, onClose }: D
         waist: passport.waist ?? 82,
         hips: passport.hips ?? 96,
         height: passport.height ?? 175,
+        inseam: passport.inseam ?? undefined,
+        shoulder_width: passport.shoulder_width ?? undefined,
+        arm_length: passport.arm_length ?? undefined,
+        thigh: passport.thigh ?? undefined,
+        neck: passport.neck ?? undefined,
       }
     : undefined;
 
@@ -123,13 +130,15 @@ export default function DashboardTryOnModal({ item, passport, dark, onClose }: D
             <TryOnViewer
               avatarUrl={avatarUrl}
               garmentUrls={garmentConfig.model_urls}
-              sizeChart={garmentConfig.size_chart as Record<string, { chest: number; waist: number; hips: number }>}
+              sizeChart={garmentConfig.size_chart}
               userMeasurements={userMeasurements}
               brandName={item.brand_name || item.shop_domain}
               productName={item.product_name || undefined}
               preferredFit={(passport?.preferred_fit as 'slim' | 'regular' | 'loose') || 'regular'}
               theme={dark ? 'dark' : 'light'}
               productUrl={productUrl}
+              garmentCategory={(garmentConfig.category as 'tops' | 'bottoms' | 'outerwear' | 'dresses' | 'accessories') || 'tops'}
+              garmentFitType={(garmentConfig.fit_type as 'slim' | 'regular' | 'oversized') || 'regular'}
             />
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-4">

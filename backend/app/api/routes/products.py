@@ -11,8 +11,8 @@ from app.services.supabase import supabase_service
 router = APIRouter()
 
 # Theme Liquid passes product.handle (e.g. rs-zip-up). Brands may store it in either column.
-_GARMENT_SELECT_FULL = "sizes,size_chart,shopify_product_id,shopify_product_handle"
-_GARMENT_SELECT_FALLBACK = "sizes,size_chart,shopify_product_id"
+_GARMENT_SELECT_FULL = "sizes,size_chart,category,fit_type,shopify_product_id,shopify_product_handle"
+_GARMENT_SELECT_FALLBACK = "sizes,size_chart,category,fit_type,shopify_product_id"
 _HAS_SHOPIFY_PRODUCT_HANDLE: Optional[bool] = None
 
 
@@ -64,7 +64,7 @@ def _find_garment_row(product_id: str, brand_id: Optional[str]) -> Optional[dict
     # Exact column match (unscoped or second chance) — fresh builder each iteration
     for field in ("shopify_product_id", "shopify_product_handle"):
         try:
-            q = supabase_service.client.table("garments").select("sizes,size_chart")
+            q = supabase_service.client.table("garments").select("sizes,size_chart,category,fit_type")
             if brand_id:
                 q = q.eq("brand_id", brand_id)
             r = q.eq(field, product_id).limit(1).execute()
@@ -78,7 +78,9 @@ class TryonConfigResponse(BaseModel):
     product_id: str
     model_urls: dict[str, str]
     size_chart: dict[str, dict[str, int]]
-    model_type: str = "combined"  # "combined" (avatar+garment in one) | "garment_only"
+    model_type: str = "combined"
+    category: str = "tops"
+    fit_type: str = "regular"
 
 
 @router.get("/{product_id}/tryon-config", response_model=TryonConfigResponse)
@@ -131,6 +133,8 @@ async def get_tryon_config(
             model_urls=model_urls,
             size_chart=size_chart_out or {"m": {"chest": 100, "waist": 84, "hips": 98}},
             model_type=str(row.get("model_type") or "garment_only"),
+            category=str(row.get("category") or "tops"),
+            fit_type=str(row.get("fit_type") or "regular"),
         )
     except HTTPException:
         raise
