@@ -361,6 +361,7 @@ window.loadPreview = async function() {
 window.runDrape = async function() {
   const bodyObjUrl = document.getElementById('bodyObjUrl').value.trim();
   const garmentObjUrl = document.getElementById('garmentObjUrl').value.trim();
+  const garmentGlbUrl = document.getElementById('garmentGlbUrl').value.trim();
   const runpodKey = document.getElementById('runpodApiKey').value.trim();
   const endpointId = document.getElementById('runpodEndpointId').value.trim();
 
@@ -386,12 +387,24 @@ window.runDrape = async function() {
   log('=== DRAPING JOB STARTED ===', 'info');
   log(`Body OBJ:    ${bodyObjUrl.substring(0, 80)}...`, 'info');
   log(`Garment OBJ: ${garmentObjUrl.substring(0, 80)}...`, 'info');
+  if (garmentGlbUrl) log(`Garment GLB: ${garmentGlbUrl.substring(0, 80)}... (for textures)`, 'info');
   log(`Fabric:      ${fabricPreset}`, 'info');
   log(`Mode:        ${simMode}`, 'info');
   log(`Endpoint:    ${endpointId}`, 'info');
 
   try {
     log('Calling RunPod directly (bypassing Railway)...', 'info');
+
+    const payload = {
+      body_obj_url: bodyObjUrl,
+      garment_obj_url: garmentObjUrl,
+      fabric_config: { preset: fabricPreset },
+      simulation_mode: simMode,
+      garment_id: 'test',
+      size: 'test',
+      user_id: 'test',
+    };
+    if (garmentGlbUrl) payload.garment_glb_url = garmentGlbUrl;
 
     const runUrl = `https://api.runpod.ai/v2/${endpointId}/runsync`;
     const resp = await fetch(runUrl, {
@@ -400,17 +413,7 @@ window.runDrape = async function() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${runpodKey}`,
       },
-      body: JSON.stringify({
-        input: {
-          body_obj_url: bodyObjUrl,
-          garment_obj_url: garmentObjUrl,
-          fabric_config: { preset: fabricPreset },
-          simulation_mode: simMode,
-          garment_id: 'test',
-          size: 'test',
-          user_id: 'test',
-        }
-      }),
+      body: JSON.stringify({ input: payload }),
     });
 
     if (!resp.ok) {

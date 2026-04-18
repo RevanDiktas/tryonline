@@ -143,6 +143,57 @@ def compute_body_normals(body_verts: np.ndarray, body_obj: Path) -> np.ndarray:
     return normals / norms
 
 
+def align_meshes(body_verts: np.ndarray, garment_verts: np.ndarray) -> tuple:
+    """
+    Auto-align garment to body by matching height ranges and centering.
+    CLO3D and SMPL may use different coordinate origins and scales.
+    Returns (aligned_garment_verts, scale_factor, translation).
+    """
+    body_min_y, body_max_y = body_verts[:, 1].min(), body_verts[:, 1].max()
+    garm_min_y, garm_max_y = garment_verts[:, 1].min(), garment_verts[:, 1].max()
+    body_h = body_max_y - body_min_y
+    garm_h = garm_max_y - garm_min_y
+
+    if body_h < 1e-6 or garm_h < 1e-6:
+        return garment_verts, 1.0, np.zeros(3)
+
+    scale = body_h / garm_h
+    height_ratio = garm_h / body_h
+    print(f"[Draping] Alignment: body_h={body_h:.4f} garment_h={garm_h:.4f} ratio={height_ratio:.4f}")
+
+    # Only rescale if significantly off (>20% difference)
+    if 0.8 < height_ratio < 1.2:
+        scale = 1.0
+        print(f"[Draping] Scale close enough — no rescale")
+    else:
+        print(f"[Draping] Rescaling garment by {scale:.4f}")
+
+    aligned = garment_verts.copy()
+    aligned *= scale
+
+    # Recalculate after scale
+    garm_min_y = aligned[:, 1].min()
+    garm_max_y = aligned[:, 1].max()
+
+    # Match XZ center
+    body_cx = (body_verts[:, 0].min() + body_verts[:, 0].max()) / 2
+    body_cz = (body_verts[:, 2].min() + body_verts[:, 2].max()) / 2
+    garm_cx = (aligned[:, 0].min() + aligned[:, 0].max()) / 2
+    garm_cz = (aligned[:, 2].min() + aligned[:, 2].max()) / 2
+
+    # Match feet (bottom Y)
+    translation = np.array([
+        body_cx - garm_cx,
+        body_min_y - garm_min_y,
+        body_cz - garm_cz,
+    ])
+
+    aligned += translation
+    print(f"[Draping] Translation: dx={translation[0]:.4f} dy={translation[1]:.4f} dz={translation[2]:.4f}")
+
+    return aligned, scale, translation
+
+
 def geometric_drape(
     body_obj: Path,
     garment_obj: Path,
@@ -150,13 +201,14 @@ def geometric_drape(
     fabric_config: dict,
 ) -> dict:
     """
-    Geometric draping fallback: inflates garment vertices outward from the body
-    surface to prevent penetration. Not true physics, but eliminates skin-poking.
+    Geometric draping fallback: pushes garment vertices outward from the body
+    surface to prevent skin penetration.
 
     Algorithm:
-    1. For each garment vertex, find nearest body vertex
-    2. If garment vertex is inside the body (dot with body normal < 0), push it out
-    3. Apply smoothing pass to avoid harsh discontinuities
+    1. Auto-align garment and body (scale + position matching)
+    2. For each garment vertex, find nearest body vertex
+    3. Push ALL close vertices outward by fabric offset (not just penetrating ones)
+    4. Apply Laplacian smoothing to avoid discontinuities
     """
     body_verts = load_obj_vertices(body_obj)
     garment_verts = load_obj_vertices(garment_obj)
@@ -164,29 +216,40 @@ def geometric_drape(
     if len(body_verts) == 0 or len(garment_verts) == 0:
         raise ValueError(f"Empty mesh: body={len(body_verts)} garment={len(garment_verts)} verts")
 
-    thickness = fabric_config.get("thickness", 0.003)
-    offset = max(thickness, 0.002)
+    print(f"[Draping] Body: {len(body_verts)} verts, Y=[{body_verts[:,1].min():.4f}, {body_verts[:,1].max():.4f}]")
+    print(f"[Draping] Garment: {len(garment_verts)} verts, Y=[{garment_verts[:,1].min():.4f}, {garment_verts[:,1].max():.4f}]")
+
+    # Step 1: align garment onto body
+    aligned_verts, scale, translation = align_meshes(body_verts, garment_verts)
+
+    thickness = fabric_config.get("thickness", 0.004)
+    offset = max(thickness, 0.004)
 
     body_normals = compute_body_normals(body_verts, body_obj)
 
     from scipy.spatial import cKDTree
     tree = cKDTree(body_verts)
 
-    distances, indices = tree.query(garment_verts, k=1)
+    distances, indices = tree.query(aligned_verts, k=1)
     nearest_body = body_verts[indices]
     nearest_normals = body_normals[indices]
 
-    diff = garment_verts - nearest_body
+    diff = aligned_verts - nearest_body
     dots = np.sum(diff * nearest_normals, axis=1)
 
-    penetrating = dots < offset
-    new_verts = garment_verts.copy()
+    # Push any vertex that is closer than offset to the body surface
+    # (both penetrating AND just barely outside)
+    needs_push = dots < offset
+    new_verts = aligned_verts.copy()
 
-    if np.any(penetrating):
-        push = (offset - dots[penetrating])[:, np.newaxis] * nearest_normals[penetrating]
-        new_verts[penetrating] += push
+    if np.any(needs_push):
+        push_amount = (offset - dots[needs_push])[:, np.newaxis] * nearest_normals[needs_push]
+        new_verts[needs_push] += push_amount
 
-    # Laplacian smoothing pass on modified vertices (2 iterations)
+    n_fixed = int(np.sum(needs_push))
+    print(f"[Draping] Vertices pushed: {n_fixed}/{len(garment_verts)} ({100*n_fixed/len(garment_verts):.1f}%)")
+
+    # Laplacian smoothing (3 iterations for smoother result)
     garment_faces = []
     with open(garment_obj, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -196,30 +259,35 @@ def geometric_drape(
                 if len(idxs) >= 3:
                     garment_faces.append(idxs[:3])
 
-    if garment_faces:
+    if garment_faces and n_fixed > 0:
         adjacency = [[] for _ in range(len(new_verts))]
         for face in garment_faces:
             for i in range(3):
                 for j in range(3):
                     if i != j:
                         adjacency[face[i]].append(face[j])
-        for _ in range(2):
+        for _ in range(3):
             smoothed = new_verts.copy()
             for vi in range(len(new_verts)):
-                if not penetrating[vi] or not adjacency[vi]:
+                if not needs_push[vi] or not adjacency[vi]:
                     continue
                 neighbors = adjacency[vi]
                 avg = np.mean(new_verts[neighbors], axis=0)
                 smoothed[vi] = 0.7 * new_verts[vi] + 0.3 * avg
             new_verts = smoothed
 
-    write_obj_with_new_verts(garment_obj, new_verts, output_obj)
+    # Undo alignment to restore original garment coordinate space
+    # (so vertex indices match the original OBJ for texture mapping)
+    final_verts = (new_verts - translation) / scale if scale != 1.0 else new_verts - translation
 
-    n_fixed = int(np.sum(penetrating))
+    write_obj_with_new_verts(garment_obj, final_verts, output_obj)
+
     return {
         "vertices_total": len(garment_verts),
         "vertices_fixed": n_fixed,
         "penetration_ratio": round(n_fixed / len(garment_verts), 4) if len(garment_verts) > 0 else 0,
+        "scale_applied": round(scale, 6),
+        "translation": [round(float(t), 6) for t in translation],
     }
 
 
@@ -279,15 +347,84 @@ def run_xrtailor(
     return output_obj
 
 
-def obj_to_glb(obj_path: Path, glb_path: Path) -> bool:
-    """Convert OBJ to GLB using trimesh."""
+def inject_verts_into_glb(draped_obj: Path, original_glb: Path, output_glb: Path) -> bool:
+    """
+    Take draped vertex positions from OBJ and inject them into the original GLB,
+    preserving all materials, textures, UVs, and face topology.
+    Falls back to bare trimesh conversion if the original GLB isn't available.
+    """
+    try:
+        import trimesh
+        import struct
+
+        draped_verts = load_obj_vertices(draped_obj)
+        if len(draped_verts) == 0:
+            print("[Draping] No vertices in draped OBJ, falling back to bare conversion")
+            return _obj_to_glb_bare(draped_obj, output_glb)
+
+        if not original_glb.exists():
+            print("[Draping] No original GLB, falling back to bare conversion")
+            return _obj_to_glb_bare(draped_obj, output_glb)
+
+        # Load original GLB with all materials intact
+        scene = trimesh.load(str(original_glb), process=False)
+
+        # Extract meshes from scene
+        if isinstance(scene, trimesh.Scene):
+            meshes = list(scene.geometry.values())
+        else:
+            meshes = [scene]
+
+        total_original_verts = sum(len(m.vertices) for m in meshes)
+        print(f"[Draping] Original GLB: {len(meshes)} mesh(es), {total_original_verts} total verts")
+        print(f"[Draping] Draped OBJ: {len(draped_verts)} verts")
+
+        if total_original_verts == len(draped_verts):
+            # Vertex counts match — replace positions directly
+            vi = 0
+            for m in meshes:
+                n = len(m.vertices)
+                m.vertices = draped_verts[vi:vi + n].astype(np.float64)
+                vi += n
+            print(f"[Draping] Injected {vi} draped verts into original GLB (exact match)")
+        else:
+            print(f"[Draping] Vertex count mismatch ({total_original_verts} vs {len(draped_verts)}), "
+                  f"using nearest-vertex mapping")
+            from scipy.spatial import cKDTree
+
+            # Map draped verts to original mesh verts by proximity
+            draped_tree = cKDTree(draped_verts)
+            vi = 0
+            for m in meshes:
+                orig_verts = np.array(m.vertices)
+                _, indices = draped_tree.query(orig_verts, k=1)
+                m.vertices = draped_verts[indices].astype(np.float64)
+                vi += len(orig_verts)
+
+        if isinstance(scene, trimesh.Scene):
+            scene.export(str(output_glb), file_type="glb")
+        else:
+            meshes[0].export(str(output_glb), file_type="glb")
+
+        print(f"[Draping] GLB with textures: {output_glb.stat().st_size / 1024:.1f} KB")
+        return True
+
+    except Exception as e:
+        print(f"[Draping] Texture-preserving GLB failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return _obj_to_glb_bare(draped_obj, output_glb)
+
+
+def _obj_to_glb_bare(obj_path: Path, glb_path: Path) -> bool:
+    """Bare OBJ→GLB conversion without textures (last resort)."""
     try:
         import trimesh
         mesh = trimesh.load(str(obj_path), force="mesh", process=False)
         mesh.export(str(glb_path), file_type="glb")
         return True
     except Exception as e:
-        print(f"[Draping] OBJ→GLB conversion failed: {e}")
+        print(f"[Draping] Bare OBJ→GLB conversion failed: {e}")
         return False
 
 
@@ -304,6 +441,8 @@ def handler(event: dict) -> dict:
     garment_id = job_input.get("garment_id", "unknown")
     size = job_input.get("size", "?")
     user_id = job_input.get("user_id", "unknown")
+
+    garment_glb_url = job_input.get("garment_glb_url")
 
     if not garment_obj_url:
         return {"error": "garment_obj_url is required", "success": False}
@@ -325,6 +464,7 @@ def handler(event: dict) -> dict:
 
         body_obj = tmp_dir / "body.obj"
         garment_obj = tmp_dir / "garment.obj"
+        garment_glb = tmp_dir / "garment_original.glb"
         smpl_params = tmp_dir / "smpl_params.npz"
         output_dir = tmp_dir / "output"
         output_dir.mkdir()
@@ -334,6 +474,13 @@ def handler(event: dict) -> dict:
             return {"error": "Failed to download body OBJ", "success": False}
         if not download_file(garment_obj_url, garment_obj):
             return {"error": "Failed to download garment OBJ", "success": False}
+        if garment_glb_url:
+            download_file(garment_glb_url, garment_glb)
+            print(f"[Draping] Original GLB: {garment_glb.stat().st_size / 1024:.1f} KB")
+        elif garment_obj_url.endswith(".obj"):
+            glb_guess = garment_obj_url.rsplit(".obj", 1)[0] + ".glb"
+            print(f"[Draping] Trying to download matching GLB: {glb_guess}")
+            download_file(glb_guess, garment_glb)
         if smpl_params_url:
             download_file(smpl_params_url, smpl_params)
 
@@ -383,13 +530,21 @@ def handler(event: dict) -> dict:
         obj_bytes = draped_obj.read_bytes()
         obj_b64 = base64.b64encode(obj_bytes).decode("utf-8")
 
-        # Convert to GLB
+        # Convert to GLB (preserve original textures/materials when possible)
         glb_path = output_dir / "draped.glb"
         glb_b64 = ""
-        if obj_to_glb(draped_obj, glb_path):
-            glb_bytes = glb_path.read_bytes()
-            glb_b64 = base64.b64encode(glb_bytes).decode("utf-8")
-            print(f"[Draping] GLB: {len(glb_bytes) / 1024:.1f} KB")
+        glb_bytes = b""
+        if garment_glb.exists() and garment_glb.stat().st_size > 0:
+            print("[Draping] Using texture-preserving GLB conversion...")
+            if inject_verts_into_glb(draped_obj, garment_glb, glb_path):
+                glb_bytes = glb_path.read_bytes()
+                glb_b64 = base64.b64encode(glb_bytes).decode("utf-8")
+        else:
+            print("[Draping] No original GLB available, bare conversion...")
+            if _obj_to_glb_bare(draped_obj, glb_path):
+                glb_bytes = glb_path.read_bytes()
+                glb_b64 = base64.b64encode(glb_bytes).decode("utf-8")
+                print(f"[Draping] GLB (no textures): {len(glb_bytes) / 1024:.1f} KB")
 
         vertex_count = len(load_obj_vertices(draped_obj))
         processing_time = time.time() - start_time
