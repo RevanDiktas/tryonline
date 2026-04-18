@@ -38,16 +38,19 @@ export default function OnboardingPage() {
         audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
       setShowCamera(true);
       setError('');
     } catch {
       setError('Could not access camera. Please upload a photo instead.');
     }
   };
+
+  useEffect(() => {
+    if (showCamera && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [showCamera]);
 
   const stopCamera = () => {
     if (countdownRef.current) {
