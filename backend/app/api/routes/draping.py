@@ -201,6 +201,80 @@ async def _run_draping_job(request_id: str, user_id: str, garment_id: str, size:
         }).eq("id", request_id).execute()
 
 
+class TestRunRequest(BaseModel):
+    body_obj_url: str
+    garment_obj_url: str
+    fabric_preset: str = "cotton_medium"
+    simulation_mode: str = "swift"
+
+
+@router.post("/test-run")
+async def test_drape_run(body: TestRunRequest):
+    """
+    Direct draping test — no auth, no DB, no garment IDs.
+    Sends raw OBJ URLs to RunPod and returns the result.
+    For internal testing only.
+    """
+    import httpx
+
+    if not settings.runpod_api_key or not settings.runpod_draping_endpoint_id:
+        raise HTTPException(
+            status_code=503,
+            detail="RUNPOD_DRAPING_ENDPOINT_ID not configured on this backend"
+        )
+
+    runpod_payload = {
+        "input": {
+            "body_obj_url": body.body_obj_url,
+            "garment_obj_url": body.garment_obj_url,
+            "fabric_config": {"preset": body.fabric_preset},
+            "simulation_mode": body.simulation_mode,
+            "garment_id": "test",
+            "size": "test",
+            "user_id": "test",
+        }
+    }
+
+    run_url = f"https://api.runpod.ai/v2/{settings.runpod_draping_endpoint_id}/runsync"
+    headers = {"Authorization": f"Bearer {settings.runpod_api_key}"}
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        resp = await client.post(run_url, json=runpod_payload, headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"RunPod error: {resp.text[:500]}")
+        result = resp.json()
+
+    output = result.get("output", {})
+    if not output.get("success"):
+        raise HTTPException(status_code=500, detail=output.get("error", "Unknown error"))
+
+    # If we have GLB bytes, upload to temp storage so the viewer can load it
+    glb_url = None
+    if output.get("draped_glb_base64"):
+        try:
+            import uuid as _uuid
+            glb_bytes = base64.b64decode(output["draped_glb_base64"])
+            storage_path = f"draped/_test/{_uuid.uuid4().hex}.glb"
+            supabase.ensure_garments_bucket()
+            bucket = supabase.client.storage.from_(settings.garments_bucket)
+            try:
+                bucket.upload(storage_path, glb_bytes, {"content-type": "model/gltf-binary", "x-upsert": "true"})
+            except Exception:
+                bucket.update(storage_path, glb_bytes, {"content-type": "model/gltf-binary"})
+            glb_url = bucket.get_public_url(storage_path)
+        except Exception as e:
+            print(f"[Draping test-run] Failed to upload GLB: {e}")
+
+    return {
+        "success": True,
+        "simulation_method": output.get("simulation_method"),
+        "vertex_count": output.get("vertex_count"),
+        "processing_time_seconds": output.get("processing_time_seconds"),
+        "draped_glb_url": glb_url,
+        "draped_glb_base64": output.get("draped_glb_base64") if not glb_url else None,
+    }
+
+
 class DrapingRequest(BaseModel):
     garment_id: str
     size: str
