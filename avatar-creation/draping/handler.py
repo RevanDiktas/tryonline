@@ -90,11 +90,15 @@ def download_file(url: str, dest: Path) -> bool:
 def load_obj_vertices(obj_path: Path) -> np.ndarray:
     """Parse OBJ file and return vertex positions as (N,3) array."""
     verts = []
-    with open(obj_path, "r") as f:
+    with open(obj_path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             if line.startswith("v "):
                 parts = line.strip().split()
-                verts.append([float(parts[1]), float(parts[2]), float(parts[3])])
+                if len(parts) >= 4:
+                    try:
+                        verts.append([float(parts[1]), float(parts[2]), float(parts[3])])
+                    except ValueError:
+                        continue
     return np.array(verts, dtype=np.float64)
 
 
@@ -102,7 +106,7 @@ def write_obj_with_new_verts(original_obj: Path, new_verts: np.ndarray, output_o
     """Rewrite an OBJ file replacing only vertex positions, preserving faces/normals/UVs."""
     vi = 0
     lines_out = []
-    with open(original_obj, "r") as f:
+    with open(original_obj, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             if line.startswith("v ") and vi < len(new_verts):
                 v = new_verts[vi]
@@ -117,7 +121,7 @@ def write_obj_with_new_verts(original_obj: Path, new_verts: np.ndarray, output_o
 def compute_body_normals(body_verts: np.ndarray, body_obj: Path) -> np.ndarray:
     """Compute per-vertex normals from body mesh faces."""
     faces = []
-    with open(body_obj, "r") as f:
+    with open(body_obj, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             if line.startswith("f "):
                 parts = line.strip().split()[1:]
@@ -184,7 +188,7 @@ def geometric_drape(
 
     # Laplacian smoothing pass on modified vertices (2 iterations)
     garment_faces = []
-    with open(garment_obj, "r") as f:
+    with open(garment_obj, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             if line.startswith("f "):
                 parts = line.strip().split()[1:]
