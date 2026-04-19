@@ -278,6 +278,84 @@ def _normalize_to_meters(verts: np.ndarray, label: str) -> tuple:
     return verts, 1.0
 
 
+def _clean_garment_for_newton(verts, faces, uv_verts, uv_faces, area_eps=1e-10):
+    """
+    Pre-filter degenerate triangles before handing off to style3d.add_cloth_mesh().
+
+    Newton 1.1.0 has a known bug where add_cloth_mesh runs two independent
+    degeneracy filters (2D panel area in cloth.py and 3D world area in
+    builder.add_triangles). When they disagree, tri_poses ends up longer than
+    tri_indices, and SolverStyle3D's BVH constructor blows the assert
+    `tri_indices.shape[0] == self.lower_bounds.shape[0]`.
+
+    By dropping every triangle that BOTH filters would have dropped, we leave
+    Newton's filters with nothing to do and the counts stay in sync.
+
+    Returns (clean_verts, clean_faces, clean_uv_faces_or_None,
+             clean_to_orig_vert_idx).
+    """
+    n_orig_faces = len(faces)
+    n_orig_verts = len(verts)
+    keep = np.ones(n_orig_faces, dtype=bool)
+
+    # 1. Faces with repeated vertex indices (always zero-area in 3D AND UV)
+    keep &= (faces[:, 0] != faces[:, 1])
+    keep &= (faces[:, 1] != faces[:, 2])
+    keep &= (faces[:, 0] != faces[:, 2])
+
+    # 2. 3D zero-area triangles (matches builder.add_triangles filter)
+    v0 = verts[faces[:, 0]]
+    v1 = verts[faces[:, 1]]
+    v2 = verts[faces[:, 2]]
+    cross = np.cross(v1 - v0, v2 - v0)
+    area_3d = 0.5 * np.linalg.norm(cross, axis=1)
+    keep &= area_3d > area_eps
+
+    # 3. Panel-area degeneracies (matches cloth.add_cloth_mesh filter)
+    has_uvs = (
+        uv_verts is not None and uv_faces is not None
+        and len(uv_verts) > 0 and len(uv_faces) == n_orig_faces
+    )
+    if has_uvs:
+        u0 = uv_verts[uv_faces[:, 0]]
+        u1 = uv_verts[uv_faces[:, 1]]
+        u2 = uv_verts[uv_faces[:, 2]]
+        area_uv = 0.5 * np.abs(
+            (u1[:, 0] - u0[:, 0]) * (u2[:, 1] - u0[:, 1])
+            - (u2[:, 0] - u0[:, 0]) * (u1[:, 1] - u0[:, 1])
+        )
+        keep &= area_uv > area_eps
+    else:
+        # Newton falls back to vertices[:, :2] when panel_verts=None — drop
+        # triangles that are degenerate in the XY projection too.
+        e1_xy = (v1 - v0)[:, :2]
+        e2_xy = (v2 - v0)[:, :2]
+        area_xy = 0.5 * np.abs(e1_xy[:, 0] * e2_xy[:, 1] - e1_xy[:, 1] * e2_xy[:, 0])
+        keep &= area_xy > area_eps
+
+    n_kept_faces = int(keep.sum())
+    n_dropped = n_orig_faces - n_kept_faces
+    print(f"[Newton] Mesh cleanup: dropped {n_dropped}/{n_orig_faces} degenerate tris "
+          f"(uvs={'yes' if has_uvs else 'no'})")
+
+    if n_kept_faces < 4:
+        raise ValueError(f"Garment cleanup left only {n_kept_faces} valid triangles")
+
+    clean_faces = faces[keep]
+    clean_uv_faces = uv_faces[keep] if has_uvs else None
+
+    # Drop unreferenced verts and re-index faces; track mapping back to original.
+    used_verts = np.unique(clean_faces.ravel())
+    orig_to_clean = -np.ones(n_orig_verts, dtype=np.int64)
+    orig_to_clean[used_verts] = np.arange(len(used_verts))
+    clean_verts = verts[used_verts]
+    clean_faces_remapped = orig_to_clean[clean_faces].astype(np.int32)
+    print(f"[Newton] Mesh cleanup: {n_orig_verts - len(used_verts)} unused verts removed "
+          f"({n_orig_verts} → {len(used_verts)})")
+
+    return clean_verts, clean_faces_remapped, clean_uv_faces, used_verts
+
+
 def newton_drape(
     body_obj: Path,
     garment_obj: Path,
@@ -326,8 +404,14 @@ def newton_drape(
     print(f"[Newton] Sim: {n_frames} frames x {sim_substeps} substeps @ dt={dt:.5f}s")
 
     # Load UVs for Style3D panel data (used for warp/weft direction)
-    uv_verts, uv_faces = load_obj_uvs(garment_obj)
-    has_uvs = len(uv_verts) > 0 and len(uv_faces) == len(garment_faces)
+    uv_verts_raw, uv_faces_raw = load_obj_uvs(garment_obj)
+
+    # Pre-clean garment to dodge Newton 1.1.0's add_cloth_mesh dual-filter bug.
+    # Both filters (3D area in builder.add_triangles, 2D area in cloth.add_cloth_mesh)
+    # must agree on which triangles to drop, or SolverStyle3D's BVH crashes.
+    clean_garment_verts, clean_garment_faces, clean_uv_faces, clean_to_orig = \
+        _clean_garment_for_newton(aligned_verts, garment_faces, uv_verts_raw, uv_faces_raw)
+    has_uvs = clean_uv_faces is not None
 
     # --- Build Newton scene (single builder, Y-up to match input meshes) ---
     builder = newton.ModelBuilder(up_axis=newton.Axis.Y)
@@ -335,7 +419,7 @@ def newton_drape(
 
     body_mesh = newton.Mesh(
         body_verts.astype(np.float32),
-        body_faces.flatten(),
+        body_faces.flatten().astype(np.int32),
     )
     builder.add_shape_mesh(
         body=-1,  # world-fixed static collider
@@ -349,16 +433,27 @@ def newton_drape(
         pos=wp.vec3(0.0, 0.0, 0.0),
         rot=wp.quat_identity(),
         vel=wp.vec3(0.0, 0.0, 0.0),
-        vertices=aligned_verts.astype(np.float32).tolist(),
-        indices=garment_faces.flatten().tolist(),
+        vertices=clean_garment_verts.astype(np.float32).tolist(),
+        indices=clean_garment_faces.flatten().tolist(),
         density=density,
         scale=1.0,
         particle_radius=particle_r,
         tri_aniso_ke=wp.vec3(tri_ke, tri_ke, tri_ke * 0.1),
         edge_aniso_ke=wp.vec3(edge_ke * 2.0, edge_ke, edge_ke * 0.25),
-        panel_verts=uv_verts.tolist() if has_uvs else None,
-        panel_indices=uv_faces.flatten().tolist() if has_uvs else None,
+        panel_verts=uv_verts_raw.tolist() if has_uvs else None,
+        panel_indices=clean_uv_faces.flatten().tolist() if has_uvs else None,
     )
+
+    # Defensive: surface the dual-filter mismatch with a clear error rather than
+    # letting SolverStyle3D's BVH assert blow up cryptically.
+    n_tri_idx = len(builder.tri_indices)
+    n_tri_pos = len(builder.tri_poses)
+    if n_tri_idx != n_tri_pos:
+        raise RuntimeError(
+            f"Newton tri-list mismatch after cleanup: tri_indices={n_tri_idx} "
+            f"tri_poses={n_tri_pos}. Tighten area_eps in _clean_garment_for_newton."
+        )
+    print(f"[Newton] Builder OK: {n_tri_idx} cloth tris registered")
 
     device = "cuda:0"
     model = builder.finalize(device=device)
@@ -396,19 +491,26 @@ def newton_drape(
     print(f"[Newton] Simulation done in {sim_time:.1f}s")
 
     # Extract final cloth vertex positions. Static collision shapes (body=-1) add
-    # NO particles, so cloth particles occupy [0:n_cloth) in input order.
+    # NO particles, so cloth particles occupy [0:n_clean) in input order. n_clean
+    # is the post-cleanup vertex count, NOT the original garment vertex count.
     final_positions = state_0.particle_q.numpy()
-    n_cloth = len(aligned_verts)
-    if len(final_positions) < n_cloth:
-        raise RuntimeError(f"Expected {n_cloth} cloth particles, got {len(final_positions)}")
-    cloth_positions = final_positions[:n_cloth]
-    print(f"[Newton] Extracted {len(cloth_positions)} cloth vertex positions")
+    n_clean = len(clean_garment_verts)
+    if len(final_positions) < n_clean:
+        raise RuntimeError(f"Expected {n_clean} cloth particles, got {len(final_positions)}")
+    cloth_positions_clean = final_positions[:n_clean]
+    print(f"[Newton] Extracted {len(cloth_positions_clean)} draped vertex positions")
+
+    # Map cleaned vertex positions back into the original garment vertex array.
+    # Verts that were unreferenced after cleanup keep their pre-sim aligned position
+    # so the original OBJ topology + texture pipeline still works downstream.
+    cloth_positions_full = aligned_verts.copy().astype(np.float64)
+    cloth_positions_full[clean_to_orig] = cloth_positions_clean.astype(np.float64)
 
     # Undo alignment translation/scale (still in meters)
     if align_scale != 1.0:
-        final_verts_m = (cloth_positions - translation) / align_scale
+        final_verts_m = (cloth_positions_full - translation) / align_scale
     else:
-        final_verts_m = cloth_positions - translation
+        final_verts_m = cloth_positions_full - translation
 
     # Restore original garment units (e.g. back to mm if input was mm)
     if garment_unit_scale != 1.0:
@@ -420,6 +522,8 @@ def newton_drape(
 
     return {
         "vertices_total": len(garment_verts_raw),
+        "vertices_simulated": int(n_clean),
+        "triangles_simulated": int(len(clean_garment_faces)),
         "simulation_frames": n_frames,
         "simulation_substeps": sim_substeps,
         "simulation_time_seconds": round(sim_time, 2),
