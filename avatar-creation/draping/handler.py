@@ -267,6 +267,38 @@ FABRIC_PRESETS = {
 }
 
 
+def _inflate_garment_off_body(garment_verts, body_verts, body_obj, target_offset):
+    """Push every garment vertex outward along its nearest body normal until
+    it sits at least `target_offset` (m) away from the body surface.
+
+    Eliminates the initial body-cloth penetration that causes Newton's contact
+    kernel to produce exploding forces → NaN propagation across the whole mesh
+    in 1-2 solver iterations. CLO3D garments are sculpted on a specific body;
+    when the target avatar differs even slightly, hood/shoulder/sleeve verts
+    end up inside the body at frame 0 — that's the actual root cause of every
+    "100% NaN at frame 1" run we've seen.
+    """
+    from scipy.spatial import cKDTree
+    body_normals = compute_body_normals(body_verts, body_obj)
+    tree = cKDTree(body_verts)
+
+    inflated = garment_verts.astype(np.float64).copy()
+    distances, indices = tree.query(inflated, k=1)
+    nearest_body = body_verts[indices]
+    nearest_normals = body_normals[indices]
+
+    diff = inflated - nearest_body
+    signed_dist = np.sum(diff * nearest_normals, axis=1)
+
+    needs_push = signed_dist < target_offset
+    n_pushed = int(needs_push.sum())
+    if n_pushed > 0:
+        push_amount = (target_offset - signed_dist[needs_push])[:, None] * nearest_normals[needs_push]
+        inflated[needs_push] += push_amount
+
+    return inflated, n_pushed
+
+
 def _normalize_to_meters(verts: np.ndarray, label: str) -> tuple:
     """If a mesh appears to be in millimetres (height >> 10), convert to meters.
     Newton/Warp expect SI units — gravity is m/s², so mm-scale meshes get effectively
@@ -395,6 +427,17 @@ def newton_drape(
     tri_ke = preset["tri_ke"]
     edge_ke = preset["edge_ke"]
     particle_r = preset["particle_r"]
+
+    # Inflate the garment off the body BEFORE cleanup + sim. Target offset =
+    # particle_radius + soft_contact_radius + 5mm safety. Without this, CLO3D
+    # garments draped on a slightly different body have hood/shoulder/sleeve
+    # verts inside the avatar at frame 0 → contact forces blow up → 99% NaN.
+    inflate_offset = particle_r + 0.2e-2 + 5.0e-3
+    aligned_verts, n_inflated = _inflate_garment_off_body(
+        aligned_verts, body_verts, body_obj, inflate_offset
+    )
+    print(f"[Newton] Garment inflation: pushed {n_inflated}/{len(aligned_verts)} verts "
+          f"≥{inflate_offset*1000:.1f}mm off body")
 
     n_frames = 200 if simulation_mode == "quality" else 120
     # Match the canonical example_cloth_style3d.py: 10 substeps @ 1/600s = 16.67ms/frame.
@@ -1101,7 +1144,7 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-19/canonical-sim-v2 (add_body+collide-per-substep+OBJ-textures)"
+HANDLER_BUILD = "drape-handler 2026-04-19/v3-garment-inflation (add_body+collide-per-substep+inflate-off-body+OBJ-textures)"
 
 try:
     import runpod

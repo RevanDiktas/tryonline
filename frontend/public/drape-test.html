@@ -472,48 +472,63 @@ window.runDrape = async function() {
     log(`  OBJ size:   ${(data.obj_size_bytes / 1024).toFixed(1)} KB`, 'ok');
     log(`  GLB size:   ${(data.glb_size_bytes / 1024).toFixed(1)} KB`, 'ok');
 
-    // --- Try OBJ+MTL first (highest quality, preserves exact textures) ---
-    if (data.draped_obj_base64 && data.draped_mtl_base64) {
-      log('Loading draped OBJ+MTL (direct, no GLB conversion)...', 'info');
+    // --- Render OBJ directly (preferred — no GLB nearest-vertex remapping artifacts) ---
+    // Use OBJ+MTL+textures when MTL is available; otherwise apply a sensible
+    // default cotton material so we still see the actual draped geometry instead
+    // of falling back to the lossy GLB path.
+    if (data.draped_obj_base64) {
+      const hasMtl = !!data.draped_mtl_base64;
+      log(hasMtl
+        ? 'Loading draped OBJ+MTL (direct, preserves textures)...'
+        : 'Loading draped OBJ (no MTL — using default cotton material)...', 'info');
 
       try {
         const objBinary = atob(data.draped_obj_base64);
         const objText = new TextDecoder().decode(Uint8Array.from(objBinary, c => c.charCodeAt(0)));
-        const mtlBinary = atob(data.draped_mtl_base64);
-        const mtlText = new TextDecoder().decode(Uint8Array.from(mtlBinary, c => c.charCodeAt(0)));
 
-        // Create blob URLs for any textures
-        const textureBlobUrls = {};
-        if (data.draped_textures_base64) {
-          for (const [filename, b64] of Object.entries(data.draped_textures_base64)) {
-            const bin = atob(b64);
-            const bytes = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-            const ext = filename.split('.').pop().toLowerCase();
-            const mime = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png';
-            const blob = new Blob([bytes], { type: mime });
-            textureBlobUrls[filename] = URL.createObjectURL(blob);
-            log(`  Texture: ${filename} (${(bin.length/1024).toFixed(1)} KB)`, 'ok');
-          }
-        }
+        let materials = null;
+        if (hasMtl) {
+          const mtlBinary = atob(data.draped_mtl_base64);
+          const mtlText = new TextDecoder().decode(Uint8Array.from(mtlBinary, c => c.charCodeAt(0)));
 
-        const mtlLoader = new MTLLoader();
-        const materials = mtlLoader.parse(mtlText, '');
-        // Override texture URLs with blob URLs
-        for (const [name, mat] of Object.entries(materials.materials)) {
-          if (mat.map && mat.map.sourceFile && textureBlobUrls[mat.map.sourceFile]) {
-            mat.map = new THREE.TextureLoader().load(textureBlobUrls[mat.map.sourceFile]);
+          const textureBlobUrls = {};
+          if (data.draped_textures_base64) {
+            for (const [filename, b64] of Object.entries(data.draped_textures_base64)) {
+              const bin = atob(b64);
+              const bytes = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              const ext = filename.split('.').pop().toLowerCase();
+              const mime = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png';
+              const blob = new Blob([bytes], { type: mime });
+              textureBlobUrls[filename] = URL.createObjectURL(blob);
+              log(`  Texture: ${filename} (${(bin.length/1024).toFixed(1)} KB)`, 'ok');
+            }
           }
+
+          const mtlLoader = new MTLLoader();
+          materials = mtlLoader.parse(mtlText, '');
+          for (const [name, mat] of Object.entries(materials.materials)) {
+            if (mat.map && mat.map.sourceFile && textureBlobUrls[mat.map.sourceFile]) {
+              mat.map = new THREE.TextureLoader().load(textureBlobUrls[mat.map.sourceFile]);
+            }
+          }
+          materials.preload();
         }
-        materials.preload();
 
         const objLoader = new OBJLoader();
-        objLoader.setMaterials(materials);
+        if (materials) objLoader.setMaterials(materials);
         const objModel = objLoader.parse(objText);
+
+        // If no MTL, swap any default Lambert material for a PBR cotton one so
+        // the garment doesn't render as flat grey plastic.
+        const defaultMat = !hasMtl ? new THREE.MeshStandardMaterial({
+          color: 0x1a1a1a, roughness: 0.85, metalness: 0.0, side: THREE.DoubleSide,
+        }) : null;
 
         objModel.traverse(c => {
           if (c.isMesh) {
             c.frustumCulled = false;
+            if (defaultMat) c.material = defaultMat;
             if (c.material) c.material.needsUpdate = true;
           }
         });
@@ -528,8 +543,8 @@ window.runDrape = async function() {
         scene.add(garmentMesh);
         showBadge('draped');
 
-        setStatus('Draped! (OBJ)', 'done');
-        log('=== DRAPING COMPLETE (OBJ+MTL) ===', 'ok');
+        setStatus(hasMtl ? 'Draped! (OBJ+MTL)' : 'Draped! (OBJ)', 'done');
+        log(`=== DRAPING COMPLETE (${hasMtl ? 'OBJ+MTL' : 'OBJ'}) ===`, 'ok');
         log(`  Method: ${data.simulation_method}`, 'ok');
         if (data.sim_stats) {
           if (data.sim_stats.simulation_frames) log(`  Frames: ${data.sim_stats.simulation_frames}`, 'ok');
@@ -537,7 +552,7 @@ window.runDrape = async function() {
           if (data.sim_stats.fabric_preset) log(`  Fabric: ${data.sim_stats.fabric_preset}`, 'ok');
         }
       } catch (objErr) {
-        log(`OBJ+MTL loading failed (${objErr.message}), falling back to GLB...`, 'warn');
+        log(`OBJ loading failed (${objErr.message}), falling back to GLB...`, 'warn');
         // Fall through to GLB below
       }
     }
