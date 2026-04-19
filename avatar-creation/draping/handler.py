@@ -46,6 +46,16 @@ from pathlib import Path
 
 import numpy as np
 
+# --- numpy<2.0 shim for Newton 1.1.0 ---
+# Newton's Style3D cloth module calls np.atan2 / np.pow, which only exist in
+# numpy>=2.0. The RunPod pytorch:2.1.0 base image pins numpy<2 for torch ABI
+# compatibility, so we expose the new names as aliases here. Must run BEFORE
+# the Newton import below.
+for _new, _old in (("atan2", "arctan2"), ("pow", "power"),
+                   ("asin", "arcsin"), ("acos", "arccos"), ("atan", "arctan")):
+    if not hasattr(np, _new):
+        setattr(np, _new, getattr(np, _old))
+
 try:
     import httpx
     USE_HTTPX = True
