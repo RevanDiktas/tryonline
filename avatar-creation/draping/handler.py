@@ -1101,8 +1101,11 @@ def runpod_handler(event):
     return handler(event)
 
 
+HANDLER_BUILD = "drape-handler 2026-04-19/canonical-sim-v2 (add_body+collide-per-substep+OBJ-textures)"
+
 try:
     import runpod
+    print(f"[Draping] === {HANDLER_BUILD} ===")
     print("[Draping] Starting serverless cloth draping handler...")
     print(f"[Draping] Newton GPU sim available: {NEWTON_AVAILABLE}")
     print(f"[Draping] Python path: {sys.path[:3]}")
