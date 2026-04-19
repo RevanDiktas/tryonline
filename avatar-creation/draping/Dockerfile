@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip install --no-cache-dir \
     runpod \
+    newton \
     trimesh \
     pygltflib \
     scipy \

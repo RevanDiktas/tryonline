@@ -177,6 +177,8 @@
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const canvas = document.getElementById('canvas');
@@ -435,7 +437,78 @@ window.runDrape = async function() {
     log(`  OBJ size:   ${(data.obj_size_bytes / 1024).toFixed(1)} KB`, 'ok');
     log(`  GLB size:   ${(data.glb_size_bytes / 1024).toFixed(1)} KB`, 'ok');
 
-    if (data.draped_glb_base64) {
+    // --- Try OBJ+MTL first (highest quality, preserves exact textures) ---
+    if (data.draped_obj_base64 && data.draped_mtl_base64) {
+      log('Loading draped OBJ+MTL (direct, no GLB conversion)...', 'info');
+
+      try {
+        const objBinary = atob(data.draped_obj_base64);
+        const objText = new TextDecoder().decode(Uint8Array.from(objBinary, c => c.charCodeAt(0)));
+        const mtlBinary = atob(data.draped_mtl_base64);
+        const mtlText = new TextDecoder().decode(Uint8Array.from(mtlBinary, c => c.charCodeAt(0)));
+
+        // Create blob URLs for any textures
+        const textureBlobUrls = {};
+        if (data.draped_textures_base64) {
+          for (const [filename, b64] of Object.entries(data.draped_textures_base64)) {
+            const bin = atob(b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const ext = filename.split('.').pop().toLowerCase();
+            const mime = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png';
+            const blob = new Blob([bytes], { type: mime });
+            textureBlobUrls[filename] = URL.createObjectURL(blob);
+            log(`  Texture: ${filename} (${(bin.length/1024).toFixed(1)} KB)`, 'ok');
+          }
+        }
+
+        const mtlLoader = new MTLLoader();
+        const materials = mtlLoader.parse(mtlText, '');
+        // Override texture URLs with blob URLs
+        for (const [name, mat] of Object.entries(materials.materials)) {
+          if (mat.map && mat.map.sourceFile && textureBlobUrls[mat.map.sourceFile]) {
+            mat.map = new THREE.TextureLoader().load(textureBlobUrls[mat.map.sourceFile]);
+          }
+        }
+        materials.preload();
+
+        const objLoader = new OBJLoader();
+        objLoader.setMaterials(materials);
+        const objModel = objLoader.parse(objText);
+
+        objModel.traverse(c => {
+          if (c.isMesh) {
+            c.frustumCulled = false;
+            if (c.material) c.material.needsUpdate = true;
+          }
+        });
+
+        const wrapper = new THREE.Group();
+        wrapper.add(objModel);
+
+        if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
+        garmentMesh = wrapper;
+        normalizeModel(garmentMesh, 'Draped OBJ');
+        if (avatarMesh) garmentMesh.position.z += GARMENT_Z_PUSHBACK;
+        scene.add(garmentMesh);
+        showBadge('draped');
+
+        setStatus('Draped! (OBJ)', 'done');
+        log('=== DRAPING COMPLETE (OBJ+MTL) ===', 'ok');
+        log(`  Method: ${data.simulation_method}`, 'ok');
+        if (data.sim_stats) {
+          if (data.sim_stats.simulation_frames) log(`  Frames: ${data.sim_stats.simulation_frames}`, 'ok');
+          if (data.sim_stats.simulation_time_seconds) log(`  Sim time: ${data.sim_stats.simulation_time_seconds}s`, 'ok');
+          if (data.sim_stats.fabric_preset) log(`  Fabric: ${data.sim_stats.fabric_preset}`, 'ok');
+        }
+      } catch (objErr) {
+        log(`OBJ+MTL loading failed (${objErr.message}), falling back to GLB...`, 'warn');
+        // Fall through to GLB below
+      }
+    }
+
+    // --- Fallback to GLB if OBJ didn't work or wasn't available ---
+    if (!garmentMesh && data.draped_glb_base64) {
       log('Decoding base64 GLB...', 'info');
       const binary = atob(data.draped_glb_base64);
       const bytes = new Uint8Array(binary.length);
@@ -518,11 +591,18 @@ window.runDrape = async function() {
       }
 
       setStatus('Draped!', 'done');
-      log('=== DRAPING COMPLETE ===', 'ok');
-      if (data.passes) log(`  Sim passes: ${data.passes}`, 'ok');
-      if (data.final_penetrating !== undefined) log(`  Final penetrating: ${data.final_penetrating} verts`, 'ok');
-    } else {
-      throw new Error('No draped_glb_base64 in RunPod response');
+      log('=== DRAPING COMPLETE (GLB) ===', 'ok');
+      log(`  Method: ${data.simulation_method}`, 'ok');
+      if (data.sim_stats) {
+        const ss = data.sim_stats;
+        if (ss.simulation_frames) log(`  Frames: ${ss.simulation_frames}`, 'ok');
+        if (ss.simulation_time_seconds) log(`  Sim time: ${ss.simulation_time_seconds}s`, 'ok');
+        if (ss.fabric_preset) log(`  Fabric: ${ss.fabric_preset}`, 'ok');
+        if (ss.passes) log(`  Passes: ${ss.passes}`, 'ok');
+        if (ss.final_penetrating !== undefined) log(`  Penetrating: ${ss.final_penetrating} verts`, 'ok');
+      }
+    } else if (!garmentMesh) {
+      throw new Error('No draped mesh data in RunPod response');
     }
 
   } catch (e) {

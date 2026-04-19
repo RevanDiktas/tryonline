@@ -53,17 +53,20 @@ except ImportError:
     import requests
     USE_HTTPX = False
 
-XRTAILOR_BIN = os.environ.get("XRTAILOR_BIN", "/opt/xrtailor/build/XRTailor")
 CONFIGS_DIR = Path("/workspace/configs")
 RUNPOD_VOLUME = Path("/runpod-volume")
-SMPL_MODELS_DIR = RUNPOD_VOLUME / "smpl"
 
-XRTAILOR_AVAILABLE = Path(XRTAILOR_BIN).exists() and os.access(XRTAILOR_BIN, os.X_OK)
-
-if XRTAILOR_AVAILABLE:
-    print(f"[Draping] XRTailor binary found at {XRTAILOR_BIN}")
-else:
-    print(f"[Draping] XRTailor binary NOT found — will use geometric fallback")
+# --- Newton / Warp GPU cloth simulation ---
+NEWTON_AVAILABLE = False
+try:
+    import warp as wp
+    import newton
+    from newton.solvers import style3d
+    wp.init()
+    NEWTON_AVAILABLE = True
+    print(f"[Draping] Newton {newton.__version__} + Warp {wp.__version__} loaded — GPU cloth sim available")
+except Exception as e:
+    print(f"[Draping] Newton/Warp not available ({e}) — will use geometric fallback")
 
 
 def download_file(url: str, dest: Path) -> bool:
@@ -192,6 +195,214 @@ def align_meshes(body_verts: np.ndarray, garment_verts: np.ndarray) -> tuple:
     print(f"[Draping] Translation: dx={translation[0]:.4f} dy={translation[1]:.4f} dz={translation[2]:.4f}")
 
     return aligned, scale, translation
+
+
+def load_obj_faces(obj_path: Path) -> np.ndarray:
+    """Parse OBJ file and return triangle face indices as (M,3) int32 array."""
+    faces = []
+    with open(obj_path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if line.startswith("f "):
+                parts = line.strip().split()[1:]
+                idxs = [int(p.split("/")[0]) - 1 for p in parts]
+                if len(idxs) == 3:
+                    faces.append(idxs)
+                elif len(idxs) > 3:
+                    for i in range(1, len(idxs) - 1):
+                        faces.append([idxs[0], idxs[i], idxs[i + 1]])
+    return np.array(faces, dtype=np.int32)
+
+
+def load_obj_uvs(obj_path: Path) -> tuple:
+    """Parse OBJ UV coords (vt lines) and face UV indices. Returns (uv_verts, uv_faces)."""
+    uv_verts = []
+    uv_faces = []
+    with open(obj_path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if line.startswith("vt "):
+                parts = line.strip().split()
+                if len(parts) >= 3:
+                    try:
+                        uv_verts.append([float(parts[1]), float(parts[2])])
+                    except ValueError:
+                        continue
+            elif line.startswith("f "):
+                parts = line.strip().split()[1:]
+                idxs = []
+                for p in parts:
+                    segs = p.split("/")
+                    if len(segs) >= 2 and segs[1]:
+                        try:
+                            idxs.append(int(segs[1]) - 1)
+                        except ValueError:
+                            break
+                if len(idxs) == 3:
+                    uv_faces.append(idxs)
+                elif len(idxs) > 3:
+                    for i in range(1, len(idxs) - 1):
+                        uv_faces.append([idxs[0], idxs[i], idxs[i + 1]])
+    uv_verts_arr = np.array(uv_verts, dtype=np.float32) if uv_verts else np.zeros((0, 2), dtype=np.float32)
+    uv_faces_arr = np.array(uv_faces, dtype=np.int32) if uv_faces else np.zeros((0, 3), dtype=np.int32)
+    return uv_verts_arr, uv_faces_arr
+
+
+FABRIC_PRESETS = {
+    "cotton_light":  {"density": 0.15, "tri_ke": 80.0,  "edge_ke": 0.3, "particle_r": 0.003},
+    "cotton_medium": {"density": 0.30, "tri_ke": 120.0, "edge_ke": 0.5, "particle_r": 0.003},
+    "denim":         {"density": 0.50, "tri_ke": 300.0, "edge_ke": 2.0, "particle_r": 0.004},
+    "silk":          {"density": 0.08, "tri_ke": 40.0,  "edge_ke": 0.1, "particle_r": 0.002},
+    "jersey_knit":   {"density": 0.20, "tri_ke": 60.0,  "edge_ke": 0.2, "particle_r": 0.003},
+    "wool":          {"density": 0.40, "tri_ke": 200.0, "edge_ke": 1.5, "particle_r": 0.004},
+    "polyester":     {"density": 0.25, "tri_ke": 100.0, "edge_ke": 0.4, "particle_r": 0.003},
+}
+
+
+def newton_drape(
+    body_obj: Path,
+    garment_obj: Path,
+    output_obj: Path,
+    fabric_config: dict,
+    simulation_mode: str = "swift",
+) -> dict:
+    """
+    GPU-accelerated cloth draping using NVIDIA Newton (Style3D XPBD solver).
+    Real gravity, body collision, self-collision, fabric tension.
+    """
+    body_verts = load_obj_vertices(body_obj)
+    garment_verts = load_obj_vertices(garment_obj)
+    body_faces = load_obj_faces(body_obj)
+    garment_faces = load_obj_faces(garment_obj)
+
+    if len(body_verts) == 0 or len(garment_verts) == 0:
+        raise ValueError(f"Empty mesh: body={len(body_verts)} garment={len(garment_verts)} verts")
+    if len(body_faces) == 0 or len(garment_faces) == 0:
+        raise ValueError(f"No faces: body={len(body_faces)} garment={len(garment_faces)} tris")
+
+    print(f"[Newton] Body: {len(body_verts)} verts, {len(body_faces)} tris")
+    print(f"[Newton] Garment: {len(garment_verts)} verts, {len(garment_faces)} tris")
+
+    aligned_verts, scale, translation = align_meshes(body_verts, garment_verts)
+
+    # Resolve fabric properties
+    preset_name = fabric_config.get("preset", "cotton_medium")
+    preset = FABRIC_PRESETS.get(preset_name, FABRIC_PRESETS["cotton_medium"])
+    density = fabric_config.get("density", preset["density"])
+    tri_ke = preset["tri_ke"]
+    edge_ke = preset["edge_ke"]
+    particle_r = preset["particle_r"]
+
+    n_frames = 200 if simulation_mode == "quality" else 120
+    dt = 1.0 / 60.0
+
+    print(f"[Newton] Fabric: {preset_name} (density={density}, tri_ke={tri_ke}, edge_ke={edge_ke})")
+    print(f"[Newton] Sim: {n_frames} frames @ {1/dt:.0f}fps = {n_frames*dt:.1f}s of physics")
+
+    # Load UVs for panel data (required by Style3D)
+    uv_verts, uv_faces = load_obj_uvs(garment_obj)
+    has_uvs = len(uv_verts) > 0 and len(uv_faces) == len(garment_faces)
+
+    # --- Build Newton scene ---
+    builder = newton.ModelBuilder()
+
+    # Add avatar body as a STATIC collision mesh (body=-1 means world-fixed)
+    body_mesh = newton.Mesh(
+        vertices=body_verts.astype(np.float32),
+        indices=body_faces.flatten(),
+    )
+    builder.add_shape_mesh(
+        body=-1,
+        mesh=body_mesh,
+        pos=wp.vec3(0.0, 0.0, 0.0),
+        rot=wp.quat_identity(),
+        scale=wp.vec3(1.0, 1.0, 1.0),
+    )
+
+    # Add garment as cloth
+    cloth_builder = newton.ModelBuilder()
+    style3d.register_custom_attributes(cloth_builder)
+
+    cloth_kwargs = dict(
+        cloth_builder=cloth_builder,
+        pos=wp.vec3(0.0, 0.0, 0.0),
+        rot=wp.quat_identity(),
+        vel=wp.vec3(0.0, 0.0, 0.0),
+        vertices=aligned_verts.astype(np.float32).tolist(),
+        indices=garment_faces.flatten().tolist(),
+        density=density,
+        scale=1.0,
+        particle_radius=particle_r,
+        tri_aniso_ke=wp.vec3(tri_ke, tri_ke, tri_ke),
+        edge_aniso_ke=wp.vec3(edge_ke, edge_ke, edge_ke),
+    )
+    if has_uvs:
+        cloth_kwargs["panel_verts"] = uv_verts.tolist()
+        cloth_kwargs["panel_indices"] = uv_faces.flatten().tolist()
+
+    style3d.add_cloth_mesh(**cloth_kwargs)
+
+    # Merge cloth into main builder
+    builder.add_builder(cloth_builder)
+
+    # Finalize model
+    device = "cuda:0"
+    model = builder.finalize(device=device)
+    model.gravity = wp.vec3(0.0, -9.81, 0.0)
+    model.soft_contact_ke = 1000.0
+    model.soft_contact_kd = 10.0
+    model.soft_contact_kf = 100.0
+    model.particle_radius = particle_r
+
+    state_0 = model.state()
+    state_1 = model.state()
+
+    integrator = style3d.Style3DIntegrator()
+
+    print(f"[Newton] Running {n_frames} simulation frames on {device}...")
+    sim_start = time.time()
+
+    for frame in range(n_frames):
+        state_0.clear_forces()
+        integrator.simulate(model, state_0, state_1, dt)
+        state_0, state_1 = state_1, state_0
+
+        if (frame + 1) % 30 == 0:
+            elapsed = time.time() - sim_start
+            print(f"[Newton] Frame {frame+1}/{n_frames} ({elapsed:.1f}s elapsed)")
+
+    sim_time = time.time() - sim_start
+    print(f"[Newton] Simulation done in {sim_time:.1f}s")
+
+    # Extract final vertex positions from the simulation state
+    # Particle positions are stored in state_0.particle_q
+    final_positions = state_0.particle_q.numpy()
+
+    # The first len(body_verts) particles are from body collision shapes (if any),
+    # cloth particles come after. Newton's particle ordering depends on build order.
+    # Since we added the body shape first and cloth second, cloth particles start
+    # after the body particles. But body shapes with body=-1 (static) don't create
+    # particles — only cloth does. So cloth particles are at index 0.
+    n_cloth = len(aligned_verts)
+    if len(final_positions) >= n_cloth:
+        cloth_positions = final_positions[:n_cloth]
+    else:
+        print(f"[Newton] Warning: expected {n_cloth} cloth particles, got {len(final_positions)}")
+        cloth_positions = final_positions
+
+    print(f"[Newton] Extracted {len(cloth_positions)} cloth vertex positions")
+
+    # Undo alignment to restore original garment coordinate space
+    final_verts = (cloth_positions - translation) / scale if scale != 1.0 else cloth_positions - translation
+
+    write_obj_with_new_verts(garment_obj, final_verts.astype(np.float64), output_obj)
+
+    return {
+        "vertices_total": len(garment_verts),
+        "simulation_frames": n_frames,
+        "simulation_time_seconds": round(sim_time, 2),
+        "fabric_preset": preset_name,
+        "scale_applied": round(scale, 6),
+        "translation": [round(float(t), 6) for t in translation],
+    }
 
 
 def _build_adjacency(faces, n_verts):
@@ -551,37 +762,41 @@ def handler(event: dict) -> dict:
 
         simulation_method = "unknown"
         draped_obj = None
+        sim_stats = {}
 
-        # Strategy 1: XRTailor GPU simulation
-        if XRTAILOR_AVAILABLE:
+        # Strategy 1: Newton GPU cloth simulation (real physics)
+        if NEWTON_AVAILABLE:
             try:
-                print("[Draping] Running XRTailor GPU simulation...")
-                draped_obj = run_xrtailor(
+                print("[Draping] Running Newton GPU cloth simulation...")
+                draped_obj = output_dir / "draped.obj"
+                sim_stats = newton_drape(
                     body_obj=body_obj,
                     garment_obj=garment_obj,
-                    output_dir=output_dir,
+                    output_obj=draped_obj,
                     fabric_config=merged_fabric,
                     simulation_mode=simulation_mode,
-                    smpl_params_path=smpl_params if smpl_params.exists() else None,
                 )
-                simulation_method = "xrtailor"
-                print(f"[Draping] XRTailor success: {draped_obj}")
+                simulation_method = "newton_gpu"
+                print(f"[Draping] Newton success: {sim_stats}")
             except Exception as e:
-                print(f"[Draping] XRTailor failed, falling back to geometric: {e}")
+                print(f"[Draping] Newton failed, falling back to geometric: {e}")
+                import traceback
+                traceback.print_exc()
+                draped_obj = None
 
-        # Strategy 2: geometric inflation fallback
+        # Strategy 2: geometric fallback (no real physics, just collision resolution)
         if draped_obj is None:
             try:
                 print("[Draping] Running geometric drape fallback...")
                 draped_obj = output_dir / "draped.obj"
-                stats = geometric_drape(
+                sim_stats = geometric_drape(
                     body_obj=body_obj,
                     garment_obj=garment_obj,
                     output_obj=draped_obj,
                     fabric_config=merged_fabric,
                 )
                 simulation_method = "geometric_fallback"
-                print(f"[Draping] Geometric drape done: {stats}")
+                print(f"[Draping] Geometric drape done: {sim_stats}")
             except Exception as e:
                 print(f"[Draping] Geometric drape failed: {e}")
                 import traceback
@@ -591,6 +806,36 @@ def handler(event: dict) -> dict:
         # Read draped OBJ
         obj_bytes = draped_obj.read_bytes()
         obj_b64 = base64.b64encode(obj_bytes).decode("utf-8")
+
+        # Collect MTL + texture files from the original garment OBJ directory
+        mtl_b64 = ""
+        textures_b64 = {}
+        mtl_name = None
+        obj_text = obj_bytes.decode("utf-8", errors="replace")
+        for line in obj_text.split("\n"):
+            if line.startswith("mtllib "):
+                mtl_name = line.strip().split(None, 1)[1].strip()
+                break
+
+        if mtl_name:
+            mtl_source = garment_obj.parent / mtl_name
+            if mtl_source.exists():
+                mtl_bytes = mtl_source.read_bytes()
+                mtl_b64 = base64.b64encode(mtl_bytes).decode("utf-8")
+                print(f"[Draping] MTL: {mtl_name} ({len(mtl_bytes)/1024:.1f} KB)")
+
+                mtl_text = mtl_bytes.decode("utf-8", errors="replace")
+                for mtl_line in mtl_text.split("\n"):
+                    mtl_line = mtl_line.strip()
+                    if mtl_line.startswith("map_") or mtl_line.startswith("bump"):
+                        parts = mtl_line.split()
+                        if len(parts) >= 2:
+                            tex_filename = parts[-1]
+                            tex_path = garment_obj.parent / tex_filename
+                            if tex_path.exists() and tex_path.stat().st_size < 10_000_000:
+                                tex_bytes = tex_path.read_bytes()
+                                textures_b64[tex_filename] = base64.b64encode(tex_bytes).decode("utf-8")
+                                print(f"[Draping] Texture: {tex_filename} ({len(tex_bytes)/1024:.1f} KB)")
 
         # Convert to GLB (preserve original textures/materials when possible)
         glb_path = output_dir / "draped.glb"
@@ -615,6 +860,8 @@ def handler(event: dict) -> dict:
 
         return {
             "draped_obj_base64": obj_b64,
+            "draped_mtl_base64": mtl_b64,
+            "draped_textures_base64": textures_b64,
             "draped_glb_base64": glb_b64,
             "processing_time_seconds": round(processing_time, 1),
             "simulation_method": simulation_method,
@@ -624,6 +871,7 @@ def handler(event: dict) -> dict:
             "garment_id": garment_id,
             "size": size,
             "user_id": user_id,
+            "sim_stats": sim_stats,
             "success": True,
         }
 
@@ -636,7 +884,7 @@ def runpod_handler(event):
 try:
     import runpod
     print("[Draping] Starting serverless cloth draping handler...")
-    print(f"[Draping] XRTailor available: {XRTAILOR_AVAILABLE}")
+    print(f"[Draping] Newton GPU sim available: {NEWTON_AVAILABLE}")
     print(f"[Draping] Python path: {sys.path[:3]}")
     runpod.serverless.start({"handler": runpod_handler})
 except ImportError:
