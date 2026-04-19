@@ -194,6 +194,28 @@ def align_meshes(body_verts: np.ndarray, garment_verts: np.ndarray) -> tuple:
     return aligned, scale, translation
 
 
+def _build_adjacency(faces, n_verts):
+    """Build vertex adjacency list from face list."""
+    adjacency = [set() for _ in range(n_verts)]
+    for face in faces:
+        for i in range(len(face)):
+            for j in range(len(face)):
+                if i != j:
+                    adjacency[face[i]].add(face[j])
+    return [list(s) for s in adjacency]
+
+
+def _build_edge_rest_lengths(verts, adjacency):
+    """Compute rest-state edge lengths for spring constraints."""
+    rest_lengths = {}
+    for vi, neighbors in enumerate(adjacency):
+        for ni in neighbors:
+            key = (min(vi, ni), max(vi, ni))
+            if key not in rest_lengths:
+                rest_lengths[key] = np.linalg.norm(verts[vi] - verts[ni])
+    return rest_lengths
+
+
 def geometric_drape(
     body_obj: Path,
     garment_obj: Path,
@@ -201,15 +223,19 @@ def geometric_drape(
     fabric_config: dict,
 ) -> dict:
     """
-    Geometric draping fallback: pushes garment vertices outward from the body
-    surface to prevent skin penetration.
+    Multi-pass geometric draping with gravity settling, spring constraints,
+    and iterative collision resolution. Runs DRAPE_PASSES full cycles so
+    the fabric has time to "settle" onto the body.
 
-    Algorithm:
-    1. Auto-align garment and body (scale + position matching)
-    2. For each garment vertex, find nearest body vertex
-    3. Push ALL close vertices outward by fabric offset (not just penetrating ones)
-    4. Apply Laplacian smoothing to avoid discontinuities
+    Each pass:
+      a. Gravity pull (small downward step on free-hanging verts)
+      b. Collision push (push penetrating verts outward along body normals)
+      c. Spring relaxation (prevent excessive stretching vs rest pose)
+      d. Laplacian smoothing (reduce harsh artifacts)
+      e. Final collision cleanup (catch anything smoothing re-introduced)
     """
+    from scipy.spatial import cKDTree
+
     body_verts = load_obj_vertices(body_obj)
     garment_verts = load_obj_vertices(garment_obj)
 
@@ -219,37 +245,14 @@ def geometric_drape(
     print(f"[Draping] Body: {len(body_verts)} verts, Y=[{body_verts[:,1].min():.4f}, {body_verts[:,1].max():.4f}]")
     print(f"[Draping] Garment: {len(garment_verts)} verts, Y=[{garment_verts[:,1].min():.4f}, {garment_verts[:,1].max():.4f}]")
 
-    # Step 1: align garment onto body
     aligned_verts, scale, translation = align_meshes(body_verts, garment_verts)
 
-    thickness = fabric_config.get("thickness", 0.004)
-    offset = max(thickness, 0.004)
+    thickness = fabric_config.get("thickness", 0.006)
+    offset = max(thickness, 0.006)
 
     body_normals = compute_body_normals(body_verts, body_obj)
-
-    from scipy.spatial import cKDTree
     tree = cKDTree(body_verts)
 
-    distances, indices = tree.query(aligned_verts, k=1)
-    nearest_body = body_verts[indices]
-    nearest_normals = body_normals[indices]
-
-    diff = aligned_verts - nearest_body
-    dots = np.sum(diff * nearest_normals, axis=1)
-
-    # Push any vertex that is closer than offset to the body surface
-    # (both penetrating AND just barely outside)
-    needs_push = dots < offset
-    new_verts = aligned_verts.copy()
-
-    if np.any(needs_push):
-        push_amount = (offset - dots[needs_push])[:, np.newaxis] * nearest_normals[needs_push]
-        new_verts[needs_push] += push_amount
-
-    n_fixed = int(np.sum(needs_push))
-    print(f"[Draping] Vertices pushed: {n_fixed}/{len(garment_verts)} ({100*n_fixed/len(garment_verts):.1f}%)")
-
-    # Laplacian smoothing (3 iterations for smoother result)
     garment_faces = []
     with open(garment_obj, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -259,33 +262,92 @@ def geometric_drape(
                 if len(idxs) >= 3:
                     garment_faces.append(idxs[:3])
 
-    if garment_faces and n_fixed > 0:
-        adjacency = [[] for _ in range(len(new_verts))]
-        for face in garment_faces:
-            for i in range(3):
-                for j in range(3):
-                    if i != j:
-                        adjacency[face[i]].append(face[j])
-        for _ in range(3):
+    adjacency = _build_adjacency(garment_faces, len(aligned_verts))
+    rest_lengths = _build_edge_rest_lengths(aligned_verts, adjacency)
+
+    DRAPE_PASSES = 8
+    SMOOTH_ITERS = 4
+    GRAVITY_STEP = 0.0008
+    SPRING_STIFFNESS = 0.3
+    SMOOTH_FACTOR = 0.25
+
+    new_verts = aligned_verts.copy()
+    total_pushed = 0
+
+    print(f"[Draping] Running {DRAPE_PASSES} drape passes (offset={offset:.4f}m)...")
+
+    for p in range(DRAPE_PASSES):
+        # (a) Gravity: gently pull free-hanging verts down
+        distances_g, _ = tree.query(new_verts, k=1)
+        gravity_mask = distances_g > offset * 2
+        if np.any(gravity_mask):
+            new_verts[gravity_mask, 1] -= GRAVITY_STEP
+
+        # (b) Collision: push penetrating verts outward
+        distances, indices = tree.query(new_verts, k=1)
+        nearest_body = body_verts[indices]
+        nearest_normals = body_normals[indices]
+        diff = new_verts - nearest_body
+        dots = np.sum(diff * nearest_normals, axis=1)
+        needs_push = dots < offset
+        if np.any(needs_push):
+            push_amount = (offset - dots[needs_push])[:, np.newaxis] * nearest_normals[needs_push]
+            new_verts[needs_push] += push_amount * 1.1
+            total_pushed += int(np.sum(needs_push))
+
+        # (c) Spring relaxation: prevent excessive stretching
+        for edge, rest_len in rest_lengths.items():
+            vi, vj = edge
+            delta = new_verts[vj] - new_verts[vi]
+            current_len = np.linalg.norm(delta)
+            if current_len < 1e-10:
+                continue
+            stretch = current_len - rest_len
+            if abs(stretch) > rest_len * 0.01:
+                correction = (delta / current_len) * stretch * SPRING_STIFFNESS * 0.5
+                new_verts[vi] += correction
+                new_verts[vj] -= correction
+
+        # (d) Laplacian smoothing
+        for _ in range(SMOOTH_ITERS):
             smoothed = new_verts.copy()
             for vi in range(len(new_verts)):
-                if not needs_push[vi] or not adjacency[vi]:
+                if not adjacency[vi]:
                     continue
-                neighbors = adjacency[vi]
-                avg = np.mean(new_verts[neighbors], axis=0)
-                smoothed[vi] = 0.7 * new_verts[vi] + 0.3 * avg
+                avg = np.mean(new_verts[adjacency[vi]], axis=0)
+                smoothed[vi] = (1 - SMOOTH_FACTOR) * new_verts[vi] + SMOOTH_FACTOR * avg
             new_verts = smoothed
 
+        # (e) Post-smooth collision cleanup
+        distances2, indices2 = tree.query(new_verts, k=1)
+        diff2 = new_verts - body_verts[indices2]
+        dots2 = np.sum(diff2 * body_normals[indices2], axis=1)
+        still_pen = dots2 < offset
+        if np.any(still_pen):
+            push2 = (offset - dots2[still_pen])[:, np.newaxis] * body_normals[indices2[still_pen]]
+            new_verts[still_pen] += push2
+
+        n_pen = int(np.sum(still_pen))
+        print(f"[Draping] Pass {p+1}/{DRAPE_PASSES}: {n_pen} verts still penetrating")
+
+    # Final stats
+    distances_f, indices_f = tree.query(new_verts, k=1)
+    diff_f = new_verts - body_verts[indices_f]
+    dots_f = np.sum(diff_f * body_normals[indices_f], axis=1)
+    final_penetrating = int(np.sum(dots_f < offset * 0.5))
+    print(f"[Draping] Final: {final_penetrating} verts within half-offset of body")
+
     # Undo alignment to restore original garment coordinate space
-    # (so vertex indices match the original OBJ for texture mapping)
     final_verts = (new_verts - translation) / scale if scale != 1.0 else new_verts - translation
 
     write_obj_with_new_verts(garment_obj, final_verts, output_obj)
 
     return {
         "vertices_total": len(garment_verts),
-        "vertices_fixed": n_fixed,
-        "penetration_ratio": round(n_fixed / len(garment_verts), 4) if len(garment_verts) > 0 else 0,
+        "vertices_fixed": total_pushed,
+        "final_penetrating": final_penetrating,
+        "penetration_ratio": round(final_penetrating / len(garment_verts), 4) if len(garment_verts) > 0 else 0,
+        "passes": DRAPE_PASSES,
         "scale_applied": round(scale, 6),
         "translation": [round(float(t), 6) for t in translation],
     }

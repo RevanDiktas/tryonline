@@ -443,15 +443,84 @@ window.runDrape = async function() {
       const blob = new Blob([bytes], { type: 'model/gltf-binary' });
       const blobUrl = URL.createObjectURL(blob);
 
-      if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
-      garmentMesh = await loadGlb(blobUrl, 'Garment (DRAPED)');
-      normalizeModel(garmentMesh, 'Draped Garment');
-      if (avatarMesh) garmentMesh.position.z += GARMENT_Z_PUSHBACK;
-      scene.add(garmentMesh);
-      showBadge('draped');
+      // Load the draped model off-screen to capture target vertex positions
+      const drapedModel = await loadGlb(blobUrl, 'Garment (DRAPED)');
+      normalizeModel(drapedModel, 'Draped Garment');
+
+      // Collect original (static) and target (draped) vertex positions
+      const staticPositions = [];
+      const targetPositions = [];
+      const meshPairs = [];
+
+      if (garmentMesh) {
+        const staticMeshes = [];
+        garmentMesh.traverse(c => { if (c.isMesh) staticMeshes.push(c); });
+        const drapedMeshes = [];
+        drapedModel.traverse(c => { if (c.isMesh) drapedMeshes.push(c); });
+
+        const count = Math.min(staticMeshes.length, drapedMeshes.length);
+        for (let i = 0; i < count; i++) {
+          const sGeo = staticMeshes[i].geometry;
+          const dGeo = drapedMeshes[i].geometry;
+          if (sGeo.attributes.position && dGeo.attributes.position &&
+              sGeo.attributes.position.count === dGeo.attributes.position.count) {
+            const sArr = new Float32Array(sGeo.attributes.position.array);
+            const dArr = new Float32Array(dGeo.attributes.position.array);
+            meshPairs.push({ mesh: staticMeshes[i], source: sArr, target: dArr });
+          }
+        }
+      }
+
+      if (meshPairs.length > 0) {
+        // Animate morph over ~1.5 seconds at 60fps
+        const MORPH_DURATION = 1500;
+        const MORPH_FPS = 60;
+        const totalFrames = Math.round(MORPH_DURATION / (1000 / MORPH_FPS));
+        let frame = 0;
+
+        log(`Morphing ${meshPairs.reduce((a,p) => a + p.source.length/3, 0)} verts over ${totalFrames} frames...`, 'info');
+        showBadge('static');
+        setStatus('Morphing...', 'loading');
+
+        await new Promise(resolve => {
+          function morphStep() {
+            frame++;
+            const t = Math.min(frame / totalFrames, 1.0);
+            // Ease-out cubic for natural settling feel
+            const ease = 1 - Math.pow(1 - t, 3);
+
+            for (const pair of meshPairs) {
+              const pos = pair.mesh.geometry.attributes.position;
+              for (let i = 0; i < pair.source.length; i++) {
+                pos.array[i] = pair.source[i] + (pair.target[i] - pair.source[i]) * ease;
+              }
+              pos.needsUpdate = true;
+            }
+
+            if (t < 1.0) {
+              requestAnimationFrame(morphStep);
+            } else {
+              resolve();
+            }
+          }
+          requestAnimationFrame(morphStep);
+        });
+
+        showBadge('draped');
+        log('Morph animation complete!', 'ok');
+      } else {
+        // Fallback: just swap the mesh instantly
+        if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
+        garmentMesh = drapedModel;
+        if (avatarMesh) garmentMesh.position.z += GARMENT_Z_PUSHBACK;
+        scene.add(garmentMesh);
+        showBadge('draped');
+      }
 
       setStatus('Draped!', 'done');
       log('=== DRAPING COMPLETE ===', 'ok');
+      if (data.passes) log(`  Sim passes: ${data.passes}`, 'ok');
+      if (data.final_penetrating !== undefined) log(`  Final penetrating: ${data.final_penetrating} verts`, 'ok');
     } else {
       throw new Error('No draped_glb_base64 in RunPod response');
     }
