@@ -278,7 +278,7 @@ def _normalize_to_meters(verts: np.ndarray, label: str) -> tuple:
     return verts, 1.0
 
 
-def _clean_garment_for_newton(verts, faces, uv_verts, uv_faces, area_eps=1e-10):
+def _clean_garment_for_newton(verts, faces, uv_verts, uv_faces, area_eps=1e-8):
     """
     Pre-filter degenerate triangles before handing off to style3d.add_cloth_mesh().
 
@@ -499,6 +499,19 @@ def newton_drape(
         raise RuntimeError(f"Expected {n_clean} cloth particles, got {len(final_positions)}")
     cloth_positions_clean = final_positions[:n_clean]
     print(f"[Newton] Extracted {len(cloth_positions_clean)} draped vertex positions")
+
+    # Sanitize: any particle that exploded to NaN/inf gets reset to its pre-sim
+    # position. Common when stiff cloth starts with verts inside the body
+    # collision mesh (e.g. hood interior inside the head). Better to keep a few
+    # un-draped verts than to crash the downstream KDTree/GLB pipeline.
+    finite_mask = np.isfinite(cloth_positions_clean).all(axis=1)
+    n_bad = int((~finite_mask).sum())
+    if n_bad > 0:
+        pre_sim_clean = aligned_verts[clean_to_orig].astype(np.float64)
+        cloth_positions_clean = np.where(
+            finite_mask[:, None], cloth_positions_clean.astype(np.float64), pre_sim_clean
+        )
+        print(f"[Newton] WARNING: {n_bad}/{n_clean} particles NaN/inf — restored pre-sim pos")
 
     # Map cleaned vertex positions back into the original garment vertex array.
     # Verts that were unreferenced after cleanup keep their pre-sim aligned position
