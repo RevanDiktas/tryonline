@@ -397,7 +397,9 @@ def newton_drape(
     particle_r = preset["particle_r"]
 
     n_frames = 200 if simulation_mode == "quality" else 120
-    sim_substeps = 4
+    # Match the canonical example_cloth_style3d.py: 10 substeps @ 1/600s = 16.67ms/frame.
+    # Smaller dt is critical for stability — sim_dt=1/240 was too coarse and diverged.
+    sim_substeps = 10
     dt = 1.0 / (60.0 * sim_substeps)
 
     print(f"[Newton] Fabric: {preset_name} (density={density}, tri_ke={tri_ke}, edge_ke={edge_ke})")
@@ -421,8 +423,16 @@ def newton_drape(
         body_verts.astype(np.float32),
         body_faces.flatten().astype(np.int32),
     )
+    # CRITICAL: use builder.add_body() to register the static collider.
+    # body=-1 sends the contact kernel into undefined memory (issue #1130 pattern)
+    # because Style3D's eval_body_contact_kernel indexes body_q[shape_body[shape_idx]].
+    # add_body() defaults to mass=0 → body_inv_mass=0 → ignores gravity. The
+    # is_kinematic flag (BodyFlags.KINEMATIC) is belt-and-suspenders so any future
+    # solver path that checks the flag also treats it as fixed. This is the
+    # canonical static-avatar pattern from example_cloth_style3d.py:74-81.
+    avatar_body = builder.add_body(is_kinematic=True)
     builder.add_shape_mesh(
-        body=-1,  # world-fixed static collider
+        body=avatar_body,
         xform=wp.transform(p=wp.vec3(0.0, 0.0, 0.0), q=wp.quat_identity()),
         mesh=body_mesh,
         scale=wp.vec3(1.0, 1.0, 1.0),
@@ -458,34 +468,60 @@ def newton_drape(
     device = "cuda:0"
     model = builder.finalize(device=device)
     model.set_gravity((0.0, -9.81, 0.0))
-    # Soft-contact tuned for ~5mm particle radius (example values; too-stiff blows up)
-    model.soft_contact_ke = 10.0
+    # Match canonical example_cloth_style3d.py soft-contact params. Newton's defaults
+    # (radius=0.01, ke=1e3, kf=1e3, mu=0.5) are tuned for rigid bodies and explode
+    # cloth on contact. mu=0.0 also matches PR #1500 H1 fix — friction sign-flip at
+    # near-zero tangential velocity is a known NaN source.
+    model.soft_contact_radius = 0.2e-2
+    model.soft_contact_margin = 0.35e-2
+    model.soft_contact_ke = 1.0e1
     model.soft_contact_kd = 1.0e-6
-    model.soft_contact_kf = 1.0
-    model.soft_contact_mu = 0.5
+    model.soft_contact_kf = 0.0
+    model.soft_contact_mu = 0.0
 
     state_0 = model.state()
     state_1 = model.state()
     control = model.control()
     contacts = model.contacts()
 
-    solver = SolverStyle3D(model=model, iterations=10)
+    # iterations=4 matches canonical. Higher counts over-relax with stiff cloth + PD
+    # solver and can diverge when the contact Hessian is rank-deficient.
+    solver = SolverStyle3D(model=model, iterations=4)
     solver._precompute(builder)
 
     print(f"[Newton] Running {n_frames} frames on {device}...")
     sim_start = time.time()
 
+    diag_every = 10  # log finite-mask + position bounds every N frames
+    first_nan_frame = None
+
     for frame in range(n_frames):
-        # Refresh contact set once per frame (cheap given static body)
-        model.collide(state_0, contacts)
+        # collide() inside the substep loop, not once per outer frame. With moving
+        # cloth the contact normals from frame start are stale by the last substep,
+        # producing wrong-direction forces — matches example_cloth_h1.py simulate().
         for _ in range(sim_substeps):
+            model.collide(state_0, contacts)
             state_0.clear_forces()
             solver.step(state_0, state_1, control, contacts, dt)
             state_0, state_1 = state_1, state_0
 
-        if (frame + 1) % 30 == 0:
+        if (frame + 1) % diag_every == 0 or frame == 0:
+            q = state_0.particle_q.numpy()
+            n_cloth_now = len(clean_garment_verts)
+            cloth_q = q[:n_cloth_now]
+            n_nan = int((~np.isfinite(cloth_q).all(axis=1)).sum())
+            finite_mask_q = np.isfinite(cloth_q).all(axis=1)
+            if finite_mask_q.any():
+                qmin = float(cloth_q[finite_mask_q].min())
+                qmax = float(cloth_q[finite_mask_q].max())
+            else:
+                qmin = qmax = float("nan")
             elapsed = time.time() - sim_start
-            print(f"[Newton] Frame {frame+1}/{n_frames} ({elapsed:.1f}s elapsed)")
+            print(f"[Newton] Frame {frame+1}/{n_frames} ({elapsed:.1f}s) "
+                  f"nan={n_nan}/{n_cloth_now} q∈[{qmin:.3f},{qmax:.3f}]")
+            if n_nan > 0 and first_nan_frame is None:
+                first_nan_frame = frame + 1
+                print(f"[Newton] FIRST NAN appeared by frame {first_nan_frame}")
 
     sim_time = time.time() - sim_start
     print(f"[Newton] Simulation done in {sim_time:.1f}s")
@@ -889,6 +925,48 @@ def handler(event: dict) -> dict:
             return {"error": "Failed to download body OBJ", "success": False}
         if not download_file(garment_obj_url, garment_obj):
             return {"error": "Failed to download garment OBJ", "success": False}
+
+        # Also pull the MTL and any referenced texture files from the same
+        # Supabase folder as the OBJ so the frontend can render OBJ+MTL with
+        # proper diffuse textures (CLO3D exports OBJ, MTL, and PNG/JPG side by
+        # side). Without this the OBJ path always falls back to GLB.
+        url_dir = garment_obj_url.rsplit("/", 1)[0]
+        obj_text_pre = garment_obj.read_bytes().decode("utf-8", errors="replace")
+        mtl_name_in_obj = None
+        for _line in obj_text_pre.split("\n"):
+            if _line.startswith("mtllib "):
+                mtl_name_in_obj = _line.strip().split(None, 1)[1].strip()
+                break
+        mtl_candidates = []
+        if mtl_name_in_obj:
+            mtl_candidates.append(mtl_name_in_obj)
+        obj_basename = garment_obj_url.rsplit("/", 1)[-1]
+        if obj_basename.endswith(".obj"):
+            mtl_candidates.append(obj_basename[:-4] + ".mtl")
+        seen = set()
+        for mtl_cand in mtl_candidates:
+            if mtl_cand in seen:
+                continue
+            seen.add(mtl_cand)
+            mtl_dest = garment_obj.parent / mtl_cand
+            if mtl_dest.exists():
+                continue
+            if download_file(f"{url_dir}/{mtl_cand}", mtl_dest):
+                print(f"[Draping] Downloaded MTL: {mtl_cand} ({mtl_dest.stat().st_size / 1024:.1f} KB)")
+                # Parse MTL for texture refs and download each one
+                for _mline in mtl_dest.read_bytes().decode("utf-8", errors="replace").split("\n"):
+                    _mline = _mline.strip()
+                    if _mline.startswith("map_") or _mline.startswith("bump"):
+                        _parts = _mline.split()
+                        if len(_parts) >= 2:
+                            tex_name = _parts[-1]
+                            tex_dest = garment_obj.parent / tex_name
+                            if not tex_dest.exists():
+                                if download_file(f"{url_dir}/{tex_name}", tex_dest):
+                                    print(f"[Draping] Downloaded texture: {tex_name} "
+                                          f"({tex_dest.stat().st_size / 1024:.1f} KB)")
+                break  # first MTL candidate that works wins
+
         if garment_glb_url:
             download_file(garment_glb_url, garment_glb)
             print(f"[Draping] Original GLB: {garment_glb.stat().st_size / 1024:.1f} KB")

@@ -408,8 +408,10 @@ window.runDrape = async function() {
     };
     if (garmentGlbUrl) payload.garment_glb_url = garmentGlbUrl;
 
-    const runUrl = `https://api.runpod.ai/v2/${endpointId}/runsync`;
-    const resp = await fetch(runUrl, {
+    // Use /run + poll /status (not /runsync) so we can wait the full sim time.
+    // /runsync caps at ~60-90s server-side; Newton GPU sim takes 2-3 minutes.
+    const submitUrl = `https://api.runpod.ai/v2/${endpointId}/run`;
+    const submitResp = await fetch(submitUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -418,12 +420,45 @@ window.runDrape = async function() {
       body: JSON.stringify({ input: payload }),
     });
 
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`RunPod HTTP ${resp.status}: ${errText.substring(0, 300)}`);
+    if (!submitResp.ok) {
+      const errText = await submitResp.text();
+      throw new Error(`RunPod submit HTTP ${submitResp.status}: ${errText.substring(0, 300)}`);
     }
 
-    const result = await resp.json();
+    const submitJson = await submitResp.json();
+    const jobId = submitJson.id;
+    if (!jobId) throw new Error(`RunPod submit returned no job id: ${JSON.stringify(submitJson)}`);
+    log(`Job queued: ${jobId} — polling status...`, 'info');
+
+    // Poll status until COMPLETED / FAILED / CANCELLED. Cap at 10 minutes.
+    const statusUrl = `https://api.runpod.ai/v2/${endpointId}/status/${jobId}`;
+    const pollStart = Date.now();
+    const pollTimeoutMs = 10 * 60 * 1000;
+    let result = null;
+    while (true) {
+      if (Date.now() - pollStart > pollTimeoutMs) {
+        throw new Error(`Job ${jobId} still not done after 10 minutes`);
+      }
+      await new Promise(r => setTimeout(r, 3000));
+      const statusResp = await fetch(statusUrl, {
+        headers: { 'Authorization': `Bearer ${runpodKey}` },
+      });
+      if (!statusResp.ok) {
+        const errText = await statusResp.text();
+        throw new Error(`RunPod status HTTP ${statusResp.status}: ${errText.substring(0, 300)}`);
+      }
+      const statusJson = await statusResp.json();
+      const elapsed = Math.floor((Date.now() - pollStart) / 1000);
+      log(`  [${elapsed}s] ${statusJson.status}`, 'info');
+      if (statusJson.status === 'COMPLETED') {
+        result = statusJson;
+        break;
+      }
+      if (statusJson.status === 'FAILED' || statusJson.status === 'CANCELLED') {
+        throw new Error(`Job ${statusJson.status}: ${JSON.stringify(statusJson.error || statusJson).substring(0, 500)}`);
+      }
+    }
+
     const data = result.output || {};
 
     if (!data.success) {
