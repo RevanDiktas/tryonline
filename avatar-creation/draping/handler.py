@@ -247,14 +247,25 @@ def load_obj_uvs(obj_path: Path) -> tuple:
 
 
 FABRIC_PRESETS = {
-    "cotton_light":  {"density": 0.15, "tri_ke": 80.0,  "edge_ke": 0.3, "particle_r": 0.003},
-    "cotton_medium": {"density": 0.30, "tri_ke": 120.0, "edge_ke": 0.5, "particle_r": 0.003},
-    "denim":         {"density": 0.50, "tri_ke": 300.0, "edge_ke": 2.0, "particle_r": 0.004},
-    "silk":          {"density": 0.08, "tri_ke": 40.0,  "edge_ke": 0.1, "particle_r": 0.002},
-    "jersey_knit":   {"density": 0.20, "tri_ke": 60.0,  "edge_ke": 0.2, "particle_r": 0.003},
-    "wool":          {"density": 0.40, "tri_ke": 200.0, "edge_ke": 1.5, "particle_r": 0.004},
-    "polyester":     {"density": 0.25, "tri_ke": 100.0, "edge_ke": 0.4, "particle_r": 0.003},
+    "cotton_light":  {"density": 0.15, "tri_ke": 80.0,  "edge_ke": 1.0e-5, "particle_r": 5.0e-3},
+    "cotton_medium": {"density": 0.30, "tri_ke": 100.0, "edge_ke": 2.0e-5, "particle_r": 5.0e-3},
+    "denim":         {"density": 0.50, "tri_ke": 300.0, "edge_ke": 8.0e-5, "particle_r": 5.0e-3},
+    "silk":          {"density": 0.08, "tri_ke": 40.0,  "edge_ke": 5.0e-6, "particle_r": 5.0e-3},
+    "jersey_knit":   {"density": 0.20, "tri_ke": 60.0,  "edge_ke": 1.0e-5, "particle_r": 5.0e-3},
+    "wool":          {"density": 0.40, "tri_ke": 200.0, "edge_ke": 5.0e-5, "particle_r": 5.0e-3},
+    "polyester":     {"density": 0.25, "tri_ke": 100.0, "edge_ke": 1.5e-5, "particle_r": 5.0e-3},
 }
+
+
+def _normalize_to_meters(verts: np.ndarray, label: str) -> tuple:
+    """If a mesh appears to be in millimetres (height >> 10), convert to meters.
+    Newton/Warp expect SI units — gravity is m/s², so mm-scale meshes get effectively
+    zero gravity force."""
+    h = verts[:, 1].max() - verts[:, 1].min()
+    if h > 50.0:
+        print(f"[Newton] {label} looks like mm (height={h:.1f}), converting to meters")
+        return verts / 1000.0, 1.0 / 1000.0
+    return verts, 1.0
 
 
 def newton_drape(
@@ -265,23 +276,29 @@ def newton_drape(
     simulation_mode: str = "swift",
 ) -> dict:
     """
-    GPU-accelerated cloth draping using NVIDIA Newton (Style3D XPBD solver).
-    Real gravity, body collision, self-collision, fabric tension.
+    GPU-accelerated cloth draping using NVIDIA Newton 1.1.0 (Style3D XPBD solver).
+    Real gravity, body collision, fabric tension. Y-up world coords, SI units.
     """
-    body_verts = load_obj_vertices(body_obj)
-    garment_verts = load_obj_vertices(garment_obj)
+    from newton.solvers import SolverStyle3D
+
+    body_verts_raw = load_obj_vertices(body_obj)
+    garment_verts_raw = load_obj_vertices(garment_obj)
     body_faces = load_obj_faces(body_obj)
     garment_faces = load_obj_faces(garment_obj)
 
-    if len(body_verts) == 0 or len(garment_verts) == 0:
-        raise ValueError(f"Empty mesh: body={len(body_verts)} garment={len(garment_verts)} verts")
+    if len(body_verts_raw) == 0 or len(garment_verts_raw) == 0:
+        raise ValueError(f"Empty mesh: body={len(body_verts_raw)} garment={len(garment_verts_raw)} verts")
     if len(body_faces) == 0 or len(garment_faces) == 0:
         raise ValueError(f"No faces: body={len(body_faces)} garment={len(garment_faces)} tris")
 
-    print(f"[Newton] Body: {len(body_verts)} verts, {len(body_faces)} tris")
-    print(f"[Newton] Garment: {len(garment_verts)} verts, {len(garment_faces)} tris")
+    print(f"[Newton] Body raw: {len(body_verts_raw)} verts, {len(body_faces)} tris")
+    print(f"[Newton] Garment raw: {len(garment_verts_raw)} verts, {len(garment_faces)} tris")
 
-    aligned_verts, scale, translation = align_meshes(body_verts, garment_verts)
+    # Normalize both meshes to meters BEFORE alignment so gravity (m/s²) is meaningful
+    body_verts, _ = _normalize_to_meters(body_verts_raw, "Body")
+    garment_verts, garment_unit_scale = _normalize_to_meters(garment_verts_raw, "Garment")
+
+    aligned_verts, align_scale, translation = align_meshes(body_verts, garment_verts)
 
     # Resolve fabric properties
     preset_name = fabric_config.get("preset", "cotton_medium")
@@ -292,37 +309,33 @@ def newton_drape(
     particle_r = preset["particle_r"]
 
     n_frames = 200 if simulation_mode == "quality" else 120
-    dt = 1.0 / 60.0
+    sim_substeps = 4
+    dt = 1.0 / (60.0 * sim_substeps)
 
     print(f"[Newton] Fabric: {preset_name} (density={density}, tri_ke={tri_ke}, edge_ke={edge_ke})")
-    print(f"[Newton] Sim: {n_frames} frames @ {1/dt:.0f}fps = {n_frames*dt:.1f}s of physics")
+    print(f"[Newton] Sim: {n_frames} frames x {sim_substeps} substeps @ dt={dt:.5f}s")
 
-    # Load UVs for panel data (required by Style3D)
+    # Load UVs for Style3D panel data (used for warp/weft direction)
     uv_verts, uv_faces = load_obj_uvs(garment_obj)
     has_uvs = len(uv_verts) > 0 and len(uv_faces) == len(garment_faces)
 
-    # --- Build Newton scene ---
-    builder = newton.ModelBuilder()
+    # --- Build Newton scene (single builder, Y-up to match input meshes) ---
+    builder = newton.ModelBuilder(up_axis=newton.Axis.Y)
+    SolverStyle3D.register_custom_attributes(builder)
 
-    # Add avatar body as a STATIC collision mesh (body=-1 means world-fixed)
     body_mesh = newton.Mesh(
-        vertices=body_verts.astype(np.float32),
-        indices=body_faces.flatten(),
+        body_verts.astype(np.float32),
+        body_faces.flatten(),
     )
     builder.add_shape_mesh(
-        body=-1,
+        body=-1,  # world-fixed static collider
+        xform=wp.transform(p=wp.vec3(0.0, 0.0, 0.0), q=wp.quat_identity()),
         mesh=body_mesh,
-        pos=wp.vec3(0.0, 0.0, 0.0),
-        rot=wp.quat_identity(),
         scale=wp.vec3(1.0, 1.0, 1.0),
     )
 
-    # Add garment as cloth
-    cloth_builder = newton.ModelBuilder()
-    style3d.register_custom_attributes(cloth_builder)
-
-    cloth_kwargs = dict(
-        cloth_builder=cloth_builder,
+    style3d.add_cloth_mesh(
+        builder,
         pos=wp.vec3(0.0, 0.0, 0.0),
         rot=wp.quat_identity(),
         vel=wp.vec3(0.0, 0.0, 0.0),
@@ -331,39 +344,39 @@ def newton_drape(
         density=density,
         scale=1.0,
         particle_radius=particle_r,
-        tri_aniso_ke=wp.vec3(tri_ke, tri_ke, tri_ke),
-        edge_aniso_ke=wp.vec3(edge_ke, edge_ke, edge_ke),
+        tri_aniso_ke=wp.vec3(tri_ke, tri_ke, tri_ke * 0.1),
+        edge_aniso_ke=wp.vec3(edge_ke * 2.0, edge_ke, edge_ke * 0.25),
+        panel_verts=uv_verts.tolist() if has_uvs else None,
+        panel_indices=uv_faces.flatten().tolist() if has_uvs else None,
     )
-    if has_uvs:
-        cloth_kwargs["panel_verts"] = uv_verts.tolist()
-        cloth_kwargs["panel_indices"] = uv_faces.flatten().tolist()
 
-    style3d.add_cloth_mesh(**cloth_kwargs)
-
-    # Merge cloth into main builder
-    builder.add_builder(cloth_builder)
-
-    # Finalize model
     device = "cuda:0"
     model = builder.finalize(device=device)
-    model.gravity = wp.vec3(0.0, -9.81, 0.0)
-    model.soft_contact_ke = 1000.0
-    model.soft_contact_kd = 10.0
-    model.soft_contact_kf = 100.0
-    model.particle_radius = particle_r
+    model.set_gravity((0.0, -9.81, 0.0))
+    # Soft-contact tuned for ~5mm particle radius (example values; too-stiff blows up)
+    model.soft_contact_ke = 10.0
+    model.soft_contact_kd = 1.0e-6
+    model.soft_contact_kf = 1.0
+    model.soft_contact_mu = 0.5
 
     state_0 = model.state()
     state_1 = model.state()
+    control = model.control()
+    contacts = model.contacts()
 
-    integrator = style3d.Style3DIntegrator()
+    solver = SolverStyle3D(model=model, iterations=10)
+    solver._precompute(builder)
 
-    print(f"[Newton] Running {n_frames} simulation frames on {device}...")
+    print(f"[Newton] Running {n_frames} frames on {device}...")
     sim_start = time.time()
 
     for frame in range(n_frames):
-        state_0.clear_forces()
-        integrator.simulate(model, state_0, state_1, dt)
-        state_0, state_1 = state_1, state_0
+        # Refresh contact set once per frame (cheap given static body)
+        model.collide(state_0, contacts)
+        for _ in range(sim_substeps):
+            state_0.clear_forces()
+            solver.step(state_0, state_1, control, contacts, dt)
+            state_0, state_1 = state_1, state_0
 
         if (frame + 1) % 30 == 0:
             elapsed = time.time() - sim_start
@@ -372,36 +385,38 @@ def newton_drape(
     sim_time = time.time() - sim_start
     print(f"[Newton] Simulation done in {sim_time:.1f}s")
 
-    # Extract final vertex positions from the simulation state
-    # Particle positions are stored in state_0.particle_q
+    # Extract final cloth vertex positions. Static collision shapes (body=-1) add
+    # NO particles, so cloth particles occupy [0:n_cloth) in input order.
     final_positions = state_0.particle_q.numpy()
-
-    # The first len(body_verts) particles are from body collision shapes (if any),
-    # cloth particles come after. Newton's particle ordering depends on build order.
-    # Since we added the body shape first and cloth second, cloth particles start
-    # after the body particles. But body shapes with body=-1 (static) don't create
-    # particles — only cloth does. So cloth particles are at index 0.
     n_cloth = len(aligned_verts)
-    if len(final_positions) >= n_cloth:
-        cloth_positions = final_positions[:n_cloth]
-    else:
-        print(f"[Newton] Warning: expected {n_cloth} cloth particles, got {len(final_positions)}")
-        cloth_positions = final_positions
-
+    if len(final_positions) < n_cloth:
+        raise RuntimeError(f"Expected {n_cloth} cloth particles, got {len(final_positions)}")
+    cloth_positions = final_positions[:n_cloth]
     print(f"[Newton] Extracted {len(cloth_positions)} cloth vertex positions")
 
-    # Undo alignment to restore original garment coordinate space
-    final_verts = (cloth_positions - translation) / scale if scale != 1.0 else cloth_positions - translation
+    # Undo alignment translation/scale (still in meters)
+    if align_scale != 1.0:
+        final_verts_m = (cloth_positions - translation) / align_scale
+    else:
+        final_verts_m = cloth_positions - translation
+
+    # Restore original garment units (e.g. back to mm if input was mm)
+    if garment_unit_scale != 1.0:
+        final_verts = final_verts_m / garment_unit_scale
+    else:
+        final_verts = final_verts_m
 
     write_obj_with_new_verts(garment_obj, final_verts.astype(np.float64), output_obj)
 
     return {
-        "vertices_total": len(garment_verts),
+        "vertices_total": len(garment_verts_raw),
         "simulation_frames": n_frames,
+        "simulation_substeps": sim_substeps,
         "simulation_time_seconds": round(sim_time, 2),
         "fabric_preset": preset_name,
-        "scale_applied": round(scale, 6),
-        "translation": [round(float(t), 6) for t in translation],
+        "align_scale": round(align_scale, 6),
+        "translation_m": [round(float(t), 6) for t in translation],
+        "garment_unit_scale": round(garment_unit_scale, 6),
     }
 
 
