@@ -71,6 +71,7 @@ NEWTON_AVAILABLE = False
 try:
     import warp as wp
     import newton
+    from newton import ParticleFlags
     from newton.solvers import style3d
     wp.init()
     NEWTON_AVAILABLE = True
@@ -312,15 +313,73 @@ def _inflate_garment_off_body(garment_verts, body_verts, body_obj, target_offset
     if not np.isfinite(inflated).all():
         raise ValueError("Inflation produced non-finite garment vertices — body normals likely zero")
 
-    # Post-check: how many verts are still within half the target offset?
+    # Post-check: which verts are still inside (signed_dist < 0) or within a
+    # thin safety margin? Those will be pinned in the sim so they don't produce
+    # explosive contact forces on their neighbors.
     _, indices = tree.query(inflated, k=1)
     diff = inflated - body_verts[indices]
     signed_dist = np.sum(diff * body_normals[indices], axis=1)
+    # "Stuck" = still penetrating or within 1mm of surface after inflation.
+    stuck_mask = signed_dist < 1.0e-3
+    n_stuck = int(stuck_mask.sum())
     n_close = int((signed_dist < target_offset * 0.5).sum())
     print(f"[Newton] Inflation done: max {max_pushed}/{len(inflated)} verts pushed, "
-          f"{n_close} still within {target_offset*500:.1f}mm of body")
+          f"{n_close} still within {target_offset*500:.1f}mm of body, "
+          f"{n_stuck} stuck (<1mm) → will be pinned")
 
-    return inflated, max_pushed
+    return inflated, max_pushed, stuck_mask
+
+
+def _build_per_tri_flat_panel(verts_3d: np.ndarray, faces: np.ndarray) -> tuple:
+    """Build a 2D rest pose that GUARANTEES zero stretch strain at t=0.
+
+    For each 3D triangle, lay out its three vertices in an isolated 2D frame
+    with edge lengths matching the 3D triangle exactly:
+        v0 → (0, 0)
+        v1 → (|e01|, 0)
+        v2 → (e02·ê01, |e02 × ê01|)
+
+    Panel verts are per-triangle-unique (3 × N_tris entries, no sharing across
+    triangles). This produces a deformation gradient F with F^T F = I at t=0,
+    so stretch energy is exactly zero regardless of how the 3D garment is
+    shaped. Newton's bending rest defaults to flat (180°) per-edge because
+    each triangle has its own 2D layout — the garment's 3D curvature then
+    shows up as bending strain proportional to `edge_aniso_ke`, which is tiny
+    (1e-5 range) → no explosion.
+
+    CLO3D UVs were expected to serve this role, but they're atlas-packed
+    texture coordinates, not sewing patterns. Per-tri ratios varied enough
+    that some triangles had 100× strain at t=0 → NaN cascade. Per-tri flat
+    is the robust fallback.
+    """
+    n_t = len(faces)
+    panel_verts = np.zeros((3 * n_t, 2), dtype=np.float64)
+    panel_indices = np.arange(3 * n_t, dtype=np.int32).reshape(-1, 3)
+
+    v0 = verts_3d[faces[:, 0]]
+    v1 = verts_3d[faces[:, 1]]
+    v2 = verts_3d[faces[:, 2]]
+
+    e01 = v1 - v0
+    e02 = v2 - v0
+    len01 = np.linalg.norm(e01, axis=1)
+    safe = np.where(len01 > 1e-12, len01, 1.0)
+    proj = (e01 * e02).sum(axis=1) / safe
+    cross_mag = np.linalg.norm(np.cross(e01, e02), axis=1)
+    height = cross_mag / safe
+
+    # v0 stays at (0, 0); v1 at (|e01|, 0); v2 at (proj, height)
+    panel_verts[1::3, 0] = len01
+    panel_verts[2::3, 0] = proj
+    panel_verts[2::3, 1] = height
+
+    # Guard against degenerate triangles — if any collapse, Newton drops them
+    # but we want to catch it explicitly.
+    n_degen = int((cross_mag < 1e-12).sum())
+    if n_degen > 0:
+        print(f"[Newton] Per-tri flat panel: {n_degen}/{n_t} degenerate triangles (zero 3D area)")
+
+    return panel_verts, panel_indices
 
 
 def _normalize_to_meters(verts: np.ndarray, label: str) -> tuple:
@@ -452,13 +511,12 @@ def newton_drape(
     edge_ke = preset["edge_ke"]
     particle_r = preset["particle_r"]
 
-    # Inflate the garment off the body BEFORE cleanup + sim. 10mm is enough once
-    # panel_verts is set correctly (XPBD rest pose comes from 2D UV, so per-tri
-    # strain at t=0 is small regardless of inflation). Larger inflation distorts
-    # 3D geometry relative to 2D pattern → unnecessary initial strain.
-    inflate_offset = 10.0e-3
-    aligned_verts, n_inflated = _inflate_garment_off_body(
-        aligned_verts, body_verts, body_obj, inflate_offset, max_iters=20
+    # Inflate the garment off the body BEFORE cleanup + sim. With per-tri-flat
+    # rest pose (built post-inflation), the rest pose IS the inflated shape, so
+    # inflation doesn't introduce initial strain. Generous target for safety.
+    inflate_offset = 15.0e-3
+    aligned_verts, n_inflated, stuck_mask_orig = _inflate_garment_off_body(
+        aligned_verts, body_verts, body_obj, inflate_offset, max_iters=30
     )
     print(f"[Newton] Garment inflation summary: max pushed {n_inflated}/{len(aligned_verts)} "
           f"(target ≥{inflate_offset*1000:.1f}mm off body)")
@@ -498,14 +556,12 @@ def newton_drape(
         body_verts.astype(np.float32),
         body_faces.flatten().astype(np.int32),
     )
-    # CRITICAL: use builder.add_body() to register the static collider.
-    # body=-1 sends the contact kernel into undefined memory (issue #1130 pattern)
-    # because Style3D's eval_body_contact_kernel indexes body_q[shape_body[shape_idx]].
-    # add_body() defaults to mass=0 → body_inv_mass=0 → ignores gravity. The
-    # is_kinematic flag (BodyFlags.KINEMATIC) is belt-and-suspenders so any future
-    # solver path that checks the flag also treats it as fixed. This is the
-    # canonical static-avatar pattern from example_cloth_style3d.py:74-81.
-    avatar_body = builder.add_body(is_kinematic=True)
+    # Static avatar collider. Matches canonical example_cloth_style3d.py:74-81:
+    # default add_body() (no is_kinematic flag) + add_shape_mesh. Default body
+    # has mass=0 → body_inv_mass=0 → immovable under gravity. Our earlier
+    # is_kinematic=True was belt-and-suspenders but diverged from the canonical
+    # path; removing to minimise surprise.
+    avatar_body = builder.add_body()
     builder.add_shape_mesh(
         body=avatar_body,
         xform=wp.transform(p=wp.vec3(0.0, 0.0, 0.0), q=wp.quat_identity()),
@@ -513,43 +569,22 @@ def newton_drape(
         scale=wp.vec3(1.0, 1.0, 1.0),
     )
 
-    # Build panel_verts (the 2D rest pose) from UVs. CRITICAL: with panel_verts=None,
-    # cloth.py:265 falls back to `vertices_np[:, :2]` — the XY projection of the 3D
-    # garment. For a 3D-folded garment (hood, sleeves, front/back overlap), many
-    # triangles collapse to near-zero area in that projection → `inv_D` entries
-    # explode → frame-1 NaN cascade. Canonical examples (example_cloth_style3d.py,
-    # example_cloth_h1.py) always pass `panel_verts = UV * scale`.
+    # Build per-triangle flat rest pose. This guarantees F^T F = I at t=0 so
+    # stretch strain starts at zero — no force spike regardless of 3D garment
+    # curvature. CLO3D atlas UVs were tried (v5) but per-tri area ratios vary
+    # enough that some tris hit 100× strain → NaN at frame 1. This approach
+    # sidesteps UV quality entirely.
     #
-    # We auto-calibrate `uv_scale` so total UV tri-area equals total 3D tri-area.
-    # That minimises *global* strain at t=0; per-tri strain still reflects real
-    # draping deformation (what the sim is supposed to model).
-    if has_uvs:
-        cf = clean_garment_faces
-        cuf = clean_uv_faces
-        v0_3d, v1_3d, v2_3d = clean_garment_verts[cf[:, 0]], clean_garment_verts[cf[:, 1]], clean_garment_verts[cf[:, 2]]
-        area_3d_total = float(0.5 * np.linalg.norm(np.cross(v1_3d - v0_3d, v2_3d - v0_3d), axis=1).sum())
-        u0_2d, u1_2d, u2_2d = uv_verts_raw[cuf[:, 0]], uv_verts_raw[cuf[:, 1]], uv_verts_raw[cuf[:, 2]]
-        e1 = u1_2d - u0_2d
-        e2 = u2_2d - u0_2d
-        area_uv_total = float(0.5 * np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]).sum())
-        if area_uv_total > 1e-12 and area_3d_total > 1e-12:
-            uv_scale = float(np.sqrt(area_3d_total / area_uv_total))
-        else:
-            uv_scale = 1.0
-        panel_verts_scaled = (uv_verts_raw.astype(np.float64) * uv_scale)
-        print(f"[Newton] Panel (UV) rest pose: uv_scale={uv_scale:.6f} "
-              f"(3D area={area_3d_total:.4f} m², UV area={area_uv_total:.4f} → {area_uv_total*uv_scale*uv_scale:.4f} m² after scale)")
-        panel_verts_arg = panel_verts_scaled.tolist()
-        panel_indices_arg = clean_uv_faces.flatten().tolist()
-    else:
-        # No UVs available. Newton's default (XY projection) is unsafe for 3D-folded
-        # garments, but with no panel data we have no better option. Fall back to
-        # current-3D as rest (zero initial strain by construction). This means passing
-        # the first two coords of the cleaned 3D verts as panel_verts — explicit rather
-        # than relying on Newton's default.
-        print("[Newton] WARNING: no UVs — using 3D XY projection as rest pose (may be unstable)")
-        panel_verts_arg = clean_garment_verts[:, :2].astype(np.float64).tolist()
-        panel_indices_arg = clean_garment_faces.flatten().tolist()
+    # Trade-off: cloth has no "wants to retain CLO3D sculpted shape" restoring
+    # force. Gravity + contact + bending (edge_aniso_ke, very weak) do the work.
+    # For a drape sim, that's fine — the whole point is gravity + body shape.
+    panel_verts_np, panel_indices_np = _build_per_tri_flat_panel(
+        clean_garment_verts, clean_garment_faces
+    )
+    print(f"[Newton] Per-tri flat panel rest pose: {len(panel_verts_np)} panel verts "
+          f"({len(panel_indices_np)} triangles, F=I at t=0)")
+    panel_verts_arg = panel_verts_np.tolist()
+    panel_indices_arg = panel_indices_np.flatten().tolist()
 
     style3d.add_cloth_mesh(
         builder,
@@ -578,9 +613,48 @@ def newton_drape(
         )
     print(f"[Newton] Builder OK: {n_tri_idx} cloth tris registered")
 
+    # Ground plane below the avatar's feet. Canonical adds one; prevents the
+    # cloth from silently dropping forever if a vert escapes the body collider.
+    builder.add_ground_plane()
+
     device = "cuda:0"
     model = builder.finalize(device=device)
     model.set_gravity((0.0, -9.81, 0.0))
+
+    # --- PIN unstable particles BEFORE sim starts ---
+    # Two classes get pinned (ACTIVE flag cleared → solver skips them):
+    #  (1) garment verts still stuck inside the body after inflation. Leaving
+    #      them dynamic means the contact kernel sees them deep inside → huge
+    #      push-out forces → NaN cascade to neighbors via stretch/bending.
+    #  (2) particles with mass=0. Happens when ALL triangles referencing a
+    #      particle were dropped as degenerate by cloth.py:270. Zero mass means
+    #      infinite inverse mass → any force produces inf velocity → NaN.
+    n_cloth_particles = len(clean_garment_verts)
+    flags_np = model.particle_flags.numpy().copy()
+    mass_np = model.particle_mass.numpy().copy()
+    inv_mass_np = model.particle_inv_mass.numpy().copy()
+
+    # stuck_mask_orig is indexed by original garment vert. Remap to clean.
+    stuck_mask_clean = stuck_mask_orig[clean_to_orig]
+    n_pin_stuck = int(stuck_mask_clean.sum())
+
+    # Zero-mass particles (orphans after Newton's internal tri drop).
+    cloth_mass_slice = mass_np[:n_cloth_particles]
+    zero_mass_mask = cloth_mass_slice <= 0.0
+    n_pin_orphan = int(zero_mass_mask.sum())
+
+    pin_mask = stuck_mask_clean | zero_mass_mask
+    n_pinned = int(pin_mask.sum())
+    if n_pinned > 0:
+        pin_idx = np.nonzero(pin_mask)[0]
+        flags_np[pin_idx] = flags_np[pin_idx] & ~np.uint32(ParticleFlags.ACTIVE)
+        mass_np[pin_idx] = 0.0
+        inv_mass_np[pin_idx] = 0.0
+        model.particle_flags = wp.array(flags_np, dtype=wp.uint32, device=device)
+        model.particle_mass = wp.array(mass_np, dtype=wp.float32, device=device)
+        model.particle_inv_mass = wp.array(inv_mass_np, dtype=wp.float32, device=device)
+    print(f"[Newton] Pinned {n_pinned} particles "
+          f"({n_pin_stuck} body-stuck, {n_pin_orphan} zero-mass orphans)")
     # Contact params copied 1:1 from canonical example_cloth_style3d.py. Newton's
     # defaults (ke=1e3, kd=1e3, mu=0.5) are rigid-body defaults that explode cloth.
     # The canonical values are the only published-safe combination for Style3D.
@@ -1252,7 +1326,7 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-20/v5-uv-panel-rest-pose (real panel_verts from UVs, canonical contact params, collide-once-per-frame)"
+HANDLER_BUILD = "drape-handler 2026-04-20/v6-per-tri-flat-rest (F=I at t=0, pin stuck+orphan particles, ground plane, drop is_kinematic)"
 
 try:
     import runpod
