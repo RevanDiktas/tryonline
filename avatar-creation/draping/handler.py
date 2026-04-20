@@ -586,6 +586,19 @@ def newton_drape(
     panel_verts_arg = panel_verts_np.tolist()
     panel_indices_arg = panel_indices_np.flatten().tolist()
 
+    # edge_aniso_ke=(0,0,0) DISABLES bending entirely. Per-triangle-flat panels
+    # are mathematically correct for stretch (F^T F = I at t=0, verified) but
+    # cloth.py's bending formula uses cotangent weights derived from 2D panel
+    # geometry assuming panel verts are SHARED across adjacent triangles. With
+    # per-tri disconnected panels, the bend_weight Σ_j w_j * pos_3d[j] doesn't
+    # zero out at any 3D configuration, producing O(28000 m/s²) acceleration
+    # per vert at t=0 → NaN in 1-2 substeps. v6 confirmed this: 27510/27706
+    # NaN despite correct stretch.
+    #
+    # Trade-off: cloth has zero bending stiffness → drapes like wet paper with
+    # no fold memory. For a first pass that actually runs without NaN, that's
+    # acceptable. Proper fix requires a connected 2D parameterization
+    # (LSCM / ABF++ / CLO3D sewing pattern) which is separate work.
     style3d.add_cloth_mesh(
         builder,
         pos=wp.vec3(0.0, 0.0, 0.0),
@@ -597,7 +610,7 @@ def newton_drape(
         scale=1.0,
         particle_radius=particle_r,
         tri_aniso_ke=wp.vec3(tri_ke, tri_ke, tri_ke * 0.1),
-        edge_aniso_ke=wp.vec3(edge_ke * 2.0, edge_ke, edge_ke * 0.25),
+        edge_aniso_ke=wp.vec3(0.0, 0.0, 0.0),
         panel_verts=panel_verts_arg,
         panel_indices=panel_indices_arg,
     )
@@ -613,10 +626,11 @@ def newton_drape(
         )
     print(f"[Newton] Builder OK: {n_tri_idx} cloth tris registered")
 
-    # Ground plane below the avatar's feet. Canonical adds one; prevents the
-    # cloth from silently dropping forever if a vert escapes the body collider.
-    builder.add_ground_plane()
-
+    # No ground plane: our garment's bottom hem sits at y≈-0.009m, below the
+    # default ground at y=0 → 9mm penetration → ~3 m/s velocity spike per
+    # substep on those particles from the contact kernel. With ke=10 it's not
+    # instantly explosive but compounds over 10 substeps. Safer to let the
+    # body mesh handle all collisions.
     device = "cuda:0"
     model = builder.finalize(device=device)
     model.set_gravity((0.0, -9.81, 0.0))
@@ -1326,7 +1340,7 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-20/v6-per-tri-flat-rest (F=I at t=0, pin stuck+orphan particles, ground plane, drop is_kinematic)"
+HANDLER_BUILD = "drape-handler 2026-04-20/v7-bending-off (per-tri flat stretch + bending disabled + no ground plane — diagnostic: isolates bending NaN)"
 
 try:
     import runpod
