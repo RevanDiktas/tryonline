@@ -1039,18 +1039,43 @@ def handler(event: dict) -> dict:
                 continue
             if download_file(f"{url_dir}/{mtl_cand}", mtl_dest):
                 print(f"[Draping] Downloaded MTL: {mtl_cand} ({mtl_dest.stat().st_size / 1024:.1f} KB)")
-                # Parse MTL for texture refs and download each one
-                for _mline in mtl_dest.read_bytes().decode("utf-8", errors="replace").split("\n"):
+                # CLO3D bakes absolute local paths into MTLs (e.g.
+                # "/Users/someone/Downloads/1.png"). Neither Supabase nor the
+                # frontend MTLLoader can resolve those, so rewrite every
+                # map_*/bump line to use just the basename. We upload textures
+                # under the same basename to Supabase, and Three.js MTLLoader
+                # then keys its sourceFile lookup on that same basename.
+                _mtl_text = mtl_dest.read_bytes().decode("utf-8", errors="replace")
+                _rewritten_lines = []
+                for _mline in _mtl_text.split("\n"):
+                    _stripped = _mline.strip()
+                    if _stripped.startswith("map_") or _stripped.startswith("bump"):
+                        _parts = _stripped.split()
+                        if len(_parts) >= 2:
+                            _tex_full = _parts[-1]
+                            # Handle both POSIX and Windows-style path separators
+                            _tex_base = _tex_full.replace("\\", "/").rsplit("/", 1)[-1]
+                            _parts[-1] = _tex_base
+                            _rewritten_lines.append(" ".join(_parts))
+                            continue
+                    _rewritten_lines.append(_mline)
+                mtl_dest.write_text("\n".join(_rewritten_lines))
+
+                # Parse rewritten MTL (now all basenames) and download each texture
+                for _mline in mtl_dest.read_text().split("\n"):
                     _mline = _mline.strip()
                     if _mline.startswith("map_") or _mline.startswith("bump"):
                         _parts = _mline.split()
                         if len(_parts) >= 2:
-                            tex_name = _parts[-1]
+                            tex_name = _parts[-1]  # already basename after rewrite
                             tex_dest = garment_obj.parent / tex_name
                             if not tex_dest.exists():
                                 if download_file(f"{url_dir}/{tex_name}", tex_dest):
                                     print(f"[Draping] Downloaded texture: {tex_name} "
                                           f"({tex_dest.stat().st_size / 1024:.1f} KB)")
+                                else:
+                                    print(f"[Draping] Texture missing on Supabase: {tex_name} "
+                                          f"(upload it to {url_dir}/)")
                 break  # first MTL candidate that works wins
 
         if garment_glb_url:
@@ -1136,7 +1161,10 @@ def handler(event: dict) -> dict:
                     if mtl_line.startswith("map_") or mtl_line.startswith("bump"):
                         parts = mtl_line.split()
                         if len(parts) >= 2:
-                            tex_filename = parts[-1]
+                            # Belt-and-suspenders: the pre-sim download pass already
+                            # rewrote the MTL to use basenames, but if anything else
+                            # injected an absolute path, fall back to basename here too.
+                            tex_filename = parts[-1].replace("\\", "/").rsplit("/", 1)[-1]
                             tex_path = garment_obj.parent / tex_filename
                             if tex_path.exists() and tex_path.stat().st_size < 10_000_000:
                                 tex_bytes = tex_path.read_bytes()
@@ -1187,7 +1215,7 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-20/v4-panels-off-iter-inflate (iterative-inflate-20mm+panel_verts=None+softer-cloth+ke100)"
+HANDLER_BUILD = "drape-handler 2026-04-20/v4.1-mtl-basename (v4+rewrite-CLO3D-absolute-tex-paths-to-basenames)"
 
 try:
     import runpod
