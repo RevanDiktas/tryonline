@@ -364,6 +364,7 @@ window.runDrape = async function() {
   const bodyObjUrl = document.getElementById('bodyObjUrl').value.trim();
   const garmentObjUrl = document.getElementById('garmentObjUrl').value.trim();
   const garmentGlbUrl = document.getElementById('garmentGlbUrl').value.trim();
+  const avatarGlbUrl = document.getElementById('avatarGlbUrl').value.trim();
   const runpodKey = document.getElementById('runpodApiKey').value.trim();
   const endpointId = document.getElementById('runpodEndpointId').value.trim();
 
@@ -387,6 +388,20 @@ window.runDrape = async function() {
   btn.disabled = true;
   setStatus('Draping...', 'loading');
   log('=== DRAPING JOB STARTED ===', 'info');
+
+  // Auto-load the avatar into the scene so the draped garment renders around
+  // something visible. Previously you had to hit "Load Preview" first — now the
+  // avatar just appears alongside the draped garment.
+  if (avatarGlbUrl && !avatarMesh) {
+    try {
+      log('Auto-loading avatar for visual context...', 'info');
+      avatarMesh = await loadGlb(avatarGlbUrl, 'Avatar');
+      normalizeModel(avatarMesh, 'Avatar');
+      scene.add(avatarMesh);
+    } catch (e) {
+      log(`Avatar auto-load failed (non-fatal): ${e.message}`, 'warn');
+    }
+  }
   log(`Body OBJ:    ${bodyObjUrl.substring(0, 80)}...`, 'info');
   log(`Garment OBJ: ${garmentObjUrl.substring(0, 80)}...`, 'info');
   if (garmentGlbUrl) log(`Garment GLB: ${garmentGlbUrl.substring(0, 80)}... (for textures)`, 'info');

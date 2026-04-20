@@ -257,46 +257,68 @@ def load_obj_uvs(obj_path: Path) -> tuple:
 
 
 FABRIC_PRESETS = {
-    "cotton_light":  {"density": 0.15, "tri_ke": 80.0,  "edge_ke": 1.0e-5, "particle_r": 5.0e-3},
-    "cotton_medium": {"density": 0.30, "tri_ke": 100.0, "edge_ke": 2.0e-5, "particle_r": 5.0e-3},
-    "denim":         {"density": 0.50, "tri_ke": 300.0, "edge_ke": 8.0e-5, "particle_r": 5.0e-3},
-    "silk":          {"density": 0.08, "tri_ke": 40.0,  "edge_ke": 5.0e-6, "particle_r": 5.0e-3},
-    "jersey_knit":   {"density": 0.20, "tri_ke": 60.0,  "edge_ke": 1.0e-5, "particle_r": 5.0e-3},
-    "wool":          {"density": 0.40, "tri_ke": 200.0, "edge_ke": 5.0e-5, "particle_r": 5.0e-3},
-    "polyester":     {"density": 0.25, "tri_ke": 100.0, "edge_ke": 1.5e-5, "particle_r": 5.0e-3},
+    "cotton_light":  {"density": 0.15, "tri_ke": 40.0,  "edge_ke": 5.0e-6, "particle_r": 2.0e-3},
+    "cotton_medium": {"density": 0.30, "tri_ke": 50.0,  "edge_ke": 1.0e-5, "particle_r": 2.0e-3},
+    "denim":         {"density": 0.50, "tri_ke": 150.0, "edge_ke": 4.0e-5, "particle_r": 2.0e-3},
+    "silk":          {"density": 0.08, "tri_ke": 20.0,  "edge_ke": 2.5e-6, "particle_r": 2.0e-3},
+    "jersey_knit":   {"density": 0.20, "tri_ke": 30.0,  "edge_ke": 5.0e-6, "particle_r": 2.0e-3},
+    "wool":          {"density": 0.40, "tri_ke": 100.0, "edge_ke": 2.5e-5, "particle_r": 2.0e-3},
+    "polyester":     {"density": 0.25, "tri_ke": 50.0,  "edge_ke": 7.5e-6, "particle_r": 2.0e-3},
 }
 
 
-def _inflate_garment_off_body(garment_verts, body_verts, body_obj, target_offset):
-    """Push every garment vertex outward along its nearest body normal until
-    it sits at least `target_offset` (m) away from the body surface.
+def _inflate_garment_off_body(garment_verts, body_verts, body_obj, target_offset, max_iters=12):
+    """Iteratively push every garment vertex outward along its nearest body normal
+    until it sits at least `target_offset` (m) away from the body surface.
 
-    Eliminates the initial body-cloth penetration that causes Newton's contact
-    kernel to produce exploding forces → NaN propagation across the whole mesh
-    in 1-2 solver iterations. CLO3D garments are sculpted on a specific body;
-    when the target avatar differs even slightly, hood/shoulder/sleeve verts
-    end up inside the body at frame 0 — that's the actual root cause of every
-    "100% NaN at frame 1" run we've seen.
+    Single-pass push is insufficient: after one push, the nearest body vertex can
+    change, and a vert that was "outside" the old nearest body point may still
+    be inside the new one. We loop until no vert is still penetrating (or we hit
+    max_iters), which gives us a guaranteed non-penetrating initial state.
+
+    Any residual non-finite positions after inflation are a hard error — better
+    to fail fast than to hand a NaN mesh to Newton and burn 5 minutes on a
+    guaranteed-NaN sim.
     """
     from scipy.spatial import cKDTree
     body_normals = compute_body_normals(body_verts, body_obj)
     tree = cKDTree(body_verts)
 
     inflated = garment_verts.astype(np.float64).copy()
-    distances, indices = tree.query(inflated, k=1)
-    nearest_body = body_verts[indices]
-    nearest_normals = body_normals[indices]
+    max_pushed = 0
 
-    diff = inflated - nearest_body
-    signed_dist = np.sum(diff * nearest_normals, axis=1)
+    for it in range(max_iters):
+        _, indices = tree.query(inflated, k=1)
+        nearest_body = body_verts[indices]
+        nearest_normals = body_normals[indices]
+        diff = inflated - nearest_body
+        signed_dist = np.sum(diff * nearest_normals, axis=1)
 
-    needs_push = signed_dist < target_offset
-    n_pushed = int(needs_push.sum())
-    if n_pushed > 0:
-        push_amount = (target_offset - signed_dist[needs_push])[:, None] * nearest_normals[needs_push]
-        inflated[needs_push] += push_amount
+        needs_push = signed_dist < target_offset
+        n_pushed = int(needs_push.sum())
+        if n_pushed == 0:
+            print(f"[Newton] Inflation converged after {it} iterations")
+            break
+        max_pushed = max(max_pushed, n_pushed)
+        # Overshoot 10% + 0.1mm so the next iteration's nearest-vertex query
+        # doesn't immediately re-flag the same vert due to floating-point noise.
+        push_amt = ((target_offset - signed_dist[needs_push]) * 1.1 + 1e-4)[:, None] * nearest_normals[needs_push]
+        inflated[needs_push] += push_amt
+    else:
+        print(f"[Newton] Inflation WARNING: hit max_iters={max_iters} with {n_pushed} verts still inside")
 
-    return inflated, n_pushed
+    if not np.isfinite(inflated).all():
+        raise ValueError("Inflation produced non-finite garment vertices — body normals likely zero")
+
+    # Post-check: how many verts are still within half the target offset?
+    _, indices = tree.query(inflated, k=1)
+    diff = inflated - body_verts[indices]
+    signed_dist = np.sum(diff * body_normals[indices], axis=1)
+    n_close = int((signed_dist < target_offset * 0.5).sum())
+    print(f"[Newton] Inflation done: max {max_pushed}/{len(inflated)} verts pushed, "
+          f"{n_close} still within {target_offset*500:.1f}mm of body")
+
+    return inflated, max_pushed
 
 
 def _normalize_to_meters(verts: np.ndarray, label: str) -> tuple:
@@ -310,7 +332,7 @@ def _normalize_to_meters(verts: np.ndarray, label: str) -> tuple:
     return verts, 1.0
 
 
-def _clean_garment_for_newton(verts, faces, uv_verts, uv_faces, area_eps=1e-8):
+def _clean_garment_for_newton(verts, faces, uv_verts, uv_faces, area_eps=1e-6):
     """
     Pre-filter degenerate triangles before handing off to style3d.add_cloth_mesh().
 
@@ -428,16 +450,17 @@ def newton_drape(
     edge_ke = preset["edge_ke"]
     particle_r = preset["particle_r"]
 
-    # Inflate the garment off the body BEFORE cleanup + sim. Target offset =
-    # particle_radius + soft_contact_radius + 5mm safety. Without this, CLO3D
-    # garments draped on a slightly different body have hood/shoulder/sleeve
-    # verts inside the avatar at frame 0 → contact forces blow up → 99% NaN.
-    inflate_offset = particle_r + 0.2e-2 + 5.0e-3
+    # Inflate the garment off the body BEFORE cleanup + sim. 20mm gives us headroom
+    # for nearest-vertex approximation error (true surface distance can be less than
+    # nearest-vertex signed distance when the closest body point is on a triangle
+    # face rather than a vertex). Iterative push handles the case where one push
+    # changes the nearest-body-vertex for a given garment vert.
+    inflate_offset = 20.0e-3
     aligned_verts, n_inflated = _inflate_garment_off_body(
         aligned_verts, body_verts, body_obj, inflate_offset
     )
-    print(f"[Newton] Garment inflation: pushed {n_inflated}/{len(aligned_verts)} verts "
-          f"≥{inflate_offset*1000:.1f}mm off body")
+    print(f"[Newton] Garment inflation summary: max pushed {n_inflated}/{len(aligned_verts)} "
+          f"(target ≥{inflate_offset*1000:.1f}mm off body)")
 
     n_frames = 200 if simulation_mode == "quality" else 120
     # Match the canonical example_cloth_style3d.py: 10 substeps @ 1/600s = 16.67ms/frame.
@@ -457,6 +480,14 @@ def newton_drape(
     clean_garment_verts, clean_garment_faces, clean_uv_faces, clean_to_orig = \
         _clean_garment_for_newton(aligned_verts, garment_faces, uv_verts_raw, uv_faces_raw)
     has_uvs = clean_uv_faces is not None
+
+    # Defensive: the sim burns 4+ minutes, so fail fast if inputs are already NaN.
+    if not np.isfinite(clean_garment_verts).all():
+        raise ValueError("Cleaned garment contains non-finite vertices — aborting before sim")
+    cv_min = clean_garment_verts.min(axis=0)
+    cv_max = clean_garment_verts.max(axis=0)
+    print(f"[Newton] Pre-sim cloth bbox: x=[{cv_min[0]:.3f},{cv_max[0]:.3f}] "
+          f"y=[{cv_min[1]:.3f},{cv_max[1]:.3f}] z=[{cv_min[2]:.3f},{cv_max[2]:.3f}]")
 
     # --- Build Newton scene (single builder, Y-up to match input meshes) ---
     builder = newton.ModelBuilder(up_axis=newton.Axis.Y)
@@ -481,6 +512,14 @@ def newton_drape(
         scale=wp.vec3(1.0, 1.0, 1.0),
     )
 
+    # NOTE: panel_verts deliberately OMITTED. CLO3D UV atlas layout doesn't
+    # match the scale/topology Style3D expects for rest-pose reconstruction:
+    # passing face-indexed UVs caused instant 99% NaN at frame 1. With
+    # panel_verts=None, Style3D falls back to using the initial 3D positions
+    # as the rest pose — which is exactly what we want after inflation, because
+    # the cloth starts stress-free instead of being flagged as "50% stretched"
+    # and released like a catapult. We lose CLO3D's anisotropic warp/weft
+    # direction but gain a sim that actually converges.
     style3d.add_cloth_mesh(
         builder,
         pos=wp.vec3(0.0, 0.0, 0.0),
@@ -493,8 +532,8 @@ def newton_drape(
         particle_radius=particle_r,
         tri_aniso_ke=wp.vec3(tri_ke, tri_ke, tri_ke * 0.1),
         edge_aniso_ke=wp.vec3(edge_ke * 2.0, edge_ke, edge_ke * 0.25),
-        panel_verts=uv_verts_raw.tolist() if has_uvs else None,
-        panel_indices=clean_uv_faces.flatten().tolist() if has_uvs else None,
+        panel_verts=None,
+        panel_indices=None,
     )
 
     # Defensive: surface the dual-filter mismatch with a clear error rather than
@@ -515,10 +554,14 @@ def newton_drape(
     # (radius=0.01, ke=1e3, kf=1e3, mu=0.5) are tuned for rigid bodies and explode
     # cloth on contact. mu=0.0 also matches PR #1500 H1 fix — friction sign-flip at
     # near-zero tangential velocity is a known NaN source.
-    model.soft_contact_radius = 0.2e-2
-    model.soft_contact_margin = 0.35e-2
-    model.soft_contact_ke = 1.0e1
-    model.soft_contact_kd = 1.0e-6
+    # Contact tuning: ke=1e2 is 10x the prior value (which let cloth drift through
+    # the body faster than the restoring force could push it back) but still 10x
+    # softer than Newton's rigid-body default (1e3) which explodes cloth. kd adds
+    # damping so contact oscillations decay instead of resonating.
+    model.soft_contact_radius = 0.3e-2
+    model.soft_contact_margin = 0.5e-2
+    model.soft_contact_ke = 1.0e2
+    model.soft_contact_kd = 1.0e0
     model.soft_contact_kf = 0.0
     model.soft_contact_mu = 0.0
 
@@ -1144,7 +1187,7 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-19/v3-garment-inflation (add_body+collide-per-substep+inflate-off-body+OBJ-textures)"
+HANDLER_BUILD = "drape-handler 2026-04-20/v4-panels-off-iter-inflate (iterative-inflate-20mm+panel_verts=None+softer-cloth+ke100)"
 
 try:
     import runpod
