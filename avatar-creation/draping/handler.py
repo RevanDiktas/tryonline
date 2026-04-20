@@ -101,6 +101,52 @@ def download_file(url: str, dest: Path) -> bool:
         return False
 
 
+def _weld_duplicate_vertices(verts: np.ndarray, faces: np.ndarray, tol: float = 1.0e-3) -> tuple:
+    """Merge vertices within `tol` metres into one. Returns
+    (welded_verts, welded_faces, orig_to_welded).
+
+    CLO3D's OBJ exporter writes seam-split vertices — the same 3D point
+    appears as several distinct vertex indices, one per panel piece it
+    belongs to. Without welding, the face-graph splits into as many
+    topologically-disconnected components as there are panels, so
+    stretch/bending forces cannot hold the garment together and the
+    panels fall independently under gravity. Welding fixes this by
+    collapsing positions within `tol` to a single canonical index.
+
+    Verified against m.obj (Ramin Studios hoodie): raw 27718 verts → 28
+    topological components. Welding at tol=1mm collapses 1511 duplicate
+    pairs → 1 component.
+    """
+    from scipy.spatial import cKDTree
+    n_orig = len(verts)
+    tree = cKDTree(verts)
+    pairs = tree.query_pairs(tol, output_type="ndarray")
+
+    parent = np.arange(n_orig)
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = int(parent[i])
+        return int(i)
+
+    for a, b in pairs:
+        ra, rb = find(int(a)), find(int(b))
+        if ra != rb:
+            parent[ra] = rb
+
+    roots = np.array([find(i) for i in range(n_orig)], dtype=np.int64)
+    unique_roots, welded_idx = np.unique(roots, return_inverse=True)
+    welded_verts = verts[unique_roots].copy()
+    welded_faces = welded_idx[faces].astype(np.int32)
+
+    n_welded = len(welded_verts)
+    print(f"[Newton] Weld: {n_orig} → {n_welded} verts "
+          f"({n_orig - n_welded} duplicates merged at tol={tol*1000:.2f}mm, "
+          f"{len(pairs)} pair candidates)")
+    return welded_verts, welded_faces, welded_idx.astype(np.int64)
+
+
 def load_obj_vertices(obj_path: Path) -> np.ndarray:
     """Parse OBJ file and return vertex positions as (N,3) array."""
     verts = []
@@ -622,6 +668,16 @@ def newton_drape(
 
     aligned_verts, align_scale, translation = align_meshes(body_verts, garment_verts)
 
+    # WELD duplicated garment vertices. CLO3D OBJ exports write seam-split
+    # verts (same 3D position, distinct vertex indices per panel). That
+    # leaves the face graph topologically disconnected (v8 log: 31
+    # components) so stretch/bending can't connect panels and they fall
+    # independently. tol=1mm collapses seam pairs without touching distinct
+    # geometric features.
+    aligned_verts, garment_faces, orig_to_welded = _weld_duplicate_vertices(
+        aligned_verts, garment_faces, tol=1.0e-3
+    )
+
     # Resolve fabric properties
     preset_name = fabric_config.get("preset", "cotton_medium")
     preset = FABRIC_PRESETS.get(preset_name, FABRIC_PRESETS["cotton_medium"])
@@ -885,9 +941,16 @@ def newton_drape(
 
     # Restore original garment units (e.g. back to mm if input was mm)
     if garment_unit_scale != 1.0:
-        final_verts = final_verts_m / garment_unit_scale
+        final_verts_welded = final_verts_m / garment_unit_scale
     else:
-        final_verts = final_verts_m
+        final_verts_welded = final_verts_m
+
+    # UN-WELD: `final_verts_welded` is indexed by the welded vert table
+    # (~26k entries). The original OBJ has ~27.7k `v` lines and its `f`
+    # lines reference those original indices — `write_obj_with_new_verts`
+    # iterates and substitutes positions in original order. Map every
+    # original vert back to the position of its welded canonical vert.
+    final_verts = final_verts_welded[orig_to_welded]
 
     write_obj_with_new_verts(garment_obj, final_verts.astype(np.float64), output_obj)
 
@@ -1451,7 +1514,7 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-20/v8-geodesic-unfold+low-bend (BFS unfold + 100x-lower edge_ke; bounded bending even on non-dev mismatches)"
+HANDLER_BUILD = "drape-handler 2026-04-20/v9-weld-seams (weld CLO3D seam-split verts at 1mm → 1 topological component; cloth can actually hold together)"
 
 try:
     import runpod
