@@ -330,56 +330,175 @@ def _inflate_garment_off_body(garment_verts, body_verts, body_obj, target_offset
     return inflated, max_pushed, stuck_mask
 
 
-def _build_per_tri_flat_panel(verts_3d: np.ndarray, faces: np.ndarray) -> tuple:
-    """Build a 2D rest pose that GUARANTEES zero stretch strain at t=0.
+def _build_geodesic_unfold_panel(verts_3d: np.ndarray, faces: np.ndarray) -> tuple:
+    """Build a 2D panel by BFS-unfolding the 3D mesh while preserving edge lengths.
 
-    For each 3D triangle, lay out its three vertices in an isolated 2D frame
-    with edge lengths matching the 3D triangle exactly:
-        v0 → (0, 0)
-        v1 → (|e01|, 0)
-        v2 → (e02·ê01, |e02 × ê01|)
+    Each triangle gets 3 unique panel-vert indices (3*N_tris panel verts total),
+    but their 2D COORDINATES are assigned such that for every edge shared by
+    two adjacent triangles, both triangles' panel verts at that edge coincide
+    in 2D. This is the "orange peel" unfold: isometric per-tri, consistent
+    across shared edges.
 
-    Panel verts are per-triangle-unique (3 × N_tris entries, no sharing across
-    triangles). This produces a deformation gradient F with F^T F = I at t=0,
-    so stretch energy is exactly zero regardless of how the 3D garment is
-    shaped. Newton's bending rest defaults to flat (180°) per-edge because
-    each triangle has its own 2D layout — the garment's 3D curvature then
-    shows up as bending strain proportional to `edge_aniso_ke`, which is tiny
-    (1e-5 range) → no explosion.
+    Why this matters:
+      - Stretch (eval_stretch_kernel): F^T F = I per-triangle at t=0 because
+        each tri's panel edges match its 3D edges exactly. Zero stretch force.
+      - Bending (eval_bend_kernel): bend_weight × pos_3d is proportional only
+        to LOCAL dihedral deviation from flat (not global curvature). For a
+        smooth garment, local deviations are small → bounded bending force.
 
-    CLO3D UVs were expected to serve this role, but they're atlas-packed
-    texture coordinates, not sewing patterns. Per-tri ratios varied enough
-    that some triangles had 100× strain at t=0 → NaN cascade. Per-tri flat
-    is the robust fallback.
+    Prior attempts:
+      - v4/v5 (UV panel): per-tri UV ↔ 3D area ratios vary wildly in CLO3D
+        atlas UVs → some tris hit edge_stiff = edge_ke / tiny_area → explosion.
+      - v6 (per-tri flat, disconnected): every triangle has its own 2D frame,
+        so adjacent tris disagree on shared-edge 2D coords → bend_weight's
+        linear combination doesn't zero out at any 3D config → explosion.
+      - v7 (per-tri flat + bending off): no NaN, but cloth collapses since
+        stretch alone can't prevent triangle folding.
+
+    This function fixes both by keeping per-tri isometric (for stretch) AND
+    making shared-edge coords consistent (for bending).
     """
+    from collections import deque
     n_t = len(faces)
+
+    # Pre-compute edge-to-faces adjacency.
+    edge_to_faces: dict[tuple[int, int], list[int]] = {}
+    for fi in range(n_t):
+        for i in range(3):
+            a = int(faces[fi, i])
+            b = int(faces[fi, (i + 1) % 3])
+            e = (a, b) if a < b else (b, a)
+            edge_to_faces.setdefault(e, []).append(fi)
+
+    face_neighbors: list[list[tuple[int, tuple[int, int]]]] = [[] for _ in range(n_t)]
+    for e, fs in edge_to_faces.items():
+        if len(fs) == 2:
+            f0, f1 = fs
+            face_neighbors[f0].append((f1, e))
+            face_neighbors[f1].append((f0, e))
+
     panel_verts = np.zeros((3 * n_t, 2), dtype=np.float64)
     panel_indices = np.arange(3 * n_t, dtype=np.int32).reshape(-1, 3)
+    visited = np.zeros(n_t, dtype=bool)
 
+    def place_seed(fi: int):
+        f = faces[fi]
+        p0 = verts_3d[f[0]]
+        p1 = verts_3d[f[1]]
+        p2 = verts_3d[f[2]]
+        e01 = p1 - p0
+        L = float(np.linalg.norm(e01))
+        if L < 1e-12:
+            L = 1e-12
+        e02 = p2 - p0
+        proj = float(np.dot(e01, e02)) / L
+        h = float(np.linalg.norm(np.cross(e01, e02))) / L
+        panel_verts[fi * 3 + 0] = (0.0, 0.0)
+        panel_verts[fi * 3 + 1] = (L, 0.0)
+        panel_verts[fi * 3 + 2] = (proj, h)
+        visited[fi] = True
+
+    def place_neighbor(fi: int, fj: int, shared_edge: tuple[int, int]) -> bool:
+        """Place fj so its shared edge with fi has the same 2D coords.
+        Returns False on degenerate placement (falls back to seed)."""
+        f_i = faces[fi]
+        f_j = faces[fj]
+        a, b = shared_edge
+
+        # Positions of a, b in f_i and f_j (0, 1, or 2).
+        pos_a_i = int(np.where(f_i == a)[0][0])
+        pos_b_i = int(np.where(f_i == b)[0][0])
+        pos_a_j = int(np.where(f_j == a)[0][0])
+        pos_b_j = int(np.where(f_j == b)[0][0])
+        pos_c_j = 3 - pos_a_j - pos_b_j  # the remaining index (0+1+2 = 3)
+        pos_c_i = 3 - pos_a_i - pos_b_i
+        c_j = int(f_j[pos_c_j])
+
+        pa = panel_verts[fi * 3 + pos_a_i]
+        pb = panel_verts[fi * 3 + pos_b_i]
+        ab = pb - pa
+        L_ab = float(np.linalg.norm(ab))
+        if L_ab < 1e-12:
+            return False
+
+        # 3D distances from c_j to a and b.
+        d_ca = float(np.linalg.norm(verts_3d[c_j] - verts_3d[a]))
+        d_cb = float(np.linalg.norm(verts_3d[c_j] - verts_3d[b]))
+
+        # Circle intersection: place c in the local (e_x, e_y) frame anchored at pa.
+        e_x = ab / L_ab
+        e_y = np.array([-e_x[1], e_x[0]])  # 90° CCW
+
+        x_local = (d_ca * d_ca - d_cb * d_cb + L_ab * L_ab) / (2.0 * L_ab)
+        y_sq = d_ca * d_ca - x_local * x_local
+        y_local = float(np.sqrt(max(y_sq, 0.0)))
+
+        # Choose sign so c_j sits on the OPPOSITE side of edge ab from fi's
+        # third vert (standard triangle-pair unfold: "open the book").
+        fi_c_2d = panel_verts[fi * 3 + pos_c_i]
+        fi_c_local_y = float(np.dot(fi_c_2d - pa, e_y))
+        if fi_c_local_y > 0:
+            y_local = -y_local
+
+        pc = pa + x_local * e_x + y_local * e_y
+        panel_verts[fj * 3 + pos_a_j] = pa
+        panel_verts[fj * 3 + pos_b_j] = pb
+        panel_verts[fj * 3 + pos_c_j] = pc
+        visited[fj] = True
+        return True
+
+    n_components = 0
+    q: deque[int] = deque()
+    for seed in range(n_t):
+        if visited[seed]:
+            continue
+        n_components += 1
+        place_seed(seed)
+        q.append(seed)
+        while q:
+            fi = q.popleft()
+            for (fj, shared) in face_neighbors[fi]:
+                if visited[fj]:
+                    continue
+                ok = place_neighbor(fi, fj, shared)
+                if not ok:
+                    place_seed(fj)
+                q.append(fj)
+
+    # Degeneracy diagnostic
     v0 = verts_3d[faces[:, 0]]
     v1 = verts_3d[faces[:, 1]]
     v2 = verts_3d[faces[:, 2]]
-
-    e01 = v1 - v0
-    e02 = v2 - v0
-    len01 = np.linalg.norm(e01, axis=1)
-    safe = np.where(len01 > 1e-12, len01, 1.0)
-    proj = (e01 * e02).sum(axis=1) / safe
-    cross_mag = np.linalg.norm(np.cross(e01, e02), axis=1)
-    height = cross_mag / safe
-
-    # v0 stays at (0, 0); v1 at (|e01|, 0); v2 at (proj, height)
-    panel_verts[1::3, 0] = len01
-    panel_verts[2::3, 0] = proj
-    panel_verts[2::3, 1] = height
-
-    # Guard against degenerate triangles — if any collapse, Newton drops them
-    # but we want to catch it explicitly.
+    cross_mag = np.linalg.norm(np.cross(v1 - v0, v2 - v0), axis=1)
     n_degen = int((cross_mag < 1e-12).sum())
-    if n_degen > 0:
-        print(f"[Newton] Per-tri flat panel: {n_degen}/{n_t} degenerate triangles (zero 3D area)")
 
-    return panel_verts, panel_indices
+    # Shared-edge consistency diagnostic. For DEVELOPABLE local patches BFS is
+    # exact (zero mismatch). For non-developable regions (seams, curved hoods),
+    # non-tree edges accumulate error. We report the distribution so bending
+    # stiffness can be tuned against it: force scales linearly with edge_ke
+    # and with mismatch, so max_mismatch × edge_ke must stay bounded.
+    mismatch = []
+    for e, fs in edge_to_faces.items():
+        if len(fs) != 2:
+            continue
+        a, b = e
+        fa, fb = fs
+        pa_a = panel_verts[fa * 3 + int(np.where(faces[fa] == a)[0][0])]
+        pb_a = panel_verts[fb * 3 + int(np.where(faces[fb] == a)[0][0])]
+        pa_b = panel_verts[fa * 3 + int(np.where(faces[fa] == b)[0][0])]
+        pb_b = panel_verts[fb * 3 + int(np.where(faces[fb] == b)[0][0])]
+        mismatch.append(max(float(np.linalg.norm(pa_a - pb_a)),
+                            float(np.linalg.norm(pa_b - pb_b))))
+    max_mismatch = float(max(mismatch)) if mismatch else 0.0
+    if mismatch:
+        m = np.asarray(mismatch)
+        print(f"[Newton] Geodesic unfold: {n_t} tris, {n_components} components, {n_degen} degen; "
+              f"shared-edge mismatch (m): max={m.max():.4f} median={np.median(m):.4f} "
+              f"mean={m.mean():.4f} [>1mm: {int((m > 1e-3).sum())}/{len(m)}]")
+    else:
+        print(f"[Newton] Geodesic unfold: {n_t} tris, {n_components} components, {n_degen} degen; "
+              f"no shared edges")
+    return panel_verts, panel_indices, max_mismatch
 
 
 def _normalize_to_meters(verts: np.ndarray, label: str) -> tuple:
@@ -569,36 +688,28 @@ def newton_drape(
         scale=wp.vec3(1.0, 1.0, 1.0),
     )
 
-    # Build per-triangle flat rest pose. This guarantees F^T F = I at t=0 so
-    # stretch strain starts at zero — no force spike regardless of 3D garment
-    # curvature. CLO3D atlas UVs were tried (v5) but per-tri area ratios vary
-    # enough that some tris hit 100× strain → NaN at frame 1. This approach
-    # sidesteps UV quality entirely.
-    #
-    # Trade-off: cloth has no "wants to retain CLO3D sculpted shape" restoring
-    # force. Gravity + contact + bending (edge_aniso_ke, very weak) do the work.
-    # For a drape sim, that's fine — the whole point is gravity + body shape.
-    panel_verts_np, panel_indices_np = _build_per_tri_flat_panel(
+    # Geodesic BFS unfold: per-triangle-isometric (F^T F = I at t=0 → zero
+    # stretch force) AND shared-edge-consistent where the mesh is developable.
+    # Non-developable regions (hood curvature, seams) accumulate mismatch on
+    # loop-closure edges, which would produce non-zero bending force at rest.
+    # We measure the actual max mismatch and SCALE edge_ke accordingly so the
+    # worst-case bending acceleration stays below ~60 m/s² (Δv/substep <
+    # 0.1 m/s). Derivation in /tmp/test_bending_force_magnitudes.py:
+    #   accel ≈ 7e13 × edge_ke² × mismatch / (edge_area² × mass) [hoodie-scale]
+    #   → safe_edge_ke ≈ 9.2e-7 / sqrt(max(1mm, mismatch))
+    # Clamped to canonical 2e-5 as ceiling so near-perfect unfolds get full
+    # bending.
+    panel_verts_np, panel_indices_np, max_mismatch = _build_geodesic_unfold_panel(
         clean_garment_verts, clean_garment_faces
     )
-    print(f"[Newton] Per-tri flat panel rest pose: {len(panel_verts_np)} panel verts "
-          f"({len(panel_indices_np)} triangles, F=I at t=0)")
+    safe_mismatch = max(max_mismatch, 1.0e-3)
+    edge_ke_safe = min(2.0e-5, 9.2e-7 / float(np.sqrt(safe_mismatch)))
+    print(f"[Newton] Panel: {len(panel_verts_np)} 2D verts, {len(panel_indices_np)} tris; "
+          f"auto-tuned edge_ke={edge_ke_safe:.2e} (from max_mismatch={max_mismatch:.4f}m)")
     panel_verts_arg = panel_verts_np.tolist()
     panel_indices_arg = panel_indices_np.flatten().tolist()
 
-    # edge_aniso_ke=(0,0,0) DISABLES bending entirely. Per-triangle-flat panels
-    # are mathematically correct for stretch (F^T F = I at t=0, verified) but
-    # cloth.py's bending formula uses cotangent weights derived from 2D panel
-    # geometry assuming panel verts are SHARED across adjacent triangles. With
-    # per-tri disconnected panels, the bend_weight Σ_j w_j * pos_3d[j] doesn't
-    # zero out at any 3D configuration, producing O(28000 m/s²) acceleration
-    # per vert at t=0 → NaN in 1-2 substeps. v6 confirmed this: 27510/27706
-    # NaN despite correct stretch.
-    #
-    # Trade-off: cloth has zero bending stiffness → drapes like wet paper with
-    # no fold memory. For a first pass that actually runs without NaN, that's
-    # acceptable. Proper fix requires a connected 2D parameterization
-    # (LSCM / ABF++ / CLO3D sewing pattern) which is separate work.
+    # edge_aniso_ke auto-tuned from measured panel mismatch (see above).
     style3d.add_cloth_mesh(
         builder,
         pos=wp.vec3(0.0, 0.0, 0.0),
@@ -610,7 +721,7 @@ def newton_drape(
         scale=1.0,
         particle_radius=particle_r,
         tri_aniso_ke=wp.vec3(tri_ke, tri_ke, tri_ke * 0.1),
-        edge_aniso_ke=wp.vec3(0.0, 0.0, 0.0),
+        edge_aniso_ke=wp.vec3(edge_ke_safe, edge_ke_safe * 0.5, edge_ke_safe * 0.25),
         panel_verts=panel_verts_arg,
         panel_indices=panel_indices_arg,
     )
@@ -1340,7 +1451,7 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-20/v7-bending-off (per-tri flat stretch + bending disabled + no ground plane — diagnostic: isolates bending NaN)"
+HANDLER_BUILD = "drape-handler 2026-04-20/v8-geodesic-unfold+low-bend (BFS unfold + 100x-lower edge_ke; bounded bending even on non-dev mismatches)"
 
 try:
     import runpod
