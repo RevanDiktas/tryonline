@@ -686,15 +686,19 @@ def newton_drape(
     edge_ke = preset["edge_ke"]
     particle_r = preset["particle_r"]
 
-    # Inflate the garment off the body BEFORE cleanup + sim. With per-tri-flat
-    # rest pose (built post-inflation), the rest pose IS the inflated shape, so
-    # inflation doesn't introduce initial strain. Generous target for safety.
-    inflate_offset = 15.0e-3
-    aligned_verts, n_inflated, stuck_mask_orig = _inflate_garment_off_body(
-        aligned_verts, body_verts, body_obj, inflate_offset, max_iters=30
-    )
-    print(f"[Newton] Garment inflation summary: max pushed {n_inflated}/{len(aligned_verts)} "
-          f"(target ≥{inflate_offset*1000:.1f}mm off body)")
+    # v11: inflation REMOVED. Previously we inflated the garment 15mm off the
+    # body as a NaN-prevention band-aid (early versions had issues from
+    # initial body penetration). Now that stretch starts at F=I and bending
+    # is adaptively bounded, the contact kernel handles minor penetration
+    # organically — and without inflation the garment starts at its actual
+    # CLO3D-designed positions on the body, so it can drape TIGHTLY instead
+    # of hanging puffed-up around the avatar.
+    # This also matches the canonical example_cloth_style3d.py which
+    # doesn't inflate either. If rare verts are deep inside the body, the
+    # NaN-restore post-sim step (line ~917) catches them.
+    stuck_mask_orig = np.zeros(len(aligned_verts), dtype=bool)
+    n_inflated = 0
+    print(f"[Newton] Inflation skipped — garment starts at CLO3D positions")
 
     # v10: doubled swift from 120→240 frames (2s → 4s) so drape has time to
     # settle on body. v9 log showed garment still mid-fall at frame 120
@@ -853,22 +857,15 @@ def newton_drape(
     # mu=0.0: matches our prior choice. PR #1500 documents a friction sign-flip NaN
     # at near-zero tangential velocity. Canonical uses 0.2, but 0.0 is safer until
     # we pick up the fix.
-    # v10 contact tuning — v9 showed garment correctly resting on body but
-    # with visible body-surface clipping and no friction so hoodie slid
-    # slightly off shoulders. Adjustments vs canonical:
-    #   radius: 2mm → 5mm   — bigger "bubble" around particle so narrow
-    #                          avatar regions (armpit, neck) stop tunneling
-    #   margin: 3.5mm → 8mm — contact kicks in earlier → no visible clipping
-    #                          into body skin in rendered output
-    #   ke:     10  → 30    — firmer push-out; still 33× below Newton's
-    #                          rigid-body default of 1e3 so no NaN risk
-    #   mu:     0   → 0.2   — friction so hoodie grips shoulders (matches
-    #                          canonical example_cloth_style3d.py)
-    #   kd:     1e-6 (unchanged) — proven safe; changing this re-opens the
-    #                              v4 NaN bug
-    model.soft_contact_radius = 0.5e-2
-    model.soft_contact_margin = 0.8e-2
-    model.soft_contact_ke = 3.0e1
+    # v11 contact params: exact canonical example_cloth_style3d.py.
+    # v10 tried to stiffen (ke=30) + widen (margin=8mm) + add friction
+    # (mu=0.2) all at once; the combo froze the cloth 8mm off the body
+    # ("possessed" look — garment hanging rigidly in T-pose shape).
+    # Canonical values paired together ARE proven drape-stable — our
+    # earlier divergence was from inflation + too-rigid params combined.
+    model.soft_contact_radius = 0.2e-2
+    model.soft_contact_margin = 0.35e-2
+    model.soft_contact_ke = 1.0e1
     model.soft_contact_kd = 1.0e-6
     model.soft_contact_kf = 0.0
     model.soft_contact_mu = 0.2
@@ -1531,7 +1528,7 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-20/v10-drape-tuning (240 frames, contact radius 5mm + margin 8mm, ke=30, mu=0.2 — longer settle + less clipping + friction)"
+HANDLER_BUILD = "drape-handler 2026-04-20/v11-no-inflation (canonical contact params + NO inflation — garment drapes tightly from CLO3D rest position)"
 
 try:
     import runpod
