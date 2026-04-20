@@ -1464,41 +1464,47 @@ def handler(event: dict) -> dict:
         if mtl_name:
             mtl_source = garment_obj.parent / mtl_name
             if mtl_source.exists():
-                mtl_bytes = mtl_source.read_bytes()
-                mtl_b64 = base64.b64encode(mtl_bytes).decode("utf-8")
-                print(f"[Draping] MTL: {mtl_name} ({len(mtl_bytes)/1024:.1f} KB)")
-
-                mtl_text = mtl_bytes.decode("utf-8", errors="replace")
-                for mtl_line in mtl_text.split("\n"):
-                    mtl_line = mtl_line.strip()
-                    if mtl_line.startswith("map_") or mtl_line.startswith("bump"):
-                        parts = mtl_line.split()
+                mtl_text_orig = mtl_source.read_text(encoding="utf-8", errors="replace")
+                cleaned_lines = []
+                for mtl_line in mtl_text_orig.split("\n"):
+                    stripped = mtl_line.strip()
+                    if stripped.startswith("map_") or stripped.startswith("bump"):
+                        parts = stripped.split()
                         if len(parts) >= 2:
-                            # Belt-and-suspenders: the pre-sim download pass already
-                            # rewrote the MTL to use basenames, but if anything else
-                            # injected an absolute path, fall back to basename here too.
                             tex_filename = parts[-1].replace("\\", "/").rsplit("/", 1)[-1]
                             tex_path = garment_obj.parent / tex_filename
                             if tex_path.exists() and tex_path.stat().st_size < 10_000_000:
                                 tex_bytes = tex_path.read_bytes()
                                 textures_b64[tex_filename] = base64.b64encode(tex_bytes).decode("utf-8")
+                                cleaned_lines.append(mtl_line)
                                 print(f"[Draping] Texture: {tex_filename} ({len(tex_bytes)/1024:.1f} KB)")
+                            else:
+                                # Drop this map_* line so Three.js MTLLoader.preload()
+                                # doesn't throw on the missing texture and kill the
+                                # whole OBJ rendering path. Base `Kd` color survives
+                                # and the garment still shows (flat fabric color).
+                                print(f"[Draping] MTL ref dropped (texture missing): {tex_filename}")
+                                continue
+                    else:
+                        cleaned_lines.append(mtl_line)
+                mtl_bytes = "\n".join(cleaned_lines).encode("utf-8")
+                mtl_b64 = base64.b64encode(mtl_bytes).decode("utf-8")
+                print(f"[Draping] MTL: {mtl_name} ({len(mtl_bytes)/1024:.1f} KB, "
+                      f"{len(textures_b64)} textures included)")
 
-        # Convert to GLB (preserve original textures/materials when possible)
+        # Convert draped OBJ directly to GLB (one-to-one vertex mapping). No
+        # injection into the CLO3D display GLB — that path does nearest-vertex
+        # mapping between 27k sim verts and 194k display verts across 71
+        # sub-meshes (zipper, drawstrings), which produces shredded/misaligned
+        # geometry. Per user feedback, OBJ + MTL is the authoritative pipeline;
+        # the GLB output here is only a fallback for Three.js GLTFLoader.
         glb_path = output_dir / "draped.glb"
         glb_b64 = ""
         glb_bytes = b""
-        if garment_glb.exists() and garment_glb.stat().st_size > 0:
-            print("[Draping] Using texture-preserving GLB conversion...")
-            if inject_verts_into_glb(draped_obj, garment_glb, glb_path):
-                glb_bytes = glb_path.read_bytes()
-                glb_b64 = base64.b64encode(glb_bytes).decode("utf-8")
-        else:
-            print("[Draping] No original GLB available, bare conversion...")
-            if _obj_to_glb_bare(draped_obj, glb_path):
-                glb_bytes = glb_path.read_bytes()
-                glb_b64 = base64.b64encode(glb_bytes).decode("utf-8")
-                print(f"[Draping] GLB (no textures): {len(glb_bytes) / 1024:.1f} KB")
+        if _obj_to_glb_bare(draped_obj, glb_path):
+            glb_bytes = glb_path.read_bytes()
+            glb_b64 = base64.b64encode(glb_bytes).decode("utf-8")
+            print(f"[Draping] GLB (direct from draped OBJ): {len(glb_bytes)/1024:.1f} KB")
 
         vertex_count = len(load_obj_vertices(draped_obj))
         processing_time = time.time() - start_time
@@ -1528,7 +1534,7 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-20/v11-no-inflation (canonical contact params + NO inflation — garment drapes tightly from CLO3D rest position)"
+HANDLER_BUILD = "drape-handler 2026-04-20/v12-obj-native-output (drop GLB injection + strip missing-texture refs from MTL so frontend OBJ path renders)"
 
 try:
     import runpod
