@@ -257,13 +257,15 @@ def load_obj_uvs(obj_path: Path) -> tuple:
 
 
 FABRIC_PRESETS = {
-    "cotton_light":  {"density": 0.15, "tri_ke": 40.0,  "edge_ke": 5.0e-6, "particle_r": 2.0e-3},
-    "cotton_medium": {"density": 0.30, "tri_ke": 50.0,  "edge_ke": 1.0e-5, "particle_r": 2.0e-3},
-    "denim":         {"density": 0.50, "tri_ke": 150.0, "edge_ke": 4.0e-5, "particle_r": 2.0e-3},
-    "silk":          {"density": 0.08, "tri_ke": 20.0,  "edge_ke": 2.5e-6, "particle_r": 2.0e-3},
-    "jersey_knit":   {"density": 0.20, "tri_ke": 30.0,  "edge_ke": 5.0e-6, "particle_r": 2.0e-3},
-    "wool":          {"density": 0.40, "tri_ke": 100.0, "edge_ke": 2.5e-5, "particle_r": 2.0e-3},
-    "polyester":     {"density": 0.25, "tri_ke": 50.0,  "edge_ke": 7.5e-6, "particle_r": 2.0e-3},
+    # tri_ke/edge_ke/particle_r aligned with canonical example_cloth_style3d.py
+    # (cotton: tri_ke=100, particle_r=5e-3). Other fabrics scaled proportionally.
+    "cotton_light":  {"density": 0.15, "tri_ke": 80.0,  "edge_ke": 5.0e-6, "particle_r": 5.0e-3},
+    "cotton_medium": {"density": 0.30, "tri_ke": 100.0, "edge_ke": 1.0e-5, "particle_r": 5.0e-3},
+    "denim":         {"density": 0.50, "tri_ke": 300.0, "edge_ke": 4.0e-5, "particle_r": 5.0e-3},
+    "silk":          {"density": 0.08, "tri_ke": 40.0,  "edge_ke": 2.5e-6, "particle_r": 5.0e-3},
+    "jersey_knit":   {"density": 0.20, "tri_ke": 60.0,  "edge_ke": 5.0e-6, "particle_r": 5.0e-3},
+    "wool":          {"density": 0.40, "tri_ke": 200.0, "edge_ke": 2.5e-5, "particle_r": 5.0e-3},
+    "polyester":     {"density": 0.25, "tri_ke": 100.0, "edge_ke": 7.5e-6, "particle_r": 5.0e-3},
 }
 
 
@@ -450,14 +452,13 @@ def newton_drape(
     edge_ke = preset["edge_ke"]
     particle_r = preset["particle_r"]
 
-    # Inflate the garment off the body BEFORE cleanup + sim. 20mm gives us headroom
-    # for nearest-vertex approximation error (true surface distance can be less than
-    # nearest-vertex signed distance when the closest body point is on a triangle
-    # face rather than a vertex). Iterative push handles the case where one push
-    # changes the nearest-body-vertex for a given garment vert.
-    inflate_offset = 20.0e-3
+    # Inflate the garment off the body BEFORE cleanup + sim. 10mm is enough once
+    # panel_verts is set correctly (XPBD rest pose comes from 2D UV, so per-tri
+    # strain at t=0 is small regardless of inflation). Larger inflation distorts
+    # 3D geometry relative to 2D pattern → unnecessary initial strain.
+    inflate_offset = 10.0e-3
     aligned_verts, n_inflated = _inflate_garment_off_body(
-        aligned_verts, body_verts, body_obj, inflate_offset
+        aligned_verts, body_verts, body_obj, inflate_offset, max_iters=20
     )
     print(f"[Newton] Garment inflation summary: max pushed {n_inflated}/{len(aligned_verts)} "
           f"(target ≥{inflate_offset*1000:.1f}mm off body)")
@@ -512,14 +513,44 @@ def newton_drape(
         scale=wp.vec3(1.0, 1.0, 1.0),
     )
 
-    # NOTE: panel_verts deliberately OMITTED. CLO3D UV atlas layout doesn't
-    # match the scale/topology Style3D expects for rest-pose reconstruction:
-    # passing face-indexed UVs caused instant 99% NaN at frame 1. With
-    # panel_verts=None, Style3D falls back to using the initial 3D positions
-    # as the rest pose — which is exactly what we want after inflation, because
-    # the cloth starts stress-free instead of being flagged as "50% stretched"
-    # and released like a catapult. We lose CLO3D's anisotropic warp/weft
-    # direction but gain a sim that actually converges.
+    # Build panel_verts (the 2D rest pose) from UVs. CRITICAL: with panel_verts=None,
+    # cloth.py:265 falls back to `vertices_np[:, :2]` — the XY projection of the 3D
+    # garment. For a 3D-folded garment (hood, sleeves, front/back overlap), many
+    # triangles collapse to near-zero area in that projection → `inv_D` entries
+    # explode → frame-1 NaN cascade. Canonical examples (example_cloth_style3d.py,
+    # example_cloth_h1.py) always pass `panel_verts = UV * scale`.
+    #
+    # We auto-calibrate `uv_scale` so total UV tri-area equals total 3D tri-area.
+    # That minimises *global* strain at t=0; per-tri strain still reflects real
+    # draping deformation (what the sim is supposed to model).
+    if has_uvs:
+        cf = clean_garment_faces
+        cuf = clean_uv_faces
+        v0_3d, v1_3d, v2_3d = clean_garment_verts[cf[:, 0]], clean_garment_verts[cf[:, 1]], clean_garment_verts[cf[:, 2]]
+        area_3d_total = float(0.5 * np.linalg.norm(np.cross(v1_3d - v0_3d, v2_3d - v0_3d), axis=1).sum())
+        u0_2d, u1_2d, u2_2d = uv_verts_raw[cuf[:, 0]], uv_verts_raw[cuf[:, 1]], uv_verts_raw[cuf[:, 2]]
+        e1 = u1_2d - u0_2d
+        e2 = u2_2d - u0_2d
+        area_uv_total = float(0.5 * np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]).sum())
+        if area_uv_total > 1e-12 and area_3d_total > 1e-12:
+            uv_scale = float(np.sqrt(area_3d_total / area_uv_total))
+        else:
+            uv_scale = 1.0
+        panel_verts_scaled = (uv_verts_raw.astype(np.float64) * uv_scale)
+        print(f"[Newton] Panel (UV) rest pose: uv_scale={uv_scale:.6f} "
+              f"(3D area={area_3d_total:.4f} m², UV area={area_uv_total:.4f} → {area_uv_total*uv_scale*uv_scale:.4f} m² after scale)")
+        panel_verts_arg = panel_verts_scaled.tolist()
+        panel_indices_arg = clean_uv_faces.flatten().tolist()
+    else:
+        # No UVs available. Newton's default (XY projection) is unsafe for 3D-folded
+        # garments, but with no panel data we have no better option. Fall back to
+        # current-3D as rest (zero initial strain by construction). This means passing
+        # the first two coords of the cleaned 3D verts as panel_verts — explicit rather
+        # than relying on Newton's default.
+        print("[Newton] WARNING: no UVs — using 3D XY projection as rest pose (may be unstable)")
+        panel_verts_arg = clean_garment_verts[:, :2].astype(np.float64).tolist()
+        panel_indices_arg = clean_garment_faces.flatten().tolist()
+
     style3d.add_cloth_mesh(
         builder,
         pos=wp.vec3(0.0, 0.0, 0.0),
@@ -532,8 +563,8 @@ def newton_drape(
         particle_radius=particle_r,
         tri_aniso_ke=wp.vec3(tri_ke, tri_ke, tri_ke * 0.1),
         edge_aniso_ke=wp.vec3(edge_ke * 2.0, edge_ke, edge_ke * 0.25),
-        panel_verts=None,
-        panel_indices=None,
+        panel_verts=panel_verts_arg,
+        panel_indices=panel_indices_arg,
     )
 
     # Defensive: surface the dual-filter mismatch with a clear error rather than
@@ -550,18 +581,23 @@ def newton_drape(
     device = "cuda:0"
     model = builder.finalize(device=device)
     model.set_gravity((0.0, -9.81, 0.0))
-    # Match canonical example_cloth_style3d.py soft-contact params. Newton's defaults
-    # (radius=0.01, ke=1e3, kf=1e3, mu=0.5) are tuned for rigid bodies and explode
-    # cloth on contact. mu=0.0 also matches PR #1500 H1 fix — friction sign-flip at
-    # near-zero tangential velocity is a known NaN source.
-    # Contact tuning: ke=1e2 is 10x the prior value (which let cloth drift through
-    # the body faster than the restoring force could push it back) but still 10x
-    # softer than Newton's rigid-body default (1e3) which explodes cloth. kd adds
-    # damping so contact oscillations decay instead of resonating.
-    model.soft_contact_radius = 0.3e-2
-    model.soft_contact_margin = 0.5e-2
-    model.soft_contact_ke = 1.0e2
-    model.soft_contact_kd = 1.0e0
+    # Contact params copied 1:1 from canonical example_cloth_style3d.py. Newton's
+    # defaults (ke=1e3, kd=1e3, mu=0.5) are rigid-body defaults that explode cloth.
+    # The canonical values are the only published-safe combination for Style3D.
+    #
+    # IMPORTANT: kd=1e-6 (not 1.0!). Cloth particle masses are tiny (density×area ≈
+    # 3e-5 kg per particle). With kd=1.0 and any contact velocity, the damping force
+    # is 1,000,000× the mass — F/m blows past 1e6 m/s² in one step → NaN in <1 frame.
+    # kd=1e-6 matches the canonical and keeps the contact spring critically-ish damped
+    # without overpowering the mass. (Prior kd=1.0 was the primary NaN trigger.)
+    #
+    # mu=0.0: matches our prior choice. PR #1500 documents a friction sign-flip NaN
+    # at near-zero tangential velocity. Canonical uses 0.2, but 0.0 is safer until
+    # we pick up the fix.
+    model.soft_contact_radius = 0.2e-2
+    model.soft_contact_margin = 0.35e-2
+    model.soft_contact_ke = 1.0e1
+    model.soft_contact_kd = 1.0e-6
     model.soft_contact_kf = 0.0
     model.soft_contact_mu = 0.0
 
@@ -582,11 +618,12 @@ def newton_drape(
     first_nan_frame = None
 
     for frame in range(n_frames):
-        # collide() inside the substep loop, not once per outer frame. With moving
-        # cloth the contact normals from frame start are stale by the last substep,
-        # producing wrong-direction forces — matches example_cloth_h1.py simulate().
+        # collide() once per frame, outside the substep loop — matches canonical
+        # example_cloth_style3d.py (static avatar). H1 example moves collide() inside
+        # the substep loop but that's because its avatar is animated per-substep; ours
+        # is static so once per frame is sufficient and avoids per-substep BVH rebuild.
+        model.collide(state_0, contacts)
         for _ in range(sim_substeps):
-            model.collide(state_0, contacts)
             state_0.clear_forces()
             solver.step(state_0, state_1, control, contacts, dt)
             state_0, state_1 = state_1, state_0
@@ -1215,7 +1252,7 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-20/v4.1-mtl-basename (v4+rewrite-CLO3D-absolute-tex-paths-to-basenames)"
+HANDLER_BUILD = "drape-handler 2026-04-20/v5-uv-panel-rest-pose (real panel_verts from UVs, canonical contact params, collide-once-per-frame)"
 
 try:
     import runpod
