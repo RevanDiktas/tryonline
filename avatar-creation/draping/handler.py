@@ -696,7 +696,11 @@ def newton_drape(
     print(f"[Newton] Garment inflation summary: max pushed {n_inflated}/{len(aligned_verts)} "
           f"(target ≥{inflate_offset*1000:.1f}mm off body)")
 
-    n_frames = 200 if simulation_mode == "quality" else 120
+    # v10: doubled swift from 120→240 frames (2s → 4s) so drape has time to
+    # settle on body. v9 log showed garment still mid-fall at frame 120
+    # (y_max: 1.83 → 1.62 over 2s, only 20cm of settling done). Quality mode
+    # gets 360 for tighter final drape.
+    n_frames = 360 if simulation_mode == "quality" else 240
     # Match the canonical example_cloth_style3d.py: 10 substeps @ 1/600s = 16.67ms/frame.
     # Smaller dt is critical for stability — sim_dt=1/240 was too coarse and diverged.
     sim_substeps = 10
@@ -849,12 +853,25 @@ def newton_drape(
     # mu=0.0: matches our prior choice. PR #1500 documents a friction sign-flip NaN
     # at near-zero tangential velocity. Canonical uses 0.2, but 0.0 is safer until
     # we pick up the fix.
-    model.soft_contact_radius = 0.2e-2
-    model.soft_contact_margin = 0.35e-2
-    model.soft_contact_ke = 1.0e1
+    # v10 contact tuning — v9 showed garment correctly resting on body but
+    # with visible body-surface clipping and no friction so hoodie slid
+    # slightly off shoulders. Adjustments vs canonical:
+    #   radius: 2mm → 5mm   — bigger "bubble" around particle so narrow
+    #                          avatar regions (armpit, neck) stop tunneling
+    #   margin: 3.5mm → 8mm — contact kicks in earlier → no visible clipping
+    #                          into body skin in rendered output
+    #   ke:     10  → 30    — firmer push-out; still 33× below Newton's
+    #                          rigid-body default of 1e3 so no NaN risk
+    #   mu:     0   → 0.2   — friction so hoodie grips shoulders (matches
+    #                          canonical example_cloth_style3d.py)
+    #   kd:     1e-6 (unchanged) — proven safe; changing this re-opens the
+    #                              v4 NaN bug
+    model.soft_contact_radius = 0.5e-2
+    model.soft_contact_margin = 0.8e-2
+    model.soft_contact_ke = 3.0e1
     model.soft_contact_kd = 1.0e-6
     model.soft_contact_kf = 0.0
-    model.soft_contact_mu = 0.0
+    model.soft_contact_mu = 0.2
 
     state_0 = model.state()
     state_1 = model.state()
@@ -1514,7 +1531,7 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-20/v9-weld-seams (weld CLO3D seam-split verts at 1mm → 1 topological component; cloth can actually hold together)"
+HANDLER_BUILD = "drape-handler 2026-04-20/v10-drape-tuning (240 frames, contact radius 5mm + margin 8mm, ke=30, mu=0.2 — longer settle + less clipping + friction)"
 
 try:
     import runpod
