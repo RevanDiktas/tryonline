@@ -644,6 +644,369 @@ def _clean_garment_for_newton(verts, faces, uv_verts, uv_faces, area_eps=1e-6):
     return clean_verts, clean_faces_remapped, clean_uv_faces, used_verts
 
 
+# =============================================================================
+# PyGarment / NvidiaWarp-GarmentCode drape pipeline
+# =============================================================================
+# Primary drape path as of v17. Newton + geometric stay as fallbacks.
+#
+# PyGarment provides what Newton's Style3D solver didn't:
+#   - particle_max_velocity clamp (hard cap on any particle speed — no NaN)
+#   - global viscous damping (stability)
+#   - zero-gravity warmup (first N frames with gravity=0 so cloth settles)
+#   - is_static() auto-termination (sim ends at equilibrium, not fixed frames)
+#   - panel-aware body collision (with per-vertex body segmentation)
+#   - structural springs on panel seams (proper stitching, not just 1mm weld)
+#
+# Our integration flow:
+#   1. Download body + garment OBJ/MTL from Supabase (same as always)
+#   2. Generate per-vertex cloth panel segmentation from MTL material groups
+#   3. Prepare PyGarment's expected directory layout in a tmpdir
+#   4. Write body/cloth OBJs to the paths it expects (body pre-scaled by 1/100
+#      because PyGarment's Cloth.__init__ hardcodes b_scale=100)
+#   5. Call pygarment.meshgen.simulation.run_sim(...)
+#   6. Read the draped OBJ from the sim output path, return same as Newton did
+#
+# The SMPL body segmentation ships with our Docker image at
+# /workspace/pygarment_assets/smpl_vert_segmentation.json and PyGarment picks
+# it up when PathCofig.use_smpl_seg=True.
+
+def _generate_cloth_seg_file(
+    garment_obj: Path,
+    orig_to_welded: np.ndarray,
+    output_txt: Path,
+) -> dict:
+    """
+    Write PyGarment's per-vertex panel segmentation txt file.
+
+    Format (from pygarment/warp/collision/panel_assignment.py::read_segmentation):
+      one line per vertex, each line = comma-separated entries, first entry
+      is the panel label. Lines starting with "stitch" are treated as stitch
+      verts regardless of suffix.
+
+    We derive panel labels from CLO3D's MTL material groups in the OBJ. Each
+    `usemtl NAME` declaration switches the active material for subsequent faces.
+    Every face's vertices inherit that material. A vertex shared between two
+    panels gets the first material that referenced it (arbitrary but
+    deterministic).
+
+    Stitch verts = vertex indices whose original entry was merged into another
+    during the 1mm weld pass (i.e. they appear in more than one "welded group").
+    These get label "stitch_<group_id>" instead of a panel name.
+
+    Returns a dict with summary stats.
+    """
+    # --- Pass 1: parse OBJ line-by-line, track active usemtl, assign per-face
+    # material, propagate to vertices.
+    v_count = 0
+    active_mtl = "UNASSIGNED"
+    # vert_to_mtl: index into materials list, -1 = not yet assigned
+    vert_to_mtl_name = {}  # vert_idx (0-based) -> first material name that touched it
+    face_count = 0
+    materials_seen = set()
+
+    with open(garment_obj, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if line.startswith("v "):
+                v_count += 1
+            elif line.startswith("usemtl "):
+                active_mtl = line.strip().split(None, 1)[1].strip()
+                materials_seen.add(active_mtl)
+            elif line.startswith("f "):
+                parts = line.strip().split()[1:]
+                for p in parts:
+                    v_idx_1based = p.split("/")[0]
+                    try:
+                        v_idx = int(v_idx_1based) - 1
+                    except ValueError:
+                        continue
+                    if v_idx not in vert_to_mtl_name:
+                        vert_to_mtl_name[v_idx] = active_mtl
+                face_count += 1
+
+    # --- Pass 2: compute welded groups. orig_to_welded maps each ORIGINAL vert
+    # index to its WELDED canonical index. A welded group of size > 1 means
+    # those original verts share a 3D position at the seam → they are "stitch
+    # verts" in PyGarment's terminology.
+    from collections import Counter
+    welded_group_counts = Counter(orig_to_welded.tolist())
+    # Map welded_idx → group_id (0-based, only for groups >1)
+    stitch_groups = {
+        welded_idx: gid
+        for gid, (welded_idx, count) in enumerate(welded_group_counts.most_common())
+        if count > 1
+    }
+
+    # --- Pass 3: emit labels, one per ORIGINAL vertex (the OBJ vertex count).
+    # PyGarment's read_segmentation maps line index → vertex index 1:1.
+    n_stitch = 0
+    labels = []
+    for v_idx in range(v_count):
+        welded_idx = int(orig_to_welded[v_idx]) if v_idx < len(orig_to_welded) else -1
+        if welded_idx in stitch_groups:
+            labels.append(f"stitch_{stitch_groups[welded_idx]}")
+            n_stitch += 1
+        else:
+            labels.append(vert_to_mtl_name.get(v_idx, "UNASSIGNED"))
+
+    with open(output_txt, "w") as f:
+        f.write("\n".join(labels) + "\n")
+
+    # Summary stats — log per-panel vert counts so we can sanity-check the
+    # material name → body-part mapping later.
+    panel_counts = Counter(l for l in labels if not l.startswith("stitch_"))
+    print(f"[PyGarment] Cloth seg: {v_count} verts, {face_count} faces, "
+          f"{len(materials_seen)} materials, {n_stitch} stitch verts")
+    for mtl, n in panel_counts.most_common(10):
+        print(f"[PyGarment]   {mtl:40s}: {n:6d} verts")
+    return {
+        "verts_total": v_count,
+        "stitch_verts": n_stitch,
+        "materials": sorted(materials_seen),
+        "panel_counts": dict(panel_counts),
+    }
+
+
+def _write_body_measurements_yaml(output_path: Path, body_name: str = "smpl_avatar"):
+    """
+    Minimal body_measurements.yaml. PyGarment's PathCofig reads this to check
+    for a 'body_sample' key that would override the body_name it was given.
+    We keep it empty so PathCofig uses the body_name we pass.
+    """
+    # Deliberately minimal — no `body_sample` key → _body_name stays as passed.
+    # Height is only for informational purposes; not used by the sim.
+    content = "body:\n  height: 1.80\n"
+    output_path.write_text(content)
+
+
+def pygarment_drape(
+    body_obj: Path,
+    garment_obj: Path,
+    output_obj: Path,
+    fabric_config: dict,
+    simulation_mode: str = "swift",
+) -> dict:
+    """
+    Run the PyGarment XPBD cloth simulation. Returns stats dict matching
+    newton_drape's schema so the caller doesn't care which backend ran.
+
+    Raises RuntimeError on any sim failure (e.g., PyGarment crash, no output
+    mesh produced). Caller catches and falls back to Newton or geometric.
+    """
+    # Lazy imports so a failure to install PyGarment doesn't break the module
+    # at startup (Newton + geometric paths still work).
+    import shutil
+    import yaml
+    from scipy.spatial import cKDTree as _cKDTree
+    from pygarment.meshgen.sim_config import PathCofig
+    from pygarment.meshgen.simulation import run_sim
+    from pygarment import data_config
+
+    # ------------------------------------------------------------------
+    # Step 1: load & align meshes in OUR coordinate system (meters, Y-up).
+    # Re-uses the same preproc as newton_drape so the two paths start from
+    # identical input state.
+    # ------------------------------------------------------------------
+    body_verts_raw = load_obj_vertices(body_obj)
+    garment_verts_raw = load_obj_vertices(garment_obj)
+    if len(body_verts_raw) == 0 or len(garment_verts_raw) == 0:
+        raise RuntimeError(
+            f"Empty mesh: body={len(body_verts_raw)} garment={len(garment_verts_raw)} verts"
+        )
+
+    body_verts, _ = _normalize_to_meters(body_verts_raw, "Body")
+    garment_verts, garment_unit_scale = _normalize_to_meters(garment_verts_raw, "Garment")
+    garment_faces = load_obj_faces(garment_obj)
+    aligned_verts, align_scale, translation = align_meshes(body_verts, garment_verts)
+
+    # Weld CLO3D seam-split verts (same 1mm tol as Newton path) — gives us
+    # orig_to_welded for stitch-vert detection in the segmentation file.
+    _, _, orig_to_welded = _weld_duplicate_vertices(
+        aligned_verts.copy(), garment_faces, tol=1.0e-3
+    )
+    print(f"[PyGarment] Weld pass: detected {(np.bincount(orig_to_welded) > 1).sum()} "
+          f"welded groups for stitch-vert labeling")
+
+    # ------------------------------------------------------------------
+    # Step 2: build PyGarment's expected tmpdir layout. Paths must match
+    # PathCofig's hardcoded filename conventions (see
+    # pygarment/meshgen/sim_config.py :: PathCofig._update_*_paths).
+    # ------------------------------------------------------------------
+    tmp_root = Path(tempfile.mkdtemp(prefix="pygarment_"))
+    tag = "drape"
+    body_name = "smpl_avatar"
+
+    # PyGarment's bodies_default_path (where it looks for body.obj + body.yaml +
+    # smpl_vert_segmentation.json). Our Dockerfile ships smpl_vert_segmentation.json
+    # at /workspace/pygarment_assets. For this run we symlink the shipped seg
+    # into the tmpdir and write the body OBJ + measurements there.
+    bodies_dir = tmp_root / "bodies"
+    bodies_dir.mkdir()
+    shipped_seg = Path("/workspace/pygarment_assets/smpl_vert_segmentation.json")
+    if not shipped_seg.exists():
+        # Fallback for local testing (outside Docker). Let it fail loudly if
+        # PyGarment needs it.
+        shipped_seg = Path(__file__).parent / "pygarment_assets" / "smpl_vert_segmentation.json"
+    (bodies_dir / "smpl_vert_segmentation.json").symlink_to(shipped_seg)
+
+    # PyGarment's Cloth.build_stage multiplies body verts by b_scale=100 (their
+    # pattern coords are in cm, bodies in m → ×100 to cm). We're in meters for
+    # both, so we PRE-DIVIDE the body by 100 to cancel out their multiply.
+    body_verts_for_pygarment = aligned_verts_body = body_verts / 100.0
+    body_obj_staged = bodies_dir / f"{body_name}.obj"
+    # Re-use write_obj_with_new_verts to preserve faces/normals/UVs while
+    # substituting vertex positions.
+    write_obj_with_new_verts(body_obj, body_verts_for_pygarment, body_obj_staged)
+
+    # Minimal body measurements yaml.
+    _write_body_measurements_yaml(bodies_dir / f"{body_name}.yaml", body_name=body_name)
+
+    # Element dir (PathCofig's in_element_path).
+    el_dir = tmp_root / "element"
+    el_dir.mkdir()
+
+    # Cloth files PyGarment expects — paths derived from PathCofig._update_boxmesh_paths.
+    out_dir = tmp_root / "out"
+    out_dir.mkdir()
+    el_out_dir = out_dir / tag
+    el_out_dir.mkdir()
+
+    # g_box_mesh = our CLO3D OBJ, with aligned + un-normalized vertex positions
+    # (PyGarment expects the cloth mesh in the same scale as the body's
+    # POST-×100-scale coordinates, i.e. in cm). So we write cloth verts ×100.
+    cloth_verts_for_pygarment = aligned_verts * 1.0  # cloth c_scale is 1.0 — but body is in cm after ×100, so cloth must also be in cm
+    # Hmm — actually cloth c_scale=1.0 and body b_scale=100. If our cloth is in m
+    # and body in m (after our pre-divide), then in PyGarment's internal frame
+    # body = m×100 = cm, cloth = m×1 = m → mismatch. We need cloth in cm too.
+    # Simplest: pre-scale cloth ×100 as well → PyGarment ×1 leaves it in cm.
+    # Then body ×100 also in cm. Matched.
+    cloth_verts_for_pygarment = aligned_verts * 100.0
+    box_mesh_path = el_out_dir / f"{tag}_boxmesh.obj"
+    write_obj_with_new_verts(garment_obj, cloth_verts_for_pygarment, box_mesh_path)
+
+    # Panel segmentation txt file.
+    seg_txt_path = el_out_dir / f"{tag}_sim_segmentation.txt"
+    seg_stats = _generate_cloth_seg_file(garment_obj, orig_to_welded, seg_txt_path)
+
+    # Copy our tuned sim_props.yaml into position. PyGarment writes stats back
+    # to this file, so it needs to be writable.
+    shipped_sim_props = Path("/workspace/pygarment_assets/default_sim_props.yaml")
+    if not shipped_sim_props.exists():
+        shipped_sim_props = Path(__file__).parent / "pygarment_assets" / "default_sim_props.yaml"
+    sim_props_dst = el_dir / "sim_props.yaml"
+    shutil.copy(shipped_sim_props, sim_props_dst)
+
+    # ------------------------------------------------------------------
+    # Step 3: monkey-patch system.json so PathCofig points at OUR bodies_dir
+    # rather than /workspace/pygarment_assets. We do this by overriding
+    # Properties before PathCofig is constructed.
+    # ------------------------------------------------------------------
+    # PathCofig hardcodes `self._system = Properties('./system.json')`. We write
+    # a temp system.json in CWD and chdir to tmp_root so PathCofig finds it.
+    orig_cwd = Path.cwd()
+    system_json = tmp_root / "system.json"
+    system_json.write_text(json.dumps({
+        "output": str(out_dir),
+        "datasets_path": "",
+        "datasets_sim": "",
+        "sim_configs_path": str(shipped_sim_props.parent),
+        "bodies_default_path": str(bodies_dir),
+        "body_samples_path": "",
+    }))
+
+    os.chdir(tmp_root)
+    try:
+        props = data_config.Properties(str(sim_props_dst))
+        props.set_section_stats(
+            "sim",
+            fails={}, sim_time={}, spf={}, fin_frame={},
+            body_collisions={}, self_collisions={},
+        )
+        props.set_section_stats("render", render_time={})
+
+        paths = PathCofig(
+            in_element_path=el_dir,
+            out_path=out_dir,
+            in_name=tag,
+            body_name=body_name,
+            smpl_body=True,  # use smpl_vert_segmentation.json
+            add_timestamp=False,
+        )
+
+        # PathCofig's __init__ calls update_*_paths which computes the expected
+        # paths for g_box_mesh etc. — those point at paths.out_el / f'{tag}_boxmesh.obj'.
+        # But PathCofig makes its own out_el dir. We need to either write
+        # our files to PATHS.out_el, or point PathCofig at our el_out_dir.
+        # Simpler: write our files AFTER PathCofig has been created, into the
+        # dir IT made. Re-copy.
+        shutil.copy(box_mesh_path, paths.g_box_mesh)
+        shutil.copy(seg_txt_path, paths.g_mesh_segmentation)
+
+        # ------------------------------------------------------------------
+        # Step 4: run the simulation. PyGarment auto-terminates on equilibrium
+        # (is_static check every frame), capped at max_sim_steps from our yaml.
+        # ------------------------------------------------------------------
+        print(f"[PyGarment] Starting run_sim — max_sim_steps="
+              f"{props['sim']['config']['max_sim_steps']}, "
+              f"zero_gravity_steps={props['sim']['config']['zero_gravity_steps']}")
+        sim_start = time.time()
+        run_sim(
+            cloth_name=tag,
+            props=props,
+            paths=paths,
+            save_v_norms=False,
+            store_usd=False,
+            optimize_storage=False,
+            verbose=True,
+        )
+        sim_time = time.time() - sim_start
+
+        # ------------------------------------------------------------------
+        # Step 5: read back the draped OBJ (path is PyGarment's paths.g_sim).
+        # Un-scale our cloth ×100 back to meters, un-do alignment so we return
+        # in the original CLO3D coord space (like newton_drape does).
+        # ------------------------------------------------------------------
+        if not paths.g_sim.exists():
+            raise RuntimeError(f"PyGarment sim produced no output at {paths.g_sim}")
+        final_verts_cm = load_obj_vertices(paths.g_sim)
+        # Convert cm → meters
+        final_verts_m = final_verts_cm / 100.0
+        # Undo alignment translation (align_scale is almost always 1.0 for us)
+        if align_scale != 1.0:
+            final_verts_m = (final_verts_m - translation) / align_scale
+        else:
+            final_verts_m = final_verts_m - translation
+        # Restore original garment unit (mm if input was mm)
+        if garment_unit_scale != 1.0:
+            final_verts_out = final_verts_m / garment_unit_scale
+        else:
+            final_verts_out = final_verts_m
+
+        # Write to the caller's output_obj, preserving original OBJ topology.
+        write_obj_with_new_verts(garment_obj, final_verts_out, output_obj)
+
+        body_collisions = props["sim"]["stats"].get("body_collisions", {}).get(tag, -1)
+        self_collisions = props["sim"]["stats"].get("self_collisions", {}).get(tag, -1)
+        fin_frame = props["sim"]["stats"].get("fin_frame", {}).get(tag, -1)
+        print(f"[PyGarment] Success: {fin_frame} frames, {sim_time:.1f}s, "
+              f"body_collisions={body_collisions}, self_collisions={self_collisions}")
+
+        return {
+            "vertices_total": len(final_verts_out),
+            "simulation_frames": int(fin_frame) if fin_frame != -1 else 0,
+            "simulation_time_seconds": round(sim_time, 2),
+            "body_collisions": int(body_collisions) if body_collisions != -1 else None,
+            "self_collisions": int(self_collisions) if self_collisions != -1 else None,
+            "materials": seg_stats["materials"],
+            "stitch_verts": seg_stats["stitch_verts"],
+            "backend": "pygarment",
+            "align_scale": round(align_scale, 6),
+            "translation_m": [round(float(t), 6) for t in translation],
+        }
+    finally:
+        os.chdir(orig_cwd)
+        # Leave tmp_root for debugging if needed; RunPod cleans ephemeral storage.
+
+
 def newton_drape(
     body_obj: Path,
     garment_obj: Path,
@@ -1541,10 +1904,33 @@ def handler(event: dict) -> dict:
         draped_obj = None
         sim_stats = {}
 
-        # Strategy 1: Newton GPU cloth simulation (real physics)
-        if NEWTON_AVAILABLE:
+        # Strategy 1 (v17 primary): PyGarment / NvidiaWarp-GarmentCode.
+        # XPBD cloth with particle_max_velocity clamp, zero-gravity warmup,
+        # body segmentation, and auto-terminate on equilibrium. The first
+        # backend we've had that's designed for CLO3D-style tight garments on
+        # arbitrary bodies. See pygarment_drape() above.
+        try:
+            print("[Draping] Running PyGarment cloth simulation (primary, v17)...")
+            draped_obj = output_dir / "draped.obj"
+            sim_stats = pygarment_drape(
+                body_obj=body_obj,
+                garment_obj=garment_obj,
+                output_obj=draped_obj,
+                fabric_config=merged_fabric,
+                simulation_mode=simulation_mode,
+            )
+            simulation_method = "pygarment"
+            print(f"[Draping] PyGarment success: {sim_stats}")
+        except Exception as e:
+            print(f"[Draping] PyGarment failed, falling back to Newton: {e}")
+            import traceback
+            traceback.print_exc()
+            draped_obj = None
+
+        # Strategy 2 (secondary fallback): Newton Style3D (our v4-v16 backend).
+        if draped_obj is None and NEWTON_AVAILABLE:
             try:
-                print("[Draping] Running Newton GPU cloth simulation...")
+                print("[Draping] Running Newton GPU cloth simulation (fallback)...")
                 draped_obj = output_dir / "draped.obj"
                 sim_stats = newton_drape(
                     body_obj=body_obj,
@@ -1561,7 +1947,10 @@ def handler(event: dict) -> dict:
                 traceback.print_exc()
                 draped_obj = None
 
-        # Strategy 2: geometric fallback (no real physics, just collision resolution)
+        # Strategy 3 (last-resort): geometric drape (no real physics, just
+        # multi-pass collision resolution + Laplacian smoothing). Guaranteed
+        # to run — we use it as the safety net so the shopper never sees a
+        # draping failure even if both GPU paths explode.
         if draped_obj is None:
             try:
                 print("[Draping] Running geometric drape fallback...")
@@ -1668,11 +2057,11 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-21/v16-ke-reverted-canonical "
-    "(v15's ke=5000 was H1 value — works only for pre-fit garments. Our 24% "
-    "penetration exploded at f10. Revert to canonical ke=10 / radius=2mm which "
-    "v12 proved stable. Keep μ_body=0 (v12 freeze fix) + CUDA graph. Dense "
-    "per-frame diag on first 10 frames.)"
+    "drape-handler 2026-04-21/v17-pygarment-primary "
+    "(PyGarment / NvidiaWarp-GarmentCode is now the primary drape backend. "
+    "Features Newton didn't have: particle_max_velocity clamp, zero-gravity "
+    "warmup, auto-terminate on equilibrium, body-part segmentation, proper "
+    "seam stitching springs. Newton + geometric kept as fallbacks.)"
 )
 
 try:

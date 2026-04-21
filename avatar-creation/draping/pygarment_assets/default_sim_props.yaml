@@ -1,0 +1,127 @@
+sim:
+  config:
+    optimize_storage: true
+
+    # Run a bounded number of steps; sim auto-terminates when cloth reaches
+    # static equilibrium (static_threshold + non_static_percent). 300 steps = 5s
+    # at 60fps, fits the shopper-facing "watch it drape" budget.
+    max_sim_steps: 300
+    max_frame_time: 60
+    max_meshgen_time: 60
+    max_sim_time: 300
+    # Auto-terminate when <2% of verts move faster than 5 cm/s.
+    static_threshold: 0.05
+    non_static_percent: 2.0
+
+    # QA gates — PyGarment marks a sim as "failed" if these thresholds are
+    # exceeded. We still return the result, but the failure is logged.
+    max_body_collisions: 200
+    max_self_collisions: 1000
+
+    # First 10 frames have gravity=0 — lets the cloth relax into its UV rest
+    # pose without being yanked down. Critical for stability when cloth starts
+    # in contact with the body (our CLO3D-on-SMPL case).
+    zero_gravity_steps: 10
+    resolution_scale: 1.0
+    # Ground plane ON: trouser hems that overshoot the feet stack on the floor.
+    ground: true
+    material:
+      # Stretch / area stiffness (Pa-m equivalent — PyGarment uses these for
+      # their XPBD cloth; values picked from their default_sim_props.yaml).
+      garment_tri_ka: 10000.0
+      garment_tri_ke: 10000.0
+      garment_tri_kd: 1.0
+      # Bending — very soft, cloth folds freely.
+      garment_edge_ke: 1.0
+      garment_edge_kd: 10.0
+      # Structural springs (from add_cloth_mesh_sewing_spring with add_springs=True).
+      spring_ke: 50000.0
+      spring_kd: 10.0
+      # Fabric properties.
+      fabric_density: 1.0
+      fabric_thickness: 0.1
+      fabric_friction: 0.0    # Body-to-cloth friction (we kill it to avoid freeze)
+    options:
+      # Self-collision: triangle-particle + edge-edge ON; particle-particle OFF
+      # (expensive + not required for thin cloth).
+      enable_particle_particle_collisions: false
+      enable_triangle_particle_collisions: true
+      enable_edge_edge_collisions: true
+
+      # Body collision filters — requires per-vertex body segmentation. We ship
+      # smpl_vert_segmentation.json, so this can be ON.
+      enable_body_collision_filters: true
+      enable_global_collision_filter: true
+
+      # Velocity clamp + damping: THE explosion guards. Clamps any particle
+      # velocity to 20 m/s no matter how large the contact force. Damps velocities
+      # above 0 m/s at factor 0.3 (mild). Our v14/v15 hit 2780 m/s per substep —
+      # this completely prevents that class of NaN.
+      global_damping_factor: 0.3
+      global_damping_effective_velocity: 0.0
+      global_max_velocity: 20.0
+
+      # Attachment constraint: requires PyGarment-specific panel labels
+      # ('lower_interface', 'right_collar', etc.). Our CLO3D panels use
+      # different names, so this is disabled for now. Can re-enable after we
+      # map our panel labels to their convention.
+      enable_attachment_constraint: false
+      attachment_stiffness: []
+      attachment_damping: []
+      attachment_frames: 0
+      attachment_label_names: []
+
+      # Body-part drag: requires panel→body-part mapping. We'll enable this
+      # once we generate the mapping from CLO3D material names.
+      enable_cloth_reference_drag: false
+      cloth_reference_margin: 0.1
+      cloth_reference_k: 1.0e7
+
+      # Body smoothing: starts sim with laplacian-smoothed body, restores detail
+      # gradually. Useful when cloth starts with deep body penetration. We keep
+      # it OFF initially (matches PyGarment default) and can enable if needed.
+      enable_body_smoothing: false
+      smoothing_total_smoothing_factor: 1.0
+      smoothing_recover_start_frame: 50
+      smoothing_num_steps: 20
+      smoothing_frame_gap_between_steps: 1
+
+      # Body-collision contact thickness and friction (used by the panel-aware
+      # body contact kernel, separate from soft_contact_ke).
+      body_collision_thickness: 0.01   # 1cm
+      body_friction: 0.0    # No friction — cloth slides on body freely
+
+      # Soft contact (body-cloth spring) — gentle, XPBD-friendly values.
+      # We keep ke low (Newton's v16-proven value) to avoid the 2780 m/s
+      # ejection we saw in v15.
+      soft_contact_margin: 0.01
+      soft_contact_ke: 10.0
+      soft_contact_kd: 0.0
+      soft_contact_kf: 0.0
+      soft_contact_mu: 0.0
+
+      # Particle-particle contact (used when particle_particle_collisions=True).
+      # Unused in our config.
+      particle_ke: 100.0
+      particle_kd: 0.0
+      particle_kf: 0.0
+      particle_mu: 0.0
+      particle_cohesion: 0.0
+      particle_adhesion: 0.0
+  stats:
+    fails: {}
+    sim_time: {}
+    spf: {}
+    fin_frame: {}
+    self_collisions: {}
+    body_collisions: {}
+render:
+  config:
+    resolution:
+    - 800
+    - 800
+    sides:
+    - front
+    uv_texture: false
+  stats:
+    render_time: {}
