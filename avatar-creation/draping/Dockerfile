@@ -46,7 +46,7 @@ RUN pip install --no-cache-dir \
 #     that does touch packman can exec it.
 RUN git clone --depth 1 https://github.com/maria-korosteleva/NvidiaWarp-GarmentCode.git /workspace/warp-gc \
     && cd /workspace/warp-gc \
-    && chmod -R +x ./tools/packman/ 2>/dev/null || true \
+    && (chmod -R +x ./tools/packman/ 2>/dev/null || true) \
     && python build_lib.py --no_standalone --no_verify_fp \
     && pip install --no-cache-dir -e .
 
