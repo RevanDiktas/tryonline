@@ -270,6 +270,125 @@ def load_obj_faces(obj_path: Path) -> np.ndarray:
     return np.array(faces, dtype=np.int32)
 
 
+def _drop_small_intra_material_components(
+    garment_obj_in: Path,
+    garment_obj_out: Path,
+    size_ratio_threshold: float = 0.2,
+) -> dict:
+    """
+    Rewrite the garment OBJ dropping connected-component face groups that are
+    small relative to the largest component in the same material.
+
+    Why: CLO3D exports internal structural panels (pocket linings, sleeve
+    cuff rings, drawstring cords) under the SAME material name as the outer
+    shell they attach to — so dropping by material would nuke the shell too.
+    What distinguishes them is that they're disconnected components within
+    their material: a pants-front material has 2 big components (the L/R
+    legs) plus small ones for each pocket bag layer.
+
+    Verified on Ramin's hoodie (v19 screenshots):
+      FABRIC_1_FRONT_2743 -> components [1385, 1359, 233, 227, 213, 211]
+      The four small comps (884 verts) are the pocket bag layers — each
+      pocket has an inner + outer pouch wall. They flapped straight out of
+      the pants at hip level in v19 because cloth_reference_drag (k=1e7)
+      pulled the whole FABRIC_1_FRONT_2743 material to `legs` and the bag
+      components had only weak stitch-spring attachment to the shell.
+
+    Rule: within each material, drop components whose face count is
+    <size_ratio_threshold × largest_component_in_material. Default 0.2.
+
+    Pass-through rewrite: every non-`f` line of the input OBJ is preserved
+    verbatim (mtllib, v, vt, vn, usemtl, g, s). Only `f` lines for dropped
+    components are removed. Unused verts remain in the file; they end up as
+    dangling particles in the sim but have no connected faces, so they
+    contribute no stretch/bending forces and are invisible in the render.
+    """
+    from collections import defaultdict
+
+    lines = garment_obj_in.read_text(encoding="utf-8", errors="replace").splitlines()
+
+    # Pass 1: collect face entries with active material + vert-index list.
+    face_entries: list = []  # (line_idx, material, [0-based vert idxs])
+    active_mtl = "UNASSIGNED"
+    for li, line in enumerate(lines):
+        if line.startswith("usemtl "):
+            active_mtl = line.strip().split(None, 1)[1]
+        elif line.startswith("f "):
+            parts = line.strip().split()[1:]
+            try:
+                idxs = [int(p.split("/")[0]) - 1 for p in parts]
+            except ValueError:
+                continue
+            face_entries.append((li, active_mtl, idxs))
+
+    # Pass 2: per-material union-find to find connected components.
+    faces_by_mtl = defaultdict(list)
+    for li, mtl, idxs in face_entries:
+        faces_by_mtl[mtl].append((li, idxs))
+
+    lines_to_drop: set = set()
+    drop_summary: list = []  # (mtl, vert_count, face_count)
+
+    for mtl, flist in faces_by_mtl.items():
+        parent: dict = {}
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for _li, idxs in flist:
+            for v in idxs:
+                if v not in parent:
+                    parent[v] = v
+            root = idxs[0]
+            for v in idxs[1:]:
+                ra, rb = find(root), find(v)
+                if ra != rb:
+                    parent[ra] = rb
+
+        comp_faces = defaultdict(list)
+        for li, idxs in flist:
+            comp_faces[find(idxs[0])].append(li)
+
+        if not comp_faces:
+            continue
+        max_fcount = max(len(fs) for fs in comp_faces.values())
+        cutoff = max_fcount * size_ratio_threshold
+
+        for _root, lis in comp_faces.items():
+            if len(lis) >= cutoff:
+                continue
+            vset: set = set()
+            for li in lis:
+                for p in lines[li].strip().split()[1:]:
+                    try:
+                        vset.add(int(p.split("/")[0]) - 1)
+                    except ValueError:
+                        pass
+            lines_to_drop.update(lis)
+            drop_summary.append((mtl, len(vset), len(lis)))
+
+    # Pass 3: rewrite with dropped face lines removed.
+    kept = [line for i, line in enumerate(lines) if i not in lines_to_drop]
+    garment_obj_out.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+    n_drop = len(lines_to_drop)
+    n_keep = len(face_entries) - n_drop
+    print(f"[PyGarment] Drop small components: kept {n_keep} faces, "
+          f"dropped {n_drop} (threshold={size_ratio_threshold:.2f}x "
+          f"largest-in-material)")
+    for mtl, vc, fc in sorted(drop_summary, key=lambda x: -x[2])[:20]:
+        print(f"[PyGarment]   drop: {mtl:<40s} {vc:>5} verts, {fc:>5} faces")
+
+    return {
+        "faces_kept": n_keep,
+        "faces_dropped": n_drop,
+        "components_dropped": len(drop_summary),
+    }
+
+
 def _normalize_to_meters(verts: np.ndarray, label: str) -> tuple:
     """If a mesh appears to be in millimetres (height >> 10), convert to meters.
     Warp expects SI units — gravity is m/s², so mm-scale meshes get effectively
@@ -548,6 +667,20 @@ def pygarment_drape(
     # identical input state.
     # ------------------------------------------------------------------
     body_verts_raw = load_obj_vertices(body_obj)
+
+    # v20: drop small intra-material components (pocket linings, sleeve cuffs,
+    # drawstring cords) from the garment BEFORE anything else runs on it.
+    # See _drop_small_intra_material_components for the why.
+    # Reassigning garment_obj propagates the cleaned path through the whole
+    # downstream pipeline: weld, seg-file generation, and the final
+    # write_obj_with_new_verts (which reads face/material/UV structure from
+    # the cleaned OBJ and writes draped positions against it).
+    cleaned_garment_obj = garment_obj.parent / "garment_cleaned.obj"
+    _drop_small_intra_material_components(
+        garment_obj, cleaned_garment_obj, size_ratio_threshold=0.2
+    )
+    garment_obj = cleaned_garment_obj
+
     garment_verts_raw = load_obj_vertices(garment_obj)
     if len(body_verts_raw) == 0 or len(garment_verts_raw) == 0:
         raise RuntimeError(
@@ -1220,15 +1353,17 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-22/v19-quality-pass-1 "
-    "(v18.9 completed 300 frames but ended with 311 body-cloth intersections, "
-    "1107 self-intersections, and 4117 non-static verts. Three YAML fixes + "
-    "one label fix: (1) soft_contact_ke 10 → 5000 (Newton-era value was "
-    "1000x too low to eject penetrations); (2) fabric_thickness 0.1 → 0.001 "
-    "(10cm self-collision bubble → 1mm); (3) zero_gravity_steps 10 → 30 (more "
-    "time to un-penetrate before gravity kicks in); (4) split 'Sleeves*' "
-    "material into L/R by x-sign so panel_assignment maps each sleeve to "
-    "the correct arm — v18.9 dragged both sleeves to right_arm with k=1e7.)"
+    "drape-handler 2026-04-22/v20-quality-pass-2 "
+    "(v19 got the main drape right but pocket linings flapped out of the "
+    "pants and 300 body verts still penetrated. Three fixes: (1) drop small "
+    "intra-material components — CLO3D hides pocket bags inside "
+    "FABRIC_1_FRONT_2743 (2 big pants-leg comps + 4 small pocket-bag comps); "
+    "any comp <20% of largest-in-material is dropped before weld, which "
+    "also removes drawstring cords and sleeve-cuff rings; (2) enable "
+    "body_smoothing so cloth settles on a laplacian-smoothed body first, "
+    "detail restored over frames 50-70 — addresses the deep-penetration "
+    "verts that soft_contact_ke alone can't eject; (3) body_collision_"
+    "thickness 0.01 -> 0.015 for a wider contact safety margin.)"
 )
 
 try:

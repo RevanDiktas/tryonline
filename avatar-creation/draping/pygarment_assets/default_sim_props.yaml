@@ -95,18 +95,24 @@ sim:
       # unambiguous decimal form.
       cloth_reference_k: 10000000.0
 
-      # Body smoothing: starts sim with laplacian-smoothed body, restores detail
-      # gradually. Useful when cloth starts with deep body penetration. We keep
-      # it OFF initially (matches PyGarment default) and can enable if needed.
-      enable_body_smoothing: false
+      # Body smoothing: starts sim with a laplacian-smoothed body (no
+      # protruding muscles/bust/belly), restores detail gradually between
+      # frames 50 and 70. Cloth gets a chance to settle on a simpler surface
+      # before fine geometry pushes against it. v20: true because v19 ended
+      # with 300 body collisions — some cloth verts started deeply inside the
+      # body and a 1.5cm contact thickness alone couldn't eject them. This is
+      # PyGarment's own answer to the CLO3D-on-SMPL penetration problem.
+      enable_body_smoothing: true
       smoothing_total_smoothing_factor: 1.0
       smoothing_recover_start_frame: 50
       smoothing_num_steps: 20
       smoothing_frame_gap_between_steps: 1
 
-      # Body-collision contact thickness and friction (used by the panel-aware
-      # body contact kernel, separate from soft_contact_ke).
-      body_collision_thickness: 0.01   # 1cm
+      # Body-collision contact thickness. v20: 1cm -> 1.5cm. Conservative
+      # bump — verts starting slightly inside the body now feel contact
+      # force. Going further (2cm+) risks cloth floating visibly off the
+      # body, especially at the neckline/waistband.
+      body_collision_thickness: 0.015
       body_friction: 0.0    # No friction — cloth slides on body freely
 
       # Soft contact (body-cloth spring). v19: 10 → 5000.
