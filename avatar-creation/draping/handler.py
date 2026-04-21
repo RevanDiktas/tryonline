@@ -864,6 +864,14 @@ def newton_drape(
     #      particle were dropped as degenerate by cloth.py:270. Zero mass means
     #      infinite inverse mass → any force produces inf velocity → NaN.
     n_cloth_particles = len(clean_garment_verts)
+    # v14: capture Newton's allocated dtypes BEFORE we overwrite the arrays.
+    # Forcing dtype=wp.uint32 on the pin-write below is a latent bug that
+    # never fired in v11/v12 (n_pinned=0) but crashed v13's surgical inflation
+    # path with "create_soft_contacts expects int32 but got uint32". The
+    # canonical approach is to preserve whatever dtype Newton picked.
+    flags_dtype = model.particle_flags.dtype
+    mass_dtype = model.particle_mass.dtype
+    inv_mass_dtype = model.particle_inv_mass.dtype
     flags_np = model.particle_flags.numpy().copy()
     mass_np = model.particle_mass.numpy().copy()
     inv_mass_np = model.particle_inv_mass.numpy().copy()
@@ -881,12 +889,15 @@ def newton_drape(
     n_pinned = int(pin_mask.sum())
     if n_pinned > 0:
         pin_idx = np.nonzero(pin_mask)[0]
+        # Bitwise clear of ACTIVE bit. In-place assignment into flags_np
+        # preserves its original dtype (numpy casts the RHS), so flags_np
+        # stays consistent with flags_dtype captured above.
         flags_np[pin_idx] = flags_np[pin_idx] & ~np.uint32(ParticleFlags.ACTIVE)
         mass_np[pin_idx] = 0.0
         inv_mass_np[pin_idx] = 0.0
-        model.particle_flags = wp.array(flags_np, dtype=wp.uint32, device=device)
-        model.particle_mass = wp.array(mass_np, dtype=wp.float32, device=device)
-        model.particle_inv_mass = wp.array(inv_mass_np, dtype=wp.float32, device=device)
+        model.particle_flags = wp.array(flags_np, dtype=flags_dtype, device=device)
+        model.particle_mass = wp.array(mass_np, dtype=mass_dtype, device=device)
+        model.particle_inv_mass = wp.array(inv_mass_np, dtype=inv_mass_dtype, device=device)
     print(f"[Newton] Pinned {n_pinned} particles "
           f"({n_pin_stuck} body-stuck, {n_pin_orphan} zero-mass orphans)")
     # v13 contact params. Two deliberate deviations from canonical:
@@ -1596,9 +1607,10 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-21/v13-uv-panels-surgical-inflation "
-    "(UV panels ×1e-3 + signed-dist histogram + surgical inflation + "
-    "ground plane + contact_radius 2→5mm + mu 0.2→0 + per-frame velocity log)"
+    "drape-handler 2026-04-21/v14-particle-flags-dtype-fix "
+    "(preserve Newton's allocated dtype when writing back pinned particle_flags "
+    "— fixes create_soft_contacts int32/uint32 crash that hit v13 once surgical "
+    "inflation produced >0 pinned verts)"
 )
 
 try:
