@@ -406,8 +406,24 @@ def pygarment_drape(
     # Lazy imports so a failure to install PyGarment doesn't break the module
     # at startup (geometric safety net still works).
     import shutil
+    import sys
+    import types
     import yaml
     from scipy.spatial import cKDTree as _cKDTree
+
+    # Stub out pygarment.meshgen.render.pythonrender BEFORE pygarment imports.
+    # simulation.py does `from pygarment.meshgen.render.pythonrender import
+    # render_images` at module top. pythonrender.py in turn imports `pyrender`
+    # which we don't install (heavy native deps — EGL/OSMesa, and we don't
+    # render in the handler, we return the mesh). Pre-registering a fake
+    # module in sys.modules short-circuits Python's import machinery.
+    if "pygarment.meshgen.render.pythonrender" not in sys.modules:
+        _stub = types.ModuleType("pygarment.meshgen.render.pythonrender")
+        def _render_images_stub(*args, **kwargs):
+            print("[PyGarment] render_images() stubbed — handler doesn't render")
+        _stub.render_images = _render_images_stub
+        sys.modules["pygarment.meshgen.render.pythonrender"] = _stub
+
     from pygarment.meshgen.sim_config import PathCofig
     from pygarment.meshgen.simulation import run_sim
     from pygarment import data_config
