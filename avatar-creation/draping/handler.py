@@ -910,32 +910,39 @@ def newton_drape(
         model.particle_inv_mass = wp.array(inv_mass_np, dtype=inv_mass_dtype, device=device)
     print(f"[Newton] Pinned {n_pinned} particles "
           f"({n_pin_stuck} body-stuck, {n_pin_orphan} zero-mass orphans)")
-    # v15 contact params — adopted from example_cloth_h1.py which handles the
-    # same case as us (cloth with initial body penetration on a non-animated
-    # avatar) without NaN:
+    # v16 contact params — reverts v15's H1-copy. Verified via Newton source
+    # (solvers/style3d/collision/kernels.py :: eval_body_contact_kernel →
+    # rigid_vbd_kernels.evaluate_body_particle_contact) that
+    # soft_contact_ke is a FORCE-BASED spring, NOT XPBD-clamped. With v15's
+    # ke=5000 and 11% of verts >10mm deep inside the body at t=0:
+    #   F = 5000 × 0.010m = 50 N per vert
+    #   a = F/m = 50 / 3e-5 = 1.67e6 m/s²
+    #   Δv per substep = a × dt = 2780 m/s  → catastrophic ejection → NaN.
+    # H1 uses ke=5000 safely because its jacket is designed on H1 with zero
+    # initial penetration. Our CLO3D hoodie on SMPL has 24% penetrating verts.
     #
-    #   soft_contact_ke:  10 → 5000  (500x stiffer — XPBD clamps to penetration
-    #                                 depth so this doesn't explode; H1 value)
-    #   soft_contact_mu:  0  (already from v14; H1 matches)
-    #   shape_material_mu.fill_(0.0)  (NEW — H1 zeroes friction on every body
-    #                                  shape too; without this the BODY mesh's
-    #                                  default μ still locks cloth on contact)
-    #   soft_contact_radius:  5mm → 3mm (tighter, H1 uses ~3mm band)
+    # Reverting ke=10 (canonical / v12-proven-stable). With ke=10 and 10mm
+    # penetration: F=0.1 N, a=3333 m/s², Δv=5.5 m/s per substep — still bigger
+    # than we want but stable over the sim (v12 log shows nan=0 across 240
+    # frames with this ke). Deeply-penetrating verts resolve slowly over
+    # first few frames; verts we can't push out stay inside body (visually
+    # hidden under outer cloth).
     #
-    # Unchanged from canonical / v14:
-    #   kd=1e-6 (damping — kd=1 would blow up; cloth particle mass ~3e-5 kg)
-    #   margin=3.5mm (contact query buffer)
-    model.soft_contact_radius = 0.3e-2
+    # shape_material_mu.fill_(0.0) KEPT from v15. This was the real cure for
+    # v12's "cloth frozen in T-pose" — μ_body=default locked cloth on contact.
+    # With μ_body=0 and μ=0, cloth slides along body under gravity.
+    model.soft_contact_radius = 0.2e-2
     model.soft_contact_margin = 0.35e-2
-    model.soft_contact_ke = 5.0e3
+    model.soft_contact_ke = 1.0e1
     model.soft_contact_kd = 1.0e-6
     model.soft_contact_kf = 0.0
     model.soft_contact_mu = 0.0
-    # H1-style: kill friction on every body shape too. Without this, the body
-    # mesh's per-shape default μ can still friction-lock cloth on contact,
-    # which is what froze v12.
+    # Kill friction on every body shape too. Without this, the body mesh's
+    # per-shape default μ still friction-locks cloth on contact (what froze
+    # v12). Keeping from v15 — this was the actual v12 fix, orthogonal to ke.
     if hasattr(model, "shape_material_mu") and model.shape_material_mu is not None:
         model.shape_material_mu.fill_(0.0)
+        print("[Newton] shape_material_mu zeroed on all body shapes (no friction lock)")
 
     state_0 = model.state()
     state_1 = model.state()
@@ -957,7 +964,11 @@ def newton_drape(
     print(f"[Newton] Running {n_frames} frames on {device}...")
     sim_start = time.time()
 
-    diag_every = 10  # log finite-mask + position bounds every N frames
+    # v16: log EVERY frame for the first `diag_dense_until` frames, then every
+    # diag_every after. The previous every-10 schedule meant we saw frame 10
+    # already-all-NaN in v15 but had no clue what happened between frames 1–9.
+    diag_every = 10
+    diag_dense_until = 10
     first_nan_frame = None
 
     # v15: CUDA graph capture — the canonical path for performance. Records the
@@ -1006,7 +1017,7 @@ def newton_drape(
         else:
             _sim_frame()
 
-        if (frame + 1) % diag_every == 0 or frame == 0:
+        if (frame + 1) % diag_every == 0 or frame == 0 or (frame + 1) <= diag_dense_until:
             q = state_0.particle_q.numpy()
             qd = state_0.particle_qd.numpy()
             n_cloth_now = len(clean_garment_verts)
@@ -1657,9 +1668,11 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-21/v15-h1-contact-plus-cuda-graph "
-    "(drop surgical inflation; adopt H1 contact params: ke=5000, μ_body=0, "
-    "iterations=10, collision.radius=3.5mm; CUDA graph capture for ~5x speedup)"
+    "drape-handler 2026-04-21/v16-ke-reverted-canonical "
+    "(v15's ke=5000 was H1 value — works only for pre-fit garments. Our 24% "
+    "penetration exploded at f10. Revert to canonical ke=10 / radius=2mm which "
+    "v12 proved stable. Keep μ_body=0 (v12 freeze fix) + CUDA graph. Dense "
+    "per-frame diag on first 10 frames.)"
 )
 
 try:
