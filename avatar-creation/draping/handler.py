@@ -277,7 +277,9 @@ def _drop_small_intra_material_components(
 ) -> dict:
     """
     Rewrite the garment OBJ dropping connected-component face groups that are
-    small relative to the largest component in the same material.
+    small relative to the largest component in the same material — AND
+    dropping the v/vt/vn lines those faces were the sole user of, with all
+    remaining face indices re-mapped to the compacted numbering.
 
     Why: CLO3D exports internal structural panels (pocket linings, sleeve
     cuff rings, drawstring cords) under the SAME material name as the outer
@@ -297,36 +299,72 @@ def _drop_small_intra_material_components(
     Rule: within each material, drop components whose face count is
     <size_ratio_threshold × largest_component_in_material. Default 0.2.
 
-    Pass-through rewrite: every non-`f` line of the input OBJ is preserved
-    verbatim (mtllib, v, vt, vn, usemtl, g, s). Only `f` lines for dropped
-    components are removed. Unused verts remain in the file; they end up as
-    dangling particles in the sim but have no connected faces, so they
-    contribute no stretch/bending forces and are invisible in the render.
+    Why we compact v/vt/vn too (v21 change from v20):
+      v20's first cut just dropped `f` lines and left the orphan `v` lines
+      in place. Downstream, load_obj_vertices read ALL v lines → welding
+      grouped them into welded particles → PyGarment added those particles
+      to the sim with no face connections (no stretch/bend forces), their
+      seg-file entry defaulted to "UNASSIGNED" → panel_assignment clustered
+      them as `body` → cloth_reference_drag (k=1e7) yanked them to the
+      torso centroid → they piled up inside the body and collided with the
+      real cloth mesh, pushing it out of position. v20 screenshots showed
+      this as large skin-visible holes on the front of the torso (back was
+      clean because the orphans were all in front of the body, at pocket
+      positions). The fix is a full compact: drop orphan v/vt/vn lines and
+      renumber the f lines that reference surviving ones.
     """
     from collections import defaultdict
 
     lines = garment_obj_in.read_text(encoding="utf-8", errors="replace").splitlines()
 
-    # Pass 1: collect face entries with active material + vert-index list.
-    face_entries: list = []  # (line_idx, material, [0-based vert idxs])
+    # Pass 1: classify each line. Build ordered v/vt/vn arrays (line indices,
+    # so we can look up which v/vt/vn count corresponds to each OBJ line) and
+    # parse face lines into tokenised (v, vt, vn) tuples.
+    v_line_indices: list = []
+    vt_line_indices: list = []
+    vn_line_indices: list = []
+    # face_entries[i] = (line_idx, material, [(v0, vt0, vn0), ...])
+    face_entries: list = []
     active_mtl = "UNASSIGNED"
     for li, line in enumerate(lines):
-        if line.startswith("usemtl "):
-            active_mtl = line.strip().split(None, 1)[1]
-        elif line.startswith("f "):
-            parts = line.strip().split()[1:]
-            try:
-                idxs = [int(p.split("/")[0]) - 1 for p in parts]
-            except ValueError:
-                continue
-            face_entries.append((li, active_mtl, idxs))
+        s = line.strip()
+        if s.startswith("v "):
+            v_line_indices.append(li)
+        elif s.startswith("vt "):
+            vt_line_indices.append(li)
+        elif s.startswith("vn "):
+            vn_line_indices.append(li)
+        elif s.startswith("usemtl "):
+            active_mtl = s.split(None, 1)[1]
+        elif s.startswith("f "):
+            parts = s.split()[1:]
+            refs: list = []
+            valid = True
+            for p in parts:
+                toks = p.split("/")
+                try:
+                    v = int(toks[0]) - 1
+                except ValueError:
+                    valid = False
+                    break
+                vt = int(toks[1]) - 1 if len(toks) > 1 and toks[1] else None
+                vn = int(toks[2]) - 1 if len(toks) > 2 and toks[2] else None
+                refs.append((v, vt, vn))
+            if valid and refs:
+                face_entries.append((li, active_mtl, refs))
 
-    # Pass 2: per-material union-find to find connected components.
+    n_v_total = len(v_line_indices)
+    n_vt_total = len(vt_line_indices)
+    n_vn_total = len(vn_line_indices)
+
+    # Pass 2: per-material union-find to find connected components. We union
+    # on vertex indices (from each face's (v,vt,vn) tokens, use v only).
     faces_by_mtl = defaultdict(list)
-    for li, mtl, idxs in face_entries:
-        faces_by_mtl[mtl].append((li, idxs))
+    for li, mtl, refs in face_entries:
+        v_idxs = [r[0] for r in refs]
+        faces_by_mtl[mtl].append((li, v_idxs))
 
-    lines_to_drop: set = set()
+    face_lines_to_drop: set = set()
     drop_summary: list = []  # (mtl, vert_count, face_count)
 
     for mtl, flist in faces_by_mtl.items():
@@ -338,19 +376,19 @@ def _drop_small_intra_material_components(
                 x = parent[x]
             return x
 
-        for _li, idxs in flist:
-            for v in idxs:
+        for _li, v_idxs in flist:
+            for v in v_idxs:
                 if v not in parent:
                     parent[v] = v
-            root = idxs[0]
-            for v in idxs[1:]:
+            root = v_idxs[0]
+            for v in v_idxs[1:]:
                 ra, rb = find(root), find(v)
                 if ra != rb:
                     parent[ra] = rb
 
         comp_faces = defaultdict(list)
-        for li, idxs in flist:
-            comp_faces[find(idxs[0])].append(li)
+        for li, v_idxs in flist:
+            comp_faces[find(v_idxs[0])].append(li)
 
         if not comp_faces:
             continue
@@ -367,24 +405,99 @@ def _drop_small_intra_material_components(
                         vset.add(int(p.split("/")[0]) - 1)
                     except ValueError:
                         pass
-            lines_to_drop.update(lis)
+            face_lines_to_drop.update(lis)
             drop_summary.append((mtl, len(vset), len(lis)))
 
-    # Pass 3: rewrite with dropped face lines removed.
-    kept = [line for i, line in enumerate(lines) if i not in lines_to_drop]
-    garment_obj_out.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    # Pass 3: work out which v / vt / vn indices the surviving faces still
+    # reference. Anything not referenced by a KEPT face is an orphan → drop.
+    used_v: set = set()
+    used_vt: set = set()
+    used_vn: set = set()
+    kept_face_entries: list = []  # (line_idx, refs)
+    for li, _mtl, refs in face_entries:
+        if li in face_lines_to_drop:
+            continue
+        kept_face_entries.append((li, refs))
+        for v, vt, vn in refs:
+            used_v.add(v)
+            if vt is not None:
+                used_vt.add(vt)
+            if vn is not None:
+                used_vn.add(vn)
 
-    n_drop = len(lines_to_drop)
-    n_keep = len(face_entries) - n_drop
-    print(f"[PyGarment] Drop small components: kept {n_keep} faces, "
-          f"dropped {n_drop} (threshold={size_ratio_threshold:.2f}x "
-          f"largest-in-material)")
+    def _build_remap(used: set, total: int) -> dict:
+        # Keep original relative order: if the kept set is {3,7,9}, remap
+        # 3->0, 7->1, 9->2 (new OBJ emits them in that order).
+        out: dict = {}
+        new_idx = 0
+        for i in range(total):
+            if i in used:
+                out[i] = new_idx
+                new_idx += 1
+        return out
+
+    v_remap = _build_remap(used_v, n_v_total)
+    vt_remap = _build_remap(used_vt, n_vt_total)
+    vn_remap = _build_remap(used_vn, n_vn_total)
+
+    # Build lookups to translate line index -> v/vt/vn slot number in original OBJ.
+    v_line_to_slot = {li: i for i, li in enumerate(v_line_indices)}
+    vt_line_to_slot = {li: i for i, li in enumerate(vt_line_indices)}
+    vn_line_to_slot = {li: i for i, li in enumerate(vn_line_indices)}
+    kept_face_lookup = {li: refs for li, refs in kept_face_entries}
+
+    # Pass 4: stream the output OBJ.
+    out_lines: list = []
+    for li, line in enumerate(lines):
+        if li in v_line_to_slot:
+            if v_line_to_slot[li] in used_v:
+                out_lines.append(line)
+            # else: orphan v → drop
+        elif li in vt_line_to_slot:
+            if vt_line_to_slot[li] in used_vt:
+                out_lines.append(line)
+        elif li in vn_line_to_slot:
+            if vn_line_to_slot[li] in used_vn:
+                out_lines.append(line)
+        elif li in face_lines_to_drop:
+            pass  # dropped component → drop
+        elif li in kept_face_lookup:
+            # Rewrite with remapped indices. Preserve the triplet form the
+            # original used: v, v/vt, v//vn, or v/vt/vn.
+            refs = kept_face_lookup[li]
+            tokens = ["f"]
+            for v, vt, vn in refs:
+                v_new = v_remap[v] + 1  # OBJ is 1-indexed
+                if vt is not None and vn is not None:
+                    tokens.append(f"{v_new}/{vt_remap[vt] + 1}/{vn_remap[vn] + 1}")
+                elif vt is not None:
+                    tokens.append(f"{v_new}/{vt_remap[vt] + 1}")
+                elif vn is not None:
+                    tokens.append(f"{v_new}//{vn_remap[vn] + 1}")
+                else:
+                    tokens.append(str(v_new))
+            out_lines.append(" ".join(tokens))
+        else:
+            # Pass-through: mtllib, comment, usemtl, g, s, o, blank, etc.
+            out_lines.append(line)
+
+    garment_obj_out.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+
+    n_fdrop = len(face_lines_to_drop)
+    n_fkeep = len(face_entries) - n_fdrop
+    n_vdrop = n_v_total - len(used_v)
+    n_vkeep = len(used_v)
+    print(f"[PyGarment] Drop small components: kept {n_fkeep} faces + "
+          f"{n_vkeep} verts, dropped {n_fdrop} faces + {n_vdrop} orphan verts "
+          f"(threshold={size_ratio_threshold:.2f}x largest-in-material)")
     for mtl, vc, fc in sorted(drop_summary, key=lambda x: -x[2])[:20]:
         print(f"[PyGarment]   drop: {mtl:<40s} {vc:>5} verts, {fc:>5} faces")
 
     return {
-        "faces_kept": n_keep,
-        "faces_dropped": n_drop,
+        "faces_kept": n_fkeep,
+        "faces_dropped": n_fdrop,
+        "verts_kept": n_vkeep,
+        "verts_dropped_orphan": n_vdrop,
         "components_dropped": len(drop_summary),
     }
 
@@ -1353,17 +1466,17 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-22/v20-quality-pass-2 "
-    "(v19 got the main drape right but pocket linings flapped out of the "
-    "pants and 300 body verts still penetrated. Three fixes: (1) drop small "
-    "intra-material components — CLO3D hides pocket bags inside "
-    "FABRIC_1_FRONT_2743 (2 big pants-leg comps + 4 small pocket-bag comps); "
-    "any comp <20% of largest-in-material is dropped before weld, which "
-    "also removes drawstring cords and sleeve-cuff rings; (2) enable "
-    "body_smoothing so cloth settles on a laplacian-smoothed body first, "
-    "detail restored over frames 50-70 — addresses the deep-penetration "
-    "verts that soft_contact_ke alone can't eject; (3) body_collision_"
-    "thickness 0.01 -> 0.015 for a wider contact safety margin.)"
+    "drape-handler 2026-04-22/v21-compact-orphan-verts "
+    "(v20 dropped pocket-bag faces but left the orphan v/vt/vn lines in "
+    "place. Those verts got welded as dangling particles with no face "
+    "connections, labeled 'UNASSIGNED' in the seg file, then dragged to "
+    "the body centroid by cloth_reference_drag (k=1e7) and collided with "
+    "the real cloth mesh on the front of the torso → large skin-visible "
+    "holes on chest/belly that didn't exist in v19 (back stayed clean "
+    "because the orphans were all at pocket positions in front of body). "
+    "Fix: proper compact — drop orphan v/vt/vn lines AND renumber the "
+    "kept f-line indices to match the compacted numbering. No more "
+    "UNASSIGNED:body panel_assignment entry, no more ghost particles.)"
 )
 
 try:
