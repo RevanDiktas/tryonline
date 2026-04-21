@@ -71,9 +71,13 @@ sim:
       attachment_frames: 0
       attachment_label_names: []
 
-      # Body-part drag: requires panel→body-part mapping. We'll enable this
-      # once we generate the mapping from CLO3D material names.
-      enable_cloth_reference_drag: false
+      # Body-part drag: pulls each garment panel toward its assigned body part
+      # (via panel_assignment's 'closest' strategy). Enabled in v18.6 because
+      # without it there's nothing holding the cloth on the body — gravity
+      # alone pulls the whole garment down off the avatar (exactly what we
+      # saw in v18.5 screenshots). cloth_reference_k=1e7 is PyGarment's
+      # canonical default; margin=0.1 is the attraction distance.
+      enable_cloth_reference_drag: true
       cloth_reference_margin: 0.1
       cloth_reference_k: 1.0e7
 

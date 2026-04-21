@@ -281,45 +281,63 @@ def _normalize_to_meters(verts: np.ndarray, label: str) -> tuple:
     return verts, 1.0
 
 
+def _write_welded_obj(welded_verts: np.ndarray, welded_faces: np.ndarray, output_path: Path):
+    """Write a minimal OBJ containing just v + f lines for a welded mesh.
+
+    PyGarment's Cloth class only reads v and f from paths.g_box_mesh (see
+    pygarment/meshgen/garment.py :: load_obj → returns vertices+indices+faces).
+    UVs/materials from the original CLO3D OBJ are preserved on OUR side when
+    we write the final output — here we just need the topology PyGarment
+    actually simulates.
+    """
+    with open(output_path, "w") as f:
+        f.write("# welded mesh (stitched seam-split verts) for PyGarment\n")
+        for v in welded_verts:
+            f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
+        for face in welded_faces:
+            # OBJ is 1-indexed.
+            f.write(f"f {int(face[0]) + 1} {int(face[1]) + 1} {int(face[2]) + 1}\n")
+
+
 def _generate_cloth_seg_file(
     garment_obj: Path,
+    welded_verts_count: int,
     orig_to_welded: np.ndarray,
     output_txt: Path,
 ) -> dict:
     """
-    Write PyGarment's per-vertex panel segmentation txt file.
+    Write PyGarment's per-vertex panel segmentation txt file — one line per
+    WELDED vertex (not original). Needed because we feed PyGarment the
+    welded mesh (see _write_welded_obj above) and it asserts one label
+    per-vertex.
 
     Format (from pygarment/warp/collision/panel_assignment.py::read_segmentation):
       one line per vertex, each line = comma-separated entries, first entry
       is the panel label. Lines starting with "stitch" are treated as stitch
-      verts regardless of suffix.
+      verts (used by add_cloth_mesh_sewing_spring to identify which faces
+      get sewing-spring treatment).
 
-    We derive panel labels from CLO3D's MTL material groups in the OBJ. Each
-    `usemtl NAME` declaration switches the active material for subsequent faces.
-    Every face's vertices inherit that material. A vertex shared between two
-    panels gets the first material that referenced it (arbitrary but
-    deterministic).
+    Labeling strategy:
+      - A WELDED vert whose merge-group contains MORE THAN ONE original vert
+        was at a seam (two panel copies met there) → label "stitch_N"
+      - Otherwise: inherit the panel material from one of the original verts
+        that merged to it (deterministic: first original vert seen)
 
-    Stitch verts = vertex indices whose original entry was merged into another
-    during the 1mm weld pass (i.e. they appear in more than one "welded group").
-    These get label "stitch_<group_id>" instead of a panel name.
-
-    Returns a dict with summary stats.
+    The stitching-seam convention is what enables
+    builder.add_cloth_mesh_sewing_spring to route edge-adjacent-to-stitch
+    triangles through add_triangles_stitching instead of add_triangles,
+    producing proper sewing springs across panel seams.
     """
     # --- Pass 1: parse OBJ line-by-line, track active usemtl, assign per-face
-    # material, propagate to vertices.
-    v_count = 0
+    # material, propagate to ORIGINAL vertices (using 1-indexed OBJ convention).
     active_mtl = "UNASSIGNED"
-    # vert_to_mtl: index into materials list, -1 = not yet assigned
-    vert_to_mtl_name = {}  # vert_idx (0-based) -> first material name that touched it
+    orig_vert_to_mtl = {}  # orig_vert_idx (0-based) → first material name touching it
     face_count = 0
     materials_seen = set()
 
     with open(garment_obj, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
-            if line.startswith("v "):
-                v_count += 1
-            elif line.startswith("usemtl "):
+            if line.startswith("usemtl "):
                 active_mtl = line.strip().split(None, 1)[1].strip()
                 materials_seen.add(active_mtl)
             elif line.startswith("f "):
@@ -330,47 +348,45 @@ def _generate_cloth_seg_file(
                         v_idx = int(v_idx_1based) - 1
                     except ValueError:
                         continue
-                    if v_idx not in vert_to_mtl_name:
-                        vert_to_mtl_name[v_idx] = active_mtl
+                    if v_idx not in orig_vert_to_mtl:
+                        orig_vert_to_mtl[v_idx] = active_mtl
                 face_count += 1
 
-    # --- Pass 2: compute welded groups. orig_to_welded maps each ORIGINAL vert
-    # index to its WELDED canonical index. A welded group of size > 1 means
-    # those original verts share a 3D position at the seam → they are "stitch
-    # verts" in PyGarment's terminology.
+    # --- Pass 2: compute welded groups — which welded verts absorbed multiple
+    # originals. orig_to_welded[i] = welded_idx for original vert i.
     from collections import Counter
     welded_group_counts = Counter(orig_to_welded.tolist())
-    # Map welded_idx → group_id (0-based, only for groups >1)
-    stitch_groups = {
-        welded_idx: gid
-        for gid, (welded_idx, count) in enumerate(welded_group_counts.most_common())
-        if count > 1
-    }
+    stitch_welded_set = {w for w, c in welded_group_counts.items() if c > 1}
 
-    # --- Pass 3: emit labels, one per ORIGINAL vertex (the OBJ vertex count).
-    # PyGarment's read_segmentation maps line index → vertex index 1:1.
+    # --- Pass 3: for each welded vert, pick a representative original vert to
+    # inherit the material label from (deterministic: lowest original index).
+    welded_to_orig_representative = {}
+    for orig_idx, welded_idx in enumerate(orig_to_welded.tolist()):
+        if welded_idx not in welded_to_orig_representative:
+            welded_to_orig_representative[welded_idx] = orig_idx
+
+    # --- Pass 4: emit one label per WELDED vert.
     n_stitch = 0
     labels = []
-    for v_idx in range(v_count):
-        welded_idx = int(orig_to_welded[v_idx]) if v_idx < len(orig_to_welded) else -1
-        if welded_idx in stitch_groups:
-            labels.append(f"stitch_{stitch_groups[welded_idx]}")
+    for welded_idx in range(welded_verts_count):
+        if welded_idx in stitch_welded_set:
+            labels.append(f"stitch_{welded_idx}")
             n_stitch += 1
         else:
-            labels.append(vert_to_mtl_name.get(v_idx, "UNASSIGNED"))
+            orig_idx = welded_to_orig_representative.get(welded_idx, -1)
+            labels.append(orig_vert_to_mtl.get(orig_idx, "UNASSIGNED"))
 
     with open(output_txt, "w") as f:
         f.write("\n".join(labels) + "\n")
 
-    # Summary stats — log per-panel vert counts so we can sanity-check the
-    # material name → body-part mapping later.
     panel_counts = Counter(l for l in labels if not l.startswith("stitch_"))
-    print(f"[PyGarment] Cloth seg: {v_count} verts, {face_count} faces, "
-          f"{len(materials_seen)} materials, {n_stitch} stitch verts")
+    print(f"[PyGarment] Cloth seg: {welded_verts_count} welded verts, "
+          f"{face_count} faces (orig), {len(materials_seen)} materials, "
+          f"{n_stitch} stitch verts")
     for mtl, n in panel_counts.most_common(10):
         print(f"[PyGarment]   {mtl:40s}: {n:6d} verts")
     return {
-        "verts_total": v_count,
+        "verts_total": welded_verts_count,
         "stitch_verts": n_stitch,
         "materials": sorted(materials_seen),
         "panel_counts": dict(panel_counts),
@@ -480,9 +496,16 @@ def pygarment_drape(
     garment_faces = load_obj_faces(garment_obj)
     aligned_verts, align_scale, translation = align_meshes(body_verts, garment_verts)
 
-    # Weld CLO3D seam-split verts at 1mm tol — gives us
-    # orig_to_welded for stitch-vert detection in the segmentation file.
-    _, _, orig_to_welded = _weld_duplicate_vertices(
+    # Weld CLO3D seam-split verts at 1mm tol. v18.7 change: we now FEED the
+    # welded mesh to PyGarment (not the original). Previously we wrote the
+    # pre-weld mesh, which meant each seam had two separate vertex indices in
+    # the OBJ PyGarment loaded — and
+    # `builder.add_cloth_mesh_sewing_spring` identifies stitch triangles by
+    # topological adjacency (`i in stitch_vertices_set` for face verts).
+    # Without shared vertex indices, adjacent panels have no common triangle
+    # edge, no sewing springs form, panels drift apart under gravity. The
+    # v18.5/v18.6 screenshots showed this exactly.
+    welded_verts, welded_faces, orig_to_welded = _weld_duplicate_vertices(
         aligned_verts.copy(), garment_faces, tol=1.0e-3
     )
     print(f"[PyGarment] Weld pass: detected {(np.bincount(orig_to_welded) > 1).sum()} "
@@ -510,14 +533,20 @@ def pygarment_drape(
         shipped_seg = Path(__file__).parent / "pygarment_assets" / "smpl_vert_segmentation.json"
     (bodies_dir / "smpl_vert_segmentation.json").symlink_to(shipped_seg)
 
-    # PyGarment's Cloth.build_stage multiplies body verts by b_scale=100 (their
-    # pattern coords are in cm, bodies in m → ×100 to cm). We're in meters for
-    # both, so we PRE-DIVIDE the body by 100 to cancel out their multiply.
-    body_verts_for_pygarment = aligned_verts_body = body_verts / 100.0
+    # v18.6 scale fix: PyGarment's internal sim convention is CM (their pattern
+    # coords are in cm, their sim code scales accordingly). Cloth.build_stage
+    # multiplies body verts by b_scale=100 and cloth verts by c_scale=1. To end
+    # up at matched cm-scale in-sim:
+    #   - body OBJ must be in METERS → PyGarment ×100 → cm in-sim
+    #   - cloth OBJ must be in CM    → PyGarment ×1   → cm in-sim
+    # Previous code pre-divided body by 100, which left body at 0–1.8 IN-SIM
+    # while cloth was at 0–180, a 100× mismatch. That made panel_assignment's
+    # nearest-body-part lookup garbage, disabled body-cloth contact entirely
+    # (body is effectively a tiny speck next to the cloth), and gravity pulled
+    # the cloth away from the body → the "hanging off the avatar" look in the
+    # screenshots. Write body directly in meters — no pre-scaling.
     body_obj_staged = bodies_dir / f"{body_name}.obj"
-    # Re-use write_obj_with_new_verts to preserve faces/normals/UVs while
-    # substituting vertex positions.
-    write_obj_with_new_verts(body_obj, body_verts_for_pygarment, body_obj_staged)
+    write_obj_with_new_verts(body_obj, body_verts, body_obj_staged)
 
     # Minimal body measurements yaml.
     _write_body_measurements_yaml(bodies_dir / f"{body_name}.yaml", body_name=body_name)
@@ -585,17 +614,21 @@ def pygarment_drape(
         # our files directly there.
 
         # PyGarment's Cloth.build_stage multiplies body verts by b_scale=100
-        # and cloth verts by c_scale=1. To keep body + cloth aligned in the
-        # sim's internal frame, we pre-compensate: divide body by 100 (above)
-        # and multiply cloth by 100 here. Both end up at cm-scale in-sim,
-        # which matches PyGarment's pattern-space convention.
-        cloth_verts_for_pygarment = aligned_verts * 100.0
-        write_obj_with_new_verts(garment_obj, cloth_verts_for_pygarment, paths.g_box_mesh)
+        # and cloth verts by c_scale=1. Both sides end up at cm in-sim when
+        # we write body in meters (done above) and cloth in cm (× 100 here).
+        # v18.7: the cloth written out is the WELDED topology — same vertex
+        # index at both sides of every panel seam — so PyGarment's stitching
+        # logic fires correctly.
+        welded_verts_cm = welded_verts * 100.0
+        _write_welded_obj(welded_verts_cm, welded_faces, paths.g_box_mesh)
 
-        # Per-vertex panel segmentation (one line per OBJ vertex, "stitch_N"
-        # for seam-welded verts, panel name otherwise). PyGarment's
-        # panel_assignment reads this to drive cloth-vs-body-part drag.
-        seg_stats = _generate_cloth_seg_file(garment_obj, orig_to_welded, paths.g_mesh_segmentation)
+        # Per-vertex panel segmentation — one line PER WELDED VERT. Stitch
+        # verts get "stitch_N" (triggers the sewing-spring path); otherwise
+        # the label is inherited from the CLO3D MTL material of the first
+        # original vert that merged into this welded slot.
+        seg_stats = _generate_cloth_seg_file(
+            garment_obj, len(welded_verts), orig_to_welded, paths.g_mesh_segmentation
+        )
 
         # Minimal pattern spec JSON at both paths.in_g_spec (input dir) and
         # paths.g_specs (out dir). Cloth._load_panel_labels() opens
@@ -625,27 +658,43 @@ def pygarment_drape(
         sim_time = time.time() - sim_start
 
         # ------------------------------------------------------------------
-        # Step 5: read back the draped OBJ (path is PyGarment's paths.g_sim).
-        # Un-scale our cloth ×100 back to meters, un-do alignment so we return
-        # in the original CLO3D coord space.
+        # Step 5: read back the draped mesh and un-weld for the original OBJ
+        # topology. PyGarment wrote paths.g_sim with the WELDED vertex count
+        # (26396 for our Ramin hoodie). Our caller expects the ORIGINAL CLO3D
+        # OBJ topology (27696 verts, preserving UVs/materials). We
+        # un-weld by mapping every original-vert → the position of its
+        # welded canonical.
         # ------------------------------------------------------------------
         if not paths.g_sim.exists():
             raise RuntimeError(f"PyGarment sim produced no output at {paths.g_sim}")
-        final_verts_cm = load_obj_vertices(paths.g_sim)
-        # Convert cm → meters
-        final_verts_m = final_verts_cm / 100.0
-        # Undo alignment translation (align_scale is almost always 1.0 for us)
+        welded_draped_cm = load_obj_vertices(paths.g_sim)
+        if len(welded_draped_cm) != len(welded_verts):
+            raise RuntimeError(
+                f"PyGarment g_sim vert count mismatch: expected {len(welded_verts)} "
+                f"(welded), got {len(welded_draped_cm)}"
+            )
+        # cm → meters
+        welded_draped_m = welded_draped_cm / 100.0
+        # UN-WELD: expand to original OBJ vert count via orig_to_welded mapping.
+        # Each original vert takes the position of the welded canonical it was
+        # merged into → seam-split verts end up at IDENTICAL 3D positions
+        # (the welded canonical's final position), so the output mesh looks
+        # seamlessly stitched when rendered.
+        final_verts_m = welded_draped_m[orig_to_welded]
+
+        # Undo alignment translation (align_scale is almost always 1.0 for us).
         if align_scale != 1.0:
             final_verts_m = (final_verts_m - translation) / align_scale
         else:
             final_verts_m = final_verts_m - translation
-        # Restore original garment unit (mm if input was mm)
+        # Restore original garment unit (mm if input was mm).
         if garment_unit_scale != 1.0:
             final_verts_out = final_verts_m / garment_unit_scale
         else:
             final_verts_out = final_verts_m
 
-        # Write to the caller's output_obj, preserving original OBJ topology.
+        # Write to the caller's output_obj, preserving original OBJ topology
+        # (including UVs and materials that PyGarment never saw).
         write_obj_with_new_verts(garment_obj, final_verts_out, output_obj)
 
         body_collisions = props["sim"]["stats"].get("body_collisions", {}).get(tag, -1)
@@ -1108,11 +1157,11 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-21/v18-newton-nuked "
-    "(Newton Style3D ripped out entirely after v4–v16 NaN fights. PyGarment / "
-    "NvidiaWarp-GarmentCode is the only GPU path; geometric drape is the "
-    "deterministic safety net. Stability features on by design: velocity "
-    "clamp, zero-gravity warmup, auto-terminate on equilibrium.)"
+    "drape-handler 2026-04-21/v18.7-weld-and-stitch "
+    "(Feed PyGarment the WELDED mesh so its sewing-spring path actually fires. "
+    "Body now in meters (PyGarment ×100 → cm), cloth in cm. Scales match → "
+    "panel_assignment labels correctly. cloth_reference_drag enabled so "
+    "panels stick to body instead of falling off under gravity.)"
 )
 
 try:
