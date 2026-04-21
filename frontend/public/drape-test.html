@@ -433,7 +433,9 @@ window.runDrape = async function() {
     if (garmentGlbUrl) payload.garment_glb_url = garmentGlbUrl;
 
     // Use /run + poll /status (not /runsync) so we can wait the full sim time.
-    // /runsync caps at ~60-90s server-side; Newton GPU sim takes 2-3 minutes.
+    // /runsync caps at ~60-90s server-side; PyGarment warm sim is ~20-60s
+    // and cold start (kernel compile) adds another 30s — either way over
+    // the /runsync cap on cold workers, so always use /run.
     const submitUrl = `https://api.runpod.ai/v2/${endpointId}/run`;
     const submitResp = await fetch(submitUrl, {
       method: 'POST',

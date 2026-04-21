@@ -1,14 +1,12 @@
-# RunPod Serverless — Cloth Draping Service (v17: PyGarment / GarmentCode backend)
-# ================================================================================
-# Replaces the vanilla Newton solver with NvidiaWarp-GarmentCode + PyGarment —
-# a fork of Warp with XPBD extensions specifically built for garment simulation:
-# particle_max_velocity clamp, global viscous damping, zero-gravity warmup,
-# body-part panel drag, attachment constraints, body smoothing, auto-terminate
-# on equilibrium. None of these stability features are in the upstream Newton
-# Style3D solver we were fighting in v11–v16.
+# RunPod Serverless — Cloth Draping Service (v18: PyGarment only, Newton nuked)
+# ==============================================================================
+# Sole GPU backend: NvidiaWarp-GarmentCode + PyGarment — a fork of NVIDIA Warp
+# with XPBD extensions engineered for garment simulation: particle_max_velocity
+# clamp, global viscous damping, zero-gravity warmup, body-part panel drag,
+# attachment constraints, body smoothing, auto-terminate on equilibrium.
 #
-# Newton + geometric fallback are kept in handler.py as secondary paths in case
-# PyGarment fails on a specific garment.
+# Newton Style3D was removed in v18 after v4–v16 of NaN fights. Geometric drape
+# stays as the deterministic safety net in handler.py (no GPU, ~1s).
 
 FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
 
@@ -20,10 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/* && apt-get clean
 
-# Core runtime deps (pin newton as fallback — we still keep the Newton path).
+# Core runtime deps — no `newton` pip package, we use NvidiaWarp-GarmentCode
+# directly (installed in a separate step below).
 RUN pip install --no-cache-dir \
     runpod \
-    newton \
     trimesh \
     pygltflib \
     scipy \
@@ -31,8 +29,7 @@ RUN pip install --no-cache-dir \
     Pillow \
     numpy \
     pyyaml \
-    libigl \
-    smplx
+    libigl
 
 # --- NvidiaWarp-GarmentCode ---
 # Fork of NVIDIA Warp (v1.0.0-beta.6) with cloth-simulation extensions

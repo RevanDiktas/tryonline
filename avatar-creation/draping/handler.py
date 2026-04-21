@@ -2,34 +2,33 @@
 RunPod Serverless Handler for Cloth Draping Service
 ====================================================
 
-Receives SMPL body parameters + garment OBJ mesh, runs cloth physics
-simulation via XRTailor (GPU) or geometric fallback, returns draped OBJ.
+Drapes a CLO3D-exported garment OBJ onto a SMPL avatar body OBJ using the
+NvidiaWarp-GarmentCode + PyGarment cloth simulator (primary), with a
+deterministic geometric drape as the safety-net fallback.
+
+Newton Style3D was used from v4 through v16 and removed in v18 after repeated
+NaN explosions on CLO3D tight-fit garments.
 
 Expected input:
 {
-    "smpl_params_url": "https://...",   # URL to smpl_params.npz
-    "body_obj_url": "https://...",      # URL to body_tpose.obj (SMPL T-pose mesh)
-    "garment_obj_url": "https://...",   # URL to garment .obj file
-    "fabric_config": {                  # Optional fabric material properties
-        "stretch_compliance": 0.001,
-        "bend_compliance": 0.01,
-        "thickness": 0.002,
-        "density": 0.3
-    },
+    "body_obj_url":    "https://...",   # URL to body_apose.obj (SMPL mesh)
+    "garment_obj_url": "https://...",   # URL to garment .obj (CLO3D export)
+    "fabric_config":   {"preset": "cotton_medium", ...},  # optional overrides
     "simulation_mode": "swift",         # "swift" or "quality"
-    "garment_id": "uuid",              # For logging
-    "size": "m",                        # For logging
-    "user_id": "uuid"                   # For logging
+    "garment_id":      "uuid", "size": "m", "user_id": "uuid"   # for logging
 }
 
 Output:
 {
-    "draped_obj_base64": "...",          # Base64-encoded draped OBJ
-    "draped_glb_base64": "...",          # Base64-encoded draped GLB (converted)
-    "processing_time_seconds": 2.1,
-    "simulation_method": "xrtailor" | "geometric_fallback",
-    "vertex_count": 12345,
-    "success": true
+    "draped_obj_base64":  "...",
+    "draped_mtl_base64":  "...",         # MTL with relative texture paths
+    "draped_textures_base64": { ... },   # {filename: base64}
+    "draped_glb_base64":  "...",         # Bare GLB fallback for Three.js
+    "processing_time_seconds": ...,
+    "simulation_method":  "pygarment" | "geometric_fallback",
+    "vertex_count":       ...,
+    "sim_stats":          { ... },
+    "success":            true
 }
 """
 
@@ -46,11 +45,11 @@ from pathlib import Path
 
 import numpy as np
 
-# --- numpy<2.0 shim for Newton 1.1.0 ---
-# Newton's Style3D cloth module calls np.atan2 / np.pow, which only exist in
-# numpy>=2.0. The RunPod pytorch:2.1.0 base image pins numpy<2 for torch ABI
-# compatibility, so we expose the new names as aliases here. Must run BEFORE
-# the Newton import below.
+# --- numpy<2.0 shim ---
+# NvidiaWarp-GarmentCode (and its Style3D cloth utilities) call np.atan2 /
+# np.pow / np.asin / np.acos / np.atan, which only exist in numpy>=2.0. The
+# RunPod pytorch:2.1.0 base image pins numpy<2 for torch ABI compatibility,
+# so we expose the new names as aliases here. Must run BEFORE any warp import.
 for _new, _old in (("atan2", "arctan2"), ("pow", "power"),
                    ("asin", "arcsin"), ("acos", "arccos"), ("atan", "arctan")):
     if not hasattr(np, _new):
@@ -66,18 +65,19 @@ except ImportError:
 CONFIGS_DIR = Path("/workspace/configs")
 RUNPOD_VOLUME = Path("/runpod-volume")
 
-# --- Newton / Warp GPU cloth simulation ---
-NEWTON_AVAILABLE = False
+# --- NvidiaWarp-GarmentCode / PyGarment cloth simulation ---
+# This is our ONLY GPU path as of v18. Newton Style3D was ripped out after 16
+# versions of NaN fights — the stability features it lacked (particle velocity
+# clamp, zero-gravity warmup, equilibrium auto-terminate) are all baked into
+# PyGarment by design. Geometric drape stays as the deterministic safety net.
+WARP_AVAILABLE = False
 try:
     import warp as wp
-    import newton
-    from newton import ParticleFlags
-    from newton.solvers import style3d
     wp.init()
-    NEWTON_AVAILABLE = True
-    print(f"[Draping] Newton {newton.__version__} + Warp {wp.__version__} loaded — GPU cloth sim available")
+    WARP_AVAILABLE = True
+    print(f"[Draping] Warp {wp.__version__} loaded — PyGarment GPU sim available")
 except Exception as e:
-    print(f"[Draping] Newton/Warp not available ({e}) — will use geometric fallback")
+    print(f"[Draping] Warp not available ({e}) — will use geometric fallback only")
 
 
 def download_file(url: str, dest: Path) -> bool:
@@ -141,7 +141,7 @@ def _weld_duplicate_vertices(verts: np.ndarray, faces: np.ndarray, tol: float = 
     welded_faces = welded_idx[faces].astype(np.int32)
 
     n_welded = len(welded_verts)
-    print(f"[Newton] Weld: {n_orig} → {n_welded} verts "
+    print(f"[PyGarment] Weld: {n_orig} → {n_welded} verts "
           f"({n_orig - n_welded} duplicates merged at tol={tol*1000:.2f}mm, "
           f"{len(pairs)} pair candidates)")
     return welded_verts, welded_faces, welded_idx.astype(np.int64)
@@ -270,405 +270,16 @@ def load_obj_faces(obj_path: Path) -> np.ndarray:
     return np.array(faces, dtype=np.int32)
 
 
-def load_obj_uvs(obj_path: Path) -> tuple:
-    """Parse OBJ UV coords (vt lines) and face UV indices. Returns (uv_verts, uv_faces)."""
-    uv_verts = []
-    uv_faces = []
-    with open(obj_path, "r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            if line.startswith("vt "):
-                parts = line.strip().split()
-                if len(parts) >= 3:
-                    try:
-                        uv_verts.append([float(parts[1]), float(parts[2])])
-                    except ValueError:
-                        continue
-            elif line.startswith("f "):
-                parts = line.strip().split()[1:]
-                idxs = []
-                for p in parts:
-                    segs = p.split("/")
-                    if len(segs) >= 2 and segs[1]:
-                        try:
-                            idxs.append(int(segs[1]) - 1)
-                        except ValueError:
-                            break
-                if len(idxs) == 3:
-                    uv_faces.append(idxs)
-                elif len(idxs) > 3:
-                    for i in range(1, len(idxs) - 1):
-                        uv_faces.append([idxs[0], idxs[i], idxs[i + 1]])
-    uv_verts_arr = np.array(uv_verts, dtype=np.float32) if uv_verts else np.zeros((0, 2), dtype=np.float32)
-    uv_faces_arr = np.array(uv_faces, dtype=np.int32) if uv_faces else np.zeros((0, 3), dtype=np.int32)
-    return uv_verts_arr, uv_faces_arr
-
-
-FABRIC_PRESETS = {
-    # tri_ke/edge_ke/particle_r aligned with canonical example_cloth_style3d.py
-    # (cotton: tri_ke=100, particle_r=5e-3). Other fabrics scaled proportionally.
-    "cotton_light":  {"density": 0.15, "tri_ke": 80.0,  "edge_ke": 5.0e-6, "particle_r": 5.0e-3},
-    "cotton_medium": {"density": 0.30, "tri_ke": 100.0, "edge_ke": 1.0e-5, "particle_r": 5.0e-3},
-    "denim":         {"density": 0.50, "tri_ke": 300.0, "edge_ke": 4.0e-5, "particle_r": 5.0e-3},
-    "silk":          {"density": 0.08, "tri_ke": 40.0,  "edge_ke": 2.5e-6, "particle_r": 5.0e-3},
-    "jersey_knit":   {"density": 0.20, "tri_ke": 60.0,  "edge_ke": 5.0e-6, "particle_r": 5.0e-3},
-    "wool":          {"density": 0.40, "tri_ke": 200.0, "edge_ke": 2.5e-5, "particle_r": 5.0e-3},
-    "polyester":     {"density": 0.25, "tri_ke": 100.0, "edge_ke": 7.5e-6, "particle_r": 5.0e-3},
-}
-
-
-def _inflate_garment_off_body(garment_verts, body_verts, body_obj, target_offset,
-                              penetration_threshold=None, max_iters=12):
-    """Iteratively push garment vertices that are inside (or too close to) the body
-    out along the nearest body normal until they sit at least ``target_offset`` m away.
-
-    When ``penetration_threshold`` is None (legacy behavior) we push every vert with
-    ``signed_dist < target_offset`` — that slightly puffs already-outside verts too,
-    producing a balloon-y drape (v10's "possessed" look).
-
-    When ``penetration_threshold`` is set (surgical mode, v13), we ONLY touch verts
-    with ``signed_dist < penetration_threshold`` and push them to ``target_offset``.
-    Setting ``penetration_threshold=0`` means "leave anything already outside the
-    body alone; push only verts that are inside". Prevents blanket inflation while
-    still resolving the CLO3D tight-fit initial penetration that tunnels through
-    contact.
-    """
-    from scipy.spatial import cKDTree
-    body_normals = compute_body_normals(body_verts, body_obj)
-    tree = cKDTree(body_verts)
-
-    inflated = garment_verts.astype(np.float64).copy()
-    max_pushed = 0
-    push_thresh = target_offset if penetration_threshold is None else penetration_threshold
-
-    for it in range(max_iters):
-        _, indices = tree.query(inflated, k=1)
-        nearest_body = body_verts[indices]
-        nearest_normals = body_normals[indices]
-        diff = inflated - nearest_body
-        signed_dist = np.sum(diff * nearest_normals, axis=1)
-
-        needs_push = signed_dist < push_thresh
-        n_pushed = int(needs_push.sum())
-        if n_pushed == 0:
-            print(f"[Newton] Inflation converged after {it} iterations")
-            break
-        max_pushed = max(max_pushed, n_pushed)
-        # Overshoot 10% + 0.1mm so the next iteration's nearest-vertex query
-        # doesn't immediately re-flag the same vert due to floating-point noise.
-        push_amt = ((target_offset - signed_dist[needs_push]) * 1.1 + 1e-4)[:, None] * nearest_normals[needs_push]
-        inflated[needs_push] += push_amt
-    else:
-        print(f"[Newton] Inflation WARNING: hit max_iters={max_iters} with {n_pushed} verts still inside")
-
-    if not np.isfinite(inflated).all():
-        raise ValueError("Inflation produced non-finite garment vertices — body normals likely zero")
-
-    # Post-check: which verts are still inside (signed_dist < 0) or within a
-    # thin safety margin? Those will be pinned in the sim so they don't produce
-    # explosive contact forces on their neighbors.
-    _, indices = tree.query(inflated, k=1)
-    diff = inflated - body_verts[indices]
-    signed_dist = np.sum(diff * body_normals[indices], axis=1)
-    # "Stuck" = still penetrating or within 1mm of surface after inflation.
-    stuck_mask = signed_dist < 1.0e-3
-    n_stuck = int(stuck_mask.sum())
-    n_close = int((signed_dist < target_offset * 0.5).sum())
-    print(f"[Newton] Inflation done: max {max_pushed}/{len(inflated)} verts pushed, "
-          f"{n_close} still within {target_offset*500:.1f}mm of body, "
-          f"{n_stuck} stuck (<1mm) → will be pinned")
-
-    return inflated, max_pushed, stuck_mask
-
-
-def _build_geodesic_unfold_panel(verts_3d: np.ndarray, faces: np.ndarray) -> tuple:
-    """Build a 2D panel by BFS-unfolding the 3D mesh while preserving edge lengths.
-
-    Each triangle gets 3 unique panel-vert indices (3*N_tris panel verts total),
-    but their 2D COORDINATES are assigned such that for every edge shared by
-    two adjacent triangles, both triangles' panel verts at that edge coincide
-    in 2D. This is the "orange peel" unfold: isometric per-tri, consistent
-    across shared edges.
-
-    Why this matters:
-      - Stretch (eval_stretch_kernel): F^T F = I per-triangle at t=0 because
-        each tri's panel edges match its 3D edges exactly. Zero stretch force.
-      - Bending (eval_bend_kernel): bend_weight × pos_3d is proportional only
-        to LOCAL dihedral deviation from flat (not global curvature). For a
-        smooth garment, local deviations are small → bounded bending force.
-
-    Prior attempts:
-      - v4/v5 (UV panel): per-tri UV ↔ 3D area ratios vary wildly in CLO3D
-        atlas UVs → some tris hit edge_stiff = edge_ke / tiny_area → explosion.
-      - v6 (per-tri flat, disconnected): every triangle has its own 2D frame,
-        so adjacent tris disagree on shared-edge 2D coords → bend_weight's
-        linear combination doesn't zero out at any 3D config → explosion.
-      - v7 (per-tri flat + bending off): no NaN, but cloth collapses since
-        stretch alone can't prevent triangle folding.
-
-    This function fixes both by keeping per-tri isometric (for stretch) AND
-    making shared-edge coords consistent (for bending).
-    """
-    from collections import deque
-    n_t = len(faces)
-
-    # Pre-compute edge-to-faces adjacency.
-    edge_to_faces: dict[tuple[int, int], list[int]] = {}
-    for fi in range(n_t):
-        for i in range(3):
-            a = int(faces[fi, i])
-            b = int(faces[fi, (i + 1) % 3])
-            e = (a, b) if a < b else (b, a)
-            edge_to_faces.setdefault(e, []).append(fi)
-
-    face_neighbors: list[list[tuple[int, tuple[int, int]]]] = [[] for _ in range(n_t)]
-    for e, fs in edge_to_faces.items():
-        if len(fs) == 2:
-            f0, f1 = fs
-            face_neighbors[f0].append((f1, e))
-            face_neighbors[f1].append((f0, e))
-
-    panel_verts = np.zeros((3 * n_t, 2), dtype=np.float64)
-    panel_indices = np.arange(3 * n_t, dtype=np.int32).reshape(-1, 3)
-    visited = np.zeros(n_t, dtype=bool)
-
-    def place_seed(fi: int):
-        f = faces[fi]
-        p0 = verts_3d[f[0]]
-        p1 = verts_3d[f[1]]
-        p2 = verts_3d[f[2]]
-        e01 = p1 - p0
-        L = float(np.linalg.norm(e01))
-        if L < 1e-12:
-            L = 1e-12
-        e02 = p2 - p0
-        proj = float(np.dot(e01, e02)) / L
-        h = float(np.linalg.norm(np.cross(e01, e02))) / L
-        panel_verts[fi * 3 + 0] = (0.0, 0.0)
-        panel_verts[fi * 3 + 1] = (L, 0.0)
-        panel_verts[fi * 3 + 2] = (proj, h)
-        visited[fi] = True
-
-    def place_neighbor(fi: int, fj: int, shared_edge: tuple[int, int]) -> bool:
-        """Place fj so its shared edge with fi has the same 2D coords.
-        Returns False on degenerate placement (falls back to seed)."""
-        f_i = faces[fi]
-        f_j = faces[fj]
-        a, b = shared_edge
-
-        # Positions of a, b in f_i and f_j (0, 1, or 2).
-        pos_a_i = int(np.where(f_i == a)[0][0])
-        pos_b_i = int(np.where(f_i == b)[0][0])
-        pos_a_j = int(np.where(f_j == a)[0][0])
-        pos_b_j = int(np.where(f_j == b)[0][0])
-        pos_c_j = 3 - pos_a_j - pos_b_j  # the remaining index (0+1+2 = 3)
-        pos_c_i = 3 - pos_a_i - pos_b_i
-        c_j = int(f_j[pos_c_j])
-
-        pa = panel_verts[fi * 3 + pos_a_i]
-        pb = panel_verts[fi * 3 + pos_b_i]
-        ab = pb - pa
-        L_ab = float(np.linalg.norm(ab))
-        if L_ab < 1e-12:
-            return False
-
-        # 3D distances from c_j to a and b.
-        d_ca = float(np.linalg.norm(verts_3d[c_j] - verts_3d[a]))
-        d_cb = float(np.linalg.norm(verts_3d[c_j] - verts_3d[b]))
-
-        # Circle intersection: place c in the local (e_x, e_y) frame anchored at pa.
-        e_x = ab / L_ab
-        e_y = np.array([-e_x[1], e_x[0]])  # 90° CCW
-
-        x_local = (d_ca * d_ca - d_cb * d_cb + L_ab * L_ab) / (2.0 * L_ab)
-        y_sq = d_ca * d_ca - x_local * x_local
-        y_local = float(np.sqrt(max(y_sq, 0.0)))
-
-        # Choose sign so c_j sits on the OPPOSITE side of edge ab from fi's
-        # third vert (standard triangle-pair unfold: "open the book").
-        fi_c_2d = panel_verts[fi * 3 + pos_c_i]
-        fi_c_local_y = float(np.dot(fi_c_2d - pa, e_y))
-        if fi_c_local_y > 0:
-            y_local = -y_local
-
-        pc = pa + x_local * e_x + y_local * e_y
-        panel_verts[fj * 3 + pos_a_j] = pa
-        panel_verts[fj * 3 + pos_b_j] = pb
-        panel_verts[fj * 3 + pos_c_j] = pc
-        visited[fj] = True
-        return True
-
-    n_components = 0
-    q: deque[int] = deque()
-    for seed in range(n_t):
-        if visited[seed]:
-            continue
-        n_components += 1
-        place_seed(seed)
-        q.append(seed)
-        while q:
-            fi = q.popleft()
-            for (fj, shared) in face_neighbors[fi]:
-                if visited[fj]:
-                    continue
-                ok = place_neighbor(fi, fj, shared)
-                if not ok:
-                    place_seed(fj)
-                q.append(fj)
-
-    # Degeneracy diagnostic
-    v0 = verts_3d[faces[:, 0]]
-    v1 = verts_3d[faces[:, 1]]
-    v2 = verts_3d[faces[:, 2]]
-    cross_mag = np.linalg.norm(np.cross(v1 - v0, v2 - v0), axis=1)
-    n_degen = int((cross_mag < 1e-12).sum())
-
-    # Shared-edge consistency diagnostic. For DEVELOPABLE local patches BFS is
-    # exact (zero mismatch). For non-developable regions (seams, curved hoods),
-    # non-tree edges accumulate error. We report the distribution so bending
-    # stiffness can be tuned against it: force scales linearly with edge_ke
-    # and with mismatch, so max_mismatch × edge_ke must stay bounded.
-    mismatch = []
-    for e, fs in edge_to_faces.items():
-        if len(fs) != 2:
-            continue
-        a, b = e
-        fa, fb = fs
-        pa_a = panel_verts[fa * 3 + int(np.where(faces[fa] == a)[0][0])]
-        pb_a = panel_verts[fb * 3 + int(np.where(faces[fb] == a)[0][0])]
-        pa_b = panel_verts[fa * 3 + int(np.where(faces[fa] == b)[0][0])]
-        pb_b = panel_verts[fb * 3 + int(np.where(faces[fb] == b)[0][0])]
-        mismatch.append(max(float(np.linalg.norm(pa_a - pb_a)),
-                            float(np.linalg.norm(pa_b - pb_b))))
-    max_mismatch = float(max(mismatch)) if mismatch else 0.0
-    if mismatch:
-        m = np.asarray(mismatch)
-        print(f"[Newton] Geodesic unfold: {n_t} tris, {n_components} components, {n_degen} degen; "
-              f"shared-edge mismatch (m): max={m.max():.4f} median={np.median(m):.4f} "
-              f"mean={m.mean():.4f} [>1mm: {int((m > 1e-3).sum())}/{len(m)}]")
-    else:
-        print(f"[Newton] Geodesic unfold: {n_t} tris, {n_components} components, {n_degen} degen; "
-              f"no shared edges")
-    return panel_verts, panel_indices, max_mismatch
-
-
 def _normalize_to_meters(verts: np.ndarray, label: str) -> tuple:
     """If a mesh appears to be in millimetres (height >> 10), convert to meters.
-    Newton/Warp expect SI units — gravity is m/s², so mm-scale meshes get effectively
+    Warp expects SI units — gravity is m/s², so mm-scale meshes get effectively
     zero gravity force."""
     h = verts[:, 1].max() - verts[:, 1].min()
     if h > 50.0:
-        print(f"[Newton] {label} looks like mm (height={h:.1f}), converting to meters")
+        print(f"[PyGarment] {label} looks like mm (height={h:.1f}), converting to meters")
         return verts / 1000.0, 1.0 / 1000.0
     return verts, 1.0
 
-
-def _clean_garment_for_newton(verts, faces, uv_verts, uv_faces, area_eps=1e-6):
-    """
-    Pre-filter degenerate triangles before handing off to style3d.add_cloth_mesh().
-
-    Newton 1.1.0 has a known bug where add_cloth_mesh runs two independent
-    degeneracy filters (2D panel area in cloth.py and 3D world area in
-    builder.add_triangles). When they disagree, tri_poses ends up longer than
-    tri_indices, and SolverStyle3D's BVH constructor blows the assert
-    `tri_indices.shape[0] == self.lower_bounds.shape[0]`.
-
-    By dropping every triangle that BOTH filters would have dropped, we leave
-    Newton's filters with nothing to do and the counts stay in sync.
-
-    Returns (clean_verts, clean_faces, clean_uv_faces_or_None,
-             clean_to_orig_vert_idx).
-    """
-    n_orig_faces = len(faces)
-    n_orig_verts = len(verts)
-    keep = np.ones(n_orig_faces, dtype=bool)
-
-    # 1. Faces with repeated vertex indices (always zero-area in 3D AND UV)
-    keep &= (faces[:, 0] != faces[:, 1])
-    keep &= (faces[:, 1] != faces[:, 2])
-    keep &= (faces[:, 0] != faces[:, 2])
-
-    # 2. 3D zero-area triangles (matches builder.add_triangles filter)
-    v0 = verts[faces[:, 0]]
-    v1 = verts[faces[:, 1]]
-    v2 = verts[faces[:, 2]]
-    cross = np.cross(v1 - v0, v2 - v0)
-    area_3d = 0.5 * np.linalg.norm(cross, axis=1)
-    keep &= area_3d > area_eps
-
-    # 3. Panel-area degeneracies (matches cloth.add_cloth_mesh filter)
-    has_uvs = (
-        uv_verts is not None and uv_faces is not None
-        and len(uv_verts) > 0 and len(uv_faces) == n_orig_faces
-    )
-    if has_uvs:
-        u0 = uv_verts[uv_faces[:, 0]]
-        u1 = uv_verts[uv_faces[:, 1]]
-        u2 = uv_verts[uv_faces[:, 2]]
-        # SIGNED area, not abs: Newton's _compute_panel_triangles zeros out
-        # triangles with det(D) <= 0 and drops them as degenerate. If we only
-        # filter by |area|, inverted-winding UV tris survive our pass but die
-        # in Newton → tri_indices/tri_poses count mismatch → BVH assert.
-        signed_area_uv = 0.5 * (
-            (u1[:, 0] - u0[:, 0]) * (u2[:, 1] - u0[:, 1])
-            - (u2[:, 0] - u0[:, 0]) * (u1[:, 1] - u0[:, 1])
-        )
-        keep &= signed_area_uv > area_eps
-    else:
-        # Newton falls back to vertices[:, :2] when panel_verts=None — drop
-        # triangles that are degenerate in the XY projection too.
-        e1_xy = (v1 - v0)[:, :2]
-        e2_xy = (v2 - v0)[:, :2]
-        area_xy = 0.5 * np.abs(e1_xy[:, 0] * e2_xy[:, 1] - e1_xy[:, 1] * e2_xy[:, 0])
-        keep &= area_xy > area_eps
-
-    n_kept_faces = int(keep.sum())
-    n_dropped = n_orig_faces - n_kept_faces
-    print(f"[Newton] Mesh cleanup: dropped {n_dropped}/{n_orig_faces} degenerate tris "
-          f"(uvs={'yes' if has_uvs else 'no'})")
-
-    if n_kept_faces < 4:
-        raise ValueError(f"Garment cleanup left only {n_kept_faces} valid triangles")
-
-    clean_faces = faces[keep]
-    clean_uv_faces = uv_faces[keep] if has_uvs else None
-
-    # Drop unreferenced verts and re-index faces; track mapping back to original.
-    used_verts = np.unique(clean_faces.ravel())
-    orig_to_clean = -np.ones(n_orig_verts, dtype=np.int64)
-    orig_to_clean[used_verts] = np.arange(len(used_verts))
-    clean_verts = verts[used_verts]
-    clean_faces_remapped = orig_to_clean[clean_faces].astype(np.int32)
-    print(f"[Newton] Mesh cleanup: {n_orig_verts - len(used_verts)} unused verts removed "
-          f"({n_orig_verts} → {len(used_verts)})")
-
-    return clean_verts, clean_faces_remapped, clean_uv_faces, used_verts
-
-
-# =============================================================================
-# PyGarment / NvidiaWarp-GarmentCode drape pipeline
-# =============================================================================
-# Primary drape path as of v17. Newton + geometric stay as fallbacks.
-#
-# PyGarment provides what Newton's Style3D solver didn't:
-#   - particle_max_velocity clamp (hard cap on any particle speed — no NaN)
-#   - global viscous damping (stability)
-#   - zero-gravity warmup (first N frames with gravity=0 so cloth settles)
-#   - is_static() auto-termination (sim ends at equilibrium, not fixed frames)
-#   - panel-aware body collision (with per-vertex body segmentation)
-#   - structural springs on panel seams (proper stitching, not just 1mm weld)
-#
-# Our integration flow:
-#   1. Download body + garment OBJ/MTL from Supabase (same as always)
-#   2. Generate per-vertex cloth panel segmentation from MTL material groups
-#   3. Prepare PyGarment's expected directory layout in a tmpdir
-#   4. Write body/cloth OBJs to the paths it expects (body pre-scaled by 1/100
-#      because PyGarment's Cloth.__init__ hardcodes b_scale=100)
-#   5. Call pygarment.meshgen.simulation.run_sim(...)
-#   6. Read the draped OBJ from the sim output path, return same as Newton did
-#
-# The SMPL body segmentation ships with our Docker image at
-# /workspace/pygarment_assets/smpl_vert_segmentation.json and PyGarment picks
-# it up when PathCofig.use_smpl_seg=True.
 
 def _generate_cloth_seg_file(
     garment_obj: Path,
@@ -787,13 +398,13 @@ def pygarment_drape(
 ) -> dict:
     """
     Run the PyGarment XPBD cloth simulation. Returns stats dict matching
-    newton_drape's schema so the caller doesn't care which backend ran.
+    the original handler schema so the caller doesn't care about the backend.
 
     Raises RuntimeError on any sim failure (e.g., PyGarment crash, no output
-    mesh produced). Caller catches and falls back to Newton or geometric.
+    mesh produced). Caller catches and falls back to geometric.
     """
     # Lazy imports so a failure to install PyGarment doesn't break the module
-    # at startup (Newton + geometric paths still work).
+    # at startup (geometric safety net still works).
     import shutil
     import yaml
     from scipy.spatial import cKDTree as _cKDTree
@@ -803,7 +414,7 @@ def pygarment_drape(
 
     # ------------------------------------------------------------------
     # Step 1: load & align meshes in OUR coordinate system (meters, Y-up).
-    # Re-uses the same preproc as newton_drape so the two paths start from
+    # Re-uses the same mesh preproc (weld + align) so the pipelines start from
     # identical input state.
     # ------------------------------------------------------------------
     body_verts_raw = load_obj_vertices(body_obj)
@@ -818,7 +429,7 @@ def pygarment_drape(
     garment_faces = load_obj_faces(garment_obj)
     aligned_verts, align_scale, translation = align_meshes(body_verts, garment_verts)
 
-    # Weld CLO3D seam-split verts (same 1mm tol as Newton path) — gives us
+    # Weld CLO3D seam-split verts at 1mm tol — gives us
     # orig_to_welded for stitch-vert detection in the segmentation file.
     _, _, orig_to_welded = _weld_duplicate_vertices(
         aligned_verts.copy(), garment_faces, tol=1.0e-3
@@ -963,7 +574,7 @@ def pygarment_drape(
         # ------------------------------------------------------------------
         # Step 5: read back the draped OBJ (path is PyGarment's paths.g_sim).
         # Un-scale our cloth ×100 back to meters, un-do alignment so we return
-        # in the original CLO3D coord space (like newton_drape does).
+        # in the original CLO3D coord space.
         # ------------------------------------------------------------------
         if not paths.g_sim.exists():
             raise RuntimeError(f"PyGarment sim produced no output at {paths.g_sim}")
@@ -999,483 +610,16 @@ def pygarment_drape(
             "materials": seg_stats["materials"],
             "stitch_verts": seg_stats["stitch_verts"],
             "backend": "pygarment",
+            # fabric_preset is displayed by drape-test.html if present — we
+            # pass it through from the request so the frontend confirms the
+            # requested fabric was used.
+            "fabric_preset": fabric_config.get("preset", "cotton_medium"),
             "align_scale": round(align_scale, 6),
             "translation_m": [round(float(t), 6) for t in translation],
         }
     finally:
         os.chdir(orig_cwd)
         # Leave tmp_root for debugging if needed; RunPod cleans ephemeral storage.
-
-
-def newton_drape(
-    body_obj: Path,
-    garment_obj: Path,
-    output_obj: Path,
-    fabric_config: dict,
-    simulation_mode: str = "swift",
-) -> dict:
-    """
-    GPU-accelerated cloth draping using NVIDIA Newton 1.1.0 (Style3D XPBD solver).
-    Real gravity, body collision, fabric tension. Y-up world coords, SI units.
-    """
-    from newton.solvers import SolverStyle3D
-
-    body_verts_raw = load_obj_vertices(body_obj)
-    garment_verts_raw = load_obj_vertices(garment_obj)
-    body_faces = load_obj_faces(body_obj)
-    garment_faces = load_obj_faces(garment_obj)
-
-    if len(body_verts_raw) == 0 or len(garment_verts_raw) == 0:
-        raise ValueError(f"Empty mesh: body={len(body_verts_raw)} garment={len(garment_verts_raw)} verts")
-    if len(body_faces) == 0 or len(garment_faces) == 0:
-        raise ValueError(f"No faces: body={len(body_faces)} garment={len(garment_faces)} tris")
-
-    print(f"[Newton] Body raw: {len(body_verts_raw)} verts, {len(body_faces)} tris")
-    print(f"[Newton] Garment raw: {len(garment_verts_raw)} verts, {len(garment_faces)} tris")
-
-    # Normalize both meshes to meters BEFORE alignment so gravity (m/s²) is meaningful
-    body_verts, _ = _normalize_to_meters(body_verts_raw, "Body")
-    garment_verts, garment_unit_scale = _normalize_to_meters(garment_verts_raw, "Garment")
-
-    aligned_verts, align_scale, translation = align_meshes(body_verts, garment_verts)
-
-    # WELD duplicated garment vertices. CLO3D OBJ exports write seam-split
-    # verts (same 3D position, distinct vertex indices per panel). That
-    # leaves the face graph topologically disconnected (v8 log: 31
-    # components) so stretch/bending can't connect panels and they fall
-    # independently. tol=1mm collapses seam pairs without touching distinct
-    # geometric features.
-    aligned_verts, garment_faces, orig_to_welded = _weld_duplicate_vertices(
-        aligned_verts, garment_faces, tol=1.0e-3
-    )
-
-    # Resolve fabric properties
-    preset_name = fabric_config.get("preset", "cotton_medium")
-    preset = FABRIC_PRESETS.get(preset_name, FABRIC_PRESETS["cotton_medium"])
-    density = fabric_config.get("density", preset["density"])
-    tri_ke = preset["tri_ke"]
-    edge_ke = preset["edge_ke"]
-    particle_r = preset["particle_r"]
-
-    # v13: surgical inflation. v11 skipped inflation entirely and front-panel
-    # verts tunneled through the body (shredded-front / clean-back pattern).
-    # v10 blanket-inflated and got the "possessed" puffy look. Surgical mode
-    # pushes ONLY penetrating verts (signed_dist < 0) out to +3mm. Already-outside
-    # verts stay put.
-    #
-    # Step 1: pre-inflation signed-distance histogram — free diagnostic that
-    # proves/refutes the front-panel-penetration hypothesis without running sim.
-    from scipy.spatial import cKDTree as _cKDTree_diag
-    _body_normals_diag = compute_body_normals(body_verts, body_obj)
-    _body_tree_diag = _cKDTree_diag(body_verts)
-    _, _nn_idx = _body_tree_diag.query(aligned_verts, k=1)
-    _diff = aligned_verts - body_verts[_nn_idx]
-    _sdist = np.sum(_diff * _body_normals_diag[_nn_idx], axis=1)
-    _n_total = len(aligned_verts)
-    _buckets = [
-        ("<-10mm (deep inside)", int((_sdist < -10e-3).sum())),
-        ("-10..-5mm",            int(((_sdist >= -10e-3) & (_sdist < -5e-3)).sum())),
-        ("-5..0mm (shallow in)", int(((_sdist >= -5e-3) & (_sdist < 0.0)).sum())),
-        ("0..5mm (skin close)",  int(((_sdist >= 0.0) & (_sdist < 5e-3)).sum())),
-        ("5..20mm (loose)",      int(((_sdist >= 5e-3) & (_sdist < 20e-3)).sum())),
-        (">20mm (far)",          int((_sdist >= 20e-3).sum())),
-    ]
-    print(f"[Newton] Pre-inflation signed-dist histogram (n={_n_total}):")
-    for _label, _count in _buckets:
-        _pct = 100.0 * _count / max(_n_total, 1)
-        print(f"[Newton]   {_label:22s}: {_count:6d} ({_pct:5.1f}%)")
-
-    # v15: surgical inflation REMOVED. v14's inflation pushed penetrating verts
-    # up to 20mm+ along body normals, violating the UV rest pose and causing
-    # 80% edge strain at t=0 → NaN on frame 1 (26403/26403 particles).
-    #
-    # Newton's canonical H1 example (cloth_h1.py) handles the SAME case — cloth
-    # with initial penetration on a body — by relying on XPBD position-based
-    # contact constraints with high soft_contact_ke (5000, not 10) to push
-    # penetrating verts out organically over the first few frames. XPBD's
-    # correction is CLAMPED to penetration depth per iteration, independent of
-    # stiffness, so it cannot explode like force-based inflation.
-    #
-    # Tradeoff: verts deep inside concave body regions (hood liner vs neck,
-    # armpit, crotch) may stay inside for the whole sim since contact can't
-    # reach them past the body mesh. Visually hidden under outer cloth.
-    stuck_mask_orig = np.zeros(len(aligned_verts), dtype=bool)
-    n_inflated = 0
-    print(f"[Newton] Inflation skipped (v15) — XPBD contact resolves penetrations "
-          f"during sim (see H1 example)")
-
-    # v10: doubled swift from 120→240 frames (2s → 4s) so drape has time to
-    # settle on body. v9 log showed garment still mid-fall at frame 120
-    # (y_max: 1.83 → 1.62 over 2s, only 20cm of settling done). Quality mode
-    # gets 360 for tighter final drape.
-    n_frames = 360 if simulation_mode == "quality" else 240
-    # Match the canonical example_cloth_style3d.py: 10 substeps @ 1/600s = 16.67ms/frame.
-    # Smaller dt is critical for stability — sim_dt=1/240 was too coarse and diverged.
-    sim_substeps = 10
-    dt = 1.0 / (60.0 * sim_substeps)
-
-    print(f"[Newton] Fabric: {preset_name} (density={density}, tri_ke={tri_ke}, edge_ke={edge_ke})")
-    print(f"[Newton] Sim: {n_frames} frames x {sim_substeps} substeps @ dt={dt:.5f}s")
-
-    # Load UVs for Style3D panel data (used for warp/weft direction)
-    uv_verts_raw, uv_faces_raw = load_obj_uvs(garment_obj)
-
-    # Pre-clean garment to dodge Newton 1.1.0's add_cloth_mesh dual-filter bug.
-    # Both filters (3D area in builder.add_triangles, 2D area in cloth.add_cloth_mesh)
-    # must agree on which triangles to drop, or SolverStyle3D's BVH crashes.
-    clean_garment_verts, clean_garment_faces, clean_uv_faces, clean_to_orig = \
-        _clean_garment_for_newton(aligned_verts, garment_faces, uv_verts_raw, uv_faces_raw)
-    has_uvs = clean_uv_faces is not None
-
-    # Defensive: the sim burns 4+ minutes, so fail fast if inputs are already NaN.
-    if not np.isfinite(clean_garment_verts).all():
-        raise ValueError("Cleaned garment contains non-finite vertices — aborting before sim")
-    cv_min = clean_garment_verts.min(axis=0)
-    cv_max = clean_garment_verts.max(axis=0)
-    print(f"[Newton] Pre-sim cloth bbox: x=[{cv_min[0]:.3f},{cv_max[0]:.3f}] "
-          f"y=[{cv_min[1]:.3f},{cv_max[1]:.3f}] z=[{cv_min[2]:.3f},{cv_max[2]:.3f}]")
-
-    # --- Build Newton scene (single builder, Y-up to match input meshes) ---
-    builder = newton.ModelBuilder(up_axis=newton.Axis.Y)
-    SolverStyle3D.register_custom_attributes(builder)
-
-    body_mesh = newton.Mesh(
-        body_verts.astype(np.float32),
-        body_faces.flatten().astype(np.int32),
-    )
-    # Static avatar collider. Matches canonical example_cloth_style3d.py:74-81:
-    # default add_body() (no is_kinematic flag) + add_shape_mesh. Default body
-    # has mass=0 → body_inv_mass=0 → immovable under gravity. Our earlier
-    # is_kinematic=True was belt-and-suspenders but diverged from the canonical
-    # path; removing to minimise surprise.
-    avatar_body = builder.add_body()
-    builder.add_shape_mesh(
-        body=avatar_body,
-        xform=wp.transform(p=wp.vec3(0.0, 0.0, 0.0), q=wp.quat_identity()),
-        mesh=body_mesh,
-        scale=wp.vec3(1.0, 1.0, 1.0),
-    )
-
-    # v13: use OBJ UVs as panel_verts (canonical Newton path). The CLO3D OBJ
-    # stores UVs in mm-scale pattern coords (m.obj range ~±1600 × ~±2500 mm);
-    # multiplying by 1e-3 yields real-world fabric pattern dimensions in meters.
-    # This matches example_cloth_style3d.py (`garment_mesh_uv * 1.0e-3`).
-    #
-    # Replaces v8–v12's geodesic BFS unfold, which accumulated max_mismatch
-    # ~1.5m on non-developable regions (hood, shoulders) and forced the adaptive
-    # edge_ke down to ~7e-7 — ~25x below canonical, giving the cloth essentially
-    # zero bending stiffness. With true panel coords we can restore canonical
-    # edge_aniso_ke=vec3(2e-5, 1e-5, 5e-6) without risking a rest-pose bending
-    # blow-up.
-    #
-    # Note: panel_verts is indexed by panel_indices INDEPENDENTLY of 3D vertex
-    # indices. We pass the full (pre-weld) UV table as panel_verts and the
-    # cleaned UV face indices as panel_indices — count mismatch with
-    # clean_garment_verts is expected and fine.
-    if not has_uvs:
-        raise RuntimeError(
-            "Garment OBJ has no UVs — UV-based panels required by v13. "
-            "Re-export the OBJ with texture coordinates."
-        )
-    panel_verts_np = (uv_verts_raw * 1.0e-3).astype(np.float64)
-    panel_indices_np = clean_uv_faces.astype(np.int32)
-    _uv_pmin = panel_verts_np.min(axis=0)
-    _uv_pmax = panel_verts_np.max(axis=0)
-    print(f"[Newton] Panel: OBJ UVs × 1e-3 → {len(panel_verts_np)} panel verts, "
-          f"{len(panel_indices_np)} tris; "
-          f"range u=[{_uv_pmin[0]:.3f},{_uv_pmax[0]:.3f}] "
-          f"v=[{_uv_pmin[1]:.3f},{_uv_pmax[1]:.3f}] (m)")
-    panel_verts_arg = panel_verts_np.tolist()
-    panel_indices_arg = panel_indices_np.flatten().tolist()
-
-    # Canonical edge_aniso_ke from example_cloth_style3d.py. With real UV-based
-    # panel rest coords this is safe — no adaptive tuning needed.
-    style3d.add_cloth_mesh(
-        builder,
-        pos=wp.vec3(0.0, 0.0, 0.0),
-        rot=wp.quat_identity(),
-        vel=wp.vec3(0.0, 0.0, 0.0),
-        vertices=clean_garment_verts.astype(np.float32).tolist(),
-        indices=clean_garment_faces.flatten().tolist(),
-        density=density,
-        scale=1.0,
-        particle_radius=particle_r,
-        tri_aniso_ke=wp.vec3(tri_ke, tri_ke, tri_ke * 0.1),
-        edge_aniso_ke=wp.vec3(2.0e-5, 1.0e-5, 5.0e-6),
-        panel_verts=panel_verts_arg,
-        panel_indices=panel_indices_arg,
-    )
-
-    # Defensive: surface the dual-filter mismatch with a clear error rather than
-    # letting SolverStyle3D's BVH assert blow up cryptically.
-    n_tri_idx = len(builder.tri_indices)
-    n_tri_pos = len(builder.tri_poses)
-    if n_tri_idx != n_tri_pos:
-        raise RuntimeError(
-            f"Newton tri-list mismatch after cleanup: tri_indices={n_tri_idx} "
-            f"tri_poses={n_tri_pos}. Tighten area_eps in _clean_garment_for_newton."
-        )
-    print(f"[Newton] Builder OK: {n_tri_idx} cloth tris registered")
-
-    # v13: add ground plane. Canonical example_cloth_style3d.py does this, and
-    # it's what the user wants visually — trouser hems that overshoot the feet
-    # should stack on the floor instead of dangling/bunching through the ankles.
-    # Surgical inflation ensures the garment starts above y≈0.003m, so the
-    # ground plane at y=0 won't re-introduce frame-1 penetration spikes.
-    builder.add_ground_plane()
-
-    device = "cuda:0"
-    model = builder.finalize(device=device)
-    model.set_gravity((0.0, -9.81, 0.0))
-
-    # --- PIN unstable particles BEFORE sim starts ---
-    # Two classes get pinned (ACTIVE flag cleared → solver skips them):
-    #  (1) garment verts still stuck inside the body after inflation. Leaving
-    #      them dynamic means the contact kernel sees them deep inside → huge
-    #      push-out forces → NaN cascade to neighbors via stretch/bending.
-    #  (2) particles with mass=0. Happens when ALL triangles referencing a
-    #      particle were dropped as degenerate by cloth.py:270. Zero mass means
-    #      infinite inverse mass → any force produces inf velocity → NaN.
-    n_cloth_particles = len(clean_garment_verts)
-    # v14: capture Newton's allocated dtypes BEFORE we overwrite the arrays.
-    # Forcing dtype=wp.uint32 on the pin-write below is a latent bug that
-    # never fired in v11/v12 (n_pinned=0) but crashed v13's surgical inflation
-    # path with "create_soft_contacts expects int32 but got uint32". The
-    # canonical approach is to preserve whatever dtype Newton picked.
-    flags_dtype = model.particle_flags.dtype
-    mass_dtype = model.particle_mass.dtype
-    inv_mass_dtype = model.particle_inv_mass.dtype
-    flags_np = model.particle_flags.numpy().copy()
-    mass_np = model.particle_mass.numpy().copy()
-    inv_mass_np = model.particle_inv_mass.numpy().copy()
-
-    # stuck_mask_orig is indexed by original garment vert. Remap to clean.
-    stuck_mask_clean = stuck_mask_orig[clean_to_orig]
-    n_pin_stuck = int(stuck_mask_clean.sum())
-
-    # Zero-mass particles (orphans after Newton's internal tri drop).
-    cloth_mass_slice = mass_np[:n_cloth_particles]
-    zero_mass_mask = cloth_mass_slice <= 0.0
-    n_pin_orphan = int(zero_mass_mask.sum())
-
-    pin_mask = stuck_mask_clean | zero_mass_mask
-    n_pinned = int(pin_mask.sum())
-    if n_pinned > 0:
-        pin_idx = np.nonzero(pin_mask)[0]
-        # Bitwise clear of ACTIVE bit. In-place assignment into flags_np
-        # preserves its original dtype (numpy casts the RHS), so flags_np
-        # stays consistent with flags_dtype captured above.
-        flags_np[pin_idx] = flags_np[pin_idx] & ~np.uint32(ParticleFlags.ACTIVE)
-        mass_np[pin_idx] = 0.0
-        inv_mass_np[pin_idx] = 0.0
-        model.particle_flags = wp.array(flags_np, dtype=flags_dtype, device=device)
-        model.particle_mass = wp.array(mass_np, dtype=mass_dtype, device=device)
-        model.particle_inv_mass = wp.array(inv_mass_np, dtype=inv_mass_dtype, device=device)
-    print(f"[Newton] Pinned {n_pinned} particles "
-          f"({n_pin_stuck} body-stuck, {n_pin_orphan} zero-mass orphans)")
-    # v16 contact params — reverts v15's H1-copy. Verified via Newton source
-    # (solvers/style3d/collision/kernels.py :: eval_body_contact_kernel →
-    # rigid_vbd_kernels.evaluate_body_particle_contact) that
-    # soft_contact_ke is a FORCE-BASED spring, NOT XPBD-clamped. With v15's
-    # ke=5000 and 11% of verts >10mm deep inside the body at t=0:
-    #   F = 5000 × 0.010m = 50 N per vert
-    #   a = F/m = 50 / 3e-5 = 1.67e6 m/s²
-    #   Δv per substep = a × dt = 2780 m/s  → catastrophic ejection → NaN.
-    # H1 uses ke=5000 safely because its jacket is designed on H1 with zero
-    # initial penetration. Our CLO3D hoodie on SMPL has 24% penetrating verts.
-    #
-    # Reverting ke=10 (canonical / v12-proven-stable). With ke=10 and 10mm
-    # penetration: F=0.1 N, a=3333 m/s², Δv=5.5 m/s per substep — still bigger
-    # than we want but stable over the sim (v12 log shows nan=0 across 240
-    # frames with this ke). Deeply-penetrating verts resolve slowly over
-    # first few frames; verts we can't push out stay inside body (visually
-    # hidden under outer cloth).
-    #
-    # shape_material_mu.fill_(0.0) KEPT from v15. This was the real cure for
-    # v12's "cloth frozen in T-pose" — μ_body=default locked cloth on contact.
-    # With μ_body=0 and μ=0, cloth slides along body under gravity.
-    model.soft_contact_radius = 0.2e-2
-    model.soft_contact_margin = 0.35e-2
-    model.soft_contact_ke = 1.0e1
-    model.soft_contact_kd = 1.0e-6
-    model.soft_contact_kf = 0.0
-    model.soft_contact_mu = 0.0
-    # Kill friction on every body shape too. Without this, the body mesh's
-    # per-shape default μ still friction-locks cloth on contact (what froze
-    # v12). Keeping from v15 — this was the actual v12 fix, orthogonal to ke.
-    if hasattr(model, "shape_material_mu") and model.shape_material_mu is not None:
-        model.shape_material_mu.fill_(0.0)
-        print("[Newton] shape_material_mu zeroed on all body shapes (no friction lock)")
-
-    state_0 = model.state()
-    state_1 = model.state()
-    control = model.control()
-    contacts = model.contacts()
-
-    # iterations=10 (was 4). H1 uses 10 for cloth on a humanoid; more iters
-    # converge the XPBD contact constraints better, preventing residual
-    # penetration that would otherwise tunnel next substep.
-    solver = SolverStyle3D(model=model, iterations=10)
-    solver._precompute(builder)
-    # H1 sets the Style3D cloth-self-collision radius explicitly. Our default
-    # (3e-3 from the Collision class ctor) is fine, but setting it explicitly
-    # makes the config auditable from logs.
-    if hasattr(solver, "collision") and hasattr(solver.collision, "radius"):
-        solver.collision.radius = 3.5e-3
-        print(f"[Newton] solver.collision.radius set to {solver.collision.radius:.1e} m (H1 default)")
-
-    print(f"[Newton] Running {n_frames} frames on {device}...")
-    sim_start = time.time()
-
-    # v16: log EVERY frame for the first `diag_dense_until` frames, then every
-    # diag_every after. The previous every-10 schedule meant we saw frame 10
-    # already-all-NaN in v15 but had no clue what happened between frames 1–9.
-    diag_every = 10
-    diag_dense_until = 10
-    first_nan_frame = None
-
-    # v15: CUDA graph capture — the canonical path for performance. Records the
-    # per-frame kernel sequence once, then replays it on GPU without Python-side
-    # launch overhead. Canonical example_cloth_style3d.py does this via
-    # wp.ScopedCapture. Expected: ~3–10x speedup over Python-driven loop.
-    #
-    # Invariant: sim_substeps must be EVEN (state_0/state_1 Python refs swap an
-    # even number of times per captured frame → swaps cancel out → post-capture
-    # state_0 points to the same underlying Warp array as pre-capture, matching
-    # the CUDA graph's recorded kernel targets on replay). Our sim_substeps=10.
-    assert sim_substeps % 2 == 0, "sim_substeps must be even for CUDA graph parity"
-
-    def _sim_frame():
-        nonlocal state_0, state_1
-        # collide() once per frame, outside the substep loop — matches
-        # canonical example_cloth_style3d.py (static avatar).
-        model.collide(state_0, contacts)
-        for _ in range(sim_substeps):
-            state_0.clear_forces()
-            solver.step(state_0, state_1, control, contacts, dt)
-            state_0, state_1 = state_1, state_0
-
-    sim_graph = None
-    capture_elapsed = 0.0
-    if wp.get_device().is_cuda:
-        try:
-            _cap_t0 = time.time()
-            with wp.ScopedCapture() as _cap:
-                _sim_frame()
-            sim_graph = _cap.graph
-            capture_elapsed = time.time() - _cap_t0
-            print(f"[Newton] CUDA graph captured in {capture_elapsed:.1f}s — "
-                  f"subsequent frames via wp.capture_launch")
-        except Exception as e:
-            print(f"[Newton] CUDA graph capture FAILED ({e}) — falling back to Python loop")
-            sim_graph = None
-
-    # If capture succeeded, it already simulated frame 0 as a side effect.
-    # Skip it in the main loop.
-    start_frame = 1 if sim_graph is not None else 0
-
-    for frame in range(start_frame, n_frames):
-        if sim_graph is not None:
-            wp.capture_launch(sim_graph)
-        else:
-            _sim_frame()
-
-        if (frame + 1) % diag_every == 0 or frame == 0 or (frame + 1) <= diag_dense_until:
-            q = state_0.particle_q.numpy()
-            qd = state_0.particle_qd.numpy()
-            n_cloth_now = len(clean_garment_verts)
-            cloth_q = q[:n_cloth_now]
-            cloth_qd = qd[:n_cloth_now]
-            finite_mask_q = np.isfinite(cloth_q).all(axis=1)
-            finite_mask_qd = np.isfinite(cloth_qd).all(axis=1)
-            n_nan = int((~finite_mask_q).sum())
-            if finite_mask_q.any():
-                qmin = float(cloth_q[finite_mask_q].min())
-                qmax = float(cloth_q[finite_mask_q].max())
-            else:
-                qmin = qmax = float("nan")
-            # Mean/max particle speed — tells us if cloth is actually moving
-            # or frozen (v12 was frozen: friction locked it on contact at t=0).
-            both_finite = finite_mask_q & finite_mask_qd
-            if both_finite.any():
-                speed = np.linalg.norm(cloth_qd[both_finite], axis=1)
-                v_mean = float(speed.mean())
-                v_max = float(speed.max())
-            else:
-                v_mean = v_max = float("nan")
-            elapsed = time.time() - sim_start
-            print(f"[Newton] Frame {frame+1}/{n_frames} ({elapsed:.1f}s) "
-                  f"nan={n_nan}/{n_cloth_now} q∈[{qmin:.3f},{qmax:.3f}] "
-                  f"v_mean={v_mean:.3f} v_max={v_max:.3f} m/s")
-            if n_nan > 0 and first_nan_frame is None:
-                first_nan_frame = frame + 1
-                print(f"[Newton] FIRST NAN appeared by frame {first_nan_frame}")
-
-    sim_time = time.time() - sim_start
-    print(f"[Newton] Simulation done in {sim_time:.1f}s")
-
-    # Extract final cloth vertex positions. Static collision shapes (body=-1) add
-    # NO particles, so cloth particles occupy [0:n_clean) in input order. n_clean
-    # is the post-cleanup vertex count, NOT the original garment vertex count.
-    final_positions = state_0.particle_q.numpy()
-    n_clean = len(clean_garment_verts)
-    if len(final_positions) < n_clean:
-        raise RuntimeError(f"Expected {n_clean} cloth particles, got {len(final_positions)}")
-    cloth_positions_clean = final_positions[:n_clean]
-    print(f"[Newton] Extracted {len(cloth_positions_clean)} draped vertex positions")
-
-    # Sanitize: any particle that exploded to NaN/inf gets reset to its pre-sim
-    # position. Common when stiff cloth starts with verts inside the body
-    # collision mesh (e.g. hood interior inside the head). Better to keep a few
-    # un-draped verts than to crash the downstream KDTree/GLB pipeline.
-    finite_mask = np.isfinite(cloth_positions_clean).all(axis=1)
-    n_bad = int((~finite_mask).sum())
-    if n_bad > 0:
-        pre_sim_clean = aligned_verts[clean_to_orig].astype(np.float64)
-        cloth_positions_clean = np.where(
-            finite_mask[:, None], cloth_positions_clean.astype(np.float64), pre_sim_clean
-        )
-        print(f"[Newton] WARNING: {n_bad}/{n_clean} particles NaN/inf — restored pre-sim pos")
-
-    # Map cleaned vertex positions back into the original garment vertex array.
-    # Verts that were unreferenced after cleanup keep their pre-sim aligned position
-    # so the original OBJ topology + texture pipeline still works downstream.
-    cloth_positions_full = aligned_verts.copy().astype(np.float64)
-    cloth_positions_full[clean_to_orig] = cloth_positions_clean.astype(np.float64)
-
-    # Undo alignment translation/scale (still in meters)
-    if align_scale != 1.0:
-        final_verts_m = (cloth_positions_full - translation) / align_scale
-    else:
-        final_verts_m = cloth_positions_full - translation
-
-    # Restore original garment units (e.g. back to mm if input was mm)
-    if garment_unit_scale != 1.0:
-        final_verts_welded = final_verts_m / garment_unit_scale
-    else:
-        final_verts_welded = final_verts_m
-
-    # UN-WELD: `final_verts_welded` is indexed by the welded vert table
-    # (~26k entries). The original OBJ has ~27.7k `v` lines and its `f`
-    # lines reference those original indices — `write_obj_with_new_verts`
-    # iterates and substitutes positions in original order. Map every
-    # original vert back to the position of its welded canonical vert.
-    final_verts = final_verts_welded[orig_to_welded]
-
-    write_obj_with_new_verts(garment_obj, final_verts.astype(np.float64), output_obj)
-
-    return {
-        "vertices_total": len(garment_verts_raw),
-        "vertices_simulated": int(n_clean),
-        "triangles_simulated": int(len(clean_garment_faces)),
-        "simulation_frames": n_frames,
-        "simulation_substeps": sim_substeps,
-        "simulation_time_seconds": round(sim_time, 2),
-        "fabric_preset": preset_name,
-        "align_scale": round(align_scale, 6),
-        "translation_m": [round(float(t), 6) for t in translation],
-        "garment_unit_scale": round(garment_unit_scale, 6),
-    }
 
 
 def _build_adjacency(faces, n_verts):
@@ -1635,131 +779,6 @@ def geometric_drape(
         "scale_applied": round(scale, 6),
         "translation": [round(float(t), 6) for t in translation],
     }
-
-
-def run_xrtailor(
-    body_obj: Path,
-    garment_obj: Path,
-    output_dir: Path,
-    fabric_config: dict,
-    simulation_mode: str = "swift",
-    smpl_params_path: Path = None,
-) -> Path:
-    """
-    Run XRTailor cloth simulation.
-    Returns path to the draped output OBJ.
-    """
-    engine_cfg = CONFIGS_DIR / "engine_config.json"
-    fabric_cfg_path = output_dir / "fabric_runtime.json"
-    fabric_cfg_path.write_text(json.dumps(fabric_config, indent=2))
-
-    sim_cfg_path = output_dir / "simulation_config.json"
-    sim_config = {
-        "garment": str(garment_obj),
-        "body": str(body_obj),
-        "output_dir": str(output_dir),
-        "output_format": "obj",
-        "fabric_config": str(fabric_cfg_path),
-        "mode": simulation_mode,
-        "frames": 1,
-    }
-    if smpl_params_path and smpl_params_path.exists():
-        sim_config["smpl_params"] = str(smpl_params_path)
-    sim_cfg_path.write_text(json.dumps(sim_config, indent=2))
-
-    cmd = [
-        XRTAILOR_BIN,
-        "--engine-config", str(engine_cfg),
-        "--simulation-config", str(sim_cfg_path),
-        "--headless",
-    ]
-
-    print(f"[Draping] Running XRTailor: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-
-    if result.returncode != 0:
-        print(f"[Draping] XRTailor stderr: {result.stderr}")
-        raise RuntimeError(f"XRTailor failed (exit {result.returncode}): {result.stderr[:500]}")
-
-    output_obj = output_dir / "frame_0000.obj"
-    if not output_obj.exists():
-        candidates = list(output_dir.glob("*.obj"))
-        candidates = [c for c in candidates if c.name != garment_obj.name and c.name != body_obj.name]
-        if candidates:
-            output_obj = candidates[0]
-        else:
-            raise FileNotFoundError(f"No draped OBJ output in {output_dir}")
-
-    return output_obj
-
-
-def inject_verts_into_glb(draped_obj: Path, original_glb: Path, output_glb: Path) -> bool:
-    """
-    Take draped vertex positions from OBJ and inject them into the original GLB,
-    preserving all materials, textures, UVs, and face topology.
-    Falls back to bare trimesh conversion if the original GLB isn't available.
-    """
-    try:
-        import trimesh
-        import struct
-
-        draped_verts = load_obj_vertices(draped_obj)
-        if len(draped_verts) == 0:
-            print("[Draping] No vertices in draped OBJ, falling back to bare conversion")
-            return _obj_to_glb_bare(draped_obj, output_glb)
-
-        if not original_glb.exists():
-            print("[Draping] No original GLB, falling back to bare conversion")
-            return _obj_to_glb_bare(draped_obj, output_glb)
-
-        # Load original GLB with all materials intact
-        scene = trimesh.load(str(original_glb), process=False)
-
-        # Extract meshes from scene
-        if isinstance(scene, trimesh.Scene):
-            meshes = list(scene.geometry.values())
-        else:
-            meshes = [scene]
-
-        total_original_verts = sum(len(m.vertices) for m in meshes)
-        print(f"[Draping] Original GLB: {len(meshes)} mesh(es), {total_original_verts} total verts")
-        print(f"[Draping] Draped OBJ: {len(draped_verts)} verts")
-
-        if total_original_verts == len(draped_verts):
-            # Vertex counts match — replace positions directly
-            vi = 0
-            for m in meshes:
-                n = len(m.vertices)
-                m.vertices = draped_verts[vi:vi + n].astype(np.float64)
-                vi += n
-            print(f"[Draping] Injected {vi} draped verts into original GLB (exact match)")
-        else:
-            print(f"[Draping] Vertex count mismatch ({total_original_verts} vs {len(draped_verts)}), "
-                  f"using nearest-vertex mapping")
-            from scipy.spatial import cKDTree
-
-            # Map draped verts to original mesh verts by proximity
-            draped_tree = cKDTree(draped_verts)
-            vi = 0
-            for m in meshes:
-                orig_verts = np.array(m.vertices)
-                _, indices = draped_tree.query(orig_verts, k=1)
-                m.vertices = draped_verts[indices].astype(np.float64)
-                vi += len(orig_verts)
-
-        if isinstance(scene, trimesh.Scene):
-            scene.export(str(output_glb), file_type="glb")
-        else:
-            meshes[0].export(str(output_glb), file_type="glb")
-
-        print(f"[Draping] GLB with textures: {output_glb.stat().st_size / 1024:.1f} KB")
-        return True
-
-    except Exception as e:
-        print(f"[Draping] Texture-preserving GLB failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return _obj_to_glb_bare(draped_obj, output_glb)
 
 
 def _obj_to_glb_bare(obj_path: Path, glb_path: Path) -> bool:
@@ -1922,35 +941,14 @@ def handler(event: dict) -> dict:
             simulation_method = "pygarment"
             print(f"[Draping] PyGarment success: {sim_stats}")
         except Exception as e:
-            print(f"[Draping] PyGarment failed, falling back to Newton: {e}")
+            print(f"[Draping] PyGarment failed, falling back to geometric: {e}")
             import traceback
             traceback.print_exc()
             draped_obj = None
 
-        # Strategy 2 (secondary fallback): Newton Style3D (our v4-v16 backend).
-        if draped_obj is None and NEWTON_AVAILABLE:
-            try:
-                print("[Draping] Running Newton GPU cloth simulation (fallback)...")
-                draped_obj = output_dir / "draped.obj"
-                sim_stats = newton_drape(
-                    body_obj=body_obj,
-                    garment_obj=garment_obj,
-                    output_obj=draped_obj,
-                    fabric_config=merged_fabric,
-                    simulation_mode=simulation_mode,
-                )
-                simulation_method = "newton_gpu"
-                print(f"[Draping] Newton success: {sim_stats}")
-            except Exception as e:
-                print(f"[Draping] Newton failed, falling back to geometric: {e}")
-                import traceback
-                traceback.print_exc()
-                draped_obj = None
-
-        # Strategy 3 (last-resort): geometric drape (no real physics, just
-        # multi-pass collision resolution + Laplacian smoothing). Guaranteed
-        # to run — we use it as the safety net so the shopper never sees a
-        # draping failure even if both GPU paths explode.
+        # Strategy 2 (safety net): geometric drape (deterministic, no GPU,
+        # no physics — just multi-pass collision resolution + Laplacian
+        # smoothing). Guaranteed to run so the shopper never sees a failure.
         if draped_obj is None:
             try:
                 print("[Draping] Running geometric drape fallback...")
@@ -2057,18 +1055,18 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-21/v17-pygarment-primary "
-    "(PyGarment / NvidiaWarp-GarmentCode is now the primary drape backend. "
-    "Features Newton didn't have: particle_max_velocity clamp, zero-gravity "
-    "warmup, auto-terminate on equilibrium, body-part segmentation, proper "
-    "seam stitching springs. Newton + geometric kept as fallbacks.)"
+    "drape-handler 2026-04-21/v18-newton-nuked "
+    "(Newton Style3D ripped out entirely after v4–v16 NaN fights. PyGarment / "
+    "NvidiaWarp-GarmentCode is the only GPU path; geometric drape is the "
+    "deterministic safety net. Stability features on by design: velocity "
+    "clamp, zero-gravity warmup, auto-terminate on equilibrium.)"
 )
 
 try:
     import runpod
     print(f"[Draping] === {HANDLER_BUILD} ===")
     print("[Draping] Starting serverless cloth draping handler...")
-    print(f"[Draping] Newton GPU sim available: {NEWTON_AVAILABLE}")
+    print(f"[Draping] PyGarment/Warp sim available: {WARP_AVAILABLE}")
     print(f"[Draping] Python path: {sys.path[:3]}")
     runpod.serverless.start({"handler": runpod_handler})
 except ImportError:
