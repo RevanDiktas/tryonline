@@ -475,6 +475,37 @@ def pygarment_drape(
         _stub.render_images = _render_images_stub
         sys.modules["pygarment.meshgen.render.pythonrender"] = _stub
 
+    # v18.8: disable Cloth's CUDA graph capture. NvidiaWarp-GarmentCode's Warp
+    # fork has a bug where transient scratch arrays allocated inside
+    # wp.sim.collide / integrator.simulate get Python-GC'd during an active
+    # capture, triggering array.__del__ → allocator.free → the RuntimeError
+    # we saw dozens of times in the v18.7 log:
+    #
+    #   Cannot free memory on device ... while graph capture is active
+    #   at /workspace/warp-gc/warp/types.py:1660
+    #
+    # Those "Exception ignored" suppressions mask the fact that the capture
+    # state is left inconsistent, so the resulting graph replays produce
+    # bogus output. Disabling graph capture forces the Python-level substep
+    # loop (slightly slower per frame, but correct).
+    #
+    # Patch order matters: Cloth is imported by pygarment.meshgen.simulation
+    # at that module's load time. Must patch pygarment.meshgen.garment.Cloth
+    # BEFORE importing simulation, otherwise simulation.py grabs the
+    # unpatched class.
+    import pygarment.meshgen.garment as _pg_garment
+    _orig_cloth_init = _pg_garment.Cloth.__init__
+    def _cloth_init_no_graph(self, *args, **kwargs):
+        # Replace create_graph on this instance FIRST so the parent __init__'s
+        # conditional call to self.create_graph() hits our no-op instead.
+        self.create_graph = lambda: setattr(self, "graph", None)
+        _orig_cloth_init(self, *args, **kwargs)
+        # Belt-and-suspenders: even if the original init re-set
+        # sim_use_graph, force it off so update() takes the Python loop.
+        self.sim_use_graph = False
+        self.graph = None
+    _pg_garment.Cloth.__init__ = _cloth_init_no_graph
+
     from pygarment.meshgen.sim_config import PathCofig
     from pygarment.meshgen.simulation import run_sim
     from pygarment import data_config
@@ -1157,11 +1188,12 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-21/v18.7-weld-and-stitch "
-    "(Feed PyGarment the WELDED mesh so its sewing-spring path actually fires. "
-    "Body now in meters (PyGarment ×100 → cm), cloth in cm. Scales match → "
-    "panel_assignment labels correctly. cloth_reference_drag enabled so "
-    "panels stick to body instead of falling off under gravity.)"
+    "drape-handler 2026-04-21/v18.8-no-graph-capture "
+    "(Disable NvidiaWarp-GarmentCode's buggy CUDA graph capture — transient "
+    "scratch arrays allocated inside capture try to free on Python GC, "
+    "triggering 'Cannot free memory while graph capture is active' spam and "
+    "corrupted output. Monkey-patch Cloth.__init__ to force sim_use_graph=False "
+    "so substeps run through the direct kernel-launch path.)"
 )
 
 try:
