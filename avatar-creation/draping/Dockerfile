@@ -68,12 +68,35 @@ RUN git clone --depth 1 https://github.com/maria-korosteleva/NvidiaWarp-GarmentC
 # --- GarmentCode / PyGarment ---
 # The repo's setup.cfg has `package_dir = =pygarment` which, when pip-installed,
 # exposes sub-packages as top-level (meshgen, pattern, etc.) — but the repo's
-# own code uses `from pygarment.meshgen.X import Y`. That mismatch is why
-# `pip install -e .` left `pygarment` itself unimportable in the first build.
-# Workaround: skip pip install entirely and put the repo dir on PYTHONPATH.
-# Python then finds /workspace/garmentcode/pygarment/ as a normal package.
-RUN git clone --depth 1 https://github.com/maria-korosteleva/GarmentCode.git /workspace/garmentcode
+# own code uses `from pygarment.meshgen.X import Y`. That mismatch made the
+# package unimportable after `pip install -e .` in v18.1.
+# Workaround: skip pip install entirely, put the repo dir on PYTHONPATH.
+#
+# Second issue (v18.3 run): pygarment/__init__.py imports the pattern-design
+# API (Component, Panel, Edge, ...) which transitively imports cairosvg,
+# svgwrite, cairo for SVG pattern visualization. We only need the simulation
+# subset (pygarment.meshgen.*) and data_config — both of which are clean.
+# We overwrite pygarment/__init__.py with an empty stub so `import pygarment`
+# doesn't trigger the design-toolchain chain.
+#
+# Audited clean imports on the simulation path:
+#   pygarment/meshgen/__init__.py               (empty upstream)
+#   pygarment/meshgen/sim_config.py  → pygarment.data_config (yaml + psutil)
+#   pygarment/meshgen/simulation.py  → pygarment.meshgen.{garment,render,...}
+#   pygarment/meshgen/garment.py     → pygarment.pattern.core.BasicPattern
+#   pygarment/pattern/__init__.py               (docstring only)
+#   pygarment/pattern/core.py        → svgpathtools (installed), rotation, utils
+#   pygarment/pattern/rotation.py    (numpy only)
+#   pygarment/pattern/utils.py       (numpy only)
+RUN git clone --depth 1 https://github.com/maria-korosteleva/GarmentCode.git /workspace/garmentcode \
+    && printf '"""pygarment — simulation-only subset for the drape handler. The original __init__ (which imports the pattern-design API with cairosvg/svgwrite/cairo deps) is replaced at Docker build time because the drape handler never touches pattern generation."""\n' > /workspace/garmentcode/pygarment/__init__.py
 ENV PYTHONPATH=/workspace/garmentcode:$PYTHONPATH
+
+# Build-time sanity check: verify the simulation subset imports cleanly so we
+# catch any remaining transitive deps NOW (in the build log) rather than after
+# a 30-min build + runtime call. pythonrender is stubbed at runtime in
+# handler.py, so we skip that import here.
+RUN python3 -c "import pygarment; import pygarment.data_config; import pygarment.meshgen; import pygarment.meshgen.sim_config; from pygarment.meshgen.sim_config import PathCofig; from pygarment.pattern.core import BasicPattern; print('[build-sanity] pygarment simulation subset imports OK')"
 
 # --- PyGarment assets ---
 # SMPL body segmentation (per-vertex body-part labels) shipped with the image
