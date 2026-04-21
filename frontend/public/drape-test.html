@@ -532,6 +532,14 @@ window.runDrape = async function() {
           const mtlLoader = new MTLLoader();
           materials = mtlLoader.parse(mtlText, '');
           for (const [name, mat] of Object.entries(materials.materials)) {
+            // CLO3D hoodies export with mixed triangle winding across panels
+            // (outer shell, hood liner, zipper lining). MTLLoader defaults to
+            // THREE.FrontSide so any backfacing tri is invisible — that's
+            // exactly what produced the "shredded with holes" front view
+            // while the back view looked perfect. Cloth is physically
+            // 2-sided anyway (you see inside of a hood when you look up at
+            // someone). Force DoubleSide on every material.
+            mat.side = THREE.DoubleSide;
             if (mat.map && mat.map.sourceFile && textureBlobUrls[mat.map.sourceFile]) {
               mat.map = new THREE.TextureLoader().load(textureBlobUrls[mat.map.sourceFile]);
             }
@@ -553,7 +561,16 @@ window.runDrape = async function() {
           if (c.isMesh) {
             c.frustumCulled = false;
             if (defaultMat) c.material = defaultMat;
-            if (c.material) c.material.needsUpdate = true;
+            if (c.material) {
+              // Belt-and-suspenders: ensure DoubleSide even if materials were
+              // constructed via a path that bypassed the MTL loop above.
+              if (Array.isArray(c.material)) {
+                c.material.forEach(m => { m.side = THREE.DoubleSide; m.needsUpdate = true; });
+              } else {
+                c.material.side = THREE.DoubleSide;
+                c.material.needsUpdate = true;
+              }
+            }
           }
         });
 

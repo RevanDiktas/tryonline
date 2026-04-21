@@ -316,18 +316,21 @@ FABRIC_PRESETS = {
 }
 
 
-def _inflate_garment_off_body(garment_verts, body_verts, body_obj, target_offset, max_iters=12):
-    """Iteratively push every garment vertex outward along its nearest body normal
-    until it sits at least `target_offset` (m) away from the body surface.
+def _inflate_garment_off_body(garment_verts, body_verts, body_obj, target_offset,
+                              penetration_threshold=None, max_iters=12):
+    """Iteratively push garment vertices that are inside (or too close to) the body
+    out along the nearest body normal until they sit at least ``target_offset`` m away.
 
-    Single-pass push is insufficient: after one push, the nearest body vertex can
-    change, and a vert that was "outside" the old nearest body point may still
-    be inside the new one. We loop until no vert is still penetrating (or we hit
-    max_iters), which gives us a guaranteed non-penetrating initial state.
+    When ``penetration_threshold`` is None (legacy behavior) we push every vert with
+    ``signed_dist < target_offset`` — that slightly puffs already-outside verts too,
+    producing a balloon-y drape (v10's "possessed" look).
 
-    Any residual non-finite positions after inflation are a hard error — better
-    to fail fast than to hand a NaN mesh to Newton and burn 5 minutes on a
-    guaranteed-NaN sim.
+    When ``penetration_threshold`` is set (surgical mode, v13), we ONLY touch verts
+    with ``signed_dist < penetration_threshold`` and push them to ``target_offset``.
+    Setting ``penetration_threshold=0`` means "leave anything already outside the
+    body alone; push only verts that are inside". Prevents blanket inflation while
+    still resolving the CLO3D tight-fit initial penetration that tunnels through
+    contact.
     """
     from scipy.spatial import cKDTree
     body_normals = compute_body_normals(body_verts, body_obj)
@@ -335,6 +338,7 @@ def _inflate_garment_off_body(garment_verts, body_verts, body_obj, target_offset
 
     inflated = garment_verts.astype(np.float64).copy()
     max_pushed = 0
+    push_thresh = target_offset if penetration_threshold is None else penetration_threshold
 
     for it in range(max_iters):
         _, indices = tree.query(inflated, k=1)
@@ -343,7 +347,7 @@ def _inflate_garment_off_body(garment_verts, body_verts, body_obj, target_offset
         diff = inflated - nearest_body
         signed_dist = np.sum(diff * nearest_normals, axis=1)
 
-        needs_push = signed_dist < target_offset
+        needs_push = signed_dist < push_thresh
         n_pushed = int(needs_push.sum())
         if n_pushed == 0:
             print(f"[Newton] Inflation converged after {it} iterations")
@@ -600,11 +604,15 @@ def _clean_garment_for_newton(verts, faces, uv_verts, uv_faces, area_eps=1e-6):
         u0 = uv_verts[uv_faces[:, 0]]
         u1 = uv_verts[uv_faces[:, 1]]
         u2 = uv_verts[uv_faces[:, 2]]
-        area_uv = 0.5 * np.abs(
+        # SIGNED area, not abs: Newton's _compute_panel_triangles zeros out
+        # triangles with det(D) <= 0 and drops them as degenerate. If we only
+        # filter by |area|, inverted-winding UV tris survive our pass but die
+        # in Newton → tri_indices/tri_poses count mismatch → BVH assert.
+        signed_area_uv = 0.5 * (
             (u1[:, 0] - u0[:, 0]) * (u2[:, 1] - u0[:, 1])
             - (u2[:, 0] - u0[:, 0]) * (u1[:, 1] - u0[:, 1])
         )
-        keep &= area_uv > area_eps
+        keep &= signed_area_uv > area_eps
     else:
         # Newton falls back to vertices[:, :2] when panel_verts=None — drop
         # triangles that are degenerate in the XY projection too.
@@ -686,19 +694,42 @@ def newton_drape(
     edge_ke = preset["edge_ke"]
     particle_r = preset["particle_r"]
 
-    # v11: inflation REMOVED. Previously we inflated the garment 15mm off the
-    # body as a NaN-prevention band-aid (early versions had issues from
-    # initial body penetration). Now that stretch starts at F=I and bending
-    # is adaptively bounded, the contact kernel handles minor penetration
-    # organically — and without inflation the garment starts at its actual
-    # CLO3D-designed positions on the body, so it can drape TIGHTLY instead
-    # of hanging puffed-up around the avatar.
-    # This also matches the canonical example_cloth_style3d.py which
-    # doesn't inflate either. If rare verts are deep inside the body, the
-    # NaN-restore post-sim step (line ~917) catches them.
-    stuck_mask_orig = np.zeros(len(aligned_verts), dtype=bool)
-    n_inflated = 0
-    print(f"[Newton] Inflation skipped — garment starts at CLO3D positions")
+    # v13: surgical inflation. v11 skipped inflation entirely and front-panel
+    # verts tunneled through the body (shredded-front / clean-back pattern).
+    # v10 blanket-inflated and got the "possessed" puffy look. Surgical mode
+    # pushes ONLY penetrating verts (signed_dist < 0) out to +3mm. Already-outside
+    # verts stay put.
+    #
+    # Step 1: pre-inflation signed-distance histogram — free diagnostic that
+    # proves/refutes the front-panel-penetration hypothesis without running sim.
+    from scipy.spatial import cKDTree as _cKDTree_diag
+    _body_normals_diag = compute_body_normals(body_verts, body_obj)
+    _body_tree_diag = _cKDTree_diag(body_verts)
+    _, _nn_idx = _body_tree_diag.query(aligned_verts, k=1)
+    _diff = aligned_verts - body_verts[_nn_idx]
+    _sdist = np.sum(_diff * _body_normals_diag[_nn_idx], axis=1)
+    _n_total = len(aligned_verts)
+    _buckets = [
+        ("<-10mm (deep inside)", int((_sdist < -10e-3).sum())),
+        ("-10..-5mm",            int(((_sdist >= -10e-3) & (_sdist < -5e-3)).sum())),
+        ("-5..0mm (shallow in)", int(((_sdist >= -5e-3) & (_sdist < 0.0)).sum())),
+        ("0..5mm (skin close)",  int(((_sdist >= 0.0) & (_sdist < 5e-3)).sum())),
+        ("5..20mm (loose)",      int(((_sdist >= 5e-3) & (_sdist < 20e-3)).sum())),
+        (">20mm (far)",          int((_sdist >= 20e-3).sum())),
+    ]
+    print(f"[Newton] Pre-inflation signed-dist histogram (n={_n_total}):")
+    for _label, _count in _buckets:
+        _pct = 100.0 * _count / max(_n_total, 1)
+        print(f"[Newton]   {_label:22s}: {_count:6d} ({_pct:5.1f}%)")
+
+    # Step 2: surgical inflation — penetration_threshold=0 means "only push
+    # verts with signed_dist < 0"; target_offset=3e-3 means "push them to +3mm".
+    # Verts already outside the body are untouched.
+    aligned_verts, n_inflated, stuck_mask_orig = _inflate_garment_off_body(
+        aligned_verts, body_verts, body_obj,
+        target_offset=3.0e-3, penetration_threshold=0.0, max_iters=12,
+    )
+    print(f"[Newton] Surgical inflation: {n_inflated} verts pushed from inside → +3mm")
 
     # v10: doubled swift from 120→240 frames (2s → 4s) so drape has time to
     # settle on body. v9 log showed garment still mid-fall at frame 120
@@ -752,28 +783,40 @@ def newton_drape(
         scale=wp.vec3(1.0, 1.0, 1.0),
     )
 
-    # Geodesic BFS unfold: per-triangle-isometric (F^T F = I at t=0 → zero
-    # stretch force) AND shared-edge-consistent where the mesh is developable.
-    # Non-developable regions (hood curvature, seams) accumulate mismatch on
-    # loop-closure edges, which would produce non-zero bending force at rest.
-    # We measure the actual max mismatch and SCALE edge_ke accordingly so the
-    # worst-case bending acceleration stays below ~60 m/s² (Δv/substep <
-    # 0.1 m/s). Derivation in /tmp/test_bending_force_magnitudes.py:
-    #   accel ≈ 7e13 × edge_ke² × mismatch / (edge_area² × mass) [hoodie-scale]
-    #   → safe_edge_ke ≈ 9.2e-7 / sqrt(max(1mm, mismatch))
-    # Clamped to canonical 2e-5 as ceiling so near-perfect unfolds get full
-    # bending.
-    panel_verts_np, panel_indices_np, max_mismatch = _build_geodesic_unfold_panel(
-        clean_garment_verts, clean_garment_faces
-    )
-    safe_mismatch = max(max_mismatch, 1.0e-3)
-    edge_ke_safe = min(2.0e-5, 9.2e-7 / float(np.sqrt(safe_mismatch)))
-    print(f"[Newton] Panel: {len(panel_verts_np)} 2D verts, {len(panel_indices_np)} tris; "
-          f"auto-tuned edge_ke={edge_ke_safe:.2e} (from max_mismatch={max_mismatch:.4f}m)")
+    # v13: use OBJ UVs as panel_verts (canonical Newton path). The CLO3D OBJ
+    # stores UVs in mm-scale pattern coords (m.obj range ~±1600 × ~±2500 mm);
+    # multiplying by 1e-3 yields real-world fabric pattern dimensions in meters.
+    # This matches example_cloth_style3d.py (`garment_mesh_uv * 1.0e-3`).
+    #
+    # Replaces v8–v12's geodesic BFS unfold, which accumulated max_mismatch
+    # ~1.5m on non-developable regions (hood, shoulders) and forced the adaptive
+    # edge_ke down to ~7e-7 — ~25x below canonical, giving the cloth essentially
+    # zero bending stiffness. With true panel coords we can restore canonical
+    # edge_aniso_ke=vec3(2e-5, 1e-5, 5e-6) without risking a rest-pose bending
+    # blow-up.
+    #
+    # Note: panel_verts is indexed by panel_indices INDEPENDENTLY of 3D vertex
+    # indices. We pass the full (pre-weld) UV table as panel_verts and the
+    # cleaned UV face indices as panel_indices — count mismatch with
+    # clean_garment_verts is expected and fine.
+    if not has_uvs:
+        raise RuntimeError(
+            "Garment OBJ has no UVs — UV-based panels required by v13. "
+            "Re-export the OBJ with texture coordinates."
+        )
+    panel_verts_np = (uv_verts_raw * 1.0e-3).astype(np.float64)
+    panel_indices_np = clean_uv_faces.astype(np.int32)
+    _uv_pmin = panel_verts_np.min(axis=0)
+    _uv_pmax = panel_verts_np.max(axis=0)
+    print(f"[Newton] Panel: OBJ UVs × 1e-3 → {len(panel_verts_np)} panel verts, "
+          f"{len(panel_indices_np)} tris; "
+          f"range u=[{_uv_pmin[0]:.3f},{_uv_pmax[0]:.3f}] "
+          f"v=[{_uv_pmin[1]:.3f},{_uv_pmax[1]:.3f}] (m)")
     panel_verts_arg = panel_verts_np.tolist()
     panel_indices_arg = panel_indices_np.flatten().tolist()
 
-    # edge_aniso_ke auto-tuned from measured panel mismatch (see above).
+    # Canonical edge_aniso_ke from example_cloth_style3d.py. With real UV-based
+    # panel rest coords this is safe — no adaptive tuning needed.
     style3d.add_cloth_mesh(
         builder,
         pos=wp.vec3(0.0, 0.0, 0.0),
@@ -785,7 +828,7 @@ def newton_drape(
         scale=1.0,
         particle_radius=particle_r,
         tri_aniso_ke=wp.vec3(tri_ke, tri_ke, tri_ke * 0.1),
-        edge_aniso_ke=wp.vec3(edge_ke_safe, edge_ke_safe * 0.5, edge_ke_safe * 0.25),
+        edge_aniso_ke=wp.vec3(2.0e-5, 1.0e-5, 5.0e-6),
         panel_verts=panel_verts_arg,
         panel_indices=panel_indices_arg,
     )
@@ -801,11 +844,13 @@ def newton_drape(
         )
     print(f"[Newton] Builder OK: {n_tri_idx} cloth tris registered")
 
-    # No ground plane: our garment's bottom hem sits at y≈-0.009m, below the
-    # default ground at y=0 → 9mm penetration → ~3 m/s velocity spike per
-    # substep on those particles from the contact kernel. With ke=10 it's not
-    # instantly explosive but compounds over 10 substeps. Safer to let the
-    # body mesh handle all collisions.
+    # v13: add ground plane. Canonical example_cloth_style3d.py does this, and
+    # it's what the user wants visually — trouser hems that overshoot the feet
+    # should stack on the floor instead of dangling/bunching through the ankles.
+    # Surgical inflation ensures the garment starts above y≈0.003m, so the
+    # ground plane at y=0 won't re-introduce frame-1 penetration spikes.
+    builder.add_ground_plane()
+
     device = "cuda:0"
     model = builder.finalize(device=device)
     model.set_gravity((0.0, -9.81, 0.0))
@@ -844,31 +889,34 @@ def newton_drape(
         model.particle_inv_mass = wp.array(inv_mass_np, dtype=wp.float32, device=device)
     print(f"[Newton] Pinned {n_pinned} particles "
           f"({n_pin_stuck} body-stuck, {n_pin_orphan} zero-mass orphans)")
-    # Contact params copied 1:1 from canonical example_cloth_style3d.py. Newton's
-    # defaults (ke=1e3, kd=1e3, mu=0.5) are rigid-body defaults that explode cloth.
-    # The canonical values are the only published-safe combination for Style3D.
+    # v13 contact params. Two deliberate deviations from canonical:
     #
-    # IMPORTANT: kd=1e-6 (not 1.0!). Cloth particle masses are tiny (density×area ≈
-    # 3e-5 kg per particle). With kd=1.0 and any contact velocity, the damping force
-    # is 1,000,000× the mass — F/m blows past 1e6 m/s² in one step → NaN in <1 frame.
-    # kd=1e-6 matches the canonical and keeps the contact spring critically-ish damped
-    # without overpowering the mass. (Prior kd=1.0 was the primary NaN trigger.)
+    #  1. soft_contact_radius 2mm → 5mm. Canonical's 2mm is tuned for cloth
+    #     that starts clear of the avatar. Our CLO3D garment sits tight to a
+    #     reference body; even after surgical inflation, near-miss verts sit
+    #     within 3–5mm of skin. A 2mm contact bubble is too small to catch
+    #     high-velocity rebound from surgical-inflation push-off; cloth would
+    #     tunnel past the body mesh in one substep (this is the v11/v12
+    #     shredded-front pattern). 5mm matches the ~3× soft_contact_radius
+    #     broadphase query distance used elsewhere in Style3D.
     #
-    # mu=0.0: matches our prior choice. PR #1500 documents a friction sign-flip NaN
-    # at near-zero tangential velocity. Canonical uses 0.2, but 0.0 is safer until
-    # we pick up the fix.
-    # v11 contact params: exact canonical example_cloth_style3d.py.
-    # v10 tried to stiffen (ke=30) + widen (margin=8mm) + add friction
-    # (mu=0.2) all at once; the combo froze the cloth 8mm off the body
-    # ("possessed" look — garment hanging rigidly in T-pose shape).
-    # Canonical values paired together ARE proven drape-stable — our
-    # earlier divergence was from inflation + too-rigid params combined.
-    model.soft_contact_radius = 0.2e-2
+    #  2. soft_contact_mu 0.2 → 0.0. With canonical μ=0.2 AND cloth starting
+    #     in contact with body, friction locks every contact vert in place at
+    #     frame 1 — v12 log confirmed this: y_max moved only 15mm over 4s of
+    #     sim time. μ=0 lets the cloth slide into drape equilibrium. We can
+    #     raise it later once the sim is visibly draping (friction matters for
+    #     wrinkle retention, not for gross drape shape).
+    #
+    # Unchanged from canonical:
+    #   ke=10  (contact spring stiffness)
+    #   kd=1e-6 (damping — kd=1 would blow up; cloth particle mass ~3e-5 kg)
+    #   margin=3.5mm (contact query buffer)
+    model.soft_contact_radius = 0.5e-2
     model.soft_contact_margin = 0.35e-2
     model.soft_contact_ke = 1.0e1
     model.soft_contact_kd = 1.0e-6
     model.soft_contact_kf = 0.0
-    model.soft_contact_mu = 0.2
+    model.soft_contact_mu = 0.0
 
     state_0 = model.state()
     state_1 = model.state()
@@ -899,18 +947,31 @@ def newton_drape(
 
         if (frame + 1) % diag_every == 0 or frame == 0:
             q = state_0.particle_q.numpy()
+            qd = state_0.particle_qd.numpy()
             n_cloth_now = len(clean_garment_verts)
             cloth_q = q[:n_cloth_now]
-            n_nan = int((~np.isfinite(cloth_q).all(axis=1)).sum())
+            cloth_qd = qd[:n_cloth_now]
             finite_mask_q = np.isfinite(cloth_q).all(axis=1)
+            finite_mask_qd = np.isfinite(cloth_qd).all(axis=1)
+            n_nan = int((~finite_mask_q).sum())
             if finite_mask_q.any():
                 qmin = float(cloth_q[finite_mask_q].min())
                 qmax = float(cloth_q[finite_mask_q].max())
             else:
                 qmin = qmax = float("nan")
+            # Mean/max particle speed — tells us if cloth is actually moving
+            # or frozen (v12 was frozen: friction locked it on contact at t=0).
+            both_finite = finite_mask_q & finite_mask_qd
+            if both_finite.any():
+                speed = np.linalg.norm(cloth_qd[both_finite], axis=1)
+                v_mean = float(speed.mean())
+                v_max = float(speed.max())
+            else:
+                v_mean = v_max = float("nan")
             elapsed = time.time() - sim_start
             print(f"[Newton] Frame {frame+1}/{n_frames} ({elapsed:.1f}s) "
-                  f"nan={n_nan}/{n_cloth_now} q∈[{qmin:.3f},{qmax:.3f}]")
+                  f"nan={n_nan}/{n_cloth_now} q∈[{qmin:.3f},{qmax:.3f}] "
+                  f"v_mean={v_mean:.3f} v_max={v_max:.3f} m/s")
             if n_nan > 0 and first_nan_frame is None:
                 first_nan_frame = frame + 1
                 print(f"[Newton] FIRST NAN appeared by frame {first_nan_frame}")
@@ -1534,7 +1595,11 @@ def runpod_handler(event):
     return handler(event)
 
 
-HANDLER_BUILD = "drape-handler 2026-04-20/v12-obj-native-output (drop GLB injection + strip missing-texture refs from MTL so frontend OBJ path renders)"
+HANDLER_BUILD = (
+    "drape-handler 2026-04-21/v13-uv-panels-surgical-inflation "
+    "(UV panels ×1e-3 + signed-dist histogram + surgical inflation + "
+    "ground plane + contact_radius 2→5mm + mu 0.2→0 + per-frame velocity log)"
+)
 
 try:
     import runpod
