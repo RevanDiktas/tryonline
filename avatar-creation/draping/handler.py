@@ -301,7 +301,7 @@ def _write_welded_obj(welded_verts: np.ndarray, welded_faces: np.ndarray, output
 
 def _generate_cloth_seg_file(
     garment_obj: Path,
-    welded_verts_count: int,
+    welded_verts: np.ndarray,
     orig_to_welded: np.ndarray,
     output_txt: Path,
 ) -> dict:
@@ -323,11 +323,22 @@ def _generate_cloth_seg_file(
       - Otherwise: inherit the panel material from one of the original verts
         that merged to it (deterministic: first original vert seen)
 
+    Sleeve split (v19): CLO3D exports both sleeves under one material name
+    (e.g. "Sleeves_FRONT_2731"). PyGarment's panel_assignment maps one
+    material → one closest body part, so both sleeves get dragged to ONE arm
+    (v18.9 log: all 6544 sleeve verts → right_arm). Post-label pass: any
+    welded vert whose label contains "sleeve" gets suffixed `_L` or `_R`
+    based on whether its x-coordinate is below or above the mean x of the
+    sleeve-material verts (which naturally sits on the body centerline for a
+    symmetric T/A-pose garment). Two materials → two closest body parts →
+    left sleeve dragged to left_arm, right sleeve to right_arm.
+
     The stitching-seam convention is what enables
     builder.add_cloth_mesh_sewing_spring to route edge-adjacent-to-stitch
     triangles through add_triangles_stitching instead of add_triangles,
     producing proper sewing springs across panel seams.
     """
+    welded_verts_count = len(welded_verts)
     # --- Pass 1: parse OBJ line-by-line, track active usemtl, assign per-face
     # material, propagate to ORIGINAL vertices (using 1-indexed OBJ convention).
     active_mtl = "UNASSIGNED"
@@ -375,6 +386,27 @@ def _generate_cloth_seg_file(
         else:
             orig_idx = welded_to_orig_representative.get(welded_idx, -1)
             labels.append(orig_vert_to_mtl.get(orig_idx, "UNASSIGNED"))
+
+    # --- Pass 5 (v19): split any "sleeve*" material into L/R by x-coord.
+    # See docstring for why. Does nothing for garments with no sleeves.
+    sleeve_welded_indices = [
+        i for i, lbl in enumerate(labels)
+        if not lbl.startswith("stitch_") and "sleeve" in lbl.lower()
+    ]
+    if sleeve_welded_indices:
+        sleeve_xs = welded_verts[sleeve_welded_indices, 0]
+        x_mid = float(sleeve_xs.mean())
+        n_left = n_right = 0
+        for wi in sleeve_welded_indices:
+            base = labels[wi]
+            if welded_verts[wi, 0] < x_mid:
+                labels[wi] = f"{base}_L"
+                n_left += 1
+            else:
+                labels[wi] = f"{base}_R"
+                n_right += 1
+        print(f"[PyGarment] Sleeve split: {n_left} L / {n_right} R "
+              f"(x_mid={x_mid:.4f})")
 
     with open(output_txt, "w") as f:
         f.write("\n".join(labels) + "\n")
@@ -658,7 +690,7 @@ def pygarment_drape(
         # the label is inherited from the CLO3D MTL material of the first
         # original vert that merged into this welded slot.
         seg_stats = _generate_cloth_seg_file(
-            garment_obj, len(welded_verts), orig_to_welded, paths.g_mesh_segmentation
+            garment_obj, welded_verts, orig_to_welded, paths.g_mesh_segmentation
         )
 
         # Minimal pattern spec JSON at both paths.in_g_spec (input dir) and
@@ -1188,12 +1220,15 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-21/v18.8-no-graph-capture "
-    "(Disable NvidiaWarp-GarmentCode's buggy CUDA graph capture — transient "
-    "scratch arrays allocated inside capture try to free on Python GC, "
-    "triggering 'Cannot free memory while graph capture is active' spam and "
-    "corrupted output. Monkey-patch Cloth.__init__ to force sim_use_graph=False "
-    "so substeps run through the direct kernel-launch path.)"
+    "drape-handler 2026-04-22/v19-quality-pass-1 "
+    "(v18.9 completed 300 frames but ended with 311 body-cloth intersections, "
+    "1107 self-intersections, and 4117 non-static verts. Three YAML fixes + "
+    "one label fix: (1) soft_contact_ke 10 → 5000 (Newton-era value was "
+    "1000x too low to eject penetrations); (2) fabric_thickness 0.1 → 0.001 "
+    "(10cm self-collision bubble → 1mm); (3) zero_gravity_steps 10 → 30 (more "
+    "time to un-penetrate before gravity kicks in); (4) split 'Sleeves*' "
+    "material into L/R by x-sign so panel_assignment maps each sleeve to "
+    "the correct arm — v18.9 dragged both sleeves to right_arm with k=1e7.)"
 )
 
 try:

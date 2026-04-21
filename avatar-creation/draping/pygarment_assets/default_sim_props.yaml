@@ -18,10 +18,13 @@ sim:
     max_body_collisions: 200
     max_self_collisions: 1000
 
-    # First 10 frames have gravity=0 — lets the cloth relax into its UV rest
-    # pose without being yanked down. Critical for stability when cloth starts
-    # in contact with the body (our CLO3D-on-SMPL case).
-    zero_gravity_steps: 10
+    # Zero-gravity warmup: first N frames have gravity=0 — lets the cloth
+    # relax into its rest pose without being yanked down. Critical when cloth
+    # starts in penetration with the body (CLO3D-on-SMPL case). v19: 10 → 30
+    # because v18.9 ended with 311 body collisions — 10 frames was not enough
+    # for contact-only forces to push pre-penetrating verts out before gravity
+    # kicked in and re-drove them inside.
+    zero_gravity_steps: 30
     resolution_scale: 1.0
     # Ground plane ON: trouser hems that overshoot the feet stack on the floor.
     ground: true
@@ -39,7 +42,12 @@ sim:
       spring_kd: 10.0
       # Fabric properties.
       fabric_density: 1.0
-      fabric_thickness: 0.1
+      # Cloth thickness in meters. Used by PyGarment for the self-collision
+      # bubble radius around each particle. v18 had 0.1 (10cm!) which inflated
+      # every particle into a football — 1100+ persistent self-intersections
+      # in v18.9 directly caused by this. 1mm is a reasonable cotton thickness
+      # and drops the self-collision bubble to a realistic size.
+      fabric_thickness: 0.001
       fabric_friction: 0.0    # Body-to-cloth friction (we kill it to avoid freeze)
     options:
       # Self-collision: triangle-particle + edge-edge ON; particle-particle OFF
@@ -101,11 +109,18 @@ sim:
       body_collision_thickness: 0.01   # 1cm
       body_friction: 0.0    # No friction — cloth slides on body freely
 
-      # Soft contact (body-cloth spring) — gentle, XPBD-friendly values.
-      # We keep ke low (Newton's v16-proven value) to avoid the 2780 m/s
-      # ejection we saw in v15.
+      # Soft contact (body-cloth spring). v19: 10 → 5000.
+      # The old `10.0` was a Newton-era value left behind from v15/v16
+      # debugging, where we were fighting a 2780 m/s ejection NaN in the
+      # Newton Style3D solver. That solver is gone. In PyGarment the
+      # body-contact spring stiffness needs to actually be able to push a
+      # penetrating particle OUT of the body — with ke=10, 311 verts ended up
+      # stuck inside the body at end of sim (v18.9 log). 5000 is within
+      # PyGarment's canonical range and the global velocity clamp
+      # (global_max_velocity=20) + damping (0.3) are still active as NaN
+      # guards if any single contact spikes.
       soft_contact_margin: 0.01
-      soft_contact_ke: 10.0
+      soft_contact_ke: 5000.0
       soft_contact_kd: 0.0
       soft_contact_kf: 0.0
       soft_contact_mu: 0.0
