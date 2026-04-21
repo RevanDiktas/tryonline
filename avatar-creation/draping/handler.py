@@ -389,6 +389,41 @@ def _write_body_measurements_yaml(output_path: Path, body_name: str = "smpl_avat
     output_path.write_text(content)
 
 
+def _write_minimal_pattern_spec(output_path: Path):
+    """
+    Write the smallest pattern specification JSON that satisfies
+    pygarment.pattern.core.BasicPattern's constructor.
+
+    Cloth.build_stage calls Cloth._load_panel_labels() which does:
+        pattern = BasicPattern(self.paths.g_specs)
+        for name, panel in pattern.pattern['panels'].items(): ...
+
+    BasicPattern.reloadJSON loads `self.spec['pattern']` and
+    `self.spec['properties']`, then _normalize_template accesses
+    `self.properties['curvature_coords']` and `'units_in_meter'`. If any of
+    those keys are missing it KeyError's — so the spec must include all of
+    them. We set empty panels + neutral properties; panel_assignment handles
+    label assignment geometrically when panel_init_labels is empty.
+
+    Without this file, build_stage crashes at `BasicPattern(...)` with
+    FileNotFoundError before sim even starts. This is the kind of issue I
+    prefer to pre-write rather than discover after a 15-min build cycle.
+    """
+    spec = {
+        "pattern": {
+            "panels": {},
+            "stitches": []
+        },
+        "parameters": {},
+        "parameter_order": [],
+        "properties": {
+            "curvature_coords": "relative",
+            "units_in_meter": 100
+        }
+    }
+    output_path.write_text(json.dumps(spec, indent=2))
+
+
 def pygarment_drape(
     body_obj: Path,
     garment_obj: Path,
@@ -487,48 +522,27 @@ def pygarment_drape(
     # Minimal body measurements yaml.
     _write_body_measurements_yaml(bodies_dir / f"{body_name}.yaml", body_name=body_name)
 
-    # Element dir (PathCofig's in_element_path).
+    # Element dir (PathCofig's in_element_path — holds sim_props.yaml etc).
     el_dir = tmp_root / "element"
     el_dir.mkdir()
 
-    # Cloth files PyGarment expects — paths derived from PathCofig._update_boxmesh_paths.
+    # Root of PyGarment's "out" tree. PathCofig will create {out_dir}/{tag}/
+    # for the box-mesh + segmentation + sim output files.
     out_dir = tmp_root / "out"
     out_dir.mkdir()
-    el_out_dir = out_dir / tag
-    el_out_dir.mkdir()
 
-    # g_box_mesh = our CLO3D OBJ, with aligned + un-normalized vertex positions
-    # (PyGarment expects the cloth mesh in the same scale as the body's
-    # POST-×100-scale coordinates, i.e. in cm). So we write cloth verts ×100.
-    cloth_verts_for_pygarment = aligned_verts * 1.0  # cloth c_scale is 1.0 — but body is in cm after ×100, so cloth must also be in cm
-    # Hmm — actually cloth c_scale=1.0 and body b_scale=100. If our cloth is in m
-    # and body in m (after our pre-divide), then in PyGarment's internal frame
-    # body = m×100 = cm, cloth = m×1 = m → mismatch. We need cloth in cm too.
-    # Simplest: pre-scale cloth ×100 as well → PyGarment ×1 leaves it in cm.
-    # Then body ×100 also in cm. Matched.
-    cloth_verts_for_pygarment = aligned_verts * 100.0
-    box_mesh_path = el_out_dir / f"{tag}_boxmesh.obj"
-    write_obj_with_new_verts(garment_obj, cloth_verts_for_pygarment, box_mesh_path)
-
-    # Panel segmentation txt file.
-    seg_txt_path = el_out_dir / f"{tag}_sim_segmentation.txt"
-    seg_stats = _generate_cloth_seg_file(garment_obj, orig_to_welded, seg_txt_path)
-
-    # Copy our tuned sim_props.yaml into position. PyGarment writes stats back
-    # to this file, so it needs to be writable.
+    # Stage our tuned sim_props.yaml into the element dir. PyGarment writes
+    # per-run stats back into this yaml, so it needs to be writable and
+    # uniquely owned by this invocation.
     shipped_sim_props = Path("/workspace/pygarment_assets/default_sim_props.yaml")
     if not shipped_sim_props.exists():
         shipped_sim_props = Path(__file__).parent / "pygarment_assets" / "default_sim_props.yaml"
     sim_props_dst = el_dir / "sim_props.yaml"
     shutil.copy(shipped_sim_props, sim_props_dst)
 
-    # ------------------------------------------------------------------
-    # Step 3: monkey-patch system.json so PathCofig points at OUR bodies_dir
-    # rather than /workspace/pygarment_assets. We do this by overriding
-    # Properties before PathCofig is constructed.
-    # ------------------------------------------------------------------
-    # PathCofig hardcodes `self._system = Properties('./system.json')`. We write
-    # a temp system.json in CWD and chdir to tmp_root so PathCofig finds it.
+    # system.json for PathCofig. It hardcodes `Properties('./system.json')`,
+    # so we must have system.json in CWD. We chdir to tmp_root and write one
+    # that points at our tmpdir's bodies/ and out/ subdirs.
     orig_cwd = Path.cwd()
     system_json = tmp_root / "system.json"
     system_json.write_text(json.dumps({
@@ -540,6 +554,15 @@ def pygarment_drape(
         "body_samples_path": "",
     }))
 
+    # ------------------------------------------------------------------
+    # Step 3: construct PathCofig FIRST (it creates out_el dir for us and
+    # computes the expected filenames), THEN write our box mesh +
+    # segmentation directly into the paths it computes. The previous
+    # ordering had us writing to a separately-created dir and then
+    # shutil.copy-ing to paths.g_box_mesh — which turned out to resolve to
+    # the exact same file, raising SameFileError. Writing directly
+    # eliminates the redundant file hop entirely.
+    # ------------------------------------------------------------------
     os.chdir(tmp_root)
     try:
         props = data_config.Properties(str(sim_props_dst))
@@ -558,15 +581,29 @@ def pygarment_drape(
             smpl_body=True,  # use smpl_vert_segmentation.json
             add_timestamp=False,
         )
+        # PathCofig made paths.out_el and paths.g_box_mesh etc. Now write
+        # our files directly there.
 
-        # PathCofig's __init__ calls update_*_paths which computes the expected
-        # paths for g_box_mesh etc. — those point at paths.out_el / f'{tag}_boxmesh.obj'.
-        # But PathCofig makes its own out_el dir. We need to either write
-        # our files to PATHS.out_el, or point PathCofig at our el_out_dir.
-        # Simpler: write our files AFTER PathCofig has been created, into the
-        # dir IT made. Re-copy.
-        shutil.copy(box_mesh_path, paths.g_box_mesh)
-        shutil.copy(seg_txt_path, paths.g_mesh_segmentation)
+        # PyGarment's Cloth.build_stage multiplies body verts by b_scale=100
+        # and cloth verts by c_scale=1. To keep body + cloth aligned in the
+        # sim's internal frame, we pre-compensate: divide body by 100 (above)
+        # and multiply cloth by 100 here. Both end up at cm-scale in-sim,
+        # which matches PyGarment's pattern-space convention.
+        cloth_verts_for_pygarment = aligned_verts * 100.0
+        write_obj_with_new_verts(garment_obj, cloth_verts_for_pygarment, paths.g_box_mesh)
+
+        # Per-vertex panel segmentation (one line per OBJ vertex, "stitch_N"
+        # for seam-welded verts, panel name otherwise). PyGarment's
+        # panel_assignment reads this to drive cloth-vs-body-part drag.
+        seg_stats = _generate_cloth_seg_file(garment_obj, orig_to_welded, paths.g_mesh_segmentation)
+
+        # Minimal pattern spec JSON at both paths.in_g_spec (input dir) and
+        # paths.g_specs (out dir). Cloth._load_panel_labels() opens
+        # paths.g_specs; without this file it crashes with FileNotFoundError
+        # BEFORE sim starts. We pass empty panels → panel_assignment falls
+        # back to geometric label inference.
+        _write_minimal_pattern_spec(paths.in_g_spec)
+        _write_minimal_pattern_spec(paths.g_specs)
 
         # ------------------------------------------------------------------
         # Step 4: run the simulation. PyGarment auto-terminates on equilibrium
