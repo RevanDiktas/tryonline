@@ -1466,17 +1466,18 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-22/v21-compact-orphan-verts "
-    "(v20 dropped pocket-bag faces but left the orphan v/vt/vn lines in "
-    "place. Those verts got welded as dangling particles with no face "
-    "connections, labeled 'UNASSIGNED' in the seg file, then dragged to "
-    "the body centroid by cloth_reference_drag (k=1e7) and collided with "
-    "the real cloth mesh on the front of the torso → large skin-visible "
-    "holes on chest/belly that didn't exist in v19 (back stayed clean "
-    "because the orphans were all at pocket positions in front of body). "
-    "Fix: proper compact — drop orphan v/vt/vn lines AND renumber the "
-    "kept f-line indices to match the compacted numbering. No more "
-    "UNASSIGNED:body panel_assignment entry, no more ghost particles.)"
+    "drape-handler 2026-04-22/v22-back-drape-fixes "
+    "(v21 fixed the front via proper OBJ compact but the back regressed: "
+    "cloth conformed to the laplacian-smoothed body during frames 0-50, "
+    "then shoulder-blade/spine detail popped back and pushed cloth "
+    "outward, leaving visible skin on upper/mid back + back-of-thighs. "
+    "Orphan-particle chaos in v20 had masked this artifact by keeping "
+    "cloth in perpetual motion. Fix: disable body_smoothing (YAGNI now "
+    "that orphan verts are gone and soft_contact_ke/body_collision_"
+    "thickness together handle deep-penetration verts), add mild friction "
+    "on both fabric_friction and body_friction (0.0 -> 0.2) so cloth "
+    "stops drifting once it lands on the body — addresses the 5860 "
+    "non-static verts from v21.)"
 )
 
 try:

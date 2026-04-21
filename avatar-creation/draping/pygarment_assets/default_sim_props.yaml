@@ -48,7 +48,13 @@ sim:
       # in v18.9 directly caused by this. 1mm is a reasonable cotton thickness
       # and drops the self-collision bubble to a realistic size.
       fabric_thickness: 0.001
-      fabric_friction: 0.0    # Body-to-cloth friction (we kill it to avoid freeze)
+      # Cloth-cloth friction coefficient. v22: 0.0 -> 0.2. The "kill it to
+      # avoid freeze" comment was Newton-era; PyGarment handles friction
+      # gracefully. Zero friction meant cloth slid freely with no internal
+      # grip → contributed to v21's 5860 non-static verts at frame 300 (23%
+      # of mesh still moving). 0.2 is moderate: cloth catches against itself
+      # in folds so they stop oscillating, without causing static freeze.
+      fabric_friction: 0.2
     options:
       # Self-collision: triangle-particle + edge-edge ON; particle-particle OFF
       # (expensive + not required for thin cloth).
@@ -97,12 +103,19 @@ sim:
 
       # Body smoothing: starts sim with a laplacian-smoothed body (no
       # protruding muscles/bust/belly), restores detail gradually between
-      # frames 50 and 70. Cloth gets a chance to settle on a simpler surface
-      # before fine geometry pushes against it. v20: true because v19 ended
-      # with 300 body collisions — some cloth verts started deeply inside the
-      # body and a 1.5cm contact thickness alone couldn't eject them. This is
-      # PyGarment's own answer to the CLO3D-on-SMPL penetration problem.
-      enable_body_smoothing: true
+      # frames 50 and 70.
+      #
+      # v22: back OFF. v20 turned this on to help deep-penetration verts
+      # eject. It did help body_collisions modestly (300 -> 245). But v21's
+      # clean sim (no orphan particles) revealed the artifact it creates on
+      # the back: cloth conforms to the flattened back during frames 0-50,
+      # then shoulder-blade/spine curvature pops back during detail
+      # restoration, pushes cloth outward, and the sim runs out of frames
+      # before cloth re-drapes — visible skin patches on upper/mid back and
+      # back of thighs in v21 screenshots. Body_collision_thickness=0.015 +
+      # soft_contact_ke=5000 + fabric_friction=0.2 together should cover
+      # deep-penetration verts without needing the smoothing hack.
+      enable_body_smoothing: false
       smoothing_total_smoothing_factor: 1.0
       smoothing_recover_start_frame: 50
       smoothing_num_steps: 20
@@ -113,7 +126,13 @@ sim:
       # force. Going further (2cm+) risks cloth floating visibly off the
       # body, especially at the neckline/waistband.
       body_collision_thickness: 0.015
-      body_friction: 0.0    # No friction — cloth slides on body freely
+      # Body-to-cloth friction. v22: 0.0 -> 0.2. With zero friction cloth
+      # perpetually slides on the body under any tangential force (gravity
+      # component, drag asymmetry) and never settles. Particularly visible
+      # on the back, where panels have no anchor features to catch on. 0.2
+      # gives the cloth enough grip to stop drifting once it lands while
+      # still allowing the initial drape motion.
+      body_friction: 0.2
 
       # Soft contact (body-cloth spring). v19: 10 → 5000.
       # The old `10.0` was a Newton-era value left behind from v15/v16
