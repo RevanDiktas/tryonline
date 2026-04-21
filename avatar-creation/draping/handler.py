@@ -722,14 +722,24 @@ def newton_drape(
         _pct = 100.0 * _count / max(_n_total, 1)
         print(f"[Newton]   {_label:22s}: {_count:6d} ({_pct:5.1f}%)")
 
-    # Step 2: surgical inflation — penetration_threshold=0 means "only push
-    # verts with signed_dist < 0"; target_offset=3e-3 means "push them to +3mm".
-    # Verts already outside the body are untouched.
-    aligned_verts, n_inflated, stuck_mask_orig = _inflate_garment_off_body(
-        aligned_verts, body_verts, body_obj,
-        target_offset=3.0e-3, penetration_threshold=0.0, max_iters=12,
-    )
-    print(f"[Newton] Surgical inflation: {n_inflated} verts pushed from inside → +3mm")
+    # v15: surgical inflation REMOVED. v14's inflation pushed penetrating verts
+    # up to 20mm+ along body normals, violating the UV rest pose and causing
+    # 80% edge strain at t=0 → NaN on frame 1 (26403/26403 particles).
+    #
+    # Newton's canonical H1 example (cloth_h1.py) handles the SAME case — cloth
+    # with initial penetration on a body — by relying on XPBD position-based
+    # contact constraints with high soft_contact_ke (5000, not 10) to push
+    # penetrating verts out organically over the first few frames. XPBD's
+    # correction is CLAMPED to penetration depth per iteration, independent of
+    # stiffness, so it cannot explode like force-based inflation.
+    #
+    # Tradeoff: verts deep inside concave body regions (hood liner vs neck,
+    # armpit, crotch) may stay inside for the whole sim since contact can't
+    # reach them past the body mesh. Visually hidden under outer cloth.
+    stuck_mask_orig = np.zeros(len(aligned_verts), dtype=bool)
+    n_inflated = 0
+    print(f"[Newton] Inflation skipped (v15) — XPBD contact resolves penetrations "
+          f"during sim (see H1 example)")
 
     # v10: doubled swift from 120→240 frames (2s → 4s) so drape has time to
     # settle on body. v9 log showed garment still mid-fall at frame 120
@@ -900,44 +910,49 @@ def newton_drape(
         model.particle_inv_mass = wp.array(inv_mass_np, dtype=inv_mass_dtype, device=device)
     print(f"[Newton] Pinned {n_pinned} particles "
           f"({n_pin_stuck} body-stuck, {n_pin_orphan} zero-mass orphans)")
-    # v13 contact params. Two deliberate deviations from canonical:
+    # v15 contact params — adopted from example_cloth_h1.py which handles the
+    # same case as us (cloth with initial body penetration on a non-animated
+    # avatar) without NaN:
     #
-    #  1. soft_contact_radius 2mm → 5mm. Canonical's 2mm is tuned for cloth
-    #     that starts clear of the avatar. Our CLO3D garment sits tight to a
-    #     reference body; even after surgical inflation, near-miss verts sit
-    #     within 3–5mm of skin. A 2mm contact bubble is too small to catch
-    #     high-velocity rebound from surgical-inflation push-off; cloth would
-    #     tunnel past the body mesh in one substep (this is the v11/v12
-    #     shredded-front pattern). 5mm matches the ~3× soft_contact_radius
-    #     broadphase query distance used elsewhere in Style3D.
+    #   soft_contact_ke:  10 → 5000  (500x stiffer — XPBD clamps to penetration
+    #                                 depth so this doesn't explode; H1 value)
+    #   soft_contact_mu:  0  (already from v14; H1 matches)
+    #   shape_material_mu.fill_(0.0)  (NEW — H1 zeroes friction on every body
+    #                                  shape too; without this the BODY mesh's
+    #                                  default μ still locks cloth on contact)
+    #   soft_contact_radius:  5mm → 3mm (tighter, H1 uses ~3mm band)
     #
-    #  2. soft_contact_mu 0.2 → 0.0. With canonical μ=0.2 AND cloth starting
-    #     in contact with body, friction locks every contact vert in place at
-    #     frame 1 — v12 log confirmed this: y_max moved only 15mm over 4s of
-    #     sim time. μ=0 lets the cloth slide into drape equilibrium. We can
-    #     raise it later once the sim is visibly draping (friction matters for
-    #     wrinkle retention, not for gross drape shape).
-    #
-    # Unchanged from canonical:
-    #   ke=10  (contact spring stiffness)
+    # Unchanged from canonical / v14:
     #   kd=1e-6 (damping — kd=1 would blow up; cloth particle mass ~3e-5 kg)
     #   margin=3.5mm (contact query buffer)
-    model.soft_contact_radius = 0.5e-2
+    model.soft_contact_radius = 0.3e-2
     model.soft_contact_margin = 0.35e-2
-    model.soft_contact_ke = 1.0e1
+    model.soft_contact_ke = 5.0e3
     model.soft_contact_kd = 1.0e-6
     model.soft_contact_kf = 0.0
     model.soft_contact_mu = 0.0
+    # H1-style: kill friction on every body shape too. Without this, the body
+    # mesh's per-shape default μ can still friction-lock cloth on contact,
+    # which is what froze v12.
+    if hasattr(model, "shape_material_mu") and model.shape_material_mu is not None:
+        model.shape_material_mu.fill_(0.0)
 
     state_0 = model.state()
     state_1 = model.state()
     control = model.control()
     contacts = model.contacts()
 
-    # iterations=4 matches canonical. Higher counts over-relax with stiff cloth + PD
-    # solver and can diverge when the contact Hessian is rank-deficient.
-    solver = SolverStyle3D(model=model, iterations=4)
+    # iterations=10 (was 4). H1 uses 10 for cloth on a humanoid; more iters
+    # converge the XPBD contact constraints better, preventing residual
+    # penetration that would otherwise tunnel next substep.
+    solver = SolverStyle3D(model=model, iterations=10)
     solver._precompute(builder)
+    # H1 sets the Style3D cloth-self-collision radius explicitly. Our default
+    # (3e-3 from the Collision class ctor) is fine, but setting it explicitly
+    # makes the config auditable from logs.
+    if hasattr(solver, "collision") and hasattr(solver.collision, "radius"):
+        solver.collision.radius = 3.5e-3
+        print(f"[Newton] solver.collision.radius set to {solver.collision.radius:.1e} m (H1 default)")
 
     print(f"[Newton] Running {n_frames} frames on {device}...")
     sim_start = time.time()
@@ -945,16 +960,51 @@ def newton_drape(
     diag_every = 10  # log finite-mask + position bounds every N frames
     first_nan_frame = None
 
-    for frame in range(n_frames):
-        # collide() once per frame, outside the substep loop — matches canonical
-        # example_cloth_style3d.py (static avatar). H1 example moves collide() inside
-        # the substep loop but that's because its avatar is animated per-substep; ours
-        # is static so once per frame is sufficient and avoids per-substep BVH rebuild.
+    # v15: CUDA graph capture — the canonical path for performance. Records the
+    # per-frame kernel sequence once, then replays it on GPU without Python-side
+    # launch overhead. Canonical example_cloth_style3d.py does this via
+    # wp.ScopedCapture. Expected: ~3–10x speedup over Python-driven loop.
+    #
+    # Invariant: sim_substeps must be EVEN (state_0/state_1 Python refs swap an
+    # even number of times per captured frame → swaps cancel out → post-capture
+    # state_0 points to the same underlying Warp array as pre-capture, matching
+    # the CUDA graph's recorded kernel targets on replay). Our sim_substeps=10.
+    assert sim_substeps % 2 == 0, "sim_substeps must be even for CUDA graph parity"
+
+    def _sim_frame():
+        nonlocal state_0, state_1
+        # collide() once per frame, outside the substep loop — matches
+        # canonical example_cloth_style3d.py (static avatar).
         model.collide(state_0, contacts)
         for _ in range(sim_substeps):
             state_0.clear_forces()
             solver.step(state_0, state_1, control, contacts, dt)
             state_0, state_1 = state_1, state_0
+
+    sim_graph = None
+    capture_elapsed = 0.0
+    if wp.get_device().is_cuda:
+        try:
+            _cap_t0 = time.time()
+            with wp.ScopedCapture() as _cap:
+                _sim_frame()
+            sim_graph = _cap.graph
+            capture_elapsed = time.time() - _cap_t0
+            print(f"[Newton] CUDA graph captured in {capture_elapsed:.1f}s — "
+                  f"subsequent frames via wp.capture_launch")
+        except Exception as e:
+            print(f"[Newton] CUDA graph capture FAILED ({e}) — falling back to Python loop")
+            sim_graph = None
+
+    # If capture succeeded, it already simulated frame 0 as a side effect.
+    # Skip it in the main loop.
+    start_frame = 1 if sim_graph is not None else 0
+
+    for frame in range(start_frame, n_frames):
+        if sim_graph is not None:
+            wp.capture_launch(sim_graph)
+        else:
+            _sim_frame()
 
         if (frame + 1) % diag_every == 0 or frame == 0:
             q = state_0.particle_q.numpy()
@@ -1607,10 +1657,9 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-21/v14-particle-flags-dtype-fix "
-    "(preserve Newton's allocated dtype when writing back pinned particle_flags "
-    "— fixes create_soft_contacts int32/uint32 crash that hit v13 once surgical "
-    "inflation produced >0 pinned verts)"
+    "drape-handler 2026-04-21/v15-h1-contact-plus-cuda-graph "
+    "(drop surgical inflation; adopt H1 contact params: ke=5000, μ_body=0, "
+    "iterations=10, collision.radius=3.5mm; CUDA graph capture for ~5x speedup)"
 )
 
 try:
