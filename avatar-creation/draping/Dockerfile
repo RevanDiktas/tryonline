@@ -35,14 +35,19 @@ RUN pip install --no-cache-dir \
 # Fork of NVIDIA Warp (v1.0.0-beta.6) with cloth-simulation extensions
 # specifically for garments: body-cloth drag constraint, attachment constraints,
 # point-triangle + edge-edge self-collisions, body-smoothing initialization.
-# These features are what make PyGarment stable on CLO3D-style tight garments
-# that explode vanilla Newton.
 #
-# Built from source (they don't publish a wheel). build_lib.py compiles the
-# CUDA kernels; pip install -e wires the Python module into site-packages.
+# Built from source (they don't publish a wheel):
+#   --no_standalone : skip the standalone Clang/LLVM backend build. That
+#     backend is ONLY for CPU-side kernel codegen; our path is GPU-only and
+#     NVRTC handles CUDA codegen. Skipping it avoids a 15+ min LLVM compile
+#     AND the packman permission-denied error we hit in the first v18 build.
+#   --no_verify_fp : skip per-kernel finite-value checks (runtime overhead).
+#   chmod on tools/packman/ : belt-and-suspenders so any future build step
+#     that does touch packman can exec it.
 RUN git clone --depth 1 https://github.com/maria-korosteleva/NvidiaWarp-GarmentCode.git /workspace/warp-gc \
     && cd /workspace/warp-gc \
-    && python build_lib.py \
+    && chmod -R +x ./tools/packman/ 2>/dev/null || true \
+    && python build_lib.py --no_standalone --no_verify_fp \
     && pip install --no-cache-dir -e .
 
 # --- GarmentCode / PyGarment ---
