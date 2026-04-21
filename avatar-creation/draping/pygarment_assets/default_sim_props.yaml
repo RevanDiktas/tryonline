@@ -79,7 +79,13 @@ sim:
       # canonical default; margin=0.1 is the attraction distance.
       enable_cloth_reference_drag: true
       cloth_reference_margin: 0.1
-      cloth_reference_k: 1.0e7
+      # NOTE: YAML 1.1 requires explicit sign for scientific notation
+      # (1.0e+7), not 1.0e7. Without the sign PyYAML parses it as a STRING
+      # which then gets passed to a Warp kernel expecting float32 →
+      # "unable to pack kernel parameter type <class 'str'> for param
+      # reference_k" at frame 1 (exact bug in v18.8 log). Use the
+      # unambiguous decimal form.
+      cloth_reference_k: 10000000.0
 
       # Body smoothing: starts sim with laplacian-smoothed body, restores detail
       # gradually. Useful when cloth starts with deep body penetration. We keep
