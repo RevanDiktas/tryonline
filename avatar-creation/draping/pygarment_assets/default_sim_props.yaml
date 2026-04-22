@@ -74,7 +74,21 @@ sim:
 
       # Body collision filters — requires per-vertex body segmentation. We ship
       # smpl_vert_segmentation.json, so this can be ON.
-      enable_body_collision_filters: true
+      #
+      # v25: turned OFF. The filter restricts each cloth panel to only
+      # generate contacts with body-mesh faces matching its panel_assignment
+      # label (winner-take-all vote across panel verts). That works when
+      # panels map cleanly to body parts (GarmentCode's own CLO3D-style
+      # paths), but FAILS for our CLO3D sources where `FABRIC_1_FRONT_2743`
+      # (the pants outer shell, 2501 verts) gets labeled `body` because its
+      # waist/upper-thigh verts outnumber its lower-leg verts. Result: pants
+      # can't generate contacts with SMPL leg faces → inseam/thigh skin
+      # penetration visible in every run from v22 onwards (hidden behind the
+      # worse back issue until v24 cleaned the back). Disabling the filter
+      # lets every cloth particle generate contacts against every body face.
+      # Cost: broad-phase is marginally slower (SMPL ~6890 verts). Benefit:
+      # collisions are geometrically correct regardless of label partition.
+      enable_body_collision_filters: false
       enable_global_collision_filter: true
 
       # Velocity clamp + damping: THE explosion guards. Clamps any particle
@@ -153,7 +167,22 @@ sim:
       # — verts start on the outside of the body, so a wider collision band
       # isn't needed. 15 mm is enough to maintain outside-state against
       # gravity-induced drift.
-      body_collision_thickness: 0.015
+      #
+      # v25: 0.015 -> 0.025 RE-INSTATED. v24's revert was wrong in
+      # hindsight. With inflation fixing the back, the remaining failures
+      # clustered at convex apex points (hood crown, shoulder caps, chest)
+      # where body surface is horizontal and gravity pulls cloth straight
+      # down onto the feature. At 15 mm, contact force at sdf≈0 is too
+      # weak to overcome gravity through the cloth mass accumulated around
+      # the apex → cloth sags through. v23 proved 25 mm solves this
+      # (perfect front in v23). The old concern (v23 self-collision spike
+      # from 472 to 600+) no longer applies: that spike was caused by
+      # cloth having to bend sharply around deep INITIAL penetrations.
+      # Inflation now handles those at the source — cloth starts on the
+      # outside, so the 25 mm thickness just maintains that gap without
+      # forcing sharp bends. Expected self_collisions in v25: ~500 (like
+      # v22), not v23's 600+.
+      body_collision_thickness: 0.025
       # Body-to-cloth friction. v22: 0.0 -> 0.2. With zero friction cloth
       # perpetually slides on the body under any tangential force (gravity
       # component, drag asymmetry) and never settles. Particularly visible

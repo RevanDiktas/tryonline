@@ -933,8 +933,14 @@ def pygarment_drape(
     # nearest body normal until sdf = 3 mm. Non-penetrating verts are
     # unchanged. Friction + gravity then pin the outside state.
     body_normals = compute_body_normals(body_verts, body_obj)
+    # v25: safety_margin 3 mm -> 5 mm. v24 log showed mean inflation push
+    # of 8 mm, so 3 mm above the body surface put inflated verts right at
+    # the threshold where sim-time drift (gravity pulling cloth onto convex
+    # apex points, stretch springs restoring to rest) pushed 221 of them
+    # back inside. 5 mm is a 2 mm cushion — small visual cost at tight
+    # contact areas but makes the inflated state more robust.
     welded_verts, inflate_stats = _inflate_penetrating_verts(
-        welded_verts, body_verts, body_normals, safety_margin=0.003
+        welded_verts, body_verts, body_normals, safety_margin=0.005
     )
     print(f"[PyGarment] Inflate: pushed {inflate_stats['pushed']}/{inflate_stats['total']} "
           f"verts, max={inflate_stats['max_push_mm']:.1f}mm, "
@@ -1587,26 +1593,31 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-22/v24-surgical-pre-sim-inflation "
-    "(v23 torso-align reduced dz 17.2 -> 11.4 mm (33% of the shift was "
-    "arms/hood/feet AABB noise; 67% is real torso asymmetry) but the "
-    "back still showed skin-through-cloth AND self-collisions went UP "
-    "472 -> 600+ because 25mm collision thickness was forcing cloth to "
-    "bend sharply around SMPL's back curvature. Diagnosis updated: this "
-    "is NOT an eject-budget problem. Widening collision + tripling "
-    "warmup didn't help because the CLO3D back panel's rest shape is "
-    "flatter than SMPL's curved back — the sim's eject forces win "
-    "locally, but cloth rest-tension pulls ejected verts back toward "
-    "the flat rest pose, which sits inside SMPL. Fix (v24): surgical "
-    "pre-sim inflation — after weld, push every cloth vert with "
-    "sdf < 3 mm outward along nearest body normal to sdf = 3 mm. Sim "
-    "starts from a clean non-penetrating state; friction + gravity pin "
-    "cloth outside without having to fight rest-tension pullback. Same "
-    "move that broke the Newton v12 logjam per "
-    "docs/progress/2026-04-20_DRAPING_STATE.md. Also reverts "
-    "body_collision_thickness 0.025 -> 0.015 (v23's wider band was "
-    "causing the self-collision spike). Keeps torso filter and "
-    "zero_gravity_steps=100.)"
+    "drape-handler 2026-04-22/v25-restore-thickness-disable-filter "
+    "(v24 inflation fixed the back — 6968 verts pushed out to sdf=3mm, "
+    "back now fully covered. But two regressions showed up: "
+    "(1) FRONT convex apex points (hood crown, shoulder caps, chest) "
+    "regressed vs. v23. Cause: v24 reverted body_collision_thickness "
+    "0.025 -> 0.015. At 15 mm, contact force at sdf~0 is too weak to "
+    "overcome gravity pulling cloth straight DOWN onto horizontal body "
+    "features — cloth sags through. The old worry about v23's "
+    "self-collision spike no longer applies now that inflation removes "
+    "the need for cloth to bend sharply around init-penetrations. "
+    "(2) INSEAMS/thighs showed skin through the pants — turns out this "
+    "was present in every run since v22 but hidden by the back failure. "
+    "Root cause: panel_assignment winner-take-all labeled "
+    "FABRIC_1_FRONT_2743 (2501 pants-shell verts) as `body` because its "
+    "waist+upper-thigh verts outnumber lower-leg verts. With "
+    "enable_body_collision_filters=true, that panel couldn't generate "
+    "contacts with SMPL leg faces → pants passed through thighs. "
+    "v25 fixes both: (a) restore body_collision_thickness to 0.025 (the "
+    "v23 value that gave a perfect front), (b) disable "
+    "enable_body_collision_filters so every cloth particle can contact "
+    "every body face (correct for CLO3D-source panels whose labels "
+    "don't partition body cleanly), (c) bump safety_margin 3 mm -> 5 mm "
+    "(v24 mean push was 8 mm → 3 mm cushion was borderline; 5 mm gives "
+    "a stable 2 mm buffer against sim-time drift). Keeps inflation, "
+    "torso filter, zero_gravity_steps=100, fabric/body friction 0.2.)"
 )
 
 try:
