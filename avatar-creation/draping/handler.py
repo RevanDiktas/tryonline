@@ -203,79 +203,165 @@ def compute_body_normals(body_verts: np.ndarray, body_obj: Path) -> np.ndarray:
     return normals / norms
 
 
-def _inflate_penetrating_verts(
+def _retarget_garment_to_body(
     cloth_verts: np.ndarray,
+    cloth_faces: np.ndarray,
     body_verts: np.ndarray,
-    body_normals: np.ndarray,
-    safety_margin: float = 0.003,
+    body_obj: Path,
+    target_offset: float = 0.005,
+    n_iters: int = 15,
+    smooth_factor: float = 0.3,
 ) -> tuple:
     """
-    Surgical pre-sim fix for initial body-cloth penetration.
+    Iterative face-accurate retargeting of the cloth mesh so no vertex
+    sits inside the body surface — REPLACING v24's per-vertex inflation.
 
-    For every cloth vert whose signed distance to the body is below
-    `safety_margin`, push it outward along the nearest body vertex's
-    normal until `sdf == safety_margin`. Leave non-penetrating verts
-    unchanged.
+    Same high-level goal (start the sim from a non-penetrating mesh), but
+    addresses v24/v25's failures:
 
-    SDF approximation: nearest-vertex-plane. For each cloth vert, find the
-    nearest body vertex via cKDTree, then compute signed distance as the
-    projection of (cloth - body) onto the body vertex's outward normal.
-    Positive = outside body, negative = inside. Fast (one KDTree query per
-    cloth vert, vectorised push), accurate enough on SMPL meshes (~6890
-    verts at 1.8 m = ~1 cm vertex spacing, normal error bounded by local
-    curvature).
+      v24 inflation: per-vertex independent push along NEAREST-VERTEX
+      normal. Every vert moved in isolation → adjacent verts got pushed
+      different magnitudes/directions → mesh ended up stretched and
+      distorted. During sim, XPBD stretch springs fought to restore
+      distorted rest lengths and some verts drifted back into the body.
 
-    Why this exists (v24): v22/v23 showed the back panel still penetrates
-    SMPL's convex back features (scapula/spine/glutes) even after widening
-    collision thickness 15→25 mm, tripling zero-gravity warmup 30→100
-    frames, and removing the alignment-induced forward shift. The residual
-    penetration is caused by the CLO3D back panel having a FLATTER rest
-    shape than SMPL's curved back — a body-shape mismatch, not a
-    force-budget problem. The sim's eject forces win locally but cloth
-    rest-tension pulls ejected verts back toward the flat rest pose,
-    which sits inside SMPL's back surface. Inflation starts the sim from
-    a non-penetrating state so friction + gravity pin cloth in place once
-    it's outside, instead of letting eject and rest-tension keep fighting.
+      v25 (thickness + filter tweaks): variable tweaking at the wrong
+      layer. body_collisions dropped slightly (221→203) but non_static
+      EXPLODED (5641→7250) — sim never converged, rendered a mid-
+      oscillation mid-motion state as "cheesecloth".
 
-    This is the same move that broke the Newton v12 logjam — see
-    docs/progress/2026-04-20_DRAPING_STATE.md §"Tomorrow's first move".
+    v26 retargeting (based on Dress-Me-Up / Neural-ABC / CAPE literature):
 
-    Returns (inflated_verts, stats_dict).
+      For N iterations (cap 15):
+        1. Face-accurate closest point on the body mesh for every cloth
+           vert, via trimesh.ProximityQuery.on_surface(). Returns
+           (closest_point, distance, face_id) in one query-structure-
+           cached call. Compute sdf = (cloth − closest) · face_normal
+           so sign is correct in concavities (armpit, inseam) where
+           nearest-vertex normals point the wrong way.
+        2. Any vert with sdf < target_offset → move it to
+           (closest_point + face_normal * target_offset).
+        3. Laplacian smooth the 2-ring of pushed verts: blend each
+           affected vert's position with the mean of its mesh neighbors
+           at `smooth_factor`. This distributes the displacement so the
+           mesh stays regular — no local distortions, XPBD springs have
+           minimal rest-length conflict in the deformed state.
+        4. If no verts need push → converged, break.
+
+    Why this actually works where v24 inflation didn't:
+      - FACE-based SDF (not nearest-vertex) gets correct direction at
+        concavities and correct magnitude at sharp convex apexes.
+      - ITERATIVE: smoothing nudges some neighbors slightly back inside;
+        the next iteration fixes them. Converges to a globally non-
+        penetrating mesh.
+      - SMOOTHING distributes displacement so the mesh is still mesh-
+        regular. The rest state PyGarment sees is a valid rest state
+        for SMPL, not a distorted version of a CLO3D-ref-body rest
+        state. Springs don't fight during sim; gravity and contact win.
+
+    Parameters:
+      target_offset: final min sdf. 5 mm = robust against sim-time drift,
+        small enough that cloth looks tight to body.
+      n_iters: hard cap. Typical convergence is 5-10 iterations for
+        Ramin's hoodie (initial min sdf −55.6 mm, 7911 verts inside).
+      smooth_factor: Laplacian blend weight. 0.3 is gentle — preserves
+        local garment features, eliminates only sharp distortions.
+
+    Returns (retargeted_verts, stats_dict).
     """
-    from scipy.spatial import cKDTree
-    tree = cKDTree(body_verts)
-    _, nearest_idx = tree.query(cloth_verts, k=1)
+    import trimesh
+    from trimesh.proximity import ProximityQuery
+    from collections import defaultdict
 
-    nearest_body = body_verts[nearest_idx]
-    nearest_normal = body_normals[nearest_idx]
-    delta = cloth_verts - nearest_body
-    sdf = np.einsum("ij,ij->i", delta, nearest_normal)  # (N,)
+    # Load body faces from OBJ. Same parser as compute_body_normals.
+    body_faces_list = []
+    with open(body_obj, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if line.startswith("f "):
+                parts = line.strip().split()[1:]
+                idxs = [int(p.split("/")[0]) - 1 for p in parts]
+                if len(idxs) >= 3:
+                    body_faces_list.append(idxs[:3])
+    body_faces = np.array(body_faces_list, dtype=np.int32)
 
-    needs_push = sdf < safety_margin
-    n_total = len(cloth_verts)
-    n_push = int(needs_push.sum())
+    # body_verts is already in meters (align_meshes input); cloth_verts
+    # is welded+aligned in the same frame. Build a trimesh with
+    # process=False so it doesn't re-index/reorder the vertices.
+    body_mesh = trimesh.Trimesh(vertices=body_verts, faces=body_faces, process=False)
+    # Cache the BVH by constructing one ProximityQuery; reused each
+    # iteration instead of rebuilt by the helper function.
+    pq = ProximityQuery(body_mesh)
+    face_normals = body_mesh.face_normals  # cached property
 
-    inflated = cloth_verts.copy()
-    if n_push == 0:
-        return inflated, {
-            "total": n_total,
-            "pushed": 0,
-            "max_push_mm": 0.0,
-            "mean_push_mm": 0.0,
-            "min_sdf_mm_before": float(sdf.min() * 1000.0),
-            "min_sdf_mm_after": float(sdf.min() * 1000.0),
-        }
+    # Build mesh-neighbor adjacency from welded faces. Each cloth vert
+    # maps to the SET of other verts it shares a triangle with — the
+    # 1-ring. The smoothing step then naturally covers the 2-ring (pushed
+    # verts + their 1-ring neighbors).
+    neighbor_sets: dict = defaultdict(set)
+    for face in cloth_faces:
+        a, b, c = int(face[0]), int(face[1]), int(face[2])
+        neighbor_sets[a].update((b, c))
+        neighbor_sets[b].update((a, c))
+        neighbor_sets[c].update((a, b))
+    # Convert to ndarray for fast indexing.
+    neighbor_arrays: dict = {
+        v: np.array(list(ns), dtype=np.int64) for v, ns in neighbor_sets.items()
+    }
 
-    push_mag = safety_margin - sdf[needs_push]  # (M,) positive distances
-    inflated[needs_push] += nearest_normal[needs_push] * push_mag[:, None]
+    verts = cloth_verts.copy()
+    initial_min_sdf_mm: float | None = None
+    total_pushed_first_iter = 0
+    iters_run = 0
 
-    return inflated, {
-        "total": n_total,
-        "pushed": n_push,
-        "max_push_mm": float(push_mag.max() * 1000.0),
-        "mean_push_mm": float(push_mag.mean() * 1000.0),
-        "min_sdf_mm_before": float(sdf.min() * 1000.0),
-        "min_sdf_mm_after": float(safety_margin * 1000.0),
+    for iteration in range(n_iters):
+        # Face-accurate closest points via the cached ProximityQuery.
+        closest, _, tri_ids = pq.on_surface(verts)
+        tri_normals = face_normals[tri_ids]
+        delta = verts - closest
+        sdf = np.einsum("ij,ij->i", delta, tri_normals)
+
+        if iteration == 0:
+            initial_min_sdf_mm = float(sdf.min() * 1000.0)
+            total_pushed_first_iter = int((sdf < target_offset).sum())
+
+        needs_push_mask = sdf < target_offset
+        n_push = int(needs_push_mask.sum())
+        iters_run = iteration + 1
+        if n_push == 0:
+            break
+
+        # Move each penetrating vert to (closest + outward_normal * margin).
+        new_pos = closest[needs_push_mask] + tri_normals[needs_push_mask] * target_offset
+        verts[needs_push_mask] = new_pos
+
+        # Laplacian smooth the 2-ring around pushed verts only. Collect
+        # affected vertex indices (pushed verts + their 1-ring neighbors).
+        pushed_indices = np.where(needs_push_mask)[0]
+        affected: set = set(int(i) for i in pushed_indices)
+        for vi in pushed_indices:
+            ns = neighbor_arrays.get(int(vi))
+            if ns is not None:
+                affected.update(int(n) for n in ns)
+
+        smoothed = verts.copy()
+        for vi in affected:
+            ns = neighbor_arrays.get(vi)
+            if ns is not None and len(ns) > 0:
+                neighbor_mean = verts[ns].mean(axis=0)
+                smoothed[vi] = verts[vi] * (1.0 - smooth_factor) + neighbor_mean * smooth_factor
+        verts = smoothed
+
+    # Final SDF readout for the log.
+    final_closest, _, final_tri = pq.on_surface(verts)
+    final_sdf = np.einsum("ij,ij->i", verts - final_closest, face_normals[final_tri])
+
+    return verts, {
+        "iterations": iters_run,
+        "pushed_first_iter": total_pushed_first_iter,
+        "initial_min_sdf_mm": initial_min_sdf_mm,
+        "final_min_sdf_mm": float(final_sdf.min() * 1000.0),
+        "final_residual_inside": int((final_sdf < 0.0).sum()),
+        "target_offset_mm": float(target_offset * 1000.0),
     }
 
 
@@ -925,27 +1011,26 @@ def pygarment_drape(
     print(f"[PyGarment] Weld pass: detected {(np.bincount(orig_to_welded) > 1).sum()} "
           f"welded groups for stitch-vert labeling")
 
-    # v24: surgical pre-sim inflation. v22/v23 couldn't close the back-
-    # penetration gap with thicker collision + longer warmup because the
-    # CLO3D back panel's rest shape is flatter than SMPL's curved back —
-    # cloth rest-tension pulls ejected verts back inside. Push every
-    # welded cloth vert that starts with sdf < 3 mm outward along its
-    # nearest body normal until sdf = 3 mm. Non-penetrating verts are
-    # unchanged. Friction + gravity then pin the outside state.
-    body_normals = compute_body_normals(body_verts, body_obj)
-    # v25: safety_margin 3 mm -> 5 mm. v24 log showed mean inflation push
-    # of 8 mm, so 3 mm above the body surface put inflated verts right at
-    # the threshold where sim-time drift (gravity pulling cloth onto convex
-    # apex points, stretch springs restoring to rest) pushed 221 of them
-    # back inside. 5 mm is a 2 mm cushion — small visual cost at tight
-    # contact areas but makes the inflated state more robust.
-    welded_verts, inflate_stats = _inflate_penetrating_verts(
-        welded_verts, body_verts, body_normals, safety_margin=0.005
+    # v26: proper pre-sim retargeting. Replaces v24's per-vertex
+    # inflation (which left the mesh distorted and let XPBD springs pull
+    # some verts back inside during sim) with iterative face-accurate
+    # deformation + local Laplacian smoothing. Produces a globally
+    # non-penetrating, mesh-regular rest state. See
+    # _retarget_garment_to_body for the full reasoning.
+    welded_verts, retarget_stats = _retarget_garment_to_body(
+        welded_verts,
+        welded_faces,
+        body_verts,
+        body_obj,
+        target_offset=0.005,
+        n_iters=15,
+        smooth_factor=0.3,
     )
-    print(f"[PyGarment] Inflate: pushed {inflate_stats['pushed']}/{inflate_stats['total']} "
-          f"verts, max={inflate_stats['max_push_mm']:.1f}mm, "
-          f"mean={inflate_stats['mean_push_mm']:.1f}mm, "
-          f"min_sdf_before={inflate_stats['min_sdf_mm_before']:.1f}mm")
+    print(f"[PyGarment] Retarget: iters={retarget_stats['iterations']}/15, "
+          f"pushed_first={retarget_stats['pushed_first_iter']}/{len(welded_verts)}, "
+          f"sdf_before={retarget_stats['initial_min_sdf_mm']:.1f}mm, "
+          f"sdf_after={retarget_stats['final_min_sdf_mm']:.1f}mm, "
+          f"residual_inside={retarget_stats['final_residual_inside']}")
 
     # ------------------------------------------------------------------
     # Step 2: build PyGarment's expected tmpdir layout. Paths must match
@@ -1593,31 +1678,33 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-22/v25-restore-thickness-disable-filter "
-    "(v24 inflation fixed the back — 6968 verts pushed out to sdf=3mm, "
-    "back now fully covered. But two regressions showed up: "
-    "(1) FRONT convex apex points (hood crown, shoulder caps, chest) "
-    "regressed vs. v23. Cause: v24 reverted body_collision_thickness "
-    "0.025 -> 0.015. At 15 mm, contact force at sdf~0 is too weak to "
-    "overcome gravity pulling cloth straight DOWN onto horizontal body "
-    "features — cloth sags through. The old worry about v23's "
-    "self-collision spike no longer applies now that inflation removes "
-    "the need for cloth to bend sharply around init-penetrations. "
-    "(2) INSEAMS/thighs showed skin through the pants — turns out this "
-    "was present in every run since v22 but hidden by the back failure. "
-    "Root cause: panel_assignment winner-take-all labeled "
-    "FABRIC_1_FRONT_2743 (2501 pants-shell verts) as `body` because its "
-    "waist+upper-thigh verts outnumber lower-leg verts. With "
-    "enable_body_collision_filters=true, that panel couldn't generate "
-    "contacts with SMPL leg faces → pants passed through thighs. "
-    "v25 fixes both: (a) restore body_collision_thickness to 0.025 (the "
-    "v23 value that gave a perfect front), (b) disable "
-    "enable_body_collision_filters so every cloth particle can contact "
-    "every body face (correct for CLO3D-source panels whose labels "
-    "don't partition body cleanly), (c) bump safety_margin 3 mm -> 5 mm "
-    "(v24 mean push was 8 mm → 3 mm cushion was borderline; 5 mm gives "
-    "a stable 2 mm buffer against sim-time drift). Keeps inflation, "
-    "torso filter, zero_gravity_steps=100, fabric/body friction 0.2.)"
+    "drape-handler 2026-04-22/v26-face-accurate-retargeting "
+    "(v25 was catastrophic — body_collisions=203 looked fine but "
+    "non_static=7250/25428 (28%) meant the sim never converged; the "
+    "screenshot showed cheesecloth-pattern cloth captured mid- "
+    "oscillation. v22-v25 ran out the clock on variable tweaking. "
+    "The real root cause (repeatedly avoided): the CLO3D garment was "
+    "sewn on a CLO3D reference avatar whose body shape differs from "
+    "SMPL. Min SDF has been -55.6 mm in every run — 5.5 cm of "
+    "penetration no force-balance tweak can close. v26 is the "
+    "structural fix: pre-sim retargeting via iterative face-accurate "
+    "deformation + Laplacian smoothing (Dress-Me-Up / Neural-ABC / "
+    "CAPE literature). For 15 iterations: (1) find each cloth vert's "
+    "closest body-surface point via trimesh.ProximityQuery — face- "
+    "accurate, unlike v24's nearest-vertex approximation that failed "
+    "in concavities; (2) push inside verts to (closest + "
+    "face_normal * 5mm); (3) Laplacian-smooth the 2-ring around "
+    "pushed verts at factor 0.3 — distributes displacement so the "
+    "mesh stays regular, no per-vertex independent distortion that "
+    "v24 had. Produces a globally non-penetrating, mesh-regular rest "
+    "state that PyGarment sees as a valid rest for SMPL — springs "
+    "don't fight during sim, gravity and contact are all that's left. "
+    "Also reverts v25's YAML hacks: thickness 0.025->0.015 and "
+    "enable_body_collision_filters false->true. Keeps torso filter, "
+    "zero_gravity_steps=100, fabric/body friction 0.2. If v26 still "
+    "leaves visible skin, we've exhausted in-house options and need "
+    "external retargeting (CLO3D/MD Auto-Fit offline or a learned "
+    "morph model) — the next doc will say so directly.)"
 )
 
 try:

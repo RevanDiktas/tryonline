@@ -33,6 +33,7 @@ ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 RUN pip install --no-cache-dir \
     runpod \
     trimesh \
+    rtree \
     pygltflib \
     scipy \
     httpx \

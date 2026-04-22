@@ -75,20 +75,15 @@ sim:
       # Body collision filters — requires per-vertex body segmentation. We ship
       # smpl_vert_segmentation.json, so this can be ON.
       #
-      # v25: turned OFF. The filter restricts each cloth panel to only
-      # generate contacts with body-mesh faces matching its panel_assignment
-      # label (winner-take-all vote across panel verts). That works when
-      # panels map cleanly to body parts (GarmentCode's own CLO3D-style
-      # paths), but FAILS for our CLO3D sources where `FABRIC_1_FRONT_2743`
-      # (the pants outer shell, 2501 verts) gets labeled `body` because its
-      # waist/upper-thigh verts outnumber its lower-leg verts. Result: pants
-      # can't generate contacts with SMPL leg faces → inseam/thigh skin
-      # penetration visible in every run from v22 onwards (hidden behind the
-      # worse back issue until v24 cleaned the back). Disabling the filter
-      # lets every cloth particle generate contacts against every body face.
-      # Cost: broad-phase is marginally slower (SMPL ~6890 verts). Benefit:
-      # collisions are geometrically correct regardless of label partition.
-      enable_body_collision_filters: false
+      # v25 tried turning this OFF to fix inseam penetration (pants panel
+      # labeled `body` couldn't contact `leg` faces). Broke convergence —
+      # non_static went 5641 → 7250 (catastrophic). Restored in v26.
+      # v26: retargeting handles the geometry properly before sim, so the
+      # filter's label-restriction is no longer a correctness problem for
+      # the remaining sim (verts start where they should, contacts that
+      # DO fire are sufficient). Keeping the filter ON avoids the
+      # broad-phase overload that caused v25's oscillation.
+      enable_body_collision_filters: true
       enable_global_collision_filter: true
 
       # Velocity clamp + damping: THE explosion guards. Clamps any particle
@@ -182,7 +177,16 @@ sim:
       # outside, so the 25 mm thickness just maintains that gap without
       # forcing sharp bends. Expected self_collisions in v25: ~500 (like
       # v22), not v23's 600+.
-      body_collision_thickness: 0.025
+      #
+      # v26: 0.025 -> 0.015 RESTORED. v25 combined 25 mm thickness with
+      # filter OFF and broke convergence catastrophically (non_static
+      # 5641 -> 7250, rendered as cheesecloth). With proper face-
+      # accurate retargeting (v26) producing a mesh-regular non-
+      # penetrating rest state, 15 mm is plenty to maintain the outside-
+      # state — the cloth doesn't need to be pushed further out because
+      # it's already correctly placed. The 25 mm band just creates extra
+      # contact forces that can destabilise convergence.
+      body_collision_thickness: 0.015
       # Body-to-cloth friction. v22: 0.0 -> 0.2. With zero friction cloth
       # perpetually slides on the body under any tangential force (gravity
       # component, drag asymmetry) and never settles. Particularly visible
