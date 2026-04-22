@@ -203,6 +203,82 @@ def compute_body_normals(body_verts: np.ndarray, body_obj: Path) -> np.ndarray:
     return normals / norms
 
 
+def _inflate_penetrating_verts(
+    cloth_verts: np.ndarray,
+    body_verts: np.ndarray,
+    body_normals: np.ndarray,
+    safety_margin: float = 0.003,
+) -> tuple:
+    """
+    Surgical pre-sim fix for initial body-cloth penetration.
+
+    For every cloth vert whose signed distance to the body is below
+    `safety_margin`, push it outward along the nearest body vertex's
+    normal until `sdf == safety_margin`. Leave non-penetrating verts
+    unchanged.
+
+    SDF approximation: nearest-vertex-plane. For each cloth vert, find the
+    nearest body vertex via cKDTree, then compute signed distance as the
+    projection of (cloth - body) onto the body vertex's outward normal.
+    Positive = outside body, negative = inside. Fast (one KDTree query per
+    cloth vert, vectorised push), accurate enough on SMPL meshes (~6890
+    verts at 1.8 m = ~1 cm vertex spacing, normal error bounded by local
+    curvature).
+
+    Why this exists (v24): v22/v23 showed the back panel still penetrates
+    SMPL's convex back features (scapula/spine/glutes) even after widening
+    collision thickness 15→25 mm, tripling zero-gravity warmup 30→100
+    frames, and removing the alignment-induced forward shift. The residual
+    penetration is caused by the CLO3D back panel having a FLATTER rest
+    shape than SMPL's curved back — a body-shape mismatch, not a
+    force-budget problem. The sim's eject forces win locally but cloth
+    rest-tension pulls ejected verts back toward the flat rest pose,
+    which sits inside SMPL's back surface. Inflation starts the sim from
+    a non-penetrating state so friction + gravity pin cloth in place once
+    it's outside, instead of letting eject and rest-tension keep fighting.
+
+    This is the same move that broke the Newton v12 logjam — see
+    docs/progress/2026-04-20_DRAPING_STATE.md §"Tomorrow's first move".
+
+    Returns (inflated_verts, stats_dict).
+    """
+    from scipy.spatial import cKDTree
+    tree = cKDTree(body_verts)
+    _, nearest_idx = tree.query(cloth_verts, k=1)
+
+    nearest_body = body_verts[nearest_idx]
+    nearest_normal = body_normals[nearest_idx]
+    delta = cloth_verts - nearest_body
+    sdf = np.einsum("ij,ij->i", delta, nearest_normal)  # (N,)
+
+    needs_push = sdf < safety_margin
+    n_total = len(cloth_verts)
+    n_push = int(needs_push.sum())
+
+    inflated = cloth_verts.copy()
+    if n_push == 0:
+        return inflated, {
+            "total": n_total,
+            "pushed": 0,
+            "max_push_mm": 0.0,
+            "mean_push_mm": 0.0,
+            "min_sdf_mm_before": float(sdf.min() * 1000.0),
+            "min_sdf_mm_after": float(sdf.min() * 1000.0),
+        }
+
+    push_mag = safety_margin - sdf[needs_push]  # (M,) positive distances
+    inflated[needs_push] += nearest_normal[needs_push] * push_mag[:, None]
+
+    return inflated, {
+        "total": n_total,
+        "pushed": n_push,
+        "max_push_mm": float(push_mag.max() * 1000.0),
+        "mean_push_mm": float(push_mag.mean() * 1000.0),
+        "min_sdf_mm_before": float(sdf.min() * 1000.0),
+        "min_sdf_mm_after": float(safety_margin * 1000.0),
+    }
+
+
 def align_meshes(body_verts: np.ndarray, garment_verts: np.ndarray) -> tuple:
     """
     Auto-align garment to body by matching height ranges and centering.
@@ -848,6 +924,22 @@ def pygarment_drape(
     )
     print(f"[PyGarment] Weld pass: detected {(np.bincount(orig_to_welded) > 1).sum()} "
           f"welded groups for stitch-vert labeling")
+
+    # v24: surgical pre-sim inflation. v22/v23 couldn't close the back-
+    # penetration gap with thicker collision + longer warmup because the
+    # CLO3D back panel's rest shape is flatter than SMPL's curved back —
+    # cloth rest-tension pulls ejected verts back inside. Push every
+    # welded cloth vert that starts with sdf < 3 mm outward along its
+    # nearest body normal until sdf = 3 mm. Non-penetrating verts are
+    # unchanged. Friction + gravity then pin the outside state.
+    body_normals = compute_body_normals(body_verts, body_obj)
+    welded_verts, inflate_stats = _inflate_penetrating_verts(
+        welded_verts, body_verts, body_normals, safety_margin=0.003
+    )
+    print(f"[PyGarment] Inflate: pushed {inflate_stats['pushed']}/{inflate_stats['total']} "
+          f"verts, max={inflate_stats['max_push_mm']:.1f}mm, "
+          f"mean={inflate_stats['mean_push_mm']:.1f}mm, "
+          f"min_sdf_before={inflate_stats['min_sdf_mm_before']:.1f}mm")
 
     # ------------------------------------------------------------------
     # Step 2: build PyGarment's expected tmpdir layout. Paths must match
@@ -1495,25 +1587,26 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-22/v23-torso-align-plus-eject-budget "
-    "(v22 had a perfect front but the back showed 259 body_collisions "
-    "stuck inside SMPL's convex features — scapula, T-spine, glutes, "
-    "hamstrings — visible as skin-through-cloth patches on the back. "
-    "Root cause: whole-AABB XZ centering produced a +17 mm forward Z "
-    "shift (arms+feet AABB distorted the midpoint), which gave the front "
-    "panel extra clearance but pushed the back panel 17 mm DEEPER into "
-    "SMPL's back at init. v22's eject machinery (body_collision_thickness "
-    "15mm, soft_contact_ke 5000, zero_gravity_steps 30) was working — "
-    "just not with enough overlap or frames to clear 20-30 mm initial "
-    "penetrations before gravity pinned them. v23 fixes both: "
-    "(1) align_meshes() now computes X/Z AABB centers from torso-filtered "
-    "verts only (middle 40% of Y), removing the forward shift at its "
-    "source; (2) YAML bumps body_collision_thickness 0.015 -> 0.025 "
-    "(wider overlap → larger eject force for deep verts) and "
-    "zero_gravity_steps 30 -> 100 (more frames for eject-and-resolve "
-    "before gravity locks positions). Back panel should now start at "
-    "the Z position CLO3D designed it for, with contacts strong enough "
-    "and frames long enough to fully eject any residual penetration.)"
+    "drape-handler 2026-04-22/v24-surgical-pre-sim-inflation "
+    "(v23 torso-align reduced dz 17.2 -> 11.4 mm (33% of the shift was "
+    "arms/hood/feet AABB noise; 67% is real torso asymmetry) but the "
+    "back still showed skin-through-cloth AND self-collisions went UP "
+    "472 -> 600+ because 25mm collision thickness was forcing cloth to "
+    "bend sharply around SMPL's back curvature. Diagnosis updated: this "
+    "is NOT an eject-budget problem. Widening collision + tripling "
+    "warmup didn't help because the CLO3D back panel's rest shape is "
+    "flatter than SMPL's curved back — the sim's eject forces win "
+    "locally, but cloth rest-tension pulls ejected verts back toward "
+    "the flat rest pose, which sits inside SMPL. Fix (v24): surgical "
+    "pre-sim inflation — after weld, push every cloth vert with "
+    "sdf < 3 mm outward along nearest body normal to sdf = 3 mm. Sim "
+    "starts from a clean non-penetrating state; friction + gravity pin "
+    "cloth outside without having to fight rest-tension pullback. Same "
+    "move that broke the Newton v12 logjam per "
+    "docs/progress/2026-04-20_DRAPING_STATE.md. Also reverts "
+    "body_collision_thickness 0.025 -> 0.015 (v23's wider band was "
+    "causing the self-collision spike). Keeps torso filter and "
+    "zero_gravity_steps=100.)"
 )
 
 try:

@@ -143,7 +143,17 @@ sim:
       # overlap so force magnitude at init is bigger for deep penetrations.
       # Trade-off accepted: up to ~5-10 mm visible gap at tight contact
       # areas (neckline/cuff) is better than skin-through-cloth on the back.
-      body_collision_thickness: 0.025
+      #
+      # v24: 0.025 -> 0.015 REVERTED. v23 log showed self-collisions went
+      # UP from 472 (v22) to 600+ (v23) because 25 mm forced cloth to bend
+      # sharply around SMPL's curved back features, causing more cloth-on-
+      # cloth contact in the spine-valley/between-scapulae regions. The
+      # root cause (back-panel rest shape flatter than SMPL back) is now
+      # handled at the source by the pre-sim inflation step in handler.py
+      # — verts start on the outside of the body, so a wider collision band
+      # isn't needed. 15 mm is enough to maintain outside-state against
+      # gravity-induced drift.
+      body_collision_thickness: 0.015
       # Body-to-cloth friction. v22: 0.0 -> 0.2. With zero friction cloth
       # perpetually slides on the body under any tangential force (gravity
       # component, drag asymmetry) and never settles. Particularly visible
