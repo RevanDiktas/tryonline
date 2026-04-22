@@ -24,7 +24,17 @@ sim:
     # because v18.9 ended with 311 body collisions — 10 frames was not enough
     # for contact-only forces to push pre-penetrating verts out before gravity
     # kicked in and re-drove them inside.
-    zero_gravity_steps: 30
+    # v23: 30 → 100. v22 ended with 259 body_collisions still stuck inside
+    # the SMPL back (visible as skin-through patches on hood/scapula/glutes/
+    # hamstrings). Eject velocity is clamped by global_max_velocity=20 m/s
+    # per substep, so a vert starting 20-30 mm inside the SMPL back can only
+    # move a few mm per frame. 30 zero-G frames wasn't enough budget to
+    # fully eject those verts before gravity kicked in and pinned them.
+    # 100 gives the contact + cloth_reference_drag (mode 2) enough frames to
+    # finish the eject before gravity turns on. Combined with the
+    # torso-only alignment fix in handler.py (removes the +17 mm forward
+    # shift that was deepening back-panel initial penetration).
+    zero_gravity_steps: 100
     resolution_scale: 1.0
     # Ground plane ON: trouser hems that overshoot the feet stack on the floor.
     ground: true
@@ -125,7 +135,15 @@ sim:
       # bump — verts starting slightly inside the body now feel contact
       # force. Going further (2cm+) risks cloth floating visibly off the
       # body, especially at the neckline/waistband.
-      body_collision_thickness: 0.015
+      # v23: 0.015 -> 0.025. 15 mm wasn't catching verts that started 20-30
+      # mm inside SMPL's convex back features (scapula/spine/glutes). With
+      # global_max_velocity=20 m/s clamping eject speed per substep, the
+      # contact force had to work within a shallow overlap window AND run
+      # out of zero-G frames before the eject completed. 25 mm widens the
+      # overlap so force magnitude at init is bigger for deep penetrations.
+      # Trade-off accepted: up to ~5-10 mm visible gap at tight contact
+      # areas (neckline/cuff) is better than skin-through-cloth on the back.
+      body_collision_thickness: 0.025
       # Body-to-cloth friction. v22: 0.0 -> 0.2. With zero friction cloth
       # perpetually slides on the body under any tangential force (gravity
       # component, drag asymmetry) and never settles. Particularly visible

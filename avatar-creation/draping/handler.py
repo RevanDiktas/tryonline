@@ -234,12 +234,40 @@ def align_meshes(body_verts: np.ndarray, garment_verts: np.ndarray) -> tuple:
     # Recalculate after scale
     garm_min_y = aligned[:, 1].min()
     garm_max_y = aligned[:, 1].max()
+    garm_h_scaled = garm_max_y - garm_min_y
 
-    # Match XZ center
-    body_cx = (body_verts[:, 0].min() + body_verts[:, 0].max()) / 2
-    body_cz = (body_verts[:, 2].min() + body_verts[:, 2].max()) / 2
-    garm_cx = (aligned[:, 0].min() + aligned[:, 0].max()) / 2
-    garm_cz = (aligned[:, 2].min() + aligned[:, 2].max()) / 2
+    # v23: torso-only XZ centering. The whole-AABB version used to include
+    # arms (T-pose extends laterally) and feet/hood extents, producing a
+    # +17 mm forward (Z) shift on Ramin's hoodie. That shift gave the front
+    # panel extra clearance (→ perfect drape) but pushed the back panel
+    # 17 mm deeper into SMPL's convex back features (scapula/spine/glutes/
+    # hamstrings), leaving 259 body_collisions stuck inside at rest in v22
+    # and the skin-through-cloth pattern seen in the back screenshot.
+    #
+    # Filter to the middle 40% of Y (0.3*h .. 0.7*h). For a 1.8 m SMPL body
+    # that's roughly mid-thigh to upper belly — covers the torso's Z
+    # extent (chest/back/belly) while excluding arms (at shoulder level
+    # ~83% Y), hood (top of garment), and feet (bottom of both meshes).
+    # The Y-matching (feet-to-feet) is untouched.
+    def _torso_mask(verts: np.ndarray, lo: float, hi: float) -> np.ndarray:
+        return (verts[:, 1] >= lo) & (verts[:, 1] <= hi)
+
+    body_torso = body_verts[
+        _torso_mask(body_verts, body_min_y + 0.3 * body_h, body_min_y + 0.7 * body_h)
+    ]
+    garm_torso = aligned[
+        _torso_mask(aligned, garm_min_y + 0.3 * garm_h_scaled, garm_min_y + 0.7 * garm_h_scaled)
+    ]
+    # Fallback to full AABB if the filter happened to drop everything.
+    if len(body_torso) == 0:
+        body_torso = body_verts
+    if len(garm_torso) == 0:
+        garm_torso = aligned
+
+    body_cx = (body_torso[:, 0].min() + body_torso[:, 0].max()) / 2
+    body_cz = (body_torso[:, 2].min() + body_torso[:, 2].max()) / 2
+    garm_cx = (garm_torso[:, 0].min() + garm_torso[:, 0].max()) / 2
+    garm_cz = (garm_torso[:, 2].min() + garm_torso[:, 2].max()) / 2
 
     # Match feet (bottom Y)
     translation = np.array([
@@ -249,6 +277,7 @@ def align_meshes(body_verts: np.ndarray, garment_verts: np.ndarray) -> tuple:
     ])
 
     aligned += translation
+    print(f"[Draping] Torso filter: body={len(body_torso)} garm={len(garm_torso)} verts")
     print(f"[Draping] Translation: dx={translation[0]:.4f} dy={translation[1]:.4f} dz={translation[2]:.4f}")
 
     return aligned, scale, translation
@@ -1466,18 +1495,25 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-22/v22-back-drape-fixes "
-    "(v21 fixed the front via proper OBJ compact but the back regressed: "
-    "cloth conformed to the laplacian-smoothed body during frames 0-50, "
-    "then shoulder-blade/spine detail popped back and pushed cloth "
-    "outward, leaving visible skin on upper/mid back + back-of-thighs. "
-    "Orphan-particle chaos in v20 had masked this artifact by keeping "
-    "cloth in perpetual motion. Fix: disable body_smoothing (YAGNI now "
-    "that orphan verts are gone and soft_contact_ke/body_collision_"
-    "thickness together handle deep-penetration verts), add mild friction "
-    "on both fabric_friction and body_friction (0.0 -> 0.2) so cloth "
-    "stops drifting once it lands on the body — addresses the 5860 "
-    "non-static verts from v21.)"
+    "drape-handler 2026-04-22/v23-torso-align-plus-eject-budget "
+    "(v22 had a perfect front but the back showed 259 body_collisions "
+    "stuck inside SMPL's convex features — scapula, T-spine, glutes, "
+    "hamstrings — visible as skin-through-cloth patches on the back. "
+    "Root cause: whole-AABB XZ centering produced a +17 mm forward Z "
+    "shift (arms+feet AABB distorted the midpoint), which gave the front "
+    "panel extra clearance but pushed the back panel 17 mm DEEPER into "
+    "SMPL's back at init. v22's eject machinery (body_collision_thickness "
+    "15mm, soft_contact_ke 5000, zero_gravity_steps 30) was working — "
+    "just not with enough overlap or frames to clear 20-30 mm initial "
+    "penetrations before gravity pinned them. v23 fixes both: "
+    "(1) align_meshes() now computes X/Z AABB centers from torso-filtered "
+    "verts only (middle 40% of Y), removing the forward shift at its "
+    "source; (2) YAML bumps body_collision_thickness 0.015 -> 0.025 "
+    "(wider overlap → larger eject force for deep verts) and "
+    "zero_gravity_steps 30 -> 100 (more frames for eject-and-resolve "
+    "before gravity locks positions). Back panel should now start at "
+    "the Z position CLO3D designed it for, with contacts strong enough "
+    "and frames long enough to fully eject any residual penetration.)"
 )
 
 try:
