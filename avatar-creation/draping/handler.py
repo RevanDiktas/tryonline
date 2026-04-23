@@ -334,17 +334,34 @@ def _retarget_garment_to_body(
         new_pos = closest[needs_push_mask] + tri_normals[needs_push_mask] * target_offset
         verts[needs_push_mask] = new_pos
 
-        # Laplacian smooth the 2-ring around pushed verts only. Collect
-        # affected vertex indices (pushed verts + their 1-ring neighbors).
+        # Laplacian smooth the 1-ring AROUND pushed verts — with a
+        # Dirichlet boundary condition on the pushed verts themselves
+        # (v27 fix). v26 smoothed both pushed verts and their neighbors
+        # toward the neighbor mean; since most neighbors hadn't been
+        # pushed out yet on early iterations, the mean sat INWARD of the
+        # pushed vert → pushed verts got blended back toward the body.
+        # Each iter then pushed to +5 mm, smoothing pulled to ~+3 mm,
+        # repeat forever. The v26 log confirms this: iters=15/15 (cap),
+        # sdf_after=+2.4mm (never reached target_offset=+5mm).
+        #
+        # Fix: pushed verts are FIXED at (closest + normal * target).
+        # Only their non-pushed 1-ring neighbors are smoothed. This
+        # propagates the push OUTWARD (neighbors blend toward the now-
+        # outside pushed verts), converges to sdf_after = target_offset,
+        # no oscillation.
         pushed_indices = np.where(needs_push_mask)[0]
-        affected: set = set(int(i) for i in pushed_indices)
+        pushed_set: set = set(int(i) for i in pushed_indices)
+        smooth_targets: set = set()
         for vi in pushed_indices:
             ns = neighbor_arrays.get(int(vi))
             if ns is not None:
-                affected.update(int(n) for n in ns)
+                for n in ns:
+                    ni = int(n)
+                    if ni not in pushed_set:
+                        smooth_targets.add(ni)
 
         smoothed = verts.copy()
-        for vi in affected:
+        for vi in smooth_targets:
             ns = neighbor_arrays.get(vi)
             if ns is not None and len(ns) > 0:
                 neighbor_mean = verts[ns].mean(axis=0)
@@ -830,6 +847,63 @@ def _generate_cloth_seg_file(
                 n_right += 1
         print(f"[PyGarment] Sleeve split: {n_left} L / {n_right} R "
               f"(x_mid={x_mid:.4f})")
+
+    # --- Pass 6 (v27): Y-split any "Body_*" material into _HEAD / _TORSO /
+    # _HIPS by vertex Y-coordinate. Same mechanism as the v19 sleeve L/R
+    # split, applied on the vertical axis.
+    #
+    # Why this is the back-drape fix: CLO3D exports each hoodie
+    # front/back as ONE material spanning hood + torso + hem. For Ramin's
+    # hoodie that's `Body_B_FRONT_2724` = 8651 verts from head height
+    # (hood crown) to thigh height (hem). PyGarment's panel_assignment
+    # maps ONE material → ONE closest body part; with
+    # enable_body_collision_filters=true, that whole panel then only
+    # collides with its assigned region. 8651 verts spanning 3+
+    # anatomical regions are guaranteed mis-classified, and
+    # cloth_reference_drag (k=1e7, margin=0.1m) ACTIVELY pulls the whole
+    # panel toward that single region during the 100-frame zero-gravity
+    # warmup. The v26 screenshot (back torn into diagonal ribbons with
+    # big skin-through patches on mid/lower back) is the direct result:
+    # hem verts assigned to "torso" tunnel through hips because
+    # hip collisions are filter-blocked, and the drag actively yanks
+    # them upward toward torso centroid while gravity fights back down.
+    #
+    # Split garment Y into three bands (relative to garment Y range):
+    #   y_rel >= 0.80 → _HEAD  (hood region — panel_assignment picks
+    #                           head/neck as nearest body part)
+    #   0.20 <= y_rel < 0.80 → _TORSO (chest/back — picks torso)
+    #   y_rel < 0.20 → _HIPS  (hem region — picks hips/glutes)
+    # Front panel (`Body_F_*`) already works visually, but splitting it
+    # consistently can only help (or at worst be neutral): hood-front
+    # assigned to head instead of torso removes a small front
+    # filter-mismatch too.
+    body_welded_indices = [
+        i for i, lbl in enumerate(labels)
+        if not lbl.startswith("stitch_") and lbl.lower().startswith("body_")
+    ]
+    if body_welded_indices:
+        body_ys = welded_verts[body_welded_indices, 1]
+        y_min_g = float(body_ys.min())
+        y_max_g = float(body_ys.max())
+        y_range = max(y_max_g - y_min_g, 1e-6)
+        y_head_thresh = y_min_g + 0.80 * y_range
+        y_hips_thresh = y_min_g + 0.20 * y_range
+        n_head = n_torso = n_hips = 0
+        for wi in body_welded_indices:
+            base = labels[wi]
+            y = float(welded_verts[wi, 1])
+            if y >= y_head_thresh:
+                labels[wi] = f"{base}_HEAD"
+                n_head += 1
+            elif y >= y_hips_thresh:
+                labels[wi] = f"{base}_TORSO"
+                n_torso += 1
+            else:
+                labels[wi] = f"{base}_HIPS"
+                n_hips += 1
+        print(f"[PyGarment] Body Y-split: {n_head} HEAD / {n_torso} TORSO / "
+              f"{n_hips} HIPS (y_head>={y_head_thresh:.3f}, "
+              f"y_hips<{y_hips_thresh:.3f})")
 
     with open(output_txt, "w") as f:
         f.write("\n".join(labels) + "\n")
@@ -1678,33 +1752,36 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-22/v26-face-accurate-retargeting "
-    "(v25 was catastrophic — body_collisions=203 looked fine but "
-    "non_static=7250/25428 (28%) meant the sim never converged; the "
-    "screenshot showed cheesecloth-pattern cloth captured mid- "
-    "oscillation. v22-v25 ran out the clock on variable tweaking. "
-    "The real root cause (repeatedly avoided): the CLO3D garment was "
-    "sewn on a CLO3D reference avatar whose body shape differs from "
-    "SMPL. Min SDF has been -55.6 mm in every run — 5.5 cm of "
-    "penetration no force-balance tweak can close. v26 is the "
-    "structural fix: pre-sim retargeting via iterative face-accurate "
-    "deformation + Laplacian smoothing (Dress-Me-Up / Neural-ABC / "
-    "CAPE literature). For 15 iterations: (1) find each cloth vert's "
-    "closest body-surface point via trimesh.ProximityQuery — face- "
-    "accurate, unlike v24's nearest-vertex approximation that failed "
-    "in concavities; (2) push inside verts to (closest + "
-    "face_normal * 5mm); (3) Laplacian-smooth the 2-ring around "
-    "pushed verts at factor 0.3 — distributes displacement so the "
-    "mesh stays regular, no per-vertex independent distortion that "
-    "v24 had. Produces a globally non-penetrating, mesh-regular rest "
-    "state that PyGarment sees as a valid rest for SMPL — springs "
-    "don't fight during sim, gravity and contact are all that's left. "
-    "Also reverts v25's YAML hacks: thickness 0.025->0.015 and "
-    "enable_body_collision_filters false->true. Keeps torso filter, "
-    "zero_gravity_steps=100, fabric/body friction 0.2. If v26 still "
-    "leaves visible skin, we've exhausted in-house options and need "
-    "external retargeting (CLO3D/MD Auto-Fit offline or a learned "
-    "morph model) — the next doc will say so directly.)"
+    "drape-handler 2026-04-23/v27-body-panel-y-split+dirichlet-smoothing "
+    "(v26 verified: front clean, BACK torn into diagonal ribbons with "
+    "big skin-through patches on mid/lower back — same failure mode as "
+    "v22/v23/v24, not fixed by the retargeting step alone. Log showed "
+    "the retargeting didn't converge either: iters=15/15 (cap), "
+    "sdf_after=+2.4mm when target was +5mm. Two structural root causes "
+    "identified in v27: "
+    "(1) PyGarment's panel_assignment maps ONE material → ONE closest "
+    "body region, and with enable_body_collision_filters=true the "
+    "whole panel only collides with that region. CLO3D exports the "
+    "hoodie back as a single material `Body_B_FRONT_2724` = 8651 verts "
+    "spanning hood + torso + hem. Assigned to `torso`, hem verts can't "
+    "collide with hips/glutes (filter-blocked) and cloth_reference_drag "
+    "(k=1e7, margin=0.1m) actively pulls the whole panel toward the "
+    "torso centroid during the 100-frame warmup. Result: hem tunnels "
+    "through the back of the hips while the drag yanks it up — visible "
+    "as the ribbon pattern on the v26 back screenshot. Fix: Y-split any "
+    "`Body_*` material into `_HEAD` (top 20% Y), `_TORSO` (middle 60%), "
+    "and `_HIPS` (bottom 20%). Each sub-label gets its own "
+    "panel_assignment → correct body region for contact and drag. This "
+    "is the direct analogue of the v19 sleeve L/R split that fixed the "
+    "same class of bug on the horizontal axis. "
+    "(2) v26 retargeting's Laplacian smoothing had no Dirichlet BC on "
+    "pushed verts — every iter pushed out to +5mm, then smoothing "
+    "blended toward the neighbor mean (mostly still inside on early "
+    "iters), yanking pushed verts ~2 mm back in. Fix: pushed verts are "
+    "FIXED per iteration; only their non-pushed 1-ring neighbors get "
+    "smoothed. Converges to sdf_after = target_offset exactly. "
+    "All other params unchanged from v26 (thickness 15mm, filters on, "
+    "zero_gravity_steps=100, friction 0.2).)"
 )
 
 try:
