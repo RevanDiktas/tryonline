@@ -969,26 +969,33 @@ def _generate_cloth_seg_file(
     #   body_y_min + 0.54*h ≤ y < 0.79*h → _TORSO (chest + waist)
     #   y < body_y_min + 0.54 * body_h → _HIPS (hip crest and below)
     # Fallback to garment-percentile split if body_verts isn't supplied.
+    # Compute anatomy thresholds up front (used by both Y-split and the
+    # v30 pant-tag pass). If the body mesh is unavailable, fall back to
+    # garment Y-percentiles.
+    y_head_thresh: "float | None" = None
+    y_hips_thresh: "float | None" = None
+    thresh_src = "none"
+    if body_verts is not None and len(body_verts) > 0:
+        body_y_min = float(body_verts[:, 1].min())
+        body_y_max = float(body_verts[:, 1].max())
+        body_h = max(body_y_max - body_y_min, 1e-6)
+        y_head_thresh = body_y_min + 0.79 * body_h
+        y_hips_thresh = body_y_min + 0.54 * body_h
+        thresh_src = f"body[{body_y_min:.3f}..{body_y_max:.3f}]"
+    else:
+        all_ys = welded_verts[:, 1]
+        y_min_g = float(all_ys.min())
+        y_max_g = float(all_ys.max())
+        y_range = max(y_max_g - y_min_g, 1e-6)
+        y_head_thresh = y_min_g + 0.80 * y_range
+        y_hips_thresh = y_min_g + 0.20 * y_range
+        thresh_src = "garment-fallback"
+
     body_welded_indices = [
         i for i, lbl in enumerate(labels)
         if not lbl.startswith("stitch_") and lbl.lower().startswith("body_")
     ]
     if body_welded_indices:
-        if body_verts is not None and len(body_verts) > 0:
-            body_y_min = float(body_verts[:, 1].min())
-            body_y_max = float(body_verts[:, 1].max())
-            body_h = max(body_y_max - body_y_min, 1e-6)
-            y_head_thresh = body_y_min + 0.79 * body_h
-            y_hips_thresh = body_y_min + 0.54 * body_h
-            thresh_src = f"body[{body_y_min:.3f}..{body_y_max:.3f}]"
-        else:
-            body_ys = welded_verts[body_welded_indices, 1]
-            y_min_g = float(body_ys.min())
-            y_max_g = float(body_ys.max())
-            y_range = max(y_max_g - y_min_g, 1e-6)
-            y_head_thresh = y_min_g + 0.80 * y_range
-            y_hips_thresh = y_min_g + 0.20 * y_range
-            thresh_src = "garment-fallback"
         n_head = n_torso = n_hips = 0
         for wi in body_welded_indices:
             base = labels[wi]
@@ -1005,6 +1012,63 @@ def _generate_cloth_seg_file(
         print(f"[PyGarment] Body Y-split: {n_head} HEAD / {n_torso} TORSO / "
               f"{n_hips} HIPS (y_head>={y_head_thresh:.3f}, "
               f"y_hips<{y_hips_thresh:.3f}, src={thresh_src})")
+
+    # --- Pass 7 (v30): inject `pant` into labels of any panel whose centroid
+    # sits below the hip-crest threshold. This is the single most important
+    # thing in the whole file and I missed it through v26/v27/v28/v29.
+    #
+    # PyGarment's `panel_assignment` (warp/collision/panel_assignment.py
+    # line 217-221 in the upstream repo) runs this check:
+    #
+    #   if (merge_two_legs
+    #       and body_seg_names[max_index] in ['left_leg', 'right_leg']
+    #       and 'pant' not in p     # heuristic: separate legs only for pants
+    #   ):
+    #       label = 'legs'
+    #
+    # And `garment.py` hardcodes `merge_two_legs=True`. So every panel whose
+    # closest-point voting lands on left_leg or right_leg gets silently
+    # re-labeled to `legs` UNLESS the panel's name contains the lowercase
+    # substring 'pant'. The drag-pair list then hooks `legs` to the two
+    # arms (`['left_arm', 'legs']`, `['right_arm', 'legs']`) — so legs-
+    # labeled panels get dragged toward the arms. That's exactly what the
+    # v29 back+pants image shows: pants yanked up and outward, symmetric
+    # holes on the leg cloth, hood droop on the front.
+    #
+    # Fix: any label whose panel centroid sits at Y < y_hips_thresh gets
+    # `pant` inserted into the label. The panel then keeps its correct
+    # left_leg / right_leg assignment and the drag pulls each pant leg
+    # toward its own leg (whose submesh is added as a reference shape in
+    # garment.py line 238-246). No YAML change, no sim-param tuning.
+    if y_hips_thresh is not None:
+        panel_centroids: dict = {}
+        panel_indices_by_label: dict = defaultdict(list)
+        for wi, lbl in enumerate(labels):
+            if lbl.startswith("stitch_"):
+                continue
+            panel_indices_by_label[lbl].append(wi)
+        for lbl, idxs in panel_indices_by_label.items():
+            if not idxs:
+                continue
+            panel_centroids[lbl] = float(welded_verts[idxs, 1].mean())
+
+        pant_labels = {
+            lbl for lbl, cy in panel_centroids.items()
+            if cy < y_hips_thresh and "pant" not in lbl.lower()
+        }
+        if pant_labels:
+            label_rewrite = {lbl: f"{lbl}_pant" for lbl in pant_labels}
+            for wi, lbl in enumerate(labels):
+                if lbl in label_rewrite:
+                    labels[wi] = label_rewrite[lbl]
+            print(f"[PyGarment] Pant tag applied to {len(pant_labels)} "
+                  f"panel(s) with centroid Y < {y_hips_thresh:.3f} "
+                  f"(defeats panel_assignment's merge_two_legs heuristic):")
+            for lbl in sorted(pant_labels):
+                cy = panel_centroids[lbl]
+                n = len(panel_indices_by_label[lbl])
+                print(f"[PyGarment]   {lbl} → {lbl}_pant "
+                      f"(cy={cy:.3f}, {n} verts)")
 
     with open(output_txt, "w") as f:
         f.write("\n".join(labels) + "\n")
@@ -1854,7 +1918,42 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-23/v29-per-material-connected-component-split "
+    "drape-handler 2026-04-23/v30-pant-tag-defeats-merge_two_legs "
+    "(v29 verified: component split works — log showed 6 materials with "
+    ">1 component, Body_B_FRONT_2724 cleanly split into C0/C1/C2, "
+    "final labels include Body_B_FRONT_2724_C1_HIPS (right pant leg, "
+    "1335 verts) and _C2_HIPS (left pant leg, 1333 verts). "
+    "body_collisions 232→213, self 219→105 — sim metrics STILL better. "
+    "But the visual was WORSE than v28: pants have holes everywhere "
+    "and the whole garment looks pulled forward/up. Found the cause "
+    "by reading the actual PyGarment source (fetched from GitHub — "
+    "maria-korosteleva/NvidiaWarp-GarmentCode and /GarmentCode). "
+    "panel_assignment.py lines 217-221: "
+    "  if (merge_two_legs "
+    "      and body_seg_names[max_index] in ['left_leg', 'right_leg'] "
+    "      and 'pant' not in p): "
+    "      label = 'legs' "
+    "And garment.py line 191 hardcodes merge_two_legs=True. So every "
+    "panel whose closest-point voting lands on left_leg or right_leg "
+    "gets silently re-labeled to 'legs' unless the panel name contains "
+    "the LOWERCASE substring 'pant'. Our v29 labels were like "
+    "'Body_B_FRONT_2724_C1_HIPS' — no 'pant' in them. Component split "
+    "correctly identified the right pant leg geometry AND "
+    "panel_assignment correctly voted it as right_leg, but the legs "
+    "heuristic then overrode it to 'legs'. The drag-pair list in "
+    "garment.py lines 250-260 then hooks the 'legs' label to both "
+    "ARMS (['left_arm', 'legs'], ['right_arm', 'legs']) — so any "
+    "panel labeled 'legs' gets reference-drag pulled toward the arms. "
+    "Arms are high (y≈1.2) and lateral (x≈±0.4). That's precisely "
+    "what the v29 images showed: pants yanked up + outward, butt/thigh "
+    "holes, whole garment skewed. v30 fix: after component split and "
+    "Y-split, compute each panel's centroid Y. Any panel with centroid "
+    "below y_hips_thresh (body anatomy: 0.54*body_h ≈ 0.97m) gets "
+    "'_pant' appended to its label. This defeats the merge_two_legs "
+    "heuristic, keeps the correct left_leg/right_leg assignment, and "
+    "drag now pulls each pant leg toward its own leg submesh. Zero "
+    "YAML changes; purely additive to the seg file. "
+    "ORIGINAL v29 BANNER FOLLOWS — "
     "(v28 verified: retarget sdf_after 2.4→4.6mm and Y-split counts now "
     "anatomy-anchored (1869 HEAD / 8319 TORSO / 3690 HIPS), but back "
     "still has large symmetric skin patches + butt/thigh/calf HOLES on "
