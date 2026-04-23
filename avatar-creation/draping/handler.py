@@ -797,8 +797,12 @@ def _generate_cloth_seg_file(
     welded_verts_count = len(welded_verts)
     # --- Pass 1: parse OBJ line-by-line, track active usemtl, assign per-face
     # material, propagate to ORIGINAL vertices (using 1-indexed OBJ convention).
+    # v29: ALSO record the face list per material so we can find connected
+    # components within each material below.
+    from collections import Counter, defaultdict
     active_mtl = "UNASSIGNED"
     orig_vert_to_mtl = {}  # orig_vert_idx (0-based) → first material name touching it
+    faces_per_mtl: "defaultdict[str, list]" = defaultdict(list)
     face_count = 0
     materials_seen = set()
 
@@ -809,19 +813,85 @@ def _generate_cloth_seg_file(
                 materials_seen.add(active_mtl)
             elif line.startswith("f "):
                 parts = line.strip().split()[1:]
+                face_verts = []
                 for p in parts:
                     v_idx_1based = p.split("/")[0]
                     try:
                         v_idx = int(v_idx_1based) - 1
                     except ValueError:
                         continue
+                    face_verts.append(v_idx)
                     if v_idx not in orig_vert_to_mtl:
                         orig_vert_to_mtl[v_idx] = active_mtl
+                if len(face_verts) >= 3:
+                    faces_per_mtl[active_mtl].append(tuple(face_verts[:3]))
                 face_count += 1
+
+    # --- Pass 1.5 (v29): per-material connected-component split.
+    #
+    # CLO3D sometimes packs multiple geometrically-disjoint panels under a
+    # SINGLE material name. For Ramin's hoodie the material
+    # `Body_B_FRONT_2724` contains 3 components: the hoodie back (11894
+    # faces, y≈0.9→1.53) plus the TWO BACK PANT LEGS (2944 + 2928 faces,
+    # y≈0→1.05). The drop_small step keeps all three (smaller comps are
+    # 24.7 % / 24.6 % of the largest, just above the 0.20 threshold).
+    # PyGarment's panel_assignment then gives the whole material ONE body
+    # region, and `cloth_reference_drag` pulls the pant legs toward the
+    # hoodie's region during the 100-frame warmup — symmetric holes on
+    # the butt / thighs / calves on v28's back screenshot are the pant-
+    # leg mesh getting yanked off the legs.
+    #
+    # v27/v28 Y-split tried to patch this via vertical bands on the whole
+    # material. That was treating the symptom. The structural fix: each
+    # connected component gets its own label. Labels become
+    # `{material}_C{comp_id}`, so panel_assignment sees e.g.
+    # `Body_B_FRONT_2724_C0` (hoodie back), `_C1` (right pant leg), `_C2`
+    # (left pant leg) as three distinct panels — each panel's centroid
+    # picks its correct body region via the existing geometric lookup.
+    #
+    # Y-split still runs after this (it refines C0 from hood-top down to
+    # hem, which genuinely spans multiple body regions).
+    orig_vert_to_comp: dict = {}
+    ncomps_per_mtl: dict = {}
+    for mtl, mtl_faces in faces_per_mtl.items():
+        verts_in_mtl = set()
+        for f in mtl_faces:
+            for v in f:
+                verts_in_mtl.add(v)
+        parent = {v: v for v in verts_in_mtl}
+
+        def _find(x, _p=parent):
+            while _p[x] != x:
+                _p[x] = _p[_p[x]]
+                x = _p[x]
+            return x
+
+        def _union(a, b, _p=parent):
+            ra, rb = _find(a), _find(b)
+            if ra != rb:
+                _p[ra] = rb
+
+        for a, b, c in mtl_faces:
+            _union(a, b)
+            _union(b, c)
+
+        comp_id_for_root: dict = {}
+        for v in verts_in_mtl:
+            r = _find(v)
+            if r not in comp_id_for_root:
+                comp_id_for_root[r] = len(comp_id_for_root)
+            orig_vert_to_comp[v] = comp_id_for_root[r]
+        ncomps_per_mtl[mtl] = len(comp_id_for_root)
+
+    multi_comp_mtls = {m: n for m, n in ncomps_per_mtl.items() if n > 1}
+    if multi_comp_mtls:
+        print(f"[PyGarment] Per-material components split "
+              f"({len(multi_comp_mtls)} material(s) with >1 component):")
+        for m, n in sorted(multi_comp_mtls.items(), key=lambda x: (-x[1], x[0])):
+            print(f"[PyGarment]   {m}: {n} components")
 
     # --- Pass 2: compute welded groups — which welded verts absorbed multiple
     # originals. orig_to_welded[i] = welded_idx for original vert i.
-    from collections import Counter
     welded_group_counts = Counter(orig_to_welded.tolist())
     stitch_welded_set = {w for w, c in welded_group_counts.items() if c > 1}
 
@@ -832,7 +902,9 @@ def _generate_cloth_seg_file(
         if welded_idx not in welded_to_orig_representative:
             welded_to_orig_representative[welded_idx] = orig_idx
 
-    # --- Pass 4: emit one label per WELDED vert.
+    # --- Pass 4: emit one label per WELDED vert. v29: non-stitch verts get
+    # `{material}_C{component_id}` so multi-component materials split into
+    # distinct panels for PyGarment's panel_assignment.
     n_stitch = 0
     labels = []
     for welded_idx in range(welded_verts_count):
@@ -841,7 +913,9 @@ def _generate_cloth_seg_file(
             n_stitch += 1
         else:
             orig_idx = welded_to_orig_representative.get(welded_idx, -1)
-            labels.append(orig_vert_to_mtl.get(orig_idx, "UNASSIGNED"))
+            mtl = orig_vert_to_mtl.get(orig_idx, "UNASSIGNED")
+            comp = orig_vert_to_comp.get(orig_idx, 0)
+            labels.append(f"{mtl}_C{comp}")
 
     # --- Pass 5 (v19): split any "sleeve*" material into L/R by x-coord.
     # See docstring for why. Does nothing for garments with no sleeves.
@@ -1780,7 +1854,39 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-23/v28-body-anatomy-y-split+smoothing-clamp "
+    "drape-handler 2026-04-23/v29-per-material-connected-component-split "
+    "(v28 verified: retarget sdf_after 2.4→4.6mm and Y-split counts now "
+    "anatomy-anchored (1869 HEAD / 8319 TORSO / 3690 HIPS), but back "
+    "still has large symmetric skin patches + butt/thigh/calf HOLES on "
+    "the pants. v28 body_collisions 264→232 and self_collisions 720→219 "
+    "— sim metrics improved, visual did not. Root cause found by "
+    "inspecting the source OBJ: material `Body_B_FRONT_2724` actually "
+    "contains THREE connected components — the hoodie back (11894 "
+    "faces, y=0.9→1.5), the BACK RIGHT PANT LEG (2944 faces, "
+    "y=0.002→1.05, x=+0.096), and the BACK LEFT PANT LEG (2928 faces, "
+    "y=0.002→1.05, x=-0.101). All three get one panel_assignment → one "
+    "body region (torso). cloth_reference_drag (k=1e7) then yanks the "
+    "pant-back geometry toward the torso during the 100-frame warmup — "
+    "the symmetric holes on the pants legs on v28's back image are the "
+    "pant mesh ripped off the legs. Similar story on `Body_F_FRONT_2717` "
+    "(2 components: front-left half + front-right half) and the sleeves "
+    "(2 components: L + R, which the v19 x-coord split had been "
+    "handling post-hoc). All the Y-split work was addressing a symptom; "
+    "the structural fix is to treat each connected component as its "
+    "own panel. v29 adds a per-material union-find in "
+    "_generate_cloth_seg_file that assigns every orig vert a "
+    "component_id; labels become `{material}_C{comp_id}` before the "
+    "sleeve-L/R and Y-split passes run on top. PyGarment now sees e.g. "
+    "`Body_B_FRONT_2724_C0_HEAD` (hood), `_C0_TORSO` (chest/back), "
+    "`_C0_HIPS` (hem), `_C1_HIPS` (right pant leg — centroid near right "
+    "thigh → panel_assignment picks right_leg), `_C2_HIPS` (left pant "
+    "leg → left_leg), which is the anatomically correct mapping. "
+    "Retarget + clamp from v28 unchanged (sdf_after is landing at 4.6mm "
+    "which is close to the 5mm target; the remaining gap is iteration-"
+    "cap noise, not the cause of the visual failure). All other params "
+    "unchanged (thickness 15mm, filters on, zero_gravity_steps=100, "
+    "friction 0.2).) "
+    "ORIGINAL v28 BANNER FOLLOWS — "
     "(v27 verified: same diagonal-ribbon back tear as v26, sim got "
     "WORSE — body_collisions 221→264, self_collisions 472→720. Two "
     "v27 fixes both failed on the real mesh: "
