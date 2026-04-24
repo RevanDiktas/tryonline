@@ -1013,62 +1013,100 @@ def _generate_cloth_seg_file(
               f"{n_hips} HIPS (y_head>={y_head_thresh:.3f}, "
               f"y_hips<{y_hips_thresh:.3f}, src={thresh_src})")
 
-    # --- Pass 7 (v30): inject `pant` into labels of any panel whose centroid
-    # sits below the hip-crest threshold. This is the single most important
-    # thing in the whole file and I missed it through v26/v27/v28/v29.
-    #
-    # PyGarment's `panel_assignment` (warp/collision/panel_assignment.py
-    # line 217-221 in the upstream repo) runs this check:
+    # --- Pass 7 (v30/v31): tag whole pant COMPONENTS with `_pant` to defeat
+    # PyGarment's merge_two_legs heuristic. Upstream check in
+    # warp/collision/panel_assignment.py lines 217-221:
     #
     #   if (merge_two_legs
     #       and body_seg_names[max_index] in ['left_leg', 'right_leg']
-    #       and 'pant' not in p     # heuristic: separate legs only for pants
-    #   ):
+    #       and 'pant' not in p):
     #       label = 'legs'
     #
-    # And `garment.py` hardcodes `merge_two_legs=True`. So every panel whose
-    # closest-point voting lands on left_leg or right_leg gets silently
-    # re-labeled to `legs` UNLESS the panel's name contains the lowercase
-    # substring 'pant'. The drag-pair list then hooks `legs` to the two
-    # arms (`['left_arm', 'legs']`, `['right_arm', 'legs']`) — so legs-
-    # labeled panels get dragged toward the arms. That's exactly what the
-    # v29 back+pants image shows: pants yanked up and outward, symmetric
-    # holes on the leg cloth, hood droop on the front.
+    # and garment.py line 191 hardcodes merge_two_legs=True. So every panel
+    # whose closest-point vote lands on left_leg/right_leg silently
+    # re-labels to 'legs' unless its name contains 'pant'. Drag pairs then
+    # hook 'legs' to BOTH arms → legs-labeled cloth gets yanked to the
+    # arms.
     #
-    # Fix: any label whose panel centroid sits at Y < y_hips_thresh gets
-    # `pant` inserted into the label. The panel then keeps its correct
-    # left_leg / right_leg assignment and the drag pulls each pant leg
-    # toward its own leg (whose submesh is added as a reference shape in
-    # garment.py line 238-246). No YAML change, no sim-param tuning.
-    if y_hips_thresh is not None:
-        panel_centroids: dict = {}
-        panel_indices_by_label: dict = defaultdict(list)
+    # v30 operated on Y-BANDS: it tagged any band whose centroid-Y was
+    # below y_hips_thresh. Verified failure in v30's log: the TORSO band
+    # of pant-leg components (C1_TORSO, C2_TORSO at y≈0.97-1.05 — the
+    # waistband strip) got no tag, voted left_leg/right_leg, tripped the
+    # heuristic, got 'legs', were drag-pulled to the arms. The HIPS band
+    # of the hoodie back (C0_HIPS at cy=0.94) was FALSE-POSITIVE tagged
+    # and voted left_leg.
+    #
+    # v31 fix: decide pant-ness at the COMPONENT level, propagate the tag
+    # to all bands of the same (material, comp_id). A component is a pant
+    # iff it satisfies ALL three:
+    #   (a) comp_max_y < y_head_thresh  — excludes hoodie back/front
+    #       which reach up to the hood;
+    #   (b) comp_min_y < y_hips_thresh - 0.30*body_h  — component clearly
+    #       reaches well below the hip crest (excludes hip-level waistband
+    #       stubs and hoodie hem, whose min_y sits right at the hip line);
+    #   (c) comp_mean_y < y_hips_thresh                — overall centroid
+    #       is in the legs region.
+    # v31 also keeps the regex general enough to strip sleeve-split L/R
+    # and Y-split HEAD/TORSO/HIPS suffixes so `{material}_C{id}` is the
+    # grouping key.
+    if y_hips_thresh is not None and y_head_thresh is not None:
+        import re as _re
+        _COMP_KEY_RE = _re.compile(r"^(.*_C\d+)")
+        comp_bands: "defaultdict[str, list[int]]" = defaultdict(list)
         for wi, lbl in enumerate(labels):
             if lbl.startswith("stitch_"):
                 continue
-            panel_indices_by_label[lbl].append(wi)
-        for lbl, idxs in panel_indices_by_label.items():
-            if not idxs:
-                continue
-            panel_centroids[lbl] = float(welded_verts[idxs, 1].mean())
+            m = _COMP_KEY_RE.match(lbl)
+            key = m.group(1) if m else lbl
+            comp_bands[key].append(wi)
 
-        pant_labels = {
-            lbl for lbl, cy in panel_centroids.items()
-            if cy < y_hips_thresh and "pant" not in lbl.lower()
-        }
-        if pant_labels:
-            label_rewrite = {lbl: f"{lbl}_pant" for lbl in pant_labels}
+        # body_h for the min-Y margin. Fall back to threshold gap if
+        # body_verts not supplied.
+        if body_verts is not None and len(body_verts) > 0:
+            _body_h = float(body_verts[:, 1].max() - body_verts[:, 1].min())
+        else:
+            _body_h = max((y_head_thresh - y_hips_thresh) / 0.25, 1.0)
+        _min_y_margin = 0.30 * _body_h
+
+        pant_comp_keys: "set[str]" = set()
+        comp_stats: "dict[str, tuple]" = {}
+        for key, idxs in comp_bands.items():
+            ys = welded_verts[idxs, 1]
+            comp_min = float(ys.min())
+            comp_max = float(ys.max())
+            comp_mean = float(ys.mean())
+            comp_stats[key] = (comp_min, comp_max, comp_mean, len(idxs))
+            if (
+                comp_max < y_head_thresh
+                and comp_min < y_hips_thresh - _min_y_margin
+                and comp_mean < y_hips_thresh
+            ):
+                pant_comp_keys.add(key)
+
+        if pant_comp_keys:
+            rewrote = 0
             for wi, lbl in enumerate(labels):
-                if lbl in label_rewrite:
-                    labels[wi] = label_rewrite[lbl]
-            print(f"[PyGarment] Pant tag applied to {len(pant_labels)} "
-                  f"panel(s) with centroid Y < {y_hips_thresh:.3f} "
-                  f"(defeats panel_assignment's merge_two_legs heuristic):")
-            for lbl in sorted(pant_labels):
-                cy = panel_centroids[lbl]
-                n = len(panel_indices_by_label[lbl])
-                print(f"[PyGarment]   {lbl} → {lbl}_pant "
-                      f"(cy={cy:.3f}, {n} verts)")
+                if lbl.startswith("stitch_"):
+                    continue
+                m = _COMP_KEY_RE.match(lbl)
+                key = m.group(1) if m else lbl
+                if key in pant_comp_keys and "pant" not in lbl.lower():
+                    labels[wi] = f"{lbl}_pant"
+                    rewrote += 1
+            print(f"[PyGarment] v31 component-level pant tag: "
+                  f"{len(pant_comp_keys)} component(s), {rewrote} verts "
+                  f"rewritten (y_head>={y_head_thresh:.3f}, "
+                  f"y_hips<{y_hips_thresh:.3f}, "
+                  f"min_y_margin={_min_y_margin:.3f}):")
+            for key in sorted(pant_comp_keys):
+                cmin, cmax, cmean, n = comp_stats[key]
+                print(f"[PyGarment]   {key}: "
+                      f"min_y={cmin:.3f}, max_y={cmax:.3f}, "
+                      f"mean_y={cmean:.3f}, {n} verts")
+        else:
+            print(f"[PyGarment] v31 component-level pant tag: no pant "
+                  f"components detected (thresholds y_head>={y_head_thresh:.3f}, "
+                  f"y_hips<{y_hips_thresh:.3f}, min_y_margin={_min_y_margin:.3f})")
 
     with open(output_txt, "w") as f:
         f.write("\n".join(labels) + "\n")
@@ -1199,6 +1237,86 @@ def pygarment_drape(
         self.sim_use_graph = False
         self.graph = None
     _pg_garment.Cloth.__init__ = _cloth_init_no_graph
+
+    # v32: monkeypatch warp.collision.panel_assignment.process_body_seg to
+    # use a richer SMPL→group mapping. The upstream mapping
+    # (panel_assignment.py lines 15-23) has three problems:
+    #   1. `head` is absent from every group → hood cloth has no vote
+    #      bucket, falls through to 'body' via weak neck/spine hits, and
+    #      the drag pair `['left_arm', 'body']` + `['right_arm', 'body']`
+    #      yanks the hood toward the torso. Observable in v30's log as
+    #      `Body_B_FRONT_2724_C0_HEAD:body` and `*_F_*_C0_HEAD:body`,
+    #      plus the hood-droop + back-head skin in the rendered image.
+    #   2. `leftShoulder`/`rightShoulder` live under `body` → sleeve cloth
+    #      near the shoulder seam is ambiguously voted between `body` and
+    #      `left_arm`/`right_arm`, leading to the shoulder-yoke gap (big
+    #      skin bib across upper back in v30's image).
+    #   3. `hips, leftUpLeg, leftLeg, leftFoot, leftToeBase` appear in
+    #      BOTH `body` AND `left_leg`/`right_leg` → leg verts vote for
+    #      three groups simultaneously, blurring panel_assignment's
+    #      argmax. Observable in v30 as `Body_B_FRONT_2724_C1_HIPS_pant:
+    #      body` — the right pant leg voted 'body' even with the pant tag
+    #      because hip verts double-count.
+    #
+    # Clean 6-group mapping:
+    #   - left_arm  = leftShoulder + leftArm + leftForeArm + leftHand +
+    #                 leftHandIndex1  (shoulder is arm, not body)
+    #   - right_arm = mirror
+    #   - left_leg  = leftUpLeg + leftLeg + leftFoot + leftToeBase
+    #                 (no hips, no double-count)
+    #   - right_leg = mirror
+    #   - body      = spine + spine1 + spine2 + neck + hips
+    #   - head      = head       ← NEW vote bucket; cloth labeled 'head'
+    #                               has no drag pair (garment.py lines
+    #                               250-260), so hood falls naturally
+    #                               under gravity + self-collision
+    #                               instead of being yanked to torso.
+    # All group names referenced downstream (garment.py filter calls on
+    # lines 200/203/210/213 and the drag-pair list on lines 250-260) are
+    # preserved. limbs_merge still produces `arms`/`legs` keys from the
+    # `left_*`/`right_*` entries of the new mapping.
+    import warp.collision.panel_assignment as _pa
+    _orig_process_body_seg = _pa.process_body_seg  # noqa: F841 (kept for debugging)
+
+    def _tryon_process_body_seg(seg, smpl_parts=False, limbs_merge=False):
+        if not smpl_parts and not limbs_merge:
+            return seg
+        if smpl_parts:
+            mapping = {
+                "left_arm": ['leftShoulder', 'leftArm', 'leftForeArm',
+                             'leftHand', 'leftHandIndex1'],
+                "right_arm": ['rightShoulder', 'rightArm', 'rightForeArm',
+                              'rightHand', 'rightHandIndex1'],
+                "left_leg": ['leftUpLeg', 'leftLeg', 'leftFoot',
+                             'leftToeBase'],
+                "right_leg": ['rightUpLeg', 'rightLeg', 'rightFoot',
+                              'rightToeBase'],
+                "body": ['spine', 'spine1', 'spine2', 'neck', 'hips'],
+                "head": ['head'],
+            }
+            new_seg: dict = {}
+            for big_part, small_parts in mapping.items():
+                verts: list = []
+                for part in small_parts:
+                    verts.extend(seg.get(part, []))
+                new_seg[big_part] = verts
+        else:
+            new_seg = dict(seg)
+        if limbs_merge:
+            for big_part, small_parts in (
+                ('arms', ('left_arm', 'right_arm')),
+                ('legs', ('left_leg', 'right_leg')),
+            ):
+                combined: list = []
+                for part in small_parts:
+                    combined.extend(new_seg.get(part, []))
+                new_seg[big_part] = combined
+        return new_seg
+
+    _pa.process_body_seg = _tryon_process_body_seg
+    print("[PyGarment] v32: process_body_seg monkeypatched — 6-group "
+          "SMPL mapping with 'head' as a first-class group "
+          "(hood no longer yanked to torso)")
 
     from pygarment.meshgen.sim_config import PathCofig
     from pygarment.meshgen.simulation import run_sim
@@ -1918,7 +2036,53 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-04-23/v30-pant-tag-defeats-merge_two_legs "
+    "drape-handler 2026-04-24/v31+v32-finer-seg-and-component-pant-tag "
+    "(v30 verified: banner + 11 panel _pant tags applied correctly, "
+    "body_collisions 213→197 and sim metrics still improving. But v30's "
+    "panel_assignment log exposed three distinct failures: "
+    "(1) `Body_B_FRONT_2724_C1_TORSO:legs` + `_C2_TORSO:legs` — the "
+    "waistband Y-band of the pant-leg components didn't get `_pant` "
+    "because Pass 7 operated on BANDS not components; those bands voted "
+    "left_leg/right_leg, tripped merge_two_legs, got relabeled 'legs', "
+    "and were drag-pulled to the arms. (2) Hoodie hem got a FALSE-POSITIVE "
+    "tag: `Body_B_FRONT_2724_C0_HIPS_pant:left_leg` — cy=0.943 just barely "
+    "below the 0.972 hip line — so the hoodie hem was yanked toward the "
+    "left leg. (3) Hood voted 'body' on both halves "
+    "(`Body_B_FRONT_2724_C0_HEAD:body`, `Body_F_FRONT_2717_C0_HEAD:body`) "
+    "because the shipped SMPL seg maps `head` vertices to NO group — "
+    "upstream process_body_seg (panel_assignment.py lines 15-23) lists "
+    "left_arm/right_arm/left_leg/right_leg/body but omits `head` entirely. "
+    "With no native vote bucket, hood cloth falls through to 'body' via "
+    "weak neck/spine hits and then the drag pairs `['left_arm','body']`/"
+    "`['right_arm','body']` pull the whole hood toward the torso, "
+    "visible in the rendered image as hood droop + the big bib-shaped "
+    "skin patch across the upper back. The upstream mapping also lumps "
+    "leftShoulder/rightShoulder into `body` (sleeve-yoke voting ambiguous) "
+    "and double-counts hips + feet + toes in BOTH leg groups AND body "
+    "(argmax blurs — explains why `Body_B_FRONT_2724_C1_HIPS_pant` voted "
+    "'body' even with the _pant tag). "
+    "v31 fix: Pass 7 now operates at COMPONENT level, not band level. "
+    "For each (material, comp_id), compute comp_min_y/comp_max_y/comp_mean_y "
+    "across ALL welded verts of that component. A component is tagged "
+    "`_pant` on all its bands iff: comp_max_y < y_head_thresh (doesn't "
+    "reach hood region), comp_min_y < y_hips_thresh - 0.30*body_h "
+    "(reaches well into legs, excludes hoodie hem whose min_y sits right "
+    "at the hip line), and comp_mean_y < y_hips_thresh. Regex "
+    "`^(.*_C\\d+)` strips _HEAD/_TORSO/_HIPS/_L/_R suffixes when forming "
+    "the component key so all sub-bands inherit the tag. "
+    "v32 fix: monkeypatch warp.collision.panel_assignment.process_body_seg "
+    "with a 6-group SMPL mapping: left_arm = leftShoulder + leftArm + "
+    "leftForeArm + leftHand* (shoulder is arm, not body); right_arm = "
+    "mirror; left_leg = leftUpLeg + leftLeg + leftFoot + leftToeBase "
+    "(no hips, no double-count); right_leg = mirror; body = spine + "
+    "spine1 + spine2 + neck + hips; head = head (NEW). Cloth labeled "
+    "'head' has no entry in the drag-pair list (garment.py lines 250-260), "
+    "so hood falls naturally under gravity + self-collision instead of "
+    "being rubber-banded to the torso. All group names the rest of "
+    "garment.py expects (filter calls + drag-pair list) are preserved "
+    "verbatim; limbs_merge still produces arms/legs from the new "
+    "left_arm/right_arm and left_leg/right_leg entries. "
+    "ORIGINAL v30 BANNER FOLLOWS — "
     "(v29 verified: component split works — log showed 6 materials with "
     ">1 component, Body_B_FRONT_2724 cleanly split into C0/C1/C2, "
     "final labels include Body_B_FRONT_2724_C1_HIPS (right pant leg, "
