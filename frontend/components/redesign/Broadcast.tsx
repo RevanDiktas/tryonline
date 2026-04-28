@@ -300,7 +300,7 @@ function DesktopHero() {
     <section id="tryon-section-index" style={{
       background: `radial-gradient(ellipse at 50% 110%, ${C.iron} 0%, ${C.ash} 35%, ${C.void} 80%)`,
       color: C.bone, position: 'relative',
-      minHeight: 'min(100vh, 720px)', overflow: 'hidden',
+      minHeight: '100dvh', overflow: 'hidden',
       padding: '56px 32px 0',
       display: 'flex', flexDirection: 'column',
     }}>
@@ -418,7 +418,8 @@ function DesktopBigType() {
   return (
     <section style={{
       background: C.ash, color: C.bone, position: 'relative',
-      padding: '0 0 88px', overflow: 'hidden',
+      minHeight: '100dvh', padding: '0 0 88px', overflow: 'hidden',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
     }}>
       <Stamp left="002 / 07" right="THE PROTOCOL" top="WHAT IT IS" />
 
@@ -500,9 +501,13 @@ function DesktopProductGrid() {
     { n: '04', tag: 'WIDGET', desc: '8 lines of code. Any brand. Any stack.' },
   ];
   return (
-    <section id="tryon-section-product" style={{ background: C.void, color: C.bone, position: 'relative' }}>
+    <section id="tryon-section-product" style={{
+      background: C.void, color: C.bone, position: 'relative',
+      minHeight: '100dvh',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+    }}>
       <Stamp left="003 / 07" right="COMPONENTS" top="THE BREAKDOWN" />
-      <div style={{ padding: '72px 32px 88px' }}>
+      <div style={{ padding: '72px 32px 88px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <h2 style={{
           fontFamily: 'var(--display)', fontWeight: 900, margin: '0 0 36px',
           fontSize: 'clamp(48px, 7vw, 112px)', letterSpacing: '-0.05em', lineHeight: 0.84,
@@ -553,12 +558,16 @@ function DesktopProductGrid() {
 function DesktopProofBig() {
   const C = useC();
   return (
-    <section style={{ background: C.ash, color: C.bone, position: 'relative', overflow: 'hidden' }}>
+    <section style={{
+      background: C.ash, color: C.bone, position: 'relative', overflow: 'hidden',
+      minHeight: '100dvh',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+    }}>
       <Stamp left="004 / 07" right="LIVE TRACTION" top="RAMIN STUDIOS · AMSTERDAM · 14 DAYS" />
       <div style={{
         padding: '88px 32px',
         display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 48, alignItems: 'center',
-        position: 'relative',
+        position: 'relative', flex: 1,
       }}>
         <SlitLight count={36} opacity={0.35} />
         <h2 style={{
@@ -606,13 +615,17 @@ function DesktopCarbon() {
     { k: 'CO₂E PER ORDER', v: 2.4, suffix: 'kg', sub: 'avg saved when a return is prevented.', decimals: 1 },
   ];
   return (
-    <section style={{ background: C.void, color: C.bone, position: 'relative', overflow: 'hidden' }}>
+    <section style={{
+      background: C.void, color: C.bone, position: 'relative', overflow: 'hidden',
+      minHeight: '100dvh',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+    }}>
       <Stamp left="005 / 07" right="WASTE LEDGER" top="THE FOOTPRINT" />
       <SlitLight count={56} opacity={0.32} />
       <div style={{
         padding: '88px 32px',
         display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 56, alignItems: 'start',
-        position: 'relative', zIndex: 2,
+        position: 'relative', zIndex: 2, flex: 1,
       }}>
         <div>
           <div style={{
@@ -682,11 +695,16 @@ function DesktopCarbon() {
 function DesktopBehind() {
   const C = useC();
   return (
-    <section id="tryon-section-brands" style={{ background: C.void, color: C.bone, position: 'relative' }}>
+    <section id="tryon-section-brands" style={{
+      background: C.void, color: C.bone, position: 'relative',
+      minHeight: '100dvh',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+    }}>
       <Stamp left="006 / 07" right="BEHIND THE LOGIN" top="THE CLOSET" />
       <div style={{
         padding: '88px 32px',
-        display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 48, alignItems: 'start',
+        display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 48, alignItems: 'center',
+        flex: 1,
       }}>
         <div>
           <h2 style={{
@@ -739,10 +757,12 @@ function DesktopCTA() {
   return (
     <section id="tryon-section-enter" style={{
       background: C.ash, color: C.bone, position: 'relative', overflow: 'hidden',
+      minHeight: '100dvh',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
     }}>
       <Stamp left="007 / 07" right="ENTER" top="START" />
       <SlitLight count={64} opacity={0.4} />
-      <div style={{ padding: '96px 32px 80px', position: 'relative', zIndex: 2 }}>
+      <div style={{ padding: '96px 32px 80px', position: 'relative', zIndex: 2, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <div style={{
           fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.4em',
           color: C.dim, textTransform: 'uppercase', textAlign: 'center', marginBottom: 16,
@@ -944,8 +964,9 @@ function MobileHero() {
     <section style={{
       background: `radial-gradient(ellipse at 50% 110%, ${C.iron} 0%, ${C.ash} 40%, ${C.void} 90%)`,
       color: C.bone, position: 'relative', overflow: 'hidden',
+      minHeight: '100dvh',
       padding: '32px 16px 24px',
-      display: 'flex', flexDirection: 'column',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
     }}>
       <SlitLight count={24} opacity={0.45} />
       <div style={{
@@ -1021,7 +1042,11 @@ function MobileHero() {
 function MobileBigType() {
   const C = useC();
   return (
-    <section style={{ background: C.ash, color: C.bone, position: 'relative', overflow: 'hidden' }}>
+    <section style={{
+      background: C.ash, color: C.bone, position: 'relative', overflow: 'hidden',
+      minHeight: '100dvh',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+    }}>
       <MobileStamp left="002 / 07" right="WHAT IT IS" />
       <div style={{ padding: '40px 0' }}>
         <div style={{
@@ -1098,9 +1123,13 @@ function MobileComponents() {
     { n: '04', tag: 'WIDGET', desc: '8 lines of code. Any brand.' },
   ];
   return (
-    <section style={{ background: C.void, color: C.bone }}>
+    <section style={{
+      background: C.void, color: C.bone,
+      minHeight: '100dvh',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+    }}>
       <MobileStamp left="003 / 07" right="COMPONENTS" />
-      <div style={{ padding: '40px 16px 48px' }}>
+      <div style={{ padding: '40px 16px 48px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <h2 style={{
           fontFamily: 'var(--display)', fontWeight: 900, margin: '0 0 24px',
           fontSize: 44, letterSpacing: '-0.04em', lineHeight: 0.86,
@@ -1152,9 +1181,13 @@ function MobileComponents() {
 function MobileProof() {
   const C = useC();
   return (
-    <section style={{ background: C.ash, color: C.bone, position: 'relative', overflow: 'hidden' }}>
+    <section style={{
+      background: C.ash, color: C.bone, position: 'relative', overflow: 'hidden',
+      minHeight: '100dvh',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+    }}>
       <MobileStamp left="004 / 07" right="LIVE TRACTION" />
-      <div style={{ padding: '40px 16px 48px', position: 'relative' }}>
+      <div style={{ padding: '40px 16px 48px', position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <SlitLight count={18} opacity={0.3} />
         <div style={{
           fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.24em',
@@ -1207,10 +1240,14 @@ function MobileCarbon() {
     { k: 'CO₂E PER ORDER', v: 2.4, suffix: 'kg', sub: 'saved when a return is prevented.', decimals: 1 },
   ];
   return (
-    <section style={{ background: C.void, color: C.bone, position: 'relative', overflow: 'hidden' }}>
+    <section style={{
+      background: C.void, color: C.bone, position: 'relative', overflow: 'hidden',
+      minHeight: '100dvh',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+    }}>
       <MobileStamp left="005 / 07" right="WASTE LEDGER" />
       <SlitLight count={20} opacity={0.3} />
-      <div style={{ padding: '40px 16px 48px', position: 'relative', zIndex: 2 }}>
+      <div style={{ padding: '40px 16px 48px', position: 'relative', zIndex: 2, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <div style={{
           fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.32em',
           color: C.dim, textTransform: 'uppercase', marginBottom: 16,
@@ -1266,9 +1303,13 @@ function MobileCarbon() {
 function MobileBehind() {
   const C = useC();
   return (
-    <section style={{ background: C.void, color: C.bone }}>
+    <section style={{
+      background: C.void, color: C.bone,
+      minHeight: '100dvh',
+      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+    }}>
       <MobileStamp left="006 / 07" right="BEHIND THE LOGIN" />
-      <div style={{ padding: '40px 16px 48px' }}>
+      <div style={{ padding: '40px 16px 48px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <h2 style={{
           fontFamily: 'var(--display)', fontWeight: 900,
           fontSize: 44, letterSpacing: '-0.04em',
@@ -1317,9 +1358,12 @@ function MobileCTA() {
   return (
     <section style={{
       background: C.ash, color: C.bone, position: 'relative', overflow: 'hidden',
-      padding: '48px 16px 96px',
+      minHeight: '100dvh',
+      display: 'flex', flexDirection: 'column',
     }}>
+      <MobileStamp left="007 / 07" right="ENTER" />
       <SlitLight count={28} opacity={0.35} />
+      <div style={{ padding: '48px 16px 96px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', position: 'relative' }}>
 
       <div style={{
         fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.32em',
@@ -1413,6 +1457,7 @@ function MobileCTA() {
             textTransform: 'inherit', cursor: 'pointer',
           }}
         >BOOK A DEMO →</button>
+      </div>
       </div>
     </section>
   );
