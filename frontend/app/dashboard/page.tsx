@@ -1,65 +1,30 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { TryonLogo } from '@/components/TryonLogo';
 import type { WebGLRenderer } from 'three';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, getFitPassport, logout, updateFitPassport, User, FitPassport } from '@/lib/supabase-auth';
 import { api, type UserAddress, type AddressCreatePayload, type SavedItem } from '@/lib/api';
 import dynamic from 'next/dynamic';
-import { Suspense } from 'react';
+import {
+  DashThemeShell,
+  FloatingNav,
+  DashCard,
+  DashPrimaryBtn,
+  DashChipBtn,
+  MeasureCellD,
+  LedgerRow,
+  PassportPill,
+  EmptyZone,
+  PageHeading,
+  type DashTab,
+} from '@/components/redesign/DashboardShell';
+import { useIsMobile } from '@/components/redesign/useIsMobile';
 
 const SavedItemsGrid = dynamic(() => import('@/components/SavedItemsGrid'), { ssr: false });
 const DashboardTryOnModal = dynamic(() => import('@/components/DashboardTryOnModal'), { ssr: false });
-
-function SunIcon() {
-  return (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-    </svg>
-  );
-}
-function MoonIcon() {
-  return (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-    </svg>
-  );
-}
-
-type DashboardTab = 'profile' | 'closet' | 'wishlist';
-
-const TAB_CONFIG: { id: DashboardTab; label: string; icon: (active: boolean) => React.ReactNode }[] = [
-  {
-    id: 'profile',
-    label: 'Profile',
-    icon: (active) => (
-      <svg className="w-5 h-5" fill={active ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24" strokeWidth={active ? 0 : 1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'closet',
-    label: 'My Closet',
-    icon: (active) => (
-      <svg className="w-5 h-5" fill={active ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24" strokeWidth={active ? 0 : 1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'wishlist',
-    label: 'Wishlist',
-    icon: (active) => (
-      <svg className="w-5 h-5" fill={active ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24" strokeWidth={active ? 0 : 1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
-      </svg>
-    ),
-  },
-];
 
 interface Measurements {
   height: number;
@@ -74,11 +39,24 @@ interface Measurements {
   torso_length: number;
 }
 
+const MEASUREMENT_FIELDS: { key: keyof Measurements; label: string; editable: boolean }[] = [
+  { key: 'height', label: 'HEIGHT', editable: false },
+  { key: 'chest', label: 'CHEST', editable: true },
+  { key: 'waist', label: 'WAIST', editable: true },
+  { key: 'hips', label: 'HIPS', editable: true },
+  { key: 'inseam', label: 'INSEAM', editable: true },
+  { key: 'shoulder_width', label: 'SHOULDER', editable: true },
+  { key: 'arm_length', label: 'ARM', editable: true },
+  { key: 'neck', label: 'NECK', editable: true },
+  { key: 'thigh', label: 'THIGH', editable: true },
+  { key: 'torso_length', label: 'TORSO', editable: true },
+];
+
 export default function DashboardPageWrapper() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
       </div>
     }>
       <DashboardPage />
@@ -91,47 +69,36 @@ function DashboardPage() {
   const searchParams = useSearchParams();
   const { theme, toggleTheme } = useTheme();
   const dark = theme === 'dark';
+  const mobile = useIsMobile();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const sceneRef = useRef<{ scene: any; setBackground: (hex: number) => void } | null>(null);
+  const sceneRef = useRef<{ scene: unknown; setBackground: (hex: number) => void } | null>(null);
   const avatarInitRef = useRef<(() => void) | null>(null);
+
   const [user, setUser] = useState<User | null>(null);
   const [passport, setPassport] = useState<FitPassport | null>(null);
 
-  // Tab navigation
   const tabParam = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState<DashboardTab>(
-    (tabParam === 'closet' || tabParam === 'wishlist') ? tabParam : 'profile'
-  );
+  const initialTab: DashTab = tabParam === 'closet' ? 'closet' : tabParam === 'wishlist' ? 'wish' : 'profile';
+  const [activeTab, setActiveTab] = useState<DashTab>(initialTab);
   const [tryOnItem, setTryOnItem] = useState<SavedItem | null>(null);
 
-  const switchTab = useCallback((tab: DashboardTab) => {
+  const switchTab = useCallback((tab: DashTab) => {
     setActiveTab(tab);
     const url = new URL(window.location.href);
-    if (tab === 'profile') {
-      url.searchParams.delete('tab');
-    } else {
-      url.searchParams.set('tab', tab);
-    }
+    if (tab === 'profile') url.searchParams.delete('tab');
+    else url.searchParams.set('tab', tab === 'wish' ? 'wishlist' : 'closet');
     window.history.replaceState({}, '', url.toString());
   }, []);
+
   const [isEditing, setIsEditing] = useState(false);
   const [measurements, setMeasurements] = useState<Measurements>({
-    height: 0,
-    chest: 0,
-    waist: 0,
-    hips: 0,
-    inseam: 0,
-    shoulder_width: 0,
-    arm_length: 0,
-    neck: 0,
-    thigh: 0,
-    torso_length: 0,
+    height: 0, chest: 0, waist: 0, hips: 0, inseam: 0,
+    shoulder_width: 0, arm_length: 0, neck: 0, thigh: 0, torso_length: 0,
   });
   const [saving, setSaving] = useState(false);
   const [loadTimeout, setLoadTimeout] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Shipping addresses (Shopper Passport)
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const [addressesLoading, setAddressesLoading] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
@@ -139,15 +106,7 @@ function DashboardPage() {
   const [editingAddress, setEditingAddress] = useState<UserAddress | null>(null);
   const [addressSaving, setAddressSaving] = useState(false);
   const [addressForm, setAddressForm] = useState({
-    label: '',
-    name: '',
-    line1: '',
-    line2: '',
-    city: '',
-    state: '',
-    postal_code: '',
-    country: '',
-    is_default: false,
+    label: '', name: '', line1: '', line2: '', city: '', state: '', postal_code: '', country: '', is_default: false,
   });
 
   const loadData = useCallback(async () => {
@@ -173,39 +132,22 @@ function DashboardPage() {
         router.push('/login');
         return;
       }
-
       if (currentUser.user_type === 'brand') {
         router.push('/brand');
         return;
       }
-
       setUser(currentUser);
 
-      // Force fresh fetch - add timestamp to bypass any caching
       const fitPassport = await getFitPassport(currentUser.id);
-      console.log('[Dashboard] ============================================');
-      console.log('[Dashboard] Loaded fit passport on page load:', fitPassport);
-      console.log('[Dashboard] Avatar URL from database:', fitPassport?.avatarUrl);
-      console.log('[Dashboard] User ID:', currentUser.id);
-      console.log('[Dashboard] ============================================');
       setPassport(fitPassport);
-      
-      // If no avatar URL but passport exists, it might still be generating
-      // Refresh once after a delay to check for updates
+
       if (fitPassport && !fitPassport.avatarUrl) {
-        console.log('[Dashboard] No avatar URL found, will retry in 3 seconds...');
         setTimeout(async () => {
-          const refreshedPassport = await getFitPassport(currentUser.id);
-          console.log('[Dashboard] Retry - Avatar URL:', refreshedPassport?.avatarUrl);
-          if (refreshedPassport?.avatarUrl) {
-            console.log('[Dashboard] ✓ Avatar URL found on retry:', refreshedPassport.avatarUrl);
-            setPassport(refreshedPassport);
-          }
+          const refreshed = await getFitPassport(currentUser.id);
+          if (refreshed?.avatarUrl) setPassport(refreshed);
         }, 3000);
       }
-      
-      // Set measurements from passport or calculate defaults
-      // Use height from passport, or default to 175 if not available
+
       const h = fitPassport?.height || 175;
       setMeasurements({
         height: h,
@@ -225,13 +167,8 @@ function DashboardPage() {
     }
   }, [router]);
 
-  useEffect(() => {
-    setLoadTimeout(false);
-    setLoadError(null);
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  // Load addresses when user is available
   const loadAddresses = useCallback(async (userId: string) => {
     setAddressesLoading(true);
     setAddressError(null);
@@ -251,17 +188,7 @@ function DashboardPage() {
   }, [user?.id, loadAddresses]);
 
   const resetAddressForm = useCallback(() => {
-    setAddressForm({
-      label: '',
-      name: '',
-      line1: '',
-      line2: '',
-      city: '',
-      state: '',
-      postal_code: '',
-      country: '',
-      is_default: false,
-    });
+    setAddressForm({ label: '', name: '', line1: '', line2: '', city: '', state: '', postal_code: '', country: '', is_default: false });
     setAddressFormMode('idle');
     setEditingAddress(null);
   }, []);
@@ -274,15 +201,9 @@ function DashboardPage() {
   const startEditAddress = useCallback((addr: UserAddress) => {
     setEditingAddress(addr);
     setAddressForm({
-      label: addr.label,
-      name: addr.name,
-      line1: addr.line1,
-      line2: addr.line2 || '',
-      city: addr.city,
-      state: addr.state || '',
-      postal_code: addr.postal_code,
-      country: addr.country,
-      is_default: addr.is_default,
+      label: addr.label, name: addr.name, line1: addr.line1,
+      line2: addr.line2 || '', city: addr.city, state: addr.state || '',
+      postal_code: addr.postal_code, country: addr.country, is_default: addr.is_default,
     });
     setAddressFormMode('edit');
   }, []);
@@ -358,39 +279,34 @@ function DashboardPage() {
     }
   }, [user, editingAddress, loadAddresses, resetAddressForm]);
 
-  // Initialize Three.js scene for avatar — robust against WebGL context loss
+  // Three.js avatar viewer
   useEffect(() => {
     if (!canvasRef.current) return;
 
     let animationId: number;
     let rotation = 0;
     let renderer: WebGLRenderer | null = null;
-    let currentModel: any = null;
     let disposed = false;
 
     const canvas = canvasRef.current;
 
     const initThreeJS = async () => {
       if (disposed || !canvasRef.current) return;
-
-      // Clean up previous renderer if it exists (context restore path)
       if (renderer) {
         cancelAnimationFrame(animationId);
         renderer.dispose();
         renderer = null;
       }
       sceneRef.current = null;
-      currentModel = null;
       rotation = 0;
 
       const THREE = await import('three');
       const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
-
       if (disposed || !canvasRef.current) return;
 
       const scene = new THREE.Scene();
       const isDark = typeof window !== 'undefined' && localStorage.getItem('tryon-theme') === 'dark';
-      scene.background = new THREE.Color(isDark ? 0x0a0a0a : 0xf9fafb);
+      scene.background = new THREE.Color(isDark ? 0x0a0a0a : 0xffffff);
       sceneRef.current = {
         scene,
         setBackground: (hex: number) => { scene.background = new THREE.Color(hex); },
@@ -407,28 +323,32 @@ function DashboardPage() {
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.3;
 
-      const ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
-      scene.add(ambientLight);
+      scene.add(new THREE.AmbientLight(0xffffff, 1.4));
       const frontLight = new THREE.DirectionalLight(0xffffff, 1.5);
-      frontLight.position.set(2, 3, 3);
-      scene.add(frontLight);
+      frontLight.position.set(2, 3, 3); scene.add(frontLight);
       const backLight = new THREE.DirectionalLight(0xffffff, 1.0);
-      backLight.position.set(-2, 2, -3);
-      scene.add(backLight);
+      backLight.position.set(-2, 2, -3); scene.add(backLight);
       const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      fillLight.position.set(0, 2, 2);
-      scene.add(fillLight);
+      fillLight.position.set(0, 2, 2); scene.add(fillLight);
 
       const loader = new GLTFLoader();
       const avatarUrl = passport?.avatarUrl;
 
-      if (!avatarUrl) {
+      const renderLoop = (model?: { rotation: { y: number } }) => {
         const animate = () => {
           if (disposed) return;
           animationId = requestAnimationFrame(animate);
+          if (model) {
+            rotation += 0.008;
+            model.rotation.y = rotation;
+          }
           if (renderer && !renderer.getContext().isContextLost()) renderer.render(scene, camera);
         };
         animate();
+      };
+
+      if (!avatarUrl) {
+        renderLoop();
         return;
       }
 
@@ -441,56 +361,33 @@ function DashboardPage() {
         (gltf) => {
           if (disposed) return;
           const model = gltf.scene;
-          currentModel = model;
-
           const box = new THREE.Box3().setFromObject(model);
           const center = box.getCenter(new THREE.Vector3());
           const size = box.getSize(new THREE.Vector3());
-
           const maxDim = Math.max(size.x, size.y, size.z);
           const scale = 1.8 / maxDim;
           model.scale.setScalar(scale);
           model.position.x = -center.x * scale;
           model.position.y = -center.y * scale + 0.9;
           model.position.z = -center.z * scale;
-
           scene.add(model);
-
-          const animate = () => {
-            if (disposed) return;
-            animationId = requestAnimationFrame(animate);
-            rotation += 0.008;
-            model.rotation.y = rotation;
-            if (renderer && !renderer.getContext().isContextLost()) renderer.render(scene, camera);
-          };
-          animate();
+          renderLoop(model);
         },
         undefined,
         (error) => {
           console.error('[Dashboard] Error loading avatar:', error);
-          const animate = () => {
-            if (disposed) return;
-            animationId = requestAnimationFrame(animate);
-            if (renderer && !renderer.getContext().isContextLost()) renderer.render(scene, camera);
-          };
-          animate();
+          renderLoop();
         }
       );
     };
 
-    // Store init function so we can re-call it on context restore or tab switch
     avatarInitRef.current = initThreeJS;
 
-    // Handle WebGL context loss/restore
     const handleContextLost = (e: Event) => {
       e.preventDefault();
-      console.warn('[Dashboard] WebGL context lost — will restore');
       cancelAnimationFrame(animationId);
     };
-    const handleContextRestored = () => {
-      console.log('[Dashboard] WebGL context restored — re-initializing');
-      initThreeJS();
-    };
+    const handleContextRestored = () => initThreeJS();
 
     canvas.addEventListener('webglcontextlost', handleContextLost);
     canvas.addEventListener('webglcontextrestored', handleContextRestored);
@@ -511,34 +408,26 @@ function DashboardPage() {
     };
   }, [passport]);
 
-  // Sync GLB viewer background with theme
   useEffect(() => {
     if (sceneRef.current) {
-      sceneRef.current.setBackground(dark ? 0x0a0a0a : 0xf9fafb);
+      sceneRef.current.setBackground(dark ? 0x0a0a0a : 0xffffff);
     }
-  }, [theme, dark]);
+  }, [dark]);
 
-  // Re-init avatar when TryOn modal closes (its WebGL context may have killed ours)
   const prevTryOnItem = useRef<SavedItem | null>(null);
   useEffect(() => {
     const wasTryingOn = prevTryOnItem.current !== null;
     prevTryOnItem.current = tryOnItem;
     if (wasTryingOn && tryOnItem === null && avatarInitRef.current) {
       const gl = canvasRef.current?.getContext('webgl2') || canvasRef.current?.getContext('webgl');
-      if (!gl || gl.isContextLost()) {
-        avatarInitRef.current();
-      }
+      if (!gl || gl.isContextLost()) avatarInitRef.current();
     }
   }, [tryOnItem]);
 
-  const handleLogout = async () => {
-    await logout();
-    router.push('/login');
-  };
+  const handleLogout = async () => { await logout(); router.push('/login'); };
 
   const handleSaveMeasurements = async () => {
     if (!user) return;
-    
     setSaving(true);
     try {
       await updateFitPassport(user.id, {
@@ -559,12 +448,11 @@ function DashboardPage() {
 
   const handlePreferredFitChange = async (fit: 'slim' | 'regular' | 'loose') => {
     if (!user) return;
-    setPassport((p) => (p ? { ...p, preferred_fit: fit } : p)); // optimistic — link/button update immediately
+    setPassport((p) => (p ? { ...p, preferred_fit: fit } : p));
     setSaving(true);
     try {
       const updated = await updateFitPassport(user.id, { preferredFit: fit });
       if (!updated) {
-        console.error('updateFitPassport returned null — run supabase-migration-fit-passports-preferred-fit.sql if fit_passports lacks preferred_fit');
         const fresh = await getFitPassport(user.id);
         if (fresh) setPassport(fresh);
       }
@@ -586,508 +474,395 @@ function DashboardPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-6 px-4">
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center gap-6 px-4">
         {loadTimeout || loadError ? (
           <>
-            <p className="text-slate-600 text-center max-w-sm">
-              {loadTimeout
-                ? 'Taking longer than expected. Check your connection and try again.'
-                : loadError}
+            <p className="text-gray-700 text-center max-w-sm">
+              {loadTimeout ? 'Taking longer than expected. Check your connection and try again.' : loadError}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => loadData()}
-                className="px-4 py-2.5 text-sm font-medium rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition"
-              >
-                Retry
-              </button>
-              <Link
-                href="/login"
-                className="px-4 py-2.5 text-sm font-medium rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
-              >
-                Go to login
-              </Link>
+                className="px-4 py-2.5 text-sm font-medium rounded-xl bg-black text-white hover:bg-gray-800 transition"
+              >Retry</button>
+              <Link href="/login" className="px-4 py-2.5 text-sm font-medium rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition">Go to login</Link>
             </div>
           </>
         ) : (
           <>
-            <div className="w-8 h-8 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
-            <p className="text-slate-500 text-sm">Loading your dashboard…</p>
+            <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
+            <p className="text-gray-500 text-sm">Loading your dashboard…</p>
           </>
         )}
       </div>
     );
   }
 
-  const measurementFields = [
-    { key: 'height', label: 'Height', editable: false },
-    { key: 'chest', label: 'Chest', editable: true },
-    { key: 'waist', label: 'Waist', editable: true },
-    { key: 'hips', label: 'Hips', editable: true },
-    { key: 'inseam', label: 'Inseam', editable: true },
-    { key: 'shoulder_width', label: 'Shoulder Width', editable: true },
-    { key: 'arm_length', label: 'Arm Length', editable: true },
-    { key: 'neck', label: 'Neck', editable: true },
-    { key: 'thigh', label: 'Thigh', editable: true },
-    { key: 'torso_length', label: 'Torso Length', editable: true },
-  ];
+  const FAINT = dark ? '#262626' : '#E1DDD2';
+  const SURFACE = dark ? '#141414' : '#FFFFFF';
+  const INK = dark ? '#F2F1EC' : '#0A0A0A';
+  const DIM = dark ? '#8A8A8A' : '#7A7770';
+  const BG = dark ? '#0A0A0A' : '#ffffff';
+
+  // Inline-styled mini text input (used inside address form, theme-aware via dark prop)
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '9px 12px',
+    fontFamily: 'var(--display)', fontSize: 14,
+    background: BG, border: `1px solid ${FAINT}`,
+    color: INK, outline: 'none', letterSpacing: '-0.005em',
+    boxSizing: 'border-box',
+  };
+  const labelStyle: React.CSSProperties = {
+    fontFamily: 'var(--display)', fontSize: 11, letterSpacing: '0.04em',
+    color: DIM, textTransform: 'uppercase', marginBottom: 6, display: 'block',
+  };
 
   return (
-    <div className={`min-h-screen transition-colors ${dark ? 'bg-black text-white' : 'bg-slate-50 text-black'}`}>
-      <header className={`sticky top-0 z-10 backdrop-blur-md border-b shadow-sm ${dark ? 'bg-black/95 border-white/10' : 'bg-white/95 border-slate-200/80'}`}>
-        <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 flex items-center justify-between">
-          <TryonLogo href="/" className="h-8 w-auto cursor-pointer hover:opacity-90 transition-opacity" />
-          <div className="flex items-center gap-6">
-            <span className={`text-sm hidden sm:inline ${dark ? 'text-white/60' : 'text-slate-500'}`}>{user.email}</span>
-            <button onClick={toggleTheme} className={`p-2 rounded-lg border transition-colors ${dark ? 'border-white/10 text-white/70 hover:bg-white/5' : 'border-slate-200 text-slate-600 hover:bg-slate-100'}`} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}>
-              {dark ? <SunIcon /> : <MoonIcon />}
-            </button>
-            <button onClick={handleLogout} className={`text-sm transition-colors ${dark ? 'text-white/60 hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}>
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
+    <DashThemeShell dark={dark}>
+      <FloatingNav
+        active={activeTab}
+        onChange={switchTab}
+        email={user.email || ''}
+        dark={dark}
+        onToggleDark={toggleTheme}
+        onSignOut={handleLogout}
+        mobile={mobile}
+      />
 
-      <div className="flex min-h-[calc(100vh-65px)]">
-        {/* Sidebar */}
-        <aside className={`w-16 md:w-56 shrink-0 border-r ${dark ? 'bg-black/50 border-white/10' : 'bg-white border-slate-200'}`}>
-          <nav className="sticky top-[65px] py-4 flex flex-col gap-1 px-2 md:px-3">
-            {TAB_CONFIG.map((tab) => {
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => switchTab(tab.id)}
-                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl transition-all text-left ${
-                    isActive
-                      ? dark
-                        ? 'bg-white/10 text-white'
-                        : 'bg-slate-100 text-slate-900'
-                      : dark
-                        ? 'text-white/50 hover:text-white/80 hover:bg-white/5'
-                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <span className="shrink-0">{tab.icon(isActive)}</span>
-                  <span className="hidden md:block text-sm font-medium">{tab.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </aside>
+      {/* Profile tab — always mounted, hidden via display so the Three.js canvas survives switches */}
+      <div style={{
+        display: activeTab === 'profile' ? 'block' : 'none',
+        padding: mobile ? '24px 18px 32px' : '32px 32px 40px',
+      }}>
+        <div style={{ display: 'grid', gap: mobile ? 18 : 24 }}>
+          <PageHeading
+            title={`Welcome back, ${(user.name || 'shopper').split(' ')[0]}.`}
+            sub="Your Fit Passport is ready. Try on clothes from any brand."
+            mobile={mobile}
+          />
 
-        {/* Main content area */}
-        <main className="flex-1 min-w-0 px-4 md:px-8 py-8 md:py-10 dashboard-fade-in">
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: mobile ? '1fr' : '1fr 1.2fr',
+            gap: mobile ? 18 : 24,
+          }}>
+            <DashCard title="Your Avatar" padded={false}>
+              <div style={{
+                background: BG, position: 'relative',
+                aspectRatio: '4/5', minHeight: 380,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
+                {!passport?.avatarUrl && (
+                  <span style={{
+                    position: 'absolute', bottom: 14, left: 0, right: 0, textAlign: 'center',
+                    fontFamily: 'var(--display)', fontSize: 12, color: DIM,
+                  }}>Avatar still building. Refresh in a moment.</span>
+                )}
+              </div>
+            </DashCard>
 
-        {/* --- PROFILE TAB --- (always mounted, hidden via CSS to preserve Three.js canvas) */}
-        <div style={{ display: activeTab === 'profile' ? 'block' : 'none' }}>
-        <div className="mb-8">
-          <h2 className={`text-2xl font-bold mb-2 tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
-            Welcome back, {(user.name || 'User').split(' ')[0]}
-          </h2>
-          <p className={dark ? 'text-white/60' : 'text-gray-500'}>
-            Your Fit Passport is ready. Try on clothes from any brand.
-          </p>
-        </div>
-
-        <div className="grid lg:grid-cols-2 gap-6">
-          <div className={`rounded-2xl p-6 transition-all duration-300 ${dark ? 'bg-white/[0.03]' : 'bg-white shadow-sm'}`}>
-            <h3 className={`text-lg font-semibold mb-4 tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>Your Avatar</h3>
-            <div className={`aspect-square rounded-xl overflow-hidden relative ${dark ? 'bg-black/30' : 'bg-slate-50'}`}>
-              <canvas 
-                ref={canvasRef} 
-                className="w-full h-full"
-                style={{ display: 'block' }}
-              />
-            </div>
-            <p className={`text-xs text-center mt-3 ${dark ? 'text-white/50' : 'text-gray-400'}`}>
-              Rotating 360° preview of your avatar
-            </p>
-          </div>
-
-          <div className={`rounded-2xl p-6 transition-all duration-300 ${dark ? 'bg-white/[0.03]' : 'bg-white shadow-sm'}`}>
-            <div className="flex items-center justify-between mb-6">
-              <h3 className={`text-lg font-semibold tracking-tight ${dark ? 'text-white' : 'text-black'}`}>Your Measurements</h3>
-              {!isEditing ? (
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className={`px-4 py-2 text-sm font-medium rounded-xl transition-all duration-200 ${dark ? 'text-black bg-white hover:bg-white/90' : 'text-white bg-slate-900 hover:bg-slate-800'}`}
-                >
-                  Edit
-                </button>
-              ) : (
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setIsEditing(false)}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition ${dark ? 'text-white/60 border-white/20 hover:bg-white/5' : 'text-gray-500 border-gray-200 hover:bg-gray-50'}`}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSaveMeasurements}
-                    disabled={saving}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition disabled:opacity-50 ${dark ? 'text-black bg-white hover:bg-white/90' : 'text-white bg-black hover:bg-gray-800'}`}
-                  >
-                    {saving ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {isEditing && (
-              <div className={`mb-4 p-3 rounded-lg ${dark ? 'bg-white/5' : 'bg-blue-50'}`}>
-                <p className={`text-sm ${dark ? 'text-white/80' : 'text-blue-700'}`}>
-                  Review your measurements below. If any are incorrect, you can adjust them.
-                </p>
-                </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              {measurementFields.map((field) => (
-                <div key={field.key} className={`p-3 rounded-xl ${dark ? 'bg-white/5' : 'bg-gray-50'}`}>
-                  <p className={`text-xs uppercase tracking-wider mb-1 ${dark ? 'text-white/50' : 'text-gray-400'}`}>{field.label}</p>
-                  {isEditing && field.editable ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={measurements[field.key as keyof Measurements]}
-                        onChange={(e) => setMeasurements({
-                          ...measurements,
-                          [field.key]: parseInt(e.target.value) || 0
-                        })}
-                        className={`w-full px-2 py-1 text-lg font-bold rounded focus:outline-none focus:ring-2 ${dark ? 'text-white bg-black/30 border-white/20 focus:ring-white/30' : 'text-black bg-white border-gray-200 focus:ring-black'}`}
-                      />
-                      <span className={`text-sm ${dark ? 'text-white/50' : 'text-gray-400'}`}>cm</span>
-                </div>
-                  ) : (
-                    <p className={`text-lg font-bold ${dark ? 'text-white' : 'text-black'}`}>
-                      {measurements[field.key as keyof Measurements]}
-                      <span className={`text-sm font-normal ml-1 ${dark ? 'text-white/50' : 'text-gray-400'}`}>cm</span>
-                    </p>
-                  )}
-                </div>
-              ))}
-                </div>
-
-            {/* Fit preference — used for size recommendations */}
-            <div className={`mt-6 pt-4 border-t ${dark ? 'border-white/10' : 'border-gray-100'}`}>
-              <p className={`text-xs uppercase tracking-wider mb-2 ${dark ? 'text-white/50' : 'text-gray-400'}`}>Preferred Fit</p>
-              <p className={`text-sm mb-3 ${dark ? 'text-white/60' : 'text-gray-500'}`}>How you like clothes to fit. Affects size recommendations.</p>
-              <div className="flex gap-2">
-                {(['slim', 'regular', 'loose'] as const).map((fit) => (
-                  <button
-                    key={fit}
-                    onClick={() => handlePreferredFitChange(fit)}
-                    disabled={saving}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition capitalize ${
-                      passport?.preferred_fit === fit
-                        ? dark ? 'bg-white text-black' : 'bg-black text-white'
-                        : dark ? 'bg-white/10 text-white/80 hover:bg-white/20' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    } disabled:opacity-50`}
-                  >
-                    {fit}
-                  </button>
+            <DashCard
+              title="Your Measurements"
+              right={
+                isEditing ? (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <DashPrimaryBtn size="sm" tone="ghost" onClick={() => setIsEditing(false)}>Cancel</DashPrimaryBtn>
+                    <DashPrimaryBtn size="sm" onClick={handleSaveMeasurements} disabled={saving}>
+                      {saving ? 'Saving…' : 'Save'}
+                    </DashPrimaryBtn>
+                  </div>
+                ) : (
+                  <DashPrimaryBtn size="sm" onClick={() => setIsEditing(true)}>Edit</DashPrimaryBtn>
+                )
+              }
+            >
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14,
+              }}>
+                {MEASUREMENT_FIELDS.map((f) => (
+                  <MeasureCellD
+                    key={f.key}
+                    label={f.label}
+                    value={measurements[f.key]}
+                    unit="cm"
+                    editable={isEditing && f.editable}
+                    onChange={(v) => setMeasurements({ ...measurements, [f.key]: v })}
+                  />
                 ))}
               </div>
-            </div>
 
-            {!isEditing && (
-              <p className={`text-xs mt-4 text-center ${dark ? 'text-white/50' : 'text-gray-400'}`}>
-                Are these measurements accurate? Click Edit to make corrections.
-              </p>
-            )}
+              <div style={{
+                marginTop: 'auto', paddingTop: 22, borderTop: `1px solid ${FAINT}`,
+              }}>
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10,
+                }}>
+                  <div style={{
+                    fontFamily: 'var(--display)', fontSize: 12, color: DIM,
+                    letterSpacing: '0.04em', textTransform: 'uppercase',
+                  }}>Preferred fit</div>
+                  <span style={{
+                    fontFamily: 'var(--display)', fontSize: 12, color: DIM,
+                    letterSpacing: '-0.005em',
+                  }}>Affects size recommendations</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {(['slim', 'regular', 'loose'] as const).map((fit) => (
+                    <DashChipBtn
+                      key={fit}
+                      active={passport?.preferred_fit === fit}
+                      onClick={() => handlePreferredFitChange(fit)}
+                      disabled={saving}
+                    >
+                      {fit[0].toUpperCase() + fit.slice(1)}
+                    </DashChipBtn>
+                  ))}
+                </div>
+              </div>
+            </DashCard>
           </div>
 
-          {/* Shipping addresses — Shopper Passport */}
-          <div className={`lg:col-span-2 rounded-2xl p-6 transition-all duration-300 ${dark ? 'bg-white/[0.03]' : 'bg-white shadow-sm'}`}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className={`text-lg font-semibold tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>Shipping addresses</h3>
-              {addressFormMode === 'idle' && (
-                <button
-                  type="button"
-                  onClick={startAddAddress}
-                  className={`px-4 py-2 text-sm font-medium rounded-xl transition ${dark ? 'text-black bg-white hover:bg-white/90' : 'text-white bg-slate-900 hover:bg-slate-800'}`}
-                >
-                  Add address
-                </button>
-              )}
-            </div>
-            <p className={`text-sm mb-4 ${dark ? 'text-white/60' : 'text-slate-500'}`}>
-              Your saved addresses for checkout. Use one as default at TryOn brands.
-            </p>
+          <DashCard
+            title="Shipping addresses"
+            right={
+              addressFormMode === 'idle' ? (
+                <DashPrimaryBtn size="sm" onClick={startAddAddress}>+ Add address</DashPrimaryBtn>
+              ) : null
+            }
+          >
+            <p style={{
+              fontFamily: 'var(--display)', fontSize: 13, color: DIM,
+              margin: '0 0 14px', letterSpacing: '-0.005em',
+            }}>Your saved addresses for checkout. Use one as default at TryOn brands.</p>
+
             {addressError && (
-              <p className={`text-sm mb-3 px-3 py-2 rounded-lg ${dark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
-                {addressError}
-              </p>
+              <div style={{
+                padding: '10px 12px', marginBottom: 12,
+                background: 'rgba(176, 0, 32, 0.06)', border: '1px solid rgba(176, 0, 32, 0.2)',
+                color: '#B00020', fontFamily: 'var(--display)', fontSize: 13,
+              }}>{addressError}</div>
             )}
+
             {addressesLoading ? (
-              <p className={`text-sm ${dark ? 'text-white/50' : 'text-slate-400'}`}>Loading addresses…</p>
+              <p style={{ fontFamily: 'var(--display)', fontSize: 13, color: DIM }}>Loading addresses…</p>
             ) : (addressFormMode === 'add' || addressFormMode === 'edit') ? (
-              <div className={`space-y-3 p-4 rounded-xl ${dark ? 'bg-white/5' : 'bg-slate-50'}`}>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${dark ? 'text-white/60' : 'text-slate-500'}`}>Label (e.g. Home, Work)</label>
-                    <input
-                      value={addressForm.label}
-                      onChange={(e) => setAddressForm((f) => ({ ...f, label: e.target.value }))}
-                      placeholder="Home"
-                      className={`w-full px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2 ${dark ? 'bg-black/30 border-white/20 text-white focus:ring-white/30' : 'bg-white border-slate-200 text-slate-900 focus:ring-slate-900'}`}
-                    />
-                  </div>
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${dark ? 'text-white/60' : 'text-slate-500'}`}>Full name</label>
-                    <input
-                      value={addressForm.name}
-                      onChange={(e) => setAddressForm((f) => ({ ...f, name: e.target.value }))}
-                      placeholder="Jane Doe"
-                      className={`w-full px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2 ${dark ? 'bg-black/30 border-white/20 text-white focus:ring-white/30' : 'bg-white border-slate-200 text-slate-900 focus:ring-slate-900'}`}
-                    />
-                  </div>
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+                  <label>
+                    <span style={labelStyle}>Label (e.g. Home, Work)</span>
+                    <input style={inputStyle} value={addressForm.label} onChange={(e) => setAddressForm(f => ({ ...f, label: e.target.value }))} placeholder="Home" />
+                  </label>
+                  <label>
+                    <span style={labelStyle}>Full name</span>
+                    <input style={inputStyle} value={addressForm.name} onChange={(e) => setAddressForm(f => ({ ...f, name: e.target.value }))} placeholder="Jane Doe" />
+                  </label>
                 </div>
-                <div>
-                  <label className={`block text-xs font-medium mb-1 ${dark ? 'text-white/60' : 'text-slate-500'}`}>Address line 1</label>
-                  <input
-                    value={addressForm.line1}
-                    onChange={(e) => setAddressForm((f) => ({ ...f, line1: e.target.value }))}
-                    placeholder="Street and number"
-                    className={`w-full px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2 ${dark ? 'bg-black/30 border-white/20 text-white focus:ring-white/30' : 'bg-white border-slate-200 text-slate-900 focus:ring-slate-900'}`}
-                  />
+                <label>
+                  <span style={labelStyle}>Address line 1</span>
+                  <input style={inputStyle} value={addressForm.line1} onChange={(e) => setAddressForm(f => ({ ...f, line1: e.target.value }))} placeholder="Street and number" />
+                </label>
+                <label>
+                  <span style={labelStyle}>Address line 2 (optional)</span>
+                  <input style={inputStyle} value={addressForm.line2} onChange={(e) => setAddressForm(f => ({ ...f, line2: e.target.value }))} placeholder="Apt, suite, etc." />
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12 }}>
+                  <label>
+                    <span style={labelStyle}>City</span>
+                    <input style={inputStyle} value={addressForm.city} onChange={(e) => setAddressForm(f => ({ ...f, city: e.target.value }))} />
+                  </label>
+                  <label>
+                    <span style={labelStyle}>State</span>
+                    <input style={inputStyle} value={addressForm.state} onChange={(e) => setAddressForm(f => ({ ...f, state: e.target.value }))} />
+                  </label>
+                  <label>
+                    <span style={labelStyle}>Postal code</span>
+                    <input style={inputStyle} value={addressForm.postal_code} onChange={(e) => setAddressForm(f => ({ ...f, postal_code: e.target.value }))} />
+                  </label>
+                  <label>
+                    <span style={labelStyle}>Country</span>
+                    <input style={inputStyle} value={addressForm.country} onChange={(e) => setAddressForm(f => ({ ...f, country: e.target.value }))} placeholder="e.g. NL" />
+                  </label>
                 </div>
-                <div>
-                  <label className={`block text-xs font-medium mb-1 ${dark ? 'text-white/60' : 'text-slate-500'}`}>Address line 2 (optional)</label>
-                  <input
-                    value={addressForm.line2}
-                    onChange={(e) => setAddressForm((f) => ({ ...f, line2: e.target.value }))}
-                    placeholder="Apt, suite, etc."
-                    className={`w-full px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2 ${dark ? 'bg-black/30 border-white/20 text-white focus:ring-white/30' : 'bg-white border-slate-200 text-slate-900 focus:ring-slate-900'}`}
-                  />
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${dark ? 'text-white/60' : 'text-slate-500'}`}>City</label>
-                    <input
-                      value={addressForm.city}
-                      onChange={(e) => setAddressForm((f) => ({ ...f, city: e.target.value }))}
-                      className={`w-full px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2 ${dark ? 'bg-black/30 border-white/20 text-white focus:ring-white/30' : 'bg-white border-slate-200 text-slate-900 focus:ring-slate-900'}`}
-                    />
-                  </div>
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${dark ? 'text-white/60' : 'text-slate-500'}`}>State / Province</label>
-                    <input
-                      value={addressForm.state}
-                      onChange={(e) => setAddressForm((f) => ({ ...f, state: e.target.value }))}
-                      className={`w-full px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2 ${dark ? 'bg-black/30 border-white/20 text-white focus:ring-white/30' : 'bg-white border-slate-200 text-slate-900 focus:ring-slate-900'}`}
-                    />
-                  </div>
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${dark ? 'text-white/60' : 'text-slate-500'}`}>Postal code</label>
-                    <input
-                      value={addressForm.postal_code}
-                      onChange={(e) => setAddressForm((f) => ({ ...f, postal_code: e.target.value }))}
-                      className={`w-full px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2 ${dark ? 'bg-black/30 border-white/20 text-white focus:ring-white/30' : 'bg-white border-slate-200 text-slate-900 focus:ring-slate-900'}`}
-                    />
-                  </div>
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${dark ? 'text-white/60' : 'text-slate-500'}`}>Country</label>
-                    <input
-                      value={addressForm.country}
-                      onChange={(e) => setAddressForm((f) => ({ ...f, country: e.target.value }))}
-                      placeholder="e.g. US"
-                      className={`w-full px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2 ${dark ? 'bg-black/30 border-white/20 text-white focus:ring-white/30' : 'bg-white border-slate-200 text-slate-900 focus:ring-slate-900'}`}
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 pt-2">
-                  <label className={`flex items-center gap-2 text-sm cursor-pointer ${dark ? 'text-white/80' : 'text-slate-700'}`}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingTop: 4 }}>
+                  <label style={{
+                    display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+                    fontFamily: 'var(--display)', fontSize: 13, color: INK,
+                  }}>
                     <input
                       type="checkbox"
                       checked={addressForm.is_default}
-                      onChange={(e) => setAddressForm((f) => ({ ...f, is_default: e.target.checked }))}
-                      className="rounded border-slate-300"
+                      onChange={(e) => setAddressForm(f => ({ ...f, is_default: e.target.checked }))}
                     />
                     Use at checkout (default)
                   </label>
-                  <div className="flex gap-2 ml-auto">
-                    <button
-                      type="button"
-                      onClick={resetAddressForm}
-                      className={`px-4 py-2 text-sm font-medium rounded-lg transition ${dark ? 'text-white/60 hover:bg-white/5' : 'text-slate-600 hover:bg-slate-100'}`}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
+                  <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+                    <DashPrimaryBtn tone="ghost" size="sm" onClick={resetAddressForm}>Cancel</DashPrimaryBtn>
+                    <DashPrimaryBtn
+                      size="sm"
                       onClick={saveAddress}
-                      disabled={addressSaving || !addressForm.label.trim() || !addressForm.name.trim() || !addressForm.line1.trim() || !addressForm.city.trim() || !addressForm.postal_code.trim() || !addressForm.country.trim()}
-                      className={`px-4 py-2 text-sm font-medium rounded-lg transition disabled:opacity-50 ${dark ? 'text-black bg-white hover:bg-white/90' : 'text-white bg-slate-900 hover:bg-slate-800'}`}
+                      disabled={
+                        addressSaving
+                        || !addressForm.label.trim() || !addressForm.name.trim()
+                        || !addressForm.line1.trim() || !addressForm.city.trim()
+                        || !addressForm.postal_code.trim() || !addressForm.country.trim()
+                      }
                     >
                       {addressSaving ? 'Saving…' : 'Save address'}
-                    </button>
+                    </DashPrimaryBtn>
                   </div>
                 </div>
               </div>
             ) : addresses.length === 0 ? (
-              <p className={`text-sm ${dark ? 'text-white/50' : 'text-slate-500'}`}>No addresses yet. Add one to use at checkout.</p>
+              <p style={{ fontFamily: 'var(--display)', fontSize: 13, color: DIM }}>
+                No addresses yet. Add one to use at checkout.
+              </p>
             ) : (
-              <ul className="space-y-3">
+              <ul style={{ display: 'grid', gap: 12, listStyle: 'none', margin: 0, padding: 0 }}>
                 {addresses.map((addr) => (
-                  <li
-                    key={addr.id}
-                    className={`flex flex-wrap items-start justify-between gap-3 p-4 rounded-xl transition ${dark ? 'bg-white/5 hover:bg-white/[0.07]' : 'bg-slate-50 hover:bg-slate-100/80'}`}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`font-medium ${dark ? 'text-white' : 'text-slate-900'}`}>{addr.label}</span>
+                  <li key={addr.id} style={{
+                    display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12,
+                    padding: 16, border: `1px solid ${FAINT}`, background: BG,
+                  }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{
+                          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700, color: INK,
+                        }}>{addr.label}</span>
                         {addr.is_default && (
-                          <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${dark ? 'bg-white/20 text-white/90' : 'bg-slate-200 text-slate-700'}`}>
-                            Use at checkout
-                          </span>
+                          <span style={{
+                            padding: '2px 8px', borderRadius: 999,
+                            background: SURFACE, border: `1px solid ${FAINT}`,
+                            fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.16em',
+                            color: DIM, textTransform: 'uppercase',
+                          }}>Default</span>
                         )}
                       </div>
-                      <p className={`text-sm mt-1 ${dark ? 'text-white/70' : 'text-slate-600'}`}>
+                      <p style={{
+                        fontFamily: 'var(--display)', fontSize: 13, color: DIM,
+                        margin: '6px 0 0', lineHeight: 1.45,
+                      }}>
                         {addr.name}<br />
-                        {addr.line1}
-                        {addr.line2 ? `, ${addr.line2}` : ''}<br />
+                        {addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}<br />
                         {[addr.city, addr.state, addr.postal_code].filter(Boolean).join(', ')} {addr.country}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                       {!addr.is_default && (
-                        <button
-                          type="button"
-                          onClick={() => setDefaultAddress(addr)}
-                          disabled={addressSaving}
-                          className={`text-sm font-medium px-3 py-1.5 rounded-lg transition disabled:opacity-50 ${dark ? 'text-white/70 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'}`}
-                        >
+                        <DashPrimaryBtn tone="ghost" size="sm" onClick={() => setDefaultAddress(addr)} disabled={addressSaving}>
                           Set default
-                        </button>
+                        </DashPrimaryBtn>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => startEditAddress(addr)}
-                        disabled={addressSaving}
-                        className={`text-sm font-medium px-3 py-1.5 rounded-lg transition disabled:opacity-50 ${dark ? 'text-white/70 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'}`}
-                      >
+                      <DashPrimaryBtn tone="ghost" size="sm" onClick={() => startEditAddress(addr)} disabled={addressSaving}>
                         Edit
-                      </button>
+                      </DashPrimaryBtn>
                       <button
                         type="button"
                         onClick={() => deleteAddress(addr)}
                         disabled={addressSaving}
-                        className={`text-sm font-medium px-3 py-1.5 rounded-lg transition disabled:opacity-50 ${dark ? 'text-red-400 hover:bg-red-500/10' : 'text-red-600 hover:bg-red-50'}`}
-                      >
-                        Remove
-                      </button>
+                        style={{
+                          background: 'transparent',
+                          color: dark ? '#FF7C7C' : '#8E1F1F',
+                          border: `1px solid ${FAINT}`,
+                          padding: '7px 12px',
+                          fontFamily: 'var(--display)', fontSize: 12,
+                          fontWeight: 600, letterSpacing: '-0.005em',
+                          cursor: addressSaving ? 'not-allowed' : 'pointer',
+                          opacity: addressSaving ? 0.5 : 1,
+                        }}
+                      >Remove</button>
                     </div>
                   </li>
                 ))}
               </ul>
             )}
-          </div>
+          </DashCard>
 
-          <div className={`rounded-2xl p-6 transition-all duration-300 ${dark ? 'bg-white/[0.03]' : 'bg-white shadow-sm'}`}>
-            <h3 className={`text-lg font-semibold mb-4 tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>Account Information</h3>
-            <div className="space-y-3">
-              {['Name', 'Email', 'Member since', 'Gender'].map((label, i) => (
-                <div key={label} className={`p-4 rounded-xl ${dark ? 'bg-white/5' : 'bg-gray-50'}`}>
-                  <p className={`text-xs uppercase tracking-wider mb-1 ${dark ? 'text-white/50' : 'text-gray-400'}`}>{label}</p>
-                  <p className={`font-medium ${dark ? 'text-white' : 'text-black'}`}>
-                    {label === 'Name' ? user.name : label === 'Email' ? user.email : label === 'Member since' ? new Date(user.created_at ?? '').toLocaleDateString() : (passport?.gender || 'Not set')}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className={`rounded-2xl p-6 transition-all duration-300 ${dark ? 'bg-white/[0.03]' : 'bg-white shadow-sm'}`}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className={`text-lg font-semibold tracking-tight ${dark ? 'text-white' : 'text-black'}`}>Fit Passport Status</h3>
-              <span className={`px-3 py-1 text-xs font-medium rounded-full ${dark ? 'bg-white/10 text-white/80' : 'bg-green-50 text-green-600'}`}>
-                Active
-              </span>
-            </div>
-            
-            <div className="space-y-4">
-              <div className={`flex items-center gap-3 p-3 rounded-xl ${dark ? 'bg-white/5' : 'bg-gray-50'}`}>
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${dark ? 'bg-white/10' : 'bg-green-100'}`}>
-                  <svg className={`w-5 h-5 ${dark ? 'text-white/80' : 'text-green-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <div>
-                  <p className={`text-sm font-medium ${dark ? 'text-white' : 'text-black'}`}>Avatar created</p>
-                  <p className={`text-xs ${dark ? 'text-white/50' : 'text-gray-400'}`}>Ready to try on clothes</p>
-                </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: mobile ? '1fr' : '1fr 1fr',
+            gap: mobile ? 18 : 24,
+          }}>
+            <DashCard title="Account information">
+              <div style={{ display: 'grid', gap: 0 }}>
+                <LedgerRow label="Name" value={user.name || '—'} />
+                <LedgerRow label="Email" value={user.email} />
+                <LedgerRow
+                  label="Member since"
+                  value={user.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}
+                />
+                <LedgerRow label="Gender" value={passport?.gender ? passport.gender[0].toUpperCase() + passport.gender.slice(1) : 'Not set'} last />
               </div>
-              
-              <div className={`flex items-center gap-3 p-3 rounded-xl ${dark ? 'bg-white/5' : 'bg-gray-50'}`}>
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${dark ? 'bg-white/10' : 'bg-green-100'}`}>
-                  <svg className={`w-5 h-5 ${dark ? 'text-white/80' : 'text-green-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <div>
-                  <p className={`text-sm font-medium ${dark ? 'text-white' : 'text-black'}`}>Measurements saved</p>
-                  <p className={`text-xs ${dark ? 'text-white/50' : 'text-gray-400'}`}>Size recommendations enabled</p>
-                </div>
-              </div>
+            </DashCard>
 
-              <div className={`pt-4 border-t ${dark ? 'border-white/10' : 'border-gray-100'}`}>
+            <DashCard
+              title="Fit Passport status"
+              right={
+                <span style={{
+                  fontFamily: 'var(--display)', fontSize: 12,
+                  color: dark ? '#7CFFA1' : '#1F6B3D', fontWeight: 600,
+                }}>● Active</span>
+              }
+            >
+              <div style={{ display: 'grid', gap: 0 }}>
+                <PassportPill done={!!passport?.avatarUrl} label="Avatar created" sub="Ready to try on clothes." />
+                <PassportPill done={!!passport?.height} label="Measurements saved" sub="Size recommendations enabled." />
+                <PassportPill done label="Encrypted & revocable" sub="Your data is yours. Delete anytime." last />
+              </div>
               <button
                 onClick={handleClearData}
-                className={`w-full py-3 text-sm rounded-xl transition ${dark ? 'text-red-400 hover:bg-red-500/10' : 'text-red-500 hover:bg-red-50'}`}
-              >
-                  Delete account and data
-              </button>
-              </div>
-            </div>
+                style={{
+                  marginTop: 18, width: '100%',
+                  background: 'transparent',
+                  color: dark ? '#FF7C7C' : '#8E1F1F',
+                  border: `1px solid ${FAINT}`,
+                  padding: '11px 14px',
+                  fontFamily: 'var(--display)', fontSize: 13, fontWeight: 500,
+                  letterSpacing: '-0.005em', cursor: 'pointer',
+                }}
+              >Delete account and data</button>
+            </DashCard>
           </div>
         </div>
-        </div>
+      </div>
 
-        {/* --- MY CLOSET TAB --- */}
-        {activeTab === 'closet' && (
-          <>
-            <div className="mb-8">
-              <h2 className={`text-2xl font-bold mb-2 tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
-                My Closet
-              </h2>
-              <p className={dark ? 'text-white/60' : 'text-gray-500'}>
-                Items you&apos;ve purchased through TryOn. Try them on anytime.
-              </p>
-            </div>
+      {/* Closet tab */}
+      {activeTab === 'closet' && (
+        <div style={{ padding: mobile ? '24px 18px 32px' : '32px 32px 40px' }}>
+          <PageHeading
+            title="My Closet"
+            sub="Items you've purchased through TryOn. Try them on anytime."
+            mobile={mobile}
+          />
+          <div style={{ marginTop: mobile ? 24 : 32 }}>
             <SavedItemsGrid
               listType="closet"
               dark={dark}
               onTryOn={(item) => setTryOnItem(item)}
             />
-          </>
-        )}
+          </div>
+        </div>
+      )}
 
-        {/* --- WISHLIST TAB --- */}
-        {activeTab === 'wishlist' && (
-          <>
-            <div className="mb-8">
-              <h2 className={`text-2xl font-bold mb-2 tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
-                Wishlist
-              </h2>
-              <p className={dark ? 'text-white/60' : 'text-gray-500'}>
-                Items you&apos;ve hearted while trying on. Save from any store, try on from here.
-              </p>
-            </div>
+      {/* Wishlist tab */}
+      {activeTab === 'wish' && (
+        <div style={{ padding: mobile ? '24px 18px 32px' : '32px 32px 40px' }}>
+          <PageHeading
+            title="Wishlist"
+            sub="Items you've hearted while trying on. Save from any store, try on from here."
+            mobile={mobile}
+          />
+          <div style={{ marginTop: mobile ? 24 : 32 }}>
             <SavedItemsGrid
               listType="wishlist"
               dark={dark}
               onTryOn={(item) => setTryOnItem(item)}
             />
-          </>
-        )}
+          </div>
+        </div>
+      )}
 
-        </main>
-      </div>
-
-      {/* TryOn Modal */}
       {tryOnItem && (
         <DashboardTryOnModal
           item={tryOnItem}
@@ -1096,6 +871,6 @@ function DashboardPage() {
           onClose={() => setTryOnItem(null)}
         />
       )}
-    </div>
+    </DashThemeShell>
   );
 }
