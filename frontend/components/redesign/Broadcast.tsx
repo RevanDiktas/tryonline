@@ -494,9 +494,9 @@ function DesktopBigType() {
 
 function DesktopProductGrid() {
   const C = useC();
-  const items = [
-    { n: '01', tag: 'FIT PASSPORT', desc: 'A 3D avatar of you, rigged.' },
-    { n: '02', tag: 'GARMENT BIND', desc: 'Real cloth physics, real product photography.' },
+  const items: { n: string; tag: string; desc: string; image?: string }[] = [
+    { n: '01', tag: 'FIT PASSPORT', desc: 'A 3D avatar of you, rigged.', image: '/redesign/fit-passport.jpg' },
+    { n: '02', tag: 'GARMENT BIND', desc: 'Real cloth physics, real product photography.', image: '/redesign/garment-bind.jpg' },
     { n: '03', tag: 'FIT REPORT', desc: 'Per-SKU confidence and size signal.' },
     { n: '04', tag: 'WIDGET', desc: '8 lines of code. Any brand. Any stack.' },
   ];
@@ -536,12 +536,23 @@ function DesktopProductGrid() {
                 aspectRatio: '4/5', background: C.steel, position: 'relative',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
               }}>
-                <SlitLight count={20} opacity={0.5} />
-                <span style={{
-                  position: 'relative', zIndex: 2,
-                  fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em',
-                  color: C.dim, padding: '6px 10px', border: `1px solid ${C.faint}`,
-                }}>IMAGE TBD</span>
+                {it.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={it.image}
+                    alt={it.tag}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  />
+                ) : (
+                  <>
+                    <SlitLight count={20} opacity={0.5} />
+                    <span style={{
+                      position: 'relative', zIndex: 2,
+                      fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em',
+                      color: C.dim, padding: '6px 10px', border: `1px solid ${C.faint}`,
+                    }}>IMAGE TBD</span>
+                  </>
+                )}
               </div>
               <div style={{
                 borderTop: `1px solid ${C.faint}`, padding: '18px 18px',
@@ -1116,9 +1127,9 @@ function MobileBigType() {
 
 function MobileComponents() {
   const C = useC();
-  const items = [
-    { n: '01', tag: 'FIT PASSPORT', desc: 'A 3D avatar of you, rigged.' },
-    { n: '02', tag: 'GARMENT BIND', desc: 'Real cloth physics on real photography.' },
+  const items: { n: string; tag: string; desc: string; image?: string }[] = [
+    { n: '01', tag: 'FIT PASSPORT', desc: 'A 3D avatar of you, rigged.', image: '/redesign/fit-passport.jpg' },
+    { n: '02', tag: 'GARMENT BIND', desc: 'Real cloth physics on real photography.', image: '/redesign/garment-bind.jpg' },
     { n: '03', tag: 'FIT REPORT', desc: 'Per-SKU confidence + size signal.' },
     { n: '04', tag: 'WIDGET', desc: '8 lines of code. Any brand.' },
   ];
@@ -1159,12 +1170,23 @@ function MobileComponents() {
                 aspectRatio: '4/5', background: C.steel, position: 'relative',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
               }}>
-                <SlitLight count={10} opacity={0.45} />
-                <span style={{
-                  position: 'relative', zIndex: 2,
-                  fontFamily: 'var(--mono)', fontSize: 8, letterSpacing: '0.24em',
-                  color: C.dim, padding: '3px 6px', border: `1px solid ${C.faint}`,
-                }}>TBD</span>
+                {it.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={it.image}
+                    alt={it.tag}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  />
+                ) : (
+                  <>
+                    <SlitLight count={10} opacity={0.45} />
+                    <span style={{
+                      position: 'relative', zIndex: 2,
+                      fontFamily: 'var(--mono)', fontSize: 8, letterSpacing: '0.24em',
+                      color: C.dim, padding: '3px 6px', border: `1px solid ${C.faint}`,
+                    }}>TBD</span>
+                  </>
+                )}
               </div>
               <div style={{
                 borderTop: `1px solid ${C.faint}`, padding: '8px 9px',
