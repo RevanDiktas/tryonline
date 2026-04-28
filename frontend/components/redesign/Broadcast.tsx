@@ -497,8 +497,8 @@ function DesktopProductGrid() {
   const items: { n: string; tag: string; desc: string; image?: string }[] = [
     { n: '01', tag: 'FIT PASSPORT', desc: 'A 3D avatar of you, rigged.', image: '/redesign/fit-passport.jpg' },
     { n: '02', tag: 'GARMENT BIND', desc: 'Real cloth physics, real product photography.', image: '/redesign/garment-bind.jpg' },
-    { n: '03', tag: 'FIT REPORT', desc: 'Per-SKU confidence and size signal.' },
-    { n: '04', tag: 'WIDGET', desc: '8 lines of code. Any brand. Any stack.' },
+    { n: '03', tag: 'FIT REPORT', desc: 'Per-SKU confidence and size signal.', image: '/redesign/fit-report.jpg' },
+    { n: '04', tag: 'WIDGET', desc: '8 lines of code. Any brand. Any stack.', image: '/redesign/widget.jpg' },
   ];
   return (
     <section id="tryon-section-product" style={{
@@ -1130,8 +1130,8 @@ function MobileComponents() {
   const items: { n: string; tag: string; desc: string; image?: string }[] = [
     { n: '01', tag: 'FIT PASSPORT', desc: 'A 3D avatar of you, rigged.', image: '/redesign/fit-passport.jpg' },
     { n: '02', tag: 'GARMENT BIND', desc: 'Real cloth physics on real photography.', image: '/redesign/garment-bind.jpg' },
-    { n: '03', tag: 'FIT REPORT', desc: 'Per-SKU confidence + size signal.' },
-    { n: '04', tag: 'WIDGET', desc: '8 lines of code. Any brand.' },
+    { n: '03', tag: 'FIT REPORT', desc: 'Per-SKU confidence + size signal.', image: '/redesign/fit-report.jpg' },
+    { n: '04', tag: 'WIDGET', desc: '8 lines of code. Any brand.', image: '/redesign/widget.jpg' },
   ];
   return (
     <section style={{
