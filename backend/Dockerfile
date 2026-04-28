@@ -1,4 +1,5 @@
 # TryOn Backend API Dockerfile
+# cache-bust: 2026-04-28a — force Railway to rebuild without stale buildkit cache
 FROM python:3.11-slim
 
 # Set working directory

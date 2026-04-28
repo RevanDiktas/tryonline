@@ -1,0 +1,23 @@
+# Backend Docker build context — keep upload small, avoid checksum failures
+# from symlinks in venv directories.
+venv/
+venv310/
+venv312/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.coverage
+*.log
+*.pid
+.git/
+.gitignore
+.env
+.env.*
+*.md
+docker-compose.yml
+scripts/

@@ -116,11 +116,37 @@ function MobileStamp({ left, right }: { left: string; right: string }) {
   );
 }
 
+/* Hide-on-scroll-down, show-on-scroll-up smart-nav hook. */
+function useSmartNav() {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    let lastY = window.scrollY;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        const y = window.scrollY;
+        const delta = y - lastY;
+        // Always show when near the very top.
+        if (y < 80) setHidden(false);
+        else if (delta > 6) setHidden(true);   // scrolled down meaningfully
+        else if (delta < -6) setHidden(false); // scrolled up meaningfully
+        lastY = y;
+        raf = 0;
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  return hidden;
+}
+
 /* ─────── Desktop sections ─────── */
 function DesktopNav() {
   const C = useC();
   const router = useRouter();
   const [active, setActive] = useState('index');
+  const hidden = useSmartNav();
 
   useEffect(() => {
     const ids = ['index', 'product', 'brands'];
@@ -165,6 +191,8 @@ function DesktopNav() {
       padding: '14px 20px',
       pointerEvents: 'none',
       marginBottom: -68,
+      transform: hidden ? 'translateY(-110%)' : 'translateY(0)',
+      transition: 'transform 0.28s cubic-bezier(0.4, 0.0, 0.2, 1)',
     }}>
       <div style={{
         ...cap, pointerEvents: 'auto',
@@ -283,47 +311,71 @@ function DesktopHero() {
         marginLeft: -32, marginRight: -32,
       }}>
         {ctas.map((c, i) => (
-          <button
-            key={c.t}
-            onClick={() => router.push(c.href)}
-            style={{
-              padding: '22px 28px 20px',
-              borderRight: i === 0 ? `1px solid ${C.faint}` : 'none',
-              display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-              gap: 14, minHeight: 116,
-              background: 'transparent', cursor: 'pointer', border: 'none',
-              textAlign: c.side === 'R' ? 'right' : 'left',
-              color: C.bone,
-            }}
-          >
-            <div style={{
-              fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.4em',
-              color: C.dim, textTransform: 'uppercase',
-            }}>{c.tag}</div>
-            <div style={{
-              display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-              flexDirection: c.side === 'R' ? 'row-reverse' : 'row', gap: 16,
-            }}>
-              <h3 style={{
-                fontFamily: 'var(--display)', fontWeight: 900,
-                fontSize: 'clamp(28px, 3.8vw, 56px)', letterSpacing: '-0.04em',
-                lineHeight: 0.92, margin: 0, color: C.bone,
-                textTransform: 'uppercase',
-              }}>{c.t}</h3>
-              <span style={{
-                fontFamily: 'var(--display)', fontSize: 36, fontWeight: 900,
-                color: C.bone, lineHeight: 1,
-                transform: c.side === 'R' ? 'none' : 'rotate(180deg)',
-              }}>→</span>
-            </div>
-            <div style={{
-              fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.18em',
-              color: C.bone, opacity: 0.78, textTransform: 'uppercase',
-            }}>{c.sub}</div>
-          </button>
+          <HeroCTA key={c.t} c={c} first={i === 0} onClick={() => router.push(c.href)} C={C} />
         ))}
       </div>
     </section>
+  );
+}
+
+function HeroCTA({
+  c, first, onClick, C,
+}: {
+  c: { side: string; tag: string; t: string; sub: string };
+  first: boolean;
+  onClick: () => void;
+  C: Palette;
+}) {
+  const [hover, setHover] = useState(false);
+  const ink = hover ? C.void : C.bone; // headline / arrow color
+  const tagColor = hover ? C.void : C.dim;
+  const subColor = ink;
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        padding: '22px 28px 20px',
+        borderRight: first ? `1px solid ${C.faint}` : 'none',
+        display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+        gap: 14, minHeight: 116,
+        background: hover ? C.bone : 'transparent',
+        cursor: 'pointer', border: 'none',
+        textAlign: c.side === 'R' ? 'right' : 'left',
+        color: ink,
+        transition: 'background 0.18s ease, color 0.18s ease',
+      }}
+    >
+      <div style={{
+        fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.4em',
+        color: tagColor, textTransform: 'uppercase',
+        transition: 'color 0.18s ease',
+      }}>{c.tag}</div>
+      <div style={{
+        display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+        flexDirection: c.side === 'R' ? 'row-reverse' : 'row', gap: 16,
+      }}>
+        <h3 style={{
+          fontFamily: 'var(--display)', fontWeight: 900,
+          fontSize: 'clamp(28px, 3.8vw, 56px)', letterSpacing: '-0.04em',
+          lineHeight: 0.92, margin: 0, color: ink,
+          textTransform: 'uppercase',
+          transition: 'color 0.18s ease',
+        }}>{c.t}</h3>
+        <span style={{
+          fontFamily: 'var(--display)', fontSize: 36, fontWeight: 900,
+          color: ink, lineHeight: 1,
+          transform: c.side === 'R' ? 'none' : 'rotate(180deg)',
+          transition: 'color 0.18s ease',
+        }}>→</span>
+      </div>
+      <div style={{
+        fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.18em',
+        color: subColor, opacity: 0.78, textTransform: 'uppercase',
+        transition: 'color 0.18s ease',
+      }}>{c.sub}</div>
+    </button>
   );
 }
 
@@ -341,7 +393,7 @@ function DesktopBigType() {
   return (
     <section style={{
       background: C.ash, color: C.bone, position: 'relative',
-      padding: '0 0 56px', overflow: 'hidden',
+      padding: '0 0 88px', overflow: 'hidden',
     }}>
       <Stamp left="002 / 07" right="THE PROTOCOL" top="WHAT IT IS" />
 
@@ -425,7 +477,7 @@ function DesktopProductGrid() {
   return (
     <section id="tryon-section-product" style={{ background: C.void, color: C.bone, position: 'relative' }}>
       <Stamp left="003 / 07" right="COMPONENTS" top="THE BREAKDOWN" />
-      <div style={{ padding: '48px 32px 64px' }}>
+      <div style={{ padding: '72px 32px 88px' }}>
         <h2 style={{
           fontFamily: 'var(--display)', fontWeight: 900, margin: '0 0 36px',
           fontSize: 'clamp(48px, 7vw, 112px)', letterSpacing: '-0.05em', lineHeight: 0.84,
@@ -479,7 +531,7 @@ function DesktopProofBig() {
     <section style={{ background: C.ash, color: C.bone, position: 'relative', overflow: 'hidden' }}>
       <Stamp left="004 / 07" right="LIVE TRACTION" top="RAMIN STUDIOS · AMSTERDAM · 14 DAYS" />
       <div style={{
-        padding: '56px 32px',
+        padding: '88px 32px',
         display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 48, alignItems: 'center',
         position: 'relative',
       }}>
@@ -533,7 +585,7 @@ function DesktopCarbon() {
       <Stamp left="005 / 07" right="WASTE LEDGER" top="THE FOOTPRINT" />
       <SlitLight count={56} opacity={0.32} />
       <div style={{
-        padding: '56px 32px',
+        padding: '88px 32px',
         display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 56, alignItems: 'start',
         position: 'relative', zIndex: 2,
       }}>
@@ -608,7 +660,7 @@ function DesktopBehind() {
     <section id="tryon-section-brands" style={{ background: C.void, color: C.bone, position: 'relative' }}>
       <Stamp left="006 / 07" right="BEHIND THE LOGIN" top="THE CLOSET" />
       <div style={{
-        padding: '56px 32px',
+        padding: '88px 32px',
         display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 48, alignItems: 'start',
       }}>
         <div>
@@ -665,7 +717,7 @@ function DesktopCTA() {
     }}>
       <Stamp left="007 / 07" right="ENTER" top="START" />
       <SlitLight count={64} opacity={0.4} />
-      <div style={{ padding: '56px 32px 56px', position: 'relative', zIndex: 2 }}>
+      <div style={{ padding: '96px 32px 80px', position: 'relative', zIndex: 2 }}>
         <div style={{
           fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.4em',
           color: C.dim, textTransform: 'uppercase', textAlign: 'center', marginBottom: 16,
@@ -791,6 +843,7 @@ function DesktopCTA() {
 function MobileNav() {
   const C = useC();
   const router = useRouter();
+  const hidden = useSmartNav();
 
   const cap: React.CSSProperties = {
     background: C.bone === '#0A0A0A' ? 'rgba(245,243,239,0.82)' : 'rgba(10,10,10,0.74)',
@@ -805,6 +858,8 @@ function MobileNav() {
       position: 'sticky', top: 0, zIndex: 70,
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       padding: '10px 12px', pointerEvents: 'none',
+      transform: hidden ? 'translateY(-110%)' : 'translateY(0)',
+      transition: 'transform 0.28s cubic-bezier(0.4, 0.0, 0.2, 1)',
     }}>
       <div style={{
         ...cap, pointerEvents: 'auto',
