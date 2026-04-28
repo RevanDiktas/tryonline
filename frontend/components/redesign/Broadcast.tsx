@@ -185,7 +185,11 @@ function DesktopNav() {
   ];
 
   const goto = (id: string) => {
-    if (id === 'deck') return; // pitch deck is a separate standalone page
+    if (id === 'deck') {
+      // Pitch deck is a standalone horizontal slide deck; open in a new tab.
+      window.open('/pitch-deck.html', '_blank', 'noopener');
+      return;
+    }
     const el = document.getElementById(`tryon-section-${id}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };

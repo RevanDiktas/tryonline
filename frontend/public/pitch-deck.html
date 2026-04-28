@@ -1,0 +1,1434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>TRYON · Pitch Deck</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0A0A0A;
+    --paper: #FFFFFF;
+    --offwhite: #F5F5F5;
+    --ash: #86868B;
+    --hairline: rgba(0,0,0,0.09);
+    --hairline-dark: rgba(255,255,255,0.14);
+    --accent: #0A0A0A;
+    --display: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  /* On dark slides, the accent inverts to paper */
+  .slide.dark { --accent: #FFFFFF; }
+
+  html, body { margin: 0; background: #000; font-family: var(--display); }
+
+  /* ============ HORIZONTAL SCROLL DECK ============ */
+  .hscroll {
+    position: fixed;
+    inset: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    display: flex;
+    flex-direction: row;
+    background: #000;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    scroll-behavior: auto;
+  }
+  .hscroll::-webkit-scrollbar { display: none; }
+
+  /* Each slide: scaled-canvas of 1920×1080 fit to viewport height,
+     centered horizontally on a tile sized exactly to the scaled width. */
+  .hslide {
+    position: relative;
+    flex: 0 0 auto;
+    height: 100vh;
+    /* Width equals scaled 1920 → set by JS via --tile-w */
+    width: var(--tile-w, 100vw);
+    background: #000;
+    overflow: hidden;
+  }
+  .hslide .canvas {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 1920px;
+    height: 1080px;
+    transform-origin: center center;
+    transform: translate(-50%, -50%) scale(var(--scale, 1));
+    background: var(--paper);
+    will-change: transform;
+  }
+  .hslide .canvas > .slide {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* Progress bar */
+  .deck-progress {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: rgba(255,255,255,0.08);
+    z-index: 100;
+    pointer-events: none;
+  }
+  .deck-progress .fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0%;
+    background: #fff;
+    transition: width 80ms linear;
+  }
+
+  /* Slide-counter chip */
+  .deck-counter {
+    position: fixed;
+    right: 20px;
+    bottom: 16px;
+    z-index: 101;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.85);
+    background: rgba(10,10,10,0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 8px 12px;
+    pointer-events: none;
+    font-weight: 500;
+  }
+  .deck-counter .label {
+    color: rgba(255,255,255,0.55);
+    margin-left: 10px;
+  }
+
+  /* Hint chip on the very first frame */
+  .deck-hint {
+    position: fixed;
+    left: 20px;
+    bottom: 16px;
+    z-index: 101;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.85);
+    background: rgba(10,10,10,0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 8px 12px;
+    pointer-events: none;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: opacity 280ms ease;
+  }
+  .deck-hint.hide { opacity: 0; }
+  .deck-hint .arrow {
+    display: inline-block;
+    width: 26px;
+    height: 1px;
+    background: currentColor;
+    position: relative;
+  }
+  .deck-hint .arrow::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: -3px;
+    width: 7px;
+    height: 7px;
+    border-top: 1px solid currentColor;
+    border-right: 1px solid currentColor;
+    transform: rotate(45deg);
+  }
+
+  /* ============ REVEAL ANIMATIONS ============ */
+  /* All animatable bits start hidden, fade in when slide enters viewport */
+  .hslide:not(.in-view) [data-r] { opacity: 0; }
+  [data-r] {
+    transition: opacity 700ms cubic-bezier(.2,.7,.2,1),
+                transform 700ms cubic-bezier(.2,.7,.2,1),
+                clip-path 800ms cubic-bezier(.2,.7,.2,1);
+  }
+  /* Default: slight rise */
+  [data-r="rise"]   { transform: translateY(28px); }
+  [data-r="left"]   { transform: translateX(-32px); }
+  [data-r="right"]  { transform: translateX(32px); }
+  [data-r="fade"]   { transform: none; }
+  [data-r="reveal"] { clip-path: inset(0 100% 0 0); }
+  .hslide.in-view [data-r="rise"],
+  .hslide.in-view [data-r="left"],
+  .hslide.in-view [data-r="right"],
+  .hslide.in-view [data-r="fade"]   { transform: none; opacity: 1; }
+  .hslide.in-view [data-r="reveal"] { clip-path: inset(0 0 0 0); opacity: 1; }
+
+  /* Stagger via inline --d (delay in ms) */
+  [data-r] { transition-delay: var(--d, 0ms); }
+
+  /* Bar growth: animate via scaleX from 0 to 1 — keeps width intact, just stretches.
+     Transform-origin left so it grows from the left. */
+  .bar .fill { transform-origin: left center; transform: scaleX(0); transition: transform 1100ms cubic-bezier(.2,.7,.2,1); transition-delay: 200ms; }
+  .hslide.in-view .bar .fill { transform: scaleX(1); }
+
+  /* Animated count-up numbers — driven by JS, no transition needed here */
+  .countup { font-variant-numeric: tabular-nums; }
+
+  /* Avatar pulse on the FitPassport slide */
+  @keyframes tryonPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(10,10,10,0.0); }
+    50%      { box-shadow: 0 0 0 14px rgba(10,10,10,0.0); }
+  }
+
+  /* ============ MOBILE OVERRIDE ============ */
+  /* On portrait/narrow screens: switch to vertical scroll. */
+  @media (max-aspect-ratio: 1/1), (max-width: 768px) {
+    .hscroll {
+      flex-direction: column;
+      overflow-x: hidden;
+      overflow-y: auto;
+      scroll-snap-type: y mandatory;
+      -webkit-overflow-scrolling: touch;
+    }
+    .hslide {
+      width: 100vw !important;
+      height: auto;
+      flex: 0 0 auto;
+      scroll-snap-align: start;
+      scroll-snap-stop: always;
+    }
+    .hslide .canvas {
+      position: relative;
+      left: auto;
+      top: auto;
+      transform: scale(var(--scale-mobile, 1));
+      transform-origin: top left;
+      width: 1920px;
+      height: 1080px;
+      margin: 0;
+    }
+    /* Wrap each slide so margin collapses correctly with scaled canvas */
+    .hslide .stage-wrap {
+      width: 100vw;
+      /* height set by JS to scaled canvas height */
+      overflow: hidden;
+      position: relative;
+      background: var(--paper);
+    }
+    .deck-hint { display: none; }
+  }
+
+  /* ========== SHARED PRIMITIVES ========== */
+  .slide {
+    width: 100%;
+    height: 100%;
+    padding: 60px 80px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .slide.dark { background: var(--ink); color: #fff; }
+
+  /* Corner chrome */
+  .chrome {
+    position: absolute;
+    left: 80px;
+    right: 80px;
+    top: 60px;
+    bottom: 60px;
+    pointer-events: none;
+    display: flex;
+    justify-content: space-between;
+  }
+  .chrome .tl, .chrome .tr, .chrome .bl, .chrome .br {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ash);
+  }
+  .slide.dark .chrome .tl,
+  .slide.dark .chrome .tr,
+  .slide.dark .chrome .bl,
+  .slide.dark .chrome .br { color: rgba(255,255,255,0.45); }
+  .chrome-top { position: absolute; left: 80px; right: 80px; top: 60px; display: flex; justify-content: space-between; pointer-events: none; }
+  .chrome-bot { position: absolute; left: 80px; right: 80px; bottom: 60px; display: flex; justify-content: space-between; pointer-events: none; }
+  .mono {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ash);
+  }
+  .slide.dark .mono { color: rgba(255,255,255,0.5); }
+  .mono.orange { color: var(--accent); }
+
+  .hero {
+    font-family: var(--display);
+    font-weight: 900;
+    letter-spacing: -0.045em;
+    line-height: 0.88;
+    text-transform: uppercase;
+    font-feature-settings: "ss01" 1;
+  }
+  .sub {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 28px;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+    max-width: 1100px;
+  }
+  .hairline { height: 1px; background: var(--hairline); width: 100%; }
+  .slide.dark .hairline { background: var(--hairline-dark); }
+
+  /* ========== SLIDE 1, TITLE ========== */
+  .s-title { align-items: flex-start; justify-content: space-between; }
+  .s-title .wordmark {
+    font-size: 460px;
+    line-height: 0.78;
+    letter-spacing: -0.055em;
+    margin-top: auto;
+    margin-bottom: auto;
+  }
+  .s-title .dot {
+    display: inline-block;
+    width: 60px;
+    height: 60px;
+    background: var(--accent);
+    border-radius: 999px;
+    vertical-align: top;
+    margin-left: 18px;
+    transform: translateY(34px);
+  }
+
+  /* ========== GENERIC HEADER ========== */
+  .shead {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0;
+  }
+
+  /* ========== DATA SLIDE (giant number) ========== */
+  .bignum {
+    font-size: 380px;
+    font-weight: 900;
+    letter-spacing: -0.06em;
+    line-height: 0.82;
+  }
+  .bignum.accent { color: var(--accent); }
+
+  /* ========== FIT FAULT LINE ========== */
+  .reasons {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    margin-top: 60px;
+  }
+  .reason-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 260px;
+    align-items: baseline;
+    padding: 36px 0;
+    border-bottom: 1px solid var(--hairline-dark);
+    gap: 40px;
+  }
+  .reason-row .idx { font-family: var(--mono); font-size: 16px; letter-spacing: 0.14em; color: rgba(255,255,255,0.55); font-weight: 500; }
+  .reason-row .label { font-size: 44px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.05; }
+  .reason-row .pct { font-size: 52px; font-weight: 900; letter-spacing: -0.04em; text-align: right; font-variant-numeric: tabular-nums; }
+  .reason-row.accent .pct { color: #fff; }
+  .reason-row.accent .label { font-weight: 900; }
+  .reason-row.accent { border-bottom: 1px solid #fff; }
+
+  /* ========== WHY NOW ========== */
+  .why-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border-top: 1px solid var(--hairline-dark);
+    margin-top: 48px;
+  }
+  .why-cell {
+    padding: 44px 44px 44px 0;
+    border-bottom: 1px solid var(--hairline-dark);
+  }
+  .why-cell:nth-child(odd) { padding-right: 64px; border-right: 1px solid var(--hairline-dark); }
+  .why-cell:nth-child(even) { padding-left: 64px; }
+  .why-cell .idx { font-family: var(--mono); font-size: 13px; letter-spacing: 0.16em; color: rgba(255,255,255,0.45); font-weight: 500; margin-bottom: 16px; }
+  .why-cell .title { font-size: 34px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.05; margin-bottom: 14px; text-transform: uppercase; }
+  .why-cell .meta { font-family: var(--mono); font-size: 13px; letter-spacing: 0.12em; color: var(--accent); margin-bottom: 14px; font-weight: 500; }
+  .why-cell .desc { font-size: 20px; line-height: 1.4; color: rgba(255,255,255,0.78); font-weight: 400; max-width: 560px; }
+
+  /* ========== FULL BLEED IMAGE ========== */
+  .bleed {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+  .bleed img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .bleed.contain img { object-fit: contain; background: var(--ink); }
+  .overlay-label {
+    position: absolute;
+    top: 60px;
+    left: 80px;
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    font-weight: 500;
+    color: #fff;
+    text-transform: uppercase;
+    padding: 10px 16px;
+    background: rgba(10,10,10,0.85);
+    z-index: 5;
+  }
+  .overlay-caption {
+    position: absolute;
+    bottom: 60px;
+    left: 80px;
+    right: 80px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    z-index: 5;
+  }
+  .overlay-caption .big {
+    font-size: 40px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: #fff;
+    max-width: 900px;
+    line-height: 1.05;
+    text-shadow: 0 2px 24px rgba(0,0,0,0.4);
+  }
+  .overlay-caption .right {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    color: rgba(255,255,255,0.85);
+    text-transform: uppercase;
+  }
+
+  /* ========== PRODUCT SPLIT ========== */
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    flex: 1;
+    margin-top: 32px;
+    border-top: 1px solid var(--hairline);
+  }
+  .split > div { padding: 48px 48px 0 0; }
+  .split > div + div { padding: 48px 0 0 48px; border-left: 1px solid var(--hairline); }
+
+  /* ========== HOW IT WORKS (4 columns) ========== */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    flex: 1;
+    margin-top: 60px;
+    border-top: 1px solid var(--hairline);
+  }
+  .step {
+    padding: 44px 32px 44px 0;
+    border-right: 1px solid var(--hairline);
+    display: flex;
+    flex-direction: column;
+  }
+  .step:last-child { border-right: 0; padding-right: 0; }
+  .step + .step { padding-left: 32px; }
+  .step .idx { font-family: var(--mono); font-size: 13px; letter-spacing: 0.16em; color: var(--ash); font-weight: 500; margin-bottom: 28px; }
+  .step .lbl { font-size: 44px; font-weight: 900; letter-spacing: -0.03em; line-height: 0.95; text-transform: uppercase; margin-bottom: 24px; }
+  .step .desc { font-size: 19px; line-height: 1.4; color: #333; font-weight: 400; }
+  .step .ord { font-size: 80px; font-weight: 900; color: var(--offwhite); letter-spacing: -0.05em; margin-top: auto; line-height: 1; }
+  .step.accent .ord { color: var(--accent); }
+
+  /* ========== TRACTION ========== */
+  .readout {
+    font-family: var(--mono);
+    font-size: 22px;
+    line-height: 1.6;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .readout .row { display: grid; grid-template-columns: 320px 1fr 200px; padding: 12px 0; border-bottom: 1px dashed var(--hairline); }
+  .readout .row .lbl { color: var(--ash); letter-spacing: 0.1em; text-transform: uppercase; font-size: 13px; align-self: center; }
+  .readout .row .val { font-weight: 600; letter-spacing: -0.01em; }
+  .readout .row .tail { color: var(--ash); font-size: 13px; text-align: right; letter-spacing: 0.1em; text-transform: uppercase; align-self: center; }
+  .readout .row.accent { background: var(--ink); color: var(--paper); padding-left: 16px; padding-right: 16px; margin-left: -16px; margin-right: -16px; border-bottom: 1px dashed transparent; }
+  .readout .row.accent .lbl { color: rgba(255,255,255,0.6); }
+  .readout .row.accent .val { color: var(--paper); font-weight: 700; }
+  .readout .row.accent .tail { color: rgba(255,255,255,0.6); }
+
+  /* ========== IMPACT ========== */
+  .impact-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    margin-top: 40px;
+    border-top: 1px solid var(--hairline);
+    flex: 1;
+  }
+  .impact-cell {
+    padding: 48px 40px 40px 0;
+    border-right: 1px solid var(--hairline);
+    display: flex;
+    flex-direction: column;
+  }
+  .impact-cell:last-child { border-right: 0; }
+  .impact-cell + .impact-cell { padding-left: 40px; }
+  .impact-cell .k { font-family: var(--mono); font-size: 13px; letter-spacing: 0.14em; color: var(--ash); text-transform: uppercase; font-weight: 500; }
+  .impact-cell .v { font-size: 150px; font-weight: 900; letter-spacing: -0.05em; line-height: 0.9; margin-top: 20px; }
+  .impact-cell .u { font-size: 22px; font-weight: 500; color: var(--ash); margin-top: 16px; text-transform: uppercase; letter-spacing: 0.1em; font-family: var(--mono); }
+  .impact-cell .d { font-size: 20px; line-height: 1.4; color: #333; margin-top: auto; max-width: 360px; }
+  .impact-cell.accent { background: var(--ink); color: var(--paper); padding-left: 40px; padding-top: 48px; padding-right: 40px; border-right: 0; }
+  .impact-cell.accent .k { color: rgba(255,255,255,0.55); }
+  .impact-cell.accent .v { color: var(--paper); }
+  .impact-cell.accent .u { color: rgba(255,255,255,0.7); }
+  .impact-cell.accent .d { color: rgba(255,255,255,0.85); }
+
+  /* ========== MATRIX ========== */
+  .matrix {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 120px 1fr 1fr;
+    grid-template-rows: 60px 1fr 1fr;
+    margin-top: 40px;
+    position: relative;
+  }
+  .matrix .axis-y { font-family: var(--mono); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ash); writing-mode: vertical-rl; transform: rotate(180deg); grid-row: 2 / 4; grid-column: 1; align-self: center; justify-self: end; padding-right: 20px; }
+  .matrix .axis-x-label { font-family: var(--mono); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ash); align-self: center; padding-left: 20px; }
+  .matrix .q {
+    border-top: 1px solid var(--hairline);
+    border-left: 1px solid var(--hairline);
+    padding: 32px 28px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 0;
+  }
+  .matrix .q:last-child { border-right: 1px solid var(--hairline); }
+  .matrix .q-lbl { font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; color: var(--ash); text-transform: uppercase; font-weight: 500; }
+  .matrix .q-competitors { display: flex; flex-direction: column; gap: 12px; }
+  .matrix .q-competitors span { font-size: 22px; font-weight: 500; letter-spacing: -0.01em; color: #333; }
+  .matrix .q-competitors span.us { font-size: 44px; font-weight: 900; color: var(--paper); background: var(--ink); padding: 6px 14px; display: inline-block; letter-spacing: -0.035em; text-transform: uppercase; align-self: flex-start; }
+  .matrix .bottom { border-bottom: 1px solid var(--hairline); }
+
+  /* ========== ASK ========== */
+  .ask-hero {
+    font-size: 180px;
+    font-weight: 900;
+    line-height: 0.88;
+    letter-spacing: -0.055em;
+    text-transform: uppercase;
+  }
+  .ask-hero .dim { color: rgba(255,255,255,0.35); }
+  .ask-hero .on { color: var(--ink); background: #fff; padding: 0 18px; display: inline-block; line-height: 1.05; }
+
+  /* ========== THE FIT GRAPH ========== */
+  .bars {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    margin-top: 60px;
+    flex: 1;
+    justify-content: center;
+  }
+  .bar-row { display: grid; grid-template-columns: 360px 1fr 160px; gap: 28px; align-items: center; }
+  .bar-row .lbl { font-family: var(--mono); font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.85); font-weight: 500; }
+  .bar-row .bar { height: 36px; background: rgba(255,255,255,0.08); position: relative; }
+  .bar-row .fill { position: absolute; inset: 0 auto 0 0; background: rgba(255,255,255,0.55); }
+  .bar-row.accent .fill { background: #fff; }
+  .bar-row.accent .lbl { color: #fff; font-weight: 700; }
+  .bar-row .val { font-family: var(--mono); font-size: 14px; letter-spacing: 0.1em; text-align: right; color: rgba(255,255,255,0.7); font-weight: 500; }
+
+  /* ========== PRODUCT GALLERY (3-up) ========== */
+  .gallery3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 40px;
+    flex: 1;
+    min-height: 0;
+  }
+  .gallery3 .cell {
+    background: var(--offwhite);
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .gallery3 .cell img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+  }
+  .gallery3 .cell .tag {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #fff;
+    background: rgba(10,10,10,0.9);
+    padding: 8px 12px;
+    font-weight: 500;
+  }
+
+  /* ========== LOGO ========== */
+  .logo-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+  }
+  .logo-mark .i-dot {
+    display: inline-block;
+    width: 0.28em;
+    height: 0.28em;
+    background: currentColor;
+    border-radius: 50%;
+    transform: translateY(-0.7em);
+    margin-right: -0.12em;
+  }
+  .logo-mark .i-stem {
+    display: inline-block;
+    width: 0.09em;
+    height: 0.72em;
+    background: currentColor;
+    border-radius: 0;
+    vertical-align: top;
+    margin-right: 0.02em;
+  }
+
+  /* ========== HELPERS ========== */
+  .stack { display: flex; flex-direction: column; }
+  .grow { flex: 1; }
+  .fl-between { display: flex; justify-content: space-between; align-items: baseline; }
+  .gap-24 { gap: 24px; }
+  .gap-48 { gap: 48px; }
+  .mt-auto { margin-top: auto; }
+
+  /* ========== SECTION DIVIDER ========== */
+  .section-divider {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 60px 80px;
+  }
+  .section-divider .kicker { font-family: var(--mono); font-size: 15px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
+  .section-divider .huge {
+    font-size: 300px;
+    font-weight: 900;
+    letter-spacing: -0.055em;
+    line-height: 0.85;
+    text-transform: uppercase;
+  }
+
+</style>
+</head>
+<body>
+
+<div class="hscroll" id="hscroll">
+
+  <!-- ========== 01 · TITLE ========== -->
+  <div class="hslide" data-label="Title"><div class="stage-wrap"><div class="canvas"><div class="slide s-title">
+      <div class="chrome-top">
+        <div class="mono">TRYON / V2.1 · FIT INFRASTRUCTURE</div>
+        <div class="mono">2026 · INVESTOR / BRAND PILOT</div>
+      </div>
+
+      <div style="margin-top: 140px; margin-bottom: auto; display: flex; flex-direction: column; gap: 28px;">
+        <div class="mono" style="color: var(--accent);">[FIG. 01] · THE WORDMARK</div>
+        <img src="assets/tryon_wordmark_transparent.png?v=2" alt="TRYON" style="height: 360px; width: auto; display: block; margin-left: -30px;" />
+        <div class="sub" style="color: rgba(0,0,0,0.7); font-size: 32px; max-width: 1200px; margin-top: 24px;">
+          Fit infrastructure for fashion e‑commerce.<br>
+          Every garment a digital twin. Every shopper a fit passport.
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">PITCH DECK / TRYON.GLOBAL</div>
+        <div class="mono">01 / 14</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 02 · THE PROBLEM ========== -->
+  <div class="hslide" data-label="The Problem"><div class="stage-wrap"><div class="canvas"><div class="slide">
+      <div class="chrome-top">
+        <div class="mono">02 / 14 · THE PROBLEM</div>
+        <div class="mono">RETURNS</div>
+      </div>
+
+      <div style="margin-top: 180px;">
+        <div class="mono" style="margin-bottom: 40px;">GLOBAL FASHION E-COMMERCE RETURNS / 2024</div>
+        <div class="bignum accent countup" data-countup="218" data-prefix="$" data-suffix="B">$0B</div>
+        <div class="sub" style="margin-top: 48px; font-size: 40px; font-weight: 500; letter-spacing: -0.02em; max-width: 1300px;">
+          Lost every year to fashion returns.<br>
+          The majority are a fit problem, solvable before purchase.
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">SOURCE / RADIAL · INDUSTRY BENCHMARKS · 2024</div>
+        <div class="mono">ONLINE FASHION RETURN RATE ≈ 30%</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 03 · THE HIDDEN COST (CO₂) ========== -->
+  <div class="hslide" data-label="The Hidden Cost"><div class="stage-wrap"><div class="canvas"><div class="slide dark">
+      <div class="chrome-top">
+        <div class="mono">03 / 14 · THE HIDDEN COST</div>
+        <div class="mono">CARBON · WASTE · OVERPRODUCTION</div>
+      </div>
+
+      <div style="margin-top: 120px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 80px; flex: 1;">
+        <div style="display: flex; flex-direction: column; justify-content: center;">
+          <div class="hero" style="font-size: 160px; line-height: 0.92;">
+            EVERY<br>RETURN<br>HAS A<br><span style="color: var(--accent);">COST.</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0; justify-content: center;">
+          <div style="border-top: 1px solid var(--hairline-dark); padding: 36px 0;">
+            <div class="mono" style="color: rgba(255,255,255,0.5); margin-bottom: 16px;">[01] CARBON PER PARCEL</div>
+            <div style="font-size: 88px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">≈ 5 kg CO₂e</div>
+          </div>
+          <div style="border-top: 1px solid var(--hairline-dark); padding: 36px 0;">
+            <div class="mono" style="color: rgba(255,255,255,0.5); margin-bottom: 16px;">[02] LANDFILL / DESTROYED</div>
+            <div style="font-size: 88px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">25%+</div>
+          </div>
+          <div style="border-top: 1px solid var(--hairline-dark); border-bottom: 1px solid var(--hairline-dark); padding: 36px 0;">
+            <div class="mono" style="color: rgba(255,255,255,0.5); margin-bottom: 16px;">[03] OVERPRODUCTION · UNSOLD INVENTORY</div>
+            <div style="font-size: 88px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">30 – 40%</div>
+            <div style="font-size: 18px; font-weight: 400; line-height: 1.4; color: rgba(255,255,255,0.72); margin-top: 14px; max-width: 480px;">Of produced fashion inventory never sells at full price.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">SOURCES / OPTORO 2022 · MCKINSEY STATE OF FASHION 2024</div>
+        <div class="mono">[SYS / RETURNS → EMISSIONS]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 04 · WHY FIT BREAKS ========== -->
+  <div class="hslide" data-label="Why Fit Breaks"><div class="stage-wrap"><div class="canvas"><div class="slide dark">
+      <div class="chrome-top">
+        <div class="mono">04 / 14 · ROOT CAUSE</div>
+        <div class="mono">FIT IS THE FAULT LINE</div>
+      </div>
+
+      <div style="margin-top: 100px;">
+        <div class="hero" style="font-size: 140px;">
+          FIT IS THE<br>FAULT LINE<span style="color: var(--accent);">.</span>
+        </div>
+        <div class="sub" style="color: rgba(255,255,255,0.7); margin-top: 40px; font-size: 26px; max-width: 1100px;">
+          When shoppers return, this is why. Size charts ignore body shape. Photos ignore physics.
+        </div>
+      </div>
+
+      <div class="reasons" style="margin-top: 40px;">
+        <div class="reason-row accent" style="padding: 26px 0;">
+          <div class="idx">01</div>
+          <div class="label" style="font-size: 38px;">Wrong size / didn't fit</div>
+          <div class="pct" style="font-size: 46px;">45%</div>
+        </div>
+        <div class="reason-row" style="padding: 26px 0;">
+          <div class="idx">02</div>
+          <div class="label" style="font-size: 38px;">Didn't look as expected</div>
+          <div class="pct" style="font-size: 46px;">23%</div>
+        </div>
+        <div class="reason-row" style="padding: 26px 0;">
+          <div class="idx">03</div>
+          <div class="label" style="font-size: 38px;">Quality below expectation</div>
+          <div class="pct" style="font-size: 46px;">17%</div>
+        </div>
+        <div class="reason-row" style="padding: 26px 0;">
+          <div class="idx">04</div>
+          <div class="label" style="font-size: 38px;">Ordered multiple sizes ("bracketing")</div>
+          <div class="pct" style="font-size: 46px;">11%</div>
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">SOURCE / NARVAR · SHOPIFY · 2025 MERCHANT SURVEYS</div>
+        <div class="mono">[FIG. 04 / REASON BREAKDOWN]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 05 · WHY NOW ========== -->
+  <div class="hslide" data-label="Why Now"><div class="stage-wrap"><div class="canvas"><div class="slide dark">
+      <div class="chrome-top">
+        <div class="mono">05 / 14 · WHY NOW</div>
+        <div class="mono">REGULATORY + MARKET PRESSURE</div>
+      </div>
+
+      <div style="margin-top: 60px;">
+        <div class="hero" style="font-size: 120px;">THE WINDOW<br>IS OPEN<span style="color: var(--accent);">.</span></div>
+      </div>
+
+      <div class="why-grid">
+        <div class="why-cell">
+          <div class="idx">[01]</div>
+          <div class="meta">EU · 2027 – 2030</div>
+          <div class="title">Digital Product Passport</div>
+          <div class="desc">Every garment sold in the EU will carry a digital record. Fit + sizing data is the missing UX layer.</div>
+        </div>
+        <div class="why-cell">
+          <div class="idx">[02]</div>
+          <div class="meta">EU · 2024 ENACTED</div>
+          <div class="title">ESPR & Waste Directive</div>
+          <div class="desc">Destruction of unsold textiles banned. Return volume is now a direct P&amp;L and compliance risk.</div>
+        </div>
+        <div class="why-cell">
+          <div class="idx">[03]</div>
+          <div class="meta">RETAILER POLICY · 2023 – 25</div>
+          <div class="title">"Free returns" ends</div>
+          <div class="desc">Zara, H&amp;M, Uniqlo, Asos now charge for returns. Shoppers demand accuracy before purchase.</div>
+        </div>
+        <div class="why-cell">
+          <div class="idx">[04]</div>
+          <div class="meta">TECH · 2024 – 2026</div>
+          <div class="title">3D body + cloth sim, cheap</div>
+          <div class="desc">SMPL avatars and GPU-accelerated drape simulation finally fit in a browser session under $0.02.</div>
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">SOURCES / EUR-LEX · EC JRC · IHL 2024</div>
+        <div class="mono">[SYS / REGULATORY PRESSURE]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 06 · WHAT WE BUILT ========== -->
+  <div class="hslide" data-label="What We Built"><div class="stage-wrap"><div class="canvas"><div class="slide">
+      <div class="chrome-top">
+        <div class="mono">06 / 14 · SOLUTION</div>
+        <div class="mono">WHAT WE BUILT</div>
+      </div>
+
+      <div style="margin-top: 120px;">
+        <div class="hero" style="font-size: 160px;">
+          FIT,<br>BEFORE<br>PURCHASE<span style="color: var(--accent);">.</span>
+        </div>
+        <div class="sub" style="margin-top: 48px; font-size: 28px; max-width: 1100px;">
+          A browser widget that drops into any store. A pre‑made avatar, built once in 90 seconds. A 3D try‑on
+          with real garment physics. One fit passport, reusable across every brand.
+        </div>
+
+        <div style="margin-top: 80px; display: grid; grid-template-columns: 1fr 28px 1fr 28px 1fr 28px 1fr; align-items: center; max-width: 1600px;">
+          <div style="border: 1px solid var(--hairline); padding: 22px 24px; min-height: 72px; display: flex; flex-direction: column; justify-content: center;">
+            <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ash); font-weight: 500; margin-bottom: 10px;">[01]</div>
+            <div style="font-family: var(--display); font-size: 16px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink);">Widget Loads</div>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: center; color: var(--ink);"><svg width="28" height="10" viewBox="0 0 28 10" fill="none"><path d="M0 5 H26 M22 1 L26 5 L22 9" stroke="currentColor" stroke-width="1" fill="none"/></svg></div>
+          <div style="border: 1px solid var(--hairline); padding: 22px 24px; min-height: 72px; display: flex; flex-direction: column; justify-content: center;">
+            <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ash); font-weight: 500; margin-bottom: 10px;">[02]</div>
+            <div style="font-family: var(--display); font-size: 16px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink);">Avatar · 90s</div>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: center; color: var(--ink);"><svg width="28" height="10" viewBox="0 0 28 10" fill="none"><path d="M0 5 H26 M22 1 L26 5 L22 9" stroke="currentColor" stroke-width="1" fill="none"/></svg></div>
+          <div style="border: 1px solid var(--hairline); padding: 22px 24px; min-height: 72px; display: flex; flex-direction: column; justify-content: center;">
+            <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ash); font-weight: 500; margin-bottom: 10px;">[03]</div>
+            <div style="font-family: var(--display); font-size: 16px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink);">3D Try-On</div>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: center; color: var(--ink);"><svg width="28" height="10" viewBox="0 0 28 10" fill="none"><path d="M0 5 H26 M22 1 L26 5 L22 9" stroke="currentColor" stroke-width="1" fill="none"/></svg></div>
+          <div style="border: 1px solid var(--ink); background: var(--ink); color: var(--paper); padding: 22px 24px; min-height: 72px; display: flex; flex-direction: column; justify-content: center;">
+            <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(255,255,255,0.55); font-weight: 500; margin-bottom: 10px;">[04]</div>
+            <div style="font-family: var(--display); font-size: 16px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--paper);">Fit Passport</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">PRODUCT / TRYON WIDGET V2.1</div>
+        <div class="mono">[FIG. 06 / THE SYSTEM]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 07 · THE TRY-ON (product hero) ========== -->
+  <div class="hslide" data-label="The Try-On"><div class="stage-wrap"><div class="canvas"><div class="slide">
+      <div class="chrome-top">
+        <div class="mono">07 / 14 · LIVE TRY‑ON</div>
+        <div class="mono">ON THE PRODUCT PAGE</div>
+      </div>
+
+      <div style="margin-top: 100px; display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 64px; flex: 1; min-height: 0; align-items: stretch; padding-bottom: 40px;">
+        <div style="display: flex; flex-direction: column; justify-content: center;">
+          <div class="hero" style="font-size: 118px; line-height: 0.92;">
+            SHOPPER<br>SEES<br>THEMSELVES<span style="color: var(--accent);">.</span>
+          </div>
+          <div class="sub" style="margin-top: 36px; font-size: 24px; max-width: 560px;">
+            A 3D avatar, dressed in the real garment, opens directly on the product page, in
+            the brand's own shop. No app, no redirect, no measurement form.
+          </div>
+          <div class="sub" style="margin-top: 24px; font-size: 22px; max-width: 560px; color: #444;">
+            The shopper rotates, zooms, reads their best‑match size, and adds to cart with confidence.
+            The return is prevented before it is ever placed.
+          </div>
+        </div>
+
+        <div style="background: var(--ink); overflow: hidden; position: relative; display: flex; align-items: stretch; justify-content: stretch; border: 1px solid var(--ink);">
+          <img src="assets/analytics_fit.jpg" alt="3D try-on modal on the Ramin Studios product page" style="width: 100%; height: 100%; object-fit: cover; object-position: center; display: block;" />
+          <div style="position: absolute; top: 16px; left: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); background: #fff; padding: 8px 12px; font-weight: 500;">FIG. 07 / LIVE TRY‑ON · RAMIN · BOW ZIP‑UP</div>
+          <div style="position: absolute; bottom: 16px; right: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; background: var(--ink); padding: 8px 12px; font-weight: 500;">FIT MATCH → SIZE M</div>
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">PRODUCT / TRYON WIDGET · 3D BODY + GARMENT PHYSICS</div>
+        <div class="mono">[FIG. 07 / EMBEDDED IN STORE]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 08 · THE FIT PASSPORT ========== -->
+  <div class="hslide" data-label="The Fit Passport"><div class="stage-wrap"><div class="canvas"><div class="slide">
+      <div class="chrome-top">
+        <div class="mono">08 / 14 · THE FIT PASSPORT</div>
+        <div class="mono">ONE PROFILE · EVERY BRAND</div>
+      </div>
+
+      <div style="margin-top: 110px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 64px; flex: 1; min-height: 0; align-items: stretch;">
+        <div style="display: flex; flex-direction: column;">
+          <div class="hero" style="font-size: 110px;">
+            ONE AVATAR.<br>EVERY STORE<span style="color: var(--accent);">.</span>
+          </div>
+          <div class="sub" style="margin-top: 36px; font-size: 24px; max-width: 640px;">
+            Shoppers build their avatar once: height, chest, waist, hip, preferred fit.
+            Every TRYON‑enabled store reads the passport, recommends the right size, and learns from the result.
+          </div>
+
+          <div class="readout" style="margin-top: auto;">
+            <div class="row">
+              <div class="lbl">MEASUREMENTS / BODY</div>
+              <div class="val">10 DIMENSIONS</div>
+              <div class="tail">SMPL‑X</div>
+            </div>
+            <div class="row">
+              <div class="lbl">SETUP / TIME</div>
+              <div class="val">≈ 90 seconds</div>
+              <div class="tail">ONE‑TIME</div>
+            </div>
+            <div class="row accent">
+              <div class="lbl">REUSE / BRANDS</div>
+              <div class="val">UNLIMITED</div>
+              <div class="tail">PORTABLE</div>
+            </div>
+            <div class="row">
+              <div class="lbl">PRIVACY / DATA</div>
+              <div class="val">ENCRYPTED · NEVER SHARED</div>
+              <div class="tail">GDPR</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--offwhite); overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center;">
+          <img src="assets/shopper_wishlist.png" alt="Fit passport profile" style="width: 100%; height: 100%; object-fit: contain; object-position: center; background: #fff;" />
+          <div style="position: absolute; top: 20px; left: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; background: var(--ink); padding: 8px 12px; font-weight: 500;">FIG. 08 / PROFILE</div>
+        </div>
+      </div>
+
+      <div class="chrome-bot" style="margin-top: 40px;">
+        <div class="mono">PRODUCT / TRYON PROFILE V2.1</div>
+        <div class="mono">[SYS / PORTABLE FIT LAYER]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 09 · THE BRAND CONSOLE ========== -->
+  <div class="hslide" data-label="The Brand Console"><div class="stage-wrap"><div class="canvas"><div class="slide">
+      <div class="chrome-top">
+        <div class="mono">09 / 14 · THE BRAND CONSOLE</div>
+        <div class="mono">ROI · ATTRIBUTION · FUNNEL</div>
+      </div>
+
+      <div style="margin-top: 100px; display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 64px; flex: 1; min-height: 0; align-items: stretch; padding-bottom: 40px;">
+        <div style="display: flex; flex-direction: column; justify-content: center;">
+          <div class="hero" style="font-size: 104px; line-height: 0.92;">
+            BRANDS<br>SEE THE<br>FUNNEL<span style="color: var(--accent);">.</span>
+          </div>
+          <div class="sub" style="margin-top: 36px; font-size: 24px; max-width: 560px;">
+            Try‑on → size → cart → purchase. Every step is attributed, every drop‑off
+            is traceable to a SKU, a fit, a body type.
+          </div>
+
+          <div class="readout" style="margin-top: 40px;">
+            <div class="row">
+              <div class="lbl">WIDGET OPENS</div>
+              <div class="val">100</div>
+              <div class="tail">14 DAYS</div>
+            </div>
+            <div class="row">
+              <div class="lbl">TRY‑ON START</div>
+              <div class="val">94 · 94.0%</div>
+              <div class="tail">OPEN → TRYON</div>
+            </div>
+            <div class="row accent">
+              <div class="lbl">ADD‑TO‑CART</div>
+              <div class="val">34 · 36.2%</div>
+              <div class="tail">TRYON → ATC</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--offwhite); overflow: hidden; position: relative; display: flex; align-items: stretch; justify-content: stretch; border: 1px solid var(--hairline);">
+          <img src="assets/tryon_fit_match.png" alt="Brand console · live funnel + KPI grid" style="width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; background: #fff; filter: grayscale(1) contrast(1.05);" />
+          <div style="position: absolute; top: 16px; left: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; background: var(--ink); padding: 8px 12px; font-weight: 500; line-height: 1.5;">FIG. 09 / CONSOLE · 14D LIVE<br><span style="font-size: 9px; letter-spacing: 0.2em; color: rgba(255,255,255,0.75);">[PRE-LAUNCH BUFFER · PURCHASE FLOW OPENS Q2]</span></div>
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">PRODUCT / TRYON BRAND CONSOLE V2.1</div>
+        <div class="mono">[RAMIN STUDIOS · LIVE DATA]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 10 · FIT INTELLIGENCE ========== -->
+  <div class="hslide" data-label="Fit Intelligence"><div class="stage-wrap"><div class="canvas"><div class="slide">
+      <div class="chrome-top">
+        <div class="mono">10 / 14 · FIT INTELLIGENCE</div>
+        <div class="mono">BEYOND THE FUNNEL</div>
+      </div>
+
+      <div style="margin-top: 100px; display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 64px; flex: 1; min-height: 0; align-items: stretch; padding-bottom: 40px;">
+        <div style="display: flex; flex-direction: column; justify-content: center;">
+          <div class="hero" style="font-size: 118px; line-height: 0.92;">
+            WHICH<br>SKU IS<br>LYING<span style="color: var(--accent);">?</span>
+          </div>
+          <div class="sub" style="margin-top: 36px; font-size: 24px; max-width: 560px;">
+            Every try‑on feeds a per‑SKU fit‑confidence score. Brands see which garments run small,
+            which run large, which cause size‑downs, which destroy conversion.
+          </div>
+          <div class="sub" style="margin-top: 20px; font-size: 22px; max-width: 560px; color: #444;">
+            Pattern teams get a feedback loop they have never had.
+          </div>
+        </div>
+
+        <div style="background: var(--offwhite); overflow: hidden; position: relative; display: flex; align-items: stretch; justify-content: stretch; border: 1px solid var(--hairline);">
+          <img src="assets/analytics_funnel.jpg" alt="Per-SKU fit confidence bars with deviation + recommendation table" style="width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; background: #fff; filter: grayscale(1) contrast(1.05);" />
+          <div style="position: absolute; top: 16px; left: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; background: var(--ink); padding: 8px 12px; font-weight: 500;">FIG. 10 / PER‑SKU FIT CONFIDENCE</div>
+          <div style="position: absolute; bottom: 16px; right: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); background: #fff; padding: 8px 12px; font-weight: 500; border: 1px solid var(--hairline);">RS‑ZIP‑UP · 23.4% · SIZE‑DOWN 24×</div>
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">DATA / FIT INTELLIGENCE · PER‑SKU SIGNAL</div>
+        <div class="mono">[FIG. 10 / THE CULPRIT]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 11 · THE FIT GRAPH ========== -->
+  <div class="hslide" data-label="The Fit Graph"><div class="stage-wrap"><div class="canvas"><div class="slide dark">
+      <div class="chrome-top">
+        <div class="mono">11 / 14 · THE MOAT</div>
+        <div class="mono orange">[THE FIT GRAPH]</div>
+      </div>
+
+      <div style="margin-top: 60px;">
+        <div class="hero" style="font-size: 130px;">
+          A GRAPH<br>THAT COMPOUNDS<span style="color: var(--accent);">.</span>
+        </div>
+      </div>
+
+      <div style="margin-top: 48px; display: flex; justify-content: flex-end;">
+        <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: #86868B; font-weight: 500;">[BAR LENGTH = DATA COVERAGE · 2026-Q2]</div>
+      </div>
+      <div class="bars" style="margin-top: 16px;">
+        <div class="bar-row">
+          <div class="lbl">[01] PATTERN LAYER · CAD + GRADING</div>
+          <div class="bar"><div class="fill" style="width: 62%;"></div></div>
+          <div class="val">CLO3D / BROWZWEAR</div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl">[02] BODY LAYER · AVATARS + MEASUREMENTS</div>
+          <div class="bar"><div class="fill" style="width: 78%;"></div></div>
+          <div class="val">SMPL‑X · PER SHOPPER</div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl">[03] STRESS LAYER · DRAPE + FIT PHYSICS</div>
+          <div class="bar"><div class="fill" style="width: 88%;"></div></div>
+          <div class="val">GPU SIMULATION</div>
+        </div>
+        <div class="bar-row accent">
+          <div class="lbl">[04] RETURN LAYER · OUTCOMES + ACCEPT / REJECT</div>
+          <div class="bar"><div class="fill" style="width: 100%;"></div></div>
+          <div class="val">CLOSED LOOP</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 28px; margin-bottom: 24px;">
+        <div class="sub" style="color: rgba(255,255,255,0.8); font-size: 24px; max-width: 1400px;">
+          Every brand onboarded makes every prediction smarter. The graph is portable to the shopper, proprietary to us.
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">SYSTEM / THE FIT GRAPH</div>
+        <div class="mono">[DATA FLYWHEEL · 04 LAYERS]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 12 · TRACTION / LIVE ========== -->
+  <div class="hslide" data-label="Traction"><div class="stage-wrap"><div class="canvas"><div class="slide">
+      <div class="chrome-top">
+        <div class="mono">12 / 14 · TRACTION</div>
+        <div class="mono">LIVE IN MARKET</div>
+      </div>
+
+      <div style="margin-top: 80px; display: grid; grid-template-columns: 0.95fr 1.05fr; gap: 64px; flex: 1; min-height: 0; padding-bottom: 40px; align-items: stretch;">
+        <div style="display: flex; flex-direction: column;">
+          <div class="mono" style="margin-bottom: 24px;">[01] LIVE DEPLOYMENT · RAMIN STUDIOS · AMSTERDAM · DAY 1: 17 APR 2026</div>
+          <div class="hero" style="font-size: 240px; line-height: 0.82;" data-countup="94">0</div>
+          <div class="sub" style="margin-top: 24px; font-size: 24px; color: #333; max-width: 520px;">
+            Live try‑ons in the first fourteen days on Ramin Studios.<br>
+            94% widget‑to‑try‑on conversion.
+          </div>
+
+          <div class="readout" style="margin-top: auto;">
+            <div class="row">
+              <div class="lbl">WIDGET OPENS</div>
+              <div class="val">100</div>
+              <div class="tail">14 DAYS</div>
+            </div>
+            <div class="row accent">
+              <div class="lbl">TRY‑ONS STARTED</div>
+              <div class="val">94 · 94.0%</div>
+              <div class="tail">OPEN → TRYON</div>
+            </div>
+            <div class="row">
+              <div class="lbl">ADD‑TO‑CART</div>
+              <div class="val">34 · 36.2%</div>
+              <div class="tail">TRYON → ATC</div>
+            </div>
+            <div class="row" style="border-bottom: 0;">
+              <div class="lbl">SIZE‑UP / SIZE‑DOWN</div>
+              <div class="val">35% · 15%</div>
+              <div class="tail">SIZE SIGNALS</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--offwhite); overflow: hidden; position: relative; display: flex; align-items: stretch; justify-content: stretch; border: 1px solid var(--hairline);">
+          <img src="assets/tryon_signin.jpg" alt="Live fit intelligence, Ramin Studios, size distribution and acceptance" style="width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; background: #fff; filter: grayscale(1) contrast(1.05);" />
+          <div style="position: absolute; top: 16px; left: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; background: var(--ink); padding: 8px 12px; font-weight: 500;">FIG. 12 / RAMIN · FIT INTELLIGENCE · LIVE</div>
+          <div style="position: absolute; bottom: 16px; right: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); background: #fff; padding: 8px 12px; font-weight: 500; border: 1px solid var(--hairline);">SIZE‑UP 35% · SIZE‑DOWN 15% · 94 SESS</div>
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">CUSTOMER / RAMIN STUDIOS · AMSTERDAM</div>
+        <div class="mono">[TS : 17 APR 2026 · 14D WINDOW]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 13 · IMPACT + BUSINESS ========== -->
+  <div class="hslide" data-label="Impact & Model"><div class="stage-wrap"><div class="canvas"><div class="slide">
+      <div class="chrome-top">
+        <div class="mono">13 / 14 · IMPACT · BUSINESS</div>
+        <div class="mono">UNIT ECONOMICS OF PREVENTION</div>
+      </div>
+
+      <div style="margin-top: 80px;">
+        <div class="hero" style="font-size: 110px;">
+          ONE RETURN<br>PREVENTED<span style="color: var(--accent);">,</span><br>MANY WINS<span style="color: var(--accent);">.</span>
+        </div>
+      </div>
+
+      <div class="impact-grid">
+        <div class="impact-cell accent">
+          <div class="k">[01] CO₂e AVOIDED</div>
+          <div class="v">5 kg</div>
+          <div class="u">per return prevented</div>
+          <div class="d">Parcel, reverse logistics, warehousing, restock. Derived from Optoro 2022 baseline (24 Mt CO₂e).</div>
+        </div>
+        <div class="impact-cell">
+          <div class="k">[02] MARGIN RECOVERED</div>
+          <div class="v">€42</div>
+          <div class="u">avg. per prevented return</div>
+          <div class="d">Handling, re‑pack, markdown, and lost sale combined. Brand‑reported.</div>
+        </div>
+        <div class="impact-cell">
+          <div class="k">[03] MODEL</div>
+          <div class="v">B2B SaaS</div>
+          <div class="u">shoppers free · brands pay</div>
+          <div class="d">Shoppers try on and build one portable fit passport at no cost. Brands subscribe for the widget, analytics, and fit intelligence.</div>
+        </div>
+      </div>
+
+      <div class="chrome-bot" style="margin-top: 32px;">
+        <div class="mono">MODEL / B2B SAAS</div>
+        <div class="mono">[FIG. 13 / UNIT ECONOMICS]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 14 · THE ASK ========== -->
+  <div class="hslide" data-label="The Ask"><div class="stage-wrap"><div class="canvas"><div class="slide dark">
+      <div class="chrome-top">
+        <div class="mono">14 / 14 · THE ASK</div>
+        <div class="mono orange">PITCH · 2026</div>
+      </div>
+
+      <div style="margin-top: 40px; display: flex; align-items: center; gap: 48px;">
+        <img src="assets/tryon_wordmark_white.png?v=2" alt="TRYON" style="height: 96px; width: auto; display: block;" />
+        <div style="flex: 1; height: 1px; background: var(--hairline-dark);"></div>
+      </div>
+
+      <div style="margin-top: 40px;">
+        <div class="ask-hero" style="font-size: 92px; line-height: 1.02; letter-spacing: -0.04em;">
+          EVERY GARMENT <span class="dim">&nbsp;/&nbsp; DIGITAL TWIN.</span><br>
+          EVERY SHOPPER <span class="dim">&nbsp;/&nbsp; FIT PASSPORT.</span><br>
+          RETURNS <span class="on">DROP.</span> &nbsp;OVERPRODUCTION <span class="on">ENDS.</span>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px; margin-top: auto; padding-top: 40px; border-top: 1px solid var(--hairline-dark);">
+        <div>
+          <div class="mono" style="color: var(--accent); margin-bottom: 14px;">[01] THE ASK</div>
+          <div style="font-size: 22px; font-weight: 500; line-height: 1.35;">Pilot partnerships with 3 fashion brands. Investor + advisor introductions.</div>
+        </div>
+        <div>
+          <div class="mono" style="color: var(--accent); margin-bottom: 14px;">[02] TARGET IMPACT · 24 MONTHS</div>
+          <div style="font-size: 22px; font-weight: 500; line-height: 1.35;">Target: 1M try‑ons · 100k returns prevented · 500t CO₂e avoided.</div>
+        </div>
+        <div>
+          <div class="mono" style="color: var(--accent); margin-bottom: 14px;">[03] CONTACT</div>
+          <div style="font-family: var(--mono); font-size: 15px; letter-spacing: 0.08em; line-height: 1.8;">
+            REVAN DALDABAN · FOUNDER<br>
+            TRYON.GLOBAL<br>
+            <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="ce9c8b988f808e9a9c978180e08982818c8f82">[email&#160;protected]</a><br>
+            LINKEDIN.COM/IN/REVANDALDABAN
+          </div>
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">PITCH DECK / TRYON.GLOBAL</div>
+        <div class="mono">END · 14 / 14</div>
+      </div>
+    </div></div></div></div>
+
+</div>
+
+<div class="deck-progress" aria-hidden="true"><div class="fill" id="progFill"></div></div>
+<div class="deck-counter" id="deckCounter"><span id="curIdx">01</span> / 14<span class="label" id="curLabel">Title</span></div>
+<div class="deck-hint" id="deckHint"><span>Scroll</span><span class="arrow"></span></div>
+
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+(function () {
+  const DESIGN_W = 1920, DESIGN_H = 1080;
+  const hscroll = document.getElementById('hscroll');
+  const slides  = Array.from(document.querySelectorAll('.hslide'));
+  const progFill = document.getElementById('progFill');
+  const curIdx   = document.getElementById('curIdx');
+  const curLabel = document.getElementById('curLabel');
+  const hint     = document.getElementById('deckHint');
+
+  // Detect mobile/portrait via media query
+  const mqMobile = window.matchMedia('(max-aspect-ratio: 1/1), (max-width: 768px)');
+
+  function fit() {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const isMobile = mqMobile.matches;
+
+    slides.forEach(sl => {
+      if (isMobile) {
+        // mobile: scale by width, stack vertically
+        const s = vw / DESIGN_W;
+        const wrap = sl.querySelector('.stage-wrap');
+        sl.style.setProperty('--scale-mobile', s);
+        if (wrap) {
+          wrap.style.height = (DESIGN_H * s) + 'px';
+        }
+        sl.style.removeProperty('--tile-w');
+      } else {
+        // desktop: scale by height, side-by-side
+        const s = vh / DESIGN_H;
+        sl.style.setProperty('--scale', s);
+        sl.style.setProperty('--tile-w', (DESIGN_W * s) + 'px');
+        const wrap = sl.querySelector('.stage-wrap');
+        if (wrap) wrap.style.height = '';
+      }
+    });
+  }
+
+  // Wheel: vertical wheel becomes horizontal scroll on desktop
+  let isMobileNow = mqMobile.matches;
+  mqMobile.addEventListener('change', e => { isMobileNow = e.matches; fit(); });
+
+  function onWheel(e) {
+    if (isMobileNow) return; // let native vertical scroll work
+    // Only intercept when there is dominant vertical delta or horizontal trackpad
+    const dx = e.deltaX;
+    const dy = e.deltaY;
+    if (Math.abs(dy) > Math.abs(dx)) {
+      // Translate vertical to horizontal
+      hscroll.scrollLeft += dy;
+      e.preventDefault();
+    }
+    // Horizontal trackpad gestures: let browser pass dx through to scrollLeft naturally
+  }
+  window.addEventListener('wheel', onWheel, { passive: false });
+
+  // Keyboard navigation (desktop only)
+  window.addEventListener('keydown', (e) => {
+    if (isMobileNow) return;
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+      e.preventDefault();
+      const tile = slides[0].getBoundingClientRect().width;
+      hscroll.scrollBy({ left: tile, behavior: 'smooth' });
+    } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      e.preventDefault();
+      const tile = slides[0].getBoundingClientRect().width;
+      hscroll.scrollBy({ left: -tile, behavior: 'smooth' });
+    } else if (e.key === 'Home') {
+      hscroll.scrollTo({ left: 0, behavior: 'smooth' });
+    } else if (e.key === 'End') {
+      hscroll.scrollTo({ left: hscroll.scrollWidth, behavior: 'smooth' });
+    }
+  });
+
+  // Progress bar + active slide tracking
+  let hintHidden = false;
+  function updateProgress() {
+    let scrollMax, scrolled, idx, ratio;
+    if (isMobileNow) {
+      scrollMax = hscroll.scrollHeight - hscroll.clientHeight;
+      scrolled  = hscroll.scrollTop;
+    } else {
+      scrollMax = hscroll.scrollWidth - hscroll.clientWidth;
+      scrolled  = hscroll.scrollLeft;
+    }
+    ratio = scrollMax > 0 ? Math.max(0, Math.min(1, scrolled / scrollMax)) : 0;
+    progFill.style.width = (ratio * 100) + '%';
+
+    // Find active slide (whichever has center closest to viewport center)
+    const center = isMobileNow ? (hscroll.scrollTop + hscroll.clientHeight / 2)
+                               : (hscroll.scrollLeft + hscroll.clientWidth / 2);
+    let bestI = 0, bestD = Infinity;
+    slides.forEach((sl, i) => {
+      const c = isMobileNow ? (sl.offsetTop + sl.offsetHeight / 2)
+                            : (sl.offsetLeft + sl.offsetWidth / 2);
+      const d = Math.abs(center - c);
+      if (d < bestD) { bestD = d; bestI = i; }
+    });
+    idx = bestI;
+    curIdx.textContent = String(idx + 1).padStart(2, '0');
+    curLabel.textContent = slides[idx].dataset.label || '';
+
+    if (!hintHidden && scrolled > 40) {
+      hint.classList.add('hide');
+      hintHidden = true;
+    }
+  }
+  hscroll.addEventListener('scroll', () => { updateProgress(); checkInView(); }, { passive: true });
+
+  // Count-up: numbers tagged with data-countup="N" animate from 0 → N when slide enters view.
+  function runCountup(el) {
+    if (el.__counted) return;
+    el.__counted = true;
+    const target = parseFloat(el.dataset.countup);
+    const dur = parseInt(el.dataset.countupDur || '1400', 10);
+    const prefix = el.dataset.prefix || '';
+    const suffix = el.dataset.suffix || '';
+    const decimals = parseInt(el.dataset.decimals || '0', 10);
+    const t0 = performance.now();
+    function frame(t) {
+      const k = Math.min(1, (t - t0) / dur);
+      const e = 1 - Math.pow(1 - k, 3);
+      const v = target * e;
+      el.textContent = prefix + (decimals ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US')) + suffix;
+      if (k < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+  // Trigger count-ups when their slide enters view
+  function triggerCountups(slide) {
+    slide.querySelectorAll('[data-countup]').forEach(runCountup);
+  }
+
+  // Reveal-on-enter — manual check on scroll. More reliable than IO with custom roots.
+  function checkInView() {
+    const vRect = hscroll.getBoundingClientRect();
+    slides.forEach(sl => {
+      if (sl.classList.contains('in-view')) return;
+      const r = sl.getBoundingClientRect();
+      let visible;
+      if (isMobileNow) {
+        // Vertical: any portion of slide overlapping at least 30% with viewport height
+        const overlap = Math.max(0, Math.min(r.bottom, vRect.bottom) - Math.max(r.top, vRect.top));
+        visible = overlap / vRect.height > 0.3;
+      } else {
+        const overlap = Math.max(0, Math.min(r.right, vRect.right) - Math.max(r.left, vRect.left));
+        visible = overlap / vRect.width > 0.3;
+      }
+      if (visible) {
+        sl.classList.add('in-view');
+        triggerCountups(sl);
+      }
+    });
+  }
+
+  // Tag content blocks with data-r reveal types automatically — light-touch enhancement
+  // We only stagger heros, subs, and cell groups; everything else just fades in with the slide.
+  slides.forEach((sl, slideI) => {
+    const heros = sl.querySelectorAll('.hero, .bignum, .ask-hero, .wordmark');
+    heros.forEach((el) => { if (!el.hasAttribute('data-r')) el.setAttribute('data-r', 'rise'); });
+    const subs = sl.querySelectorAll('.sub');
+    subs.forEach((el, i) => { if (!el.hasAttribute('data-r')) { el.setAttribute('data-r', 'rise'); el.style.setProperty('--d', (180 + i * 90) + 'ms'); } });
+    // Stagger reasons / why cells / impact cells / steps
+    const groups = ['.reason-row', '.why-cell', '.impact-cell', '.step', '.bar-row', '.readout .row'];
+    groups.forEach(sel => {
+      sl.querySelectorAll(sel).forEach((el, i) => {
+        if (!el.hasAttribute('data-r')) { el.setAttribute('data-r', 'rise'); el.style.setProperty('--d', (200 + i * 90) + 'ms'); }
+      });
+    });
+    // Funnel-step boxes (slide 06)
+    sl.querySelectorAll('.slide [style*="border: 1px solid var(--hairline)"]').forEach((el, i) => {
+      if (!el.hasAttribute('data-r') && el.parentElement && el.parentElement.style.gridTemplateColumns) {
+        el.setAttribute('data-r', 'rise'); el.style.setProperty('--d', (160 + i * 80) + 'ms');
+      }
+    });
+  });
+
+  // Initial fit + progress
+  function init() {
+    fit();
+    updateProgress();
+    // Defer first-slide reveal so the initial paint shows the "before" state,
+    // letting transitions actually animate on first show.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (slides[0]) slides[0].classList.add('in-view');
+        checkInView();
+      });
+    });
+  }
+  window.addEventListener('resize', () => { fit(); updateProgress(); checkInView(); });
+  window.addEventListener('load', init);
+  init();
+})();
+</script>
+
+</body>
+</html>
