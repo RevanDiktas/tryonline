@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import { useIsMobile } from './useIsMobile';
 
 const PAL = {
@@ -227,13 +228,21 @@ function LedgerLine({ k, v }: { k: string; v: string }) {
 }
 
 function Wordmark({ darkBg }: { darkBg: boolean }) {
+  const router = useRouter();
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={darkBg ? '/redesign/wordmark-white.png' : '/redesign/wordmark.png'}
-      alt="TRYON"
-      style={{ height: 18, width: 'auto', display: 'block' }}
-    />
+    <button
+      type="button"
+      onClick={() => router.push('/')}
+      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
+      aria-label="TRYON home"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={darkBg ? '/redesign/wordmark-white.png' : '/redesign/wordmark.png'}
+        alt="TRYON"
+        style={{ height: 18, width: 'auto', display: 'block' }}
+      />
+    </button>
   );
 }
 
