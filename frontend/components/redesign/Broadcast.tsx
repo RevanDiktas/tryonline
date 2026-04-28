@@ -533,15 +533,17 @@ function DesktopProductGrid() {
                 <span style={{ color: C.dim }}>{it.n}</span>
               </div>
               <div style={{
-                aspectRatio: '4/5', background: C.steel, position: 'relative',
+                aspectRatio: '4/5', background: it.image ? '#ffffff' : C.steel,
+                position: 'relative',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                padding: it.image ? 24 : 0, boxSizing: 'border-box',
               }}>
                 {it.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={it.image}
                     alt={it.tag}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }}
                   />
                 ) : (
                   <>
@@ -1167,15 +1169,17 @@ function MobileComponents() {
                 <span style={{ color: C.dim }}>{it.n}</span>
               </div>
               <div style={{
-                aspectRatio: '4/5', background: C.steel, position: 'relative',
+                aspectRatio: '4/5', background: it.image ? '#ffffff' : C.steel,
+                position: 'relative',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                padding: it.image ? 12 : 0, boxSizing: 'border-box',
               }}>
                 {it.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={it.image}
                     alt={it.tag}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }}
                   />
                 ) : (
                   <>
