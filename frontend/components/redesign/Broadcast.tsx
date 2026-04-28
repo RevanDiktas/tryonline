@@ -116,23 +116,37 @@ function MobileStamp({ left, right }: { left: string; right: string }) {
   );
 }
 
-/* Hide-on-scroll-down, show-on-scroll-up smart-nav hook. */
+/* Apple-style smart-nav: always visible near the top; any upward scroll
+   instantly reveals; only hides after sustained downward scroll. */
 function useSmartNav() {
   const [hidden, setHidden] = useState(false);
   useEffect(() => {
     let lastY = window.scrollY;
+    let downAccum = 0;
     let raf = 0;
     const onScroll = () => {
       if (raf) return;
       raf = requestAnimationFrame(() => {
         const y = window.scrollY;
-        const delta = y - lastY;
-        // Always show when near the very top.
-        if (y < 80) setHidden(false);
-        else if (delta > 6) setHidden(true);   // scrolled down meaningfully
-        else if (delta < -6) setHidden(false); // scrolled up meaningfully
+        const dy = y - lastY;
         lastY = y;
         raf = 0;
+
+        // Within the top reveal zone, stay open and reset accumulator.
+        if (y < 100) {
+          downAccum = 0;
+          setHidden(false);
+          return;
+        }
+        // Any upward motion: show immediately and reset.
+        if (dy < 0) {
+          downAccum = 0;
+          setHidden(false);
+          return;
+        }
+        // Continued downward motion: accumulate; hide after a sustained run.
+        downAccum += dy;
+        if (downAccum > 60) setHidden(true);
       });
     };
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -199,12 +213,19 @@ function DesktopNav() {
         display: 'inline-flex', alignItems: 'center',
         gap: 22, padding: '10px 18px 10px 14px', borderRadius: 999,
       }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={C.bone === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-          alt="TRYON"
-          style={{ height: 22, width: 'auto', display: 'block' }}
-        />
+        <button
+          type="button"
+          onClick={() => router.push('/')}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
+          aria-label="TRYON home"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={C.bone === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
+            alt="TRYON"
+            style={{ height: 22, width: 'auto', display: 'block' }}
+          />
+        </button>
         <div style={{ width: 1, height: 18, background: C.faint }} />
         <div style={{ display: 'flex', gap: 18 }}>
           {items.map(it => {
@@ -866,12 +887,19 @@ function MobileNav() {
         display: 'inline-flex', alignItems: 'center', gap: 10,
         padding: '7px 11px', borderRadius: 999,
       }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={C.bone === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-          alt="TRYON"
-          style={{ height: 18, width: 'auto', display: 'block' }}
-        />
+        <button
+          type="button"
+          onClick={() => router.push('/')}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
+          aria-label="TRYON home"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={C.bone === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
+            alt="TRYON"
+            style={{ height: 18, width: 'auto', display: 'block' }}
+          />
+        </button>
       </div>
 
       <div style={{

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 
 const PAL = {
   light: {
@@ -45,6 +46,7 @@ export function FloatingNav({
   mobile?: boolean;
 }) {
   const C = useDashTheme();
+  const router = useRouter();
   const items: { key: DashTab; label: string }[] = [
     { key: 'profile', label: 'PROFILE' },
     { key: 'closet', label: mobile ? 'CLOSET' : 'MY CLOSET' },
@@ -73,12 +75,19 @@ export function FloatingNav({
         padding: mobile ? '7px 11px' : '10px 18px 10px 14px',
         borderRadius: 999,
       }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={dark ? '/redesign/wordmark-white.png' : '/redesign/wordmark.png'}
-          alt="TRYON"
-          style={{ height: mobile ? 18 : 22, width: 'auto', display: 'block' }}
-        />
+        <button
+          type="button"
+          onClick={() => router.push('/')}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
+          aria-label="TRYON home"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={dark ? '/redesign/wordmark-white.png' : '/redesign/wordmark.png'}
+            alt="TRYON"
+            style={{ height: mobile ? 18 : 22, width: 'auto', display: 'block' }}
+          />
+        </button>
         <div style={{ width: 1, height: mobile ? 14 : 18, background: C.faint }} />
         <div style={{ display: 'flex', gap: mobile ? 10 : 18 }}>
           {items.map(it => {

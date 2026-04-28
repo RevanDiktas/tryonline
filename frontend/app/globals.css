@@ -28,7 +28,10 @@
 html,
 body {
   max-width: 100vw;
-  overflow-x: hidden;
+  /* Use `clip` instead of `hidden` so descendant `position: sticky` works
+     (overflow-x: hidden on html/body forms a new containing block and
+     silently kills sticky positioning). */
+  overflow-x: clip;
   font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
