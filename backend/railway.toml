@@ -4,7 +4,12 @@
 
 [build]
 builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+# dockerfilePath intentionally NOT set: with rootDirectory=backend, Railway
+# resolves dockerfilePath from the REPO ROOT (not the rootDirectory), so
+# `dockerfilePath = "Dockerfile"` made it pick up the legacy /Dockerfile
+# that uses `COPY backend/...` paths which don't exist when the build
+# context is just `backend/`. Letting Railway auto-detect picks up
+# backend/Dockerfile, which uses `COPY . .` correctly.
 
 [deploy]
 startCommand = "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'"
