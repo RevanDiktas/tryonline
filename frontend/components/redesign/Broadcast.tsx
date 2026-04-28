@@ -247,25 +247,25 @@ function DesktopHero() {
     <section id="tryon-section-index" style={{
       background: `radial-gradient(ellipse at 50% 110%, ${C.iron} 0%, ${C.ash} 35%, ${C.void} 80%)`,
       color: C.bone, position: 'relative',
-      minHeight: '100vh', overflow: 'hidden',
-      padding: '120px 32px 0',
+      minHeight: 'min(100vh, 720px)', overflow: 'hidden',
+      padding: '56px 32px 0',
       display: 'flex', flexDirection: 'column',
     }}>
       <SlitLight count={72} opacity={0.65} />
 
       <div style={{
         position: 'relative', zIndex: 4,
-        marginTop: 'auto', marginBottom: 0, paddingBottom: 48,
+        marginTop: 'auto', marginBottom: 0, paddingBottom: 28,
       }}>
         <div style={{
           fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.4em',
           color: C.dim, textTransform: 'uppercase',
-          marginBottom: 32, textAlign: 'center',
+          marginBottom: 18, textAlign: 'center',
         }}>— A SINGLE PROTOCOL FOR FIT —</div>
 
         <h1 style={{
           fontFamily: 'var(--display)', fontWeight: 900,
-          fontSize: 'clamp(120px, 18vw, 280px)',
+          fontSize: 'clamp(72px, 11vw, 168px)',
           letterSpacing: '-0.055em', lineHeight: 0.86,
           margin: 0, textTransform: 'uppercase',
           textAlign: 'center', color: C.bone,
@@ -287,10 +287,10 @@ function DesktopHero() {
             key={c.t}
             onClick={() => router.push(c.href)}
             style={{
-              padding: '36px 36px 32px',
+              padding: '22px 28px 20px',
               borderRight: i === 0 ? `1px solid ${C.faint}` : 'none',
               display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-              gap: 24, minHeight: 168,
+              gap: 14, minHeight: 116,
               background: 'transparent', cursor: 'pointer', border: 'none',
               textAlign: c.side === 'R' ? 'right' : 'left',
               color: C.bone,
@@ -302,11 +302,11 @@ function DesktopHero() {
             }}>{c.tag}</div>
             <div style={{
               display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-              flexDirection: c.side === 'R' ? 'row-reverse' : 'row', gap: 24,
+              flexDirection: c.side === 'R' ? 'row-reverse' : 'row', gap: 16,
             }}>
               <h3 style={{
                 fontFamily: 'var(--display)', fontWeight: 900,
-                fontSize: 'clamp(40px, 5.4vw, 84px)', letterSpacing: '-0.04em',
+                fontSize: 'clamp(28px, 3.8vw, 56px)', letterSpacing: '-0.04em',
                 lineHeight: 0.92, margin: 0, color: C.bone,
                 textTransform: 'uppercase',
               }}>{c.t}</h3>
@@ -341,19 +341,19 @@ function DesktopBigType() {
   return (
     <section style={{
       background: C.ash, color: C.bone, position: 'relative',
-      padding: '120px 0 100px', overflow: 'hidden',
+      padding: '0 0 56px', overflow: 'hidden',
     }}>
       <Stamp left="002 / 07" right="THE PROTOCOL" top="WHAT IT IS" />
 
       <div style={{
         whiteSpace: 'nowrap',
         fontFamily: 'var(--display)',
-        fontSize: 'clamp(140px, 18vw, 280px)',
+        fontSize: 'clamp(80px, 12vw, 180px)',
         fontWeight: 900,
         letterSpacing: '-0.06em', lineHeight: 0.86,
         textTransform: 'uppercase',
         display: 'flex',
-        marginTop: 80, marginBottom: 80,
+        marginTop: 40, marginBottom: 40,
         animation: 'tryon-bigtype-marquee 12s linear infinite',
       }}>
         {[0, 1, 2, 3, 4, 5].map(i => phrase(i))}
@@ -371,10 +371,10 @@ function DesktopBigType() {
           { k: 'RETURNS', v: <><span>−</span><CountUp to={40} suffix="%" /></> },
         ].map((c, i) => (
           <div key={c.k} style={{
-            padding: '40px 28px',
+            padding: '24px 24px',
             borderRight: i < 2 ? `1px solid ${C.faint}` : 'none',
             display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-            gap: 28, minHeight: 180,
+            gap: 14, minHeight: 124,
           }}>
             <div style={{
               fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.4em',
@@ -382,7 +382,7 @@ function DesktopBigType() {
             }}>{c.k}</div>
             <div style={{
               fontFamily: 'var(--display)', fontWeight: 900,
-              fontSize: 'clamp(72px, 9vw, 132px)', letterSpacing: '-0.04em',
+              fontSize: 'clamp(48px, 6vw, 88px)', letterSpacing: '-0.04em',
               color: C.bone, lineHeight: 0.9,
             }}>{c.v}</div>
           </div>
@@ -399,14 +399,14 @@ function DesktopBigType() {
           { k: '003 / BUY', t: 'Confidence per SKU. Returns drop ~40%. Overproduction ends.' },
         ].map((c, i) => (
           <div key={c.k} style={{
-            padding: '36px 28px 0',
+            padding: '24px 24px 0',
             borderRight: i < 2 ? `1px solid ${C.faint}` : 'none',
           }}>
             <div style={{
               fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em',
-              color: C.dim, marginBottom: 14, textTransform: 'uppercase',
+              color: C.dim, marginBottom: 10, textTransform: 'uppercase',
             }}>{c.k}</div>
-            <p style={{ fontSize: 18, lineHeight: 1.45, margin: 0, color: C.bone, opacity: 0.92 }}>{c.t}</p>
+            <p style={{ fontSize: 14, lineHeight: 1.45, margin: 0, color: C.bone, opacity: 0.92 }}>{c.t}</p>
           </div>
         ))}
       </div>
@@ -425,10 +425,10 @@ function DesktopProductGrid() {
   return (
     <section id="tryon-section-product" style={{ background: C.void, color: C.bone, position: 'relative' }}>
       <Stamp left="003 / 07" right="COMPONENTS" top="THE BREAKDOWN" />
-      <div style={{ padding: '96px 32px 120px' }}>
+      <div style={{ padding: '48px 32px 64px' }}>
         <h2 style={{
-          fontFamily: 'var(--display)', fontWeight: 900, margin: '0 0 64px',
-          fontSize: 'clamp(72px, 10vw, 160px)', letterSpacing: '-0.05em', lineHeight: 0.84,
+          fontFamily: 'var(--display)', fontWeight: 900, margin: '0 0 36px',
+          fontSize: 'clamp(48px, 7vw, 112px)', letterSpacing: '-0.05em', lineHeight: 0.84,
           textTransform: 'uppercase', textAlign: 'center',
         }}>
           PRODUCT<br/>
@@ -479,21 +479,21 @@ function DesktopProofBig() {
     <section style={{ background: C.ash, color: C.bone, position: 'relative', overflow: 'hidden' }}>
       <Stamp left="004 / 07" right="LIVE TRACTION" top="RAMIN STUDIOS · AMSTERDAM · 14 DAYS" />
       <div style={{
-        padding: '120px 32px',
-        display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 64, alignItems: 'center',
+        padding: '56px 32px',
+        display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 48, alignItems: 'center',
         position: 'relative',
       }}>
         <SlitLight count={36} opacity={0.35} />
         <h2 style={{
           fontFamily: 'var(--display)', fontWeight: 900,
-          fontSize: 'clamp(220px, 30vw, 480px)',
+          fontSize: 'clamp(140px, 20vw, 320px)',
           letterSpacing: '-0.07em', lineHeight: 0.78, margin: 0,
           textTransform: 'uppercase', position: 'relative', zIndex: 2,
         }}>
           <CountUp to={94} duration={1800} /><span style={{ WebkitTextStroke: `3px ${C.bone}`, color: 'transparent' }}>%</span>
         </h2>
         <div style={{ position: 'relative', zIndex: 2 }}>
-          <p style={{ fontSize: 26, fontWeight: 600, lineHeight: 1.3, margin: '0 0 32px', letterSpacing: '-0.02em' }}>
+          <p style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.3, margin: '0 0 20px', letterSpacing: '-0.02em' }}>
             of widget opens convert to a try-on.<br/>
             <span style={{ color: C.dim }}>Live data. Last 14 days.</span>
           </p>
@@ -506,12 +506,12 @@ function DesktopProofBig() {
             ].map((row, i, arr) => (
               <div key={row.k} style={{
                 display: 'grid', gridTemplateColumns: '1fr 1fr',
-                padding: '16px 20px', alignItems: 'baseline',
+                padding: '10px 16px', alignItems: 'baseline',
                 borderBottom: i < arr.length - 1 ? `1px solid ${C.faint}` : 'none',
                 background: C.steel,
               }}>
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.32em', color: C.dim }}>{row.k}</span>
-                <span style={{ fontFamily: 'var(--display)', fontSize: 28, fontWeight: 800, letterSpacing: '-0.02em', textAlign: 'right', color: C.bone }}>{row.node}</span>
+                <span style={{ fontFamily: 'var(--display)', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', textAlign: 'right', color: C.bone }}>{row.node}</span>
               </div>
             ))}
           </div>
@@ -533,28 +533,28 @@ function DesktopCarbon() {
       <Stamp left="005 / 07" right="WASTE LEDGER" top="THE FOOTPRINT" />
       <SlitLight count={56} opacity={0.32} />
       <div style={{
-        padding: '120px 32px',
-        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 96, alignItems: 'start',
+        padding: '56px 32px',
+        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 56, alignItems: 'start',
         position: 'relative', zIndex: 2,
       }}>
         <div>
           <div style={{
             fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.4em',
-            color: C.dim, textTransform: 'uppercase', marginBottom: 24,
+            color: C.dim, textTransform: 'uppercase', marginBottom: 16,
           }}>— THE INDUSTRY&apos;S DIRTIEST SECRET —</div>
           <h2 style={{
             fontFamily: 'var(--display)', fontWeight: 900,
-            fontSize: 'clamp(72px, 9.5vw, 168px)', letterSpacing: '-0.05em',
-            lineHeight: 0.84, margin: '0 0 32px', textTransform: 'uppercase',
+            fontSize: 'clamp(48px, 6.5vw, 112px)', letterSpacing: '-0.05em',
+            lineHeight: 0.84, margin: '0 0 20px', textTransform: 'uppercase',
           }}>
             FIT IS A<br/>
             <span style={{ WebkitTextStroke: `2px ${C.bone}`, color: 'transparent' }}>CLIMATE</span><br/>
             PROBLEM.
           </h2>
-          <p style={{ fontSize: 19, lineHeight: 1.5, margin: '0 0 24px', color: C.bone, opacity: 0.88, maxWidth: 520 }}>
+          <p style={{ fontSize: 15, lineHeight: 1.5, margin: '0 0 14px', color: C.bone, opacity: 0.88, maxWidth: 520 }}>
             Online apparel returns over 30% of what ships. Most of that comes back because of fit. Most of that never gets resold.
           </p>
-          <p style={{ fontSize: 19, lineHeight: 1.5, margin: 0, color: C.bone, opacity: 0.88, maxWidth: 520 }}>
+          <p style={{ fontSize: 15, lineHeight: 1.5, margin: 0, color: C.bone, opacity: 0.88, maxWidth: 520 }}>
             TRYON kills the return before the order. Fewer trucks. Less plastic. Less polyester pulled out of the ground for stock that nobody wears.
           </p>
         </div>
@@ -571,23 +571,23 @@ function DesktopCarbon() {
           </div>
           {rows.map((r, i) => (
             <div key={r.k} style={{
-              padding: '28px 20px',
+              padding: '18px 20px',
               borderBottom: i < rows.length - 1 ? `1px solid ${C.faint}` : 'none',
             }}>
               <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4,
               }}>
                 <span style={{
                   fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em', color: C.dim,
                 }}>{r.k}</span>
                 <span style={{
-                  fontFamily: 'var(--display)', fontSize: 56, fontWeight: 900,
+                  fontFamily: 'var(--display)', fontSize: 36, fontWeight: 900,
                   letterSpacing: '-0.04em', color: C.bone, lineHeight: 1,
                 }}>
                   <span>−</span><CountUp to={r.v} decimals={r.decimals || 0} />{r.suffix}
                 </span>
               </div>
-              <div style={{ fontSize: 14, lineHeight: 1.4, color: C.bone, opacity: 0.7 }}>{r.sub}</div>
+              <div style={{ fontSize: 13, lineHeight: 1.4, color: C.bone, opacity: 0.7 }}>{r.sub}</div>
             </div>
           ))}
           <div style={{
@@ -608,19 +608,19 @@ function DesktopBehind() {
     <section id="tryon-section-brands" style={{ background: C.void, color: C.bone, position: 'relative' }}>
       <Stamp left="006 / 07" right="BEHIND THE LOGIN" top="THE CLOSET" />
       <div style={{
-        padding: '120px 32px',
-        display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 64, alignItems: 'start',
+        padding: '56px 32px',
+        display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 48, alignItems: 'start',
       }}>
         <div>
           <h2 style={{
             fontFamily: 'var(--display)', fontWeight: 900,
-            fontSize: 'clamp(56px, 7vw, 112px)', letterSpacing: '-0.04em',
-            lineHeight: 0.86, margin: '0 0 24px', textTransform: 'uppercase',
+            fontSize: 'clamp(40px, 5vw, 80px)', letterSpacing: '-0.04em',
+            lineHeight: 0.86, margin: '0 0 16px', textTransform: 'uppercase',
           }}>
             ONE LOGIN.<br/>
             <span style={{ WebkitTextStroke: `2px ${C.bone}`, color: 'transparent' }}>EVERY</span> BRAND.
           </h2>
-          <p style={{ fontSize: 18, lineHeight: 1.5, margin: 0, color: C.bone, opacity: 0.78, maxWidth: 440 }}>
+          <p style={{ fontSize: 14, lineHeight: 1.5, margin: 0, color: C.bone, opacity: 0.78, maxWidth: 440 }}>
             Free for shoppers. Forever. Your fit passport, your closet, every garment you&apos;ve ever tried, synced across every TRYON brand.
           </p>
         </div>
@@ -665,15 +665,15 @@ function DesktopCTA() {
     }}>
       <Stamp left="007 / 07" right="ENTER" top="START" />
       <SlitLight count={64} opacity={0.4} />
-      <div style={{ padding: '140px 32px 100px', position: 'relative', zIndex: 2 }}>
+      <div style={{ padding: '56px 32px 56px', position: 'relative', zIndex: 2 }}>
         <div style={{
           fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.4em',
-          color: C.dim, textTransform: 'uppercase', textAlign: 'center', marginBottom: 28,
+          color: C.dim, textTransform: 'uppercase', textAlign: 'center', marginBottom: 16,
         }}>— FREE FOREVER · NO MEASUREMENT FORM —</div>
 
         <h2 style={{
-          fontFamily: 'var(--display)', fontWeight: 900, margin: '0 0 20px',
-          fontSize: 'clamp(140px, 18vw, 320px)', letterSpacing: '-0.06em',
+          fontFamily: 'var(--display)', fontWeight: 900, margin: '0 0 14px',
+          fontSize: 'clamp(72px, 11vw, 200px)', letterSpacing: '-0.06em',
           lineHeight: 0.84, textAlign: 'center', textTransform: 'uppercase',
         }}>
           BUILD YOUR<br/>
@@ -681,8 +681,8 @@ function DesktopCTA() {
         </h2>
 
         <p style={{
-          textAlign: 'center', fontSize: 22, lineHeight: 1.4,
-          margin: '0 auto 56px', maxWidth: 620, color: C.dim, fontWeight: 500,
+          textAlign: 'center', fontSize: 16, lineHeight: 1.4,
+          margin: '0 auto 28px', maxWidth: 620, color: C.dim, fontWeight: 500,
         }}>
           90 seconds. 12 measurements. One avatar that wears every TRYON brand on Earth.
         </p>
@@ -717,8 +717,8 @@ function DesktopCTA() {
               onChange={(e) => setEmail(e.target.value)}
               style={{
                 background: 'transparent', border: 'none', outline: 'none',
-                padding: '28px 24px',
-                fontFamily: 'var(--display)', fontSize: 26, fontWeight: 600,
+                padding: '18px 20px',
+                fontFamily: 'var(--display)', fontSize: 18, fontWeight: 600,
                 letterSpacing: '-0.01em', color: C.cardInk,
               }}
             />
@@ -726,14 +726,14 @@ function DesktopCTA() {
               type="submit"
               style={{
                 background: C.cardInk, color: C.cardBg,
-                padding: '0 36px', minHeight: 80,
-                fontFamily: 'var(--mono)', fontSize: 12, letterSpacing: '0.32em',
+                padding: '0 28px', minHeight: 60,
+                fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.32em',
                 textTransform: 'uppercase', fontWeight: 800, border: 'none',
-                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
               }}
             >
               GET MY PASSPORT
-              <span style={{ fontSize: 18 }}>→</span>
+              <span style={{ fontSize: 16 }}>→</span>
             </button>
           </form>
           <div style={{
@@ -759,7 +759,7 @@ function DesktopCTA() {
         </div>
 
         <div style={{
-          marginTop: 32, textAlign: 'center',
+          marginTop: 20, textAlign: 'center',
           fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.32em',
           color: C.dim, textTransform: 'uppercase',
         }}>
@@ -777,10 +777,10 @@ function DesktopCTA() {
         </div>
 
         <div style={{
-          marginTop: 96,
+          marginTop: 56,
           fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.4em',
           color: C.dim, textTransform: 'uppercase', textAlign: 'center',
-          borderTop: `1px solid ${C.faint}`, paddingTop: 32,
+          borderTop: `1px solid ${C.faint}`, paddingTop: 20,
         }}>FIT FOLLOWS · TRYON · MMXXVI</div>
       </div>
     </section>

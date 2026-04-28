@@ -533,9 +533,9 @@ function DashboardPage() {
       {/* Profile tab — always mounted, hidden via display so the Three.js canvas survives switches */}
       <div style={{
         display: activeTab === 'profile' ? 'block' : 'none',
-        padding: mobile ? '24px 18px 32px' : '32px 32px 40px',
+        padding: mobile ? '16px 14px 24px' : '20px 24px 28px',
       }}>
-        <div style={{ display: 'grid', gap: mobile ? 18 : 24 }}>
+        <div style={{ display: 'grid', gap: mobile ? 12 : 16 }}>
           <PageHeading
             title={`Welcome back, ${(user.name || 'shopper').split(' ')[0]}.`}
             sub="Your Fit Passport is ready. Try on clothes from any brand."
@@ -545,12 +545,12 @@ function DashboardPage() {
           <div style={{
             display: 'grid',
             gridTemplateColumns: mobile ? '1fr' : '1fr 1.2fr',
-            gap: mobile ? 18 : 24,
+            gap: mobile ? 12 : 16,
           }}>
             <DashCard title="Your Avatar" padded={false}>
               <div style={{
                 background: BG, position: 'relative',
-                aspectRatio: '4/5', minHeight: 380,
+                aspectRatio: '4/5', minHeight: 240,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
                 <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
@@ -579,7 +579,7 @@ function DashboardPage() {
               }
             >
               <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14,
+                display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8,
               }}>
                 {MEASUREMENT_FIELDS.map((f) => (
                   <MeasureCellD
@@ -594,21 +594,21 @@ function DashboardPage() {
               </div>
 
               <div style={{
-                marginTop: 'auto', paddingTop: 22, borderTop: `1px solid ${FAINT}`,
+                marginTop: 'auto', paddingTop: 14, borderTop: `1px solid ${FAINT}`,
               }}>
                 <div style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8,
                 }}>
                   <div style={{
-                    fontFamily: 'var(--display)', fontSize: 12, color: DIM,
+                    fontFamily: 'var(--display)', fontSize: 11, color: DIM,
                     letterSpacing: '0.04em', textTransform: 'uppercase',
                   }}>Preferred fit</div>
                   <span style={{
-                    fontFamily: 'var(--display)', fontSize: 12, color: DIM,
+                    fontFamily: 'var(--display)', fontSize: 11, color: DIM,
                     letterSpacing: '-0.005em',
                   }}>Affects size recommendations</span>
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 6 }}>
                   {(['slim', 'regular', 'loose'] as const).map((fit) => (
                     <DashChipBtn
                       key={fit}
@@ -782,7 +782,7 @@ function DashboardPage() {
           <div style={{
             display: 'grid',
             gridTemplateColumns: mobile ? '1fr' : '1fr 1fr',
-            gap: mobile ? 18 : 24,
+            gap: mobile ? 12 : 16,
           }}>
             <DashCard title="Account information">
               <div style={{ display: 'grid', gap: 0 }}>

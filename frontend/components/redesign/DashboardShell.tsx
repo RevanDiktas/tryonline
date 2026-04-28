@@ -181,14 +181,14 @@ export function DashCard({
     }}>
       {(title || right) && (
         <div style={{
-          padding: '18px 22px',
+          padding: '12px 16px',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
           borderBottom: `1px solid ${C.faint}`,
           flex: '0 0 auto',
         }}>
           {title && (
             <span style={{
-              fontFamily: 'var(--display)', fontSize: 16, fontWeight: 700,
+              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700,
               color: C.ink, letterSpacing: '-0.01em',
             }}>{title}</span>
           )}
@@ -196,7 +196,7 @@ export function DashCard({
         </div>
       )}
       <div style={{
-        padding: padded ? '22px' : 0,
+        padding: padded ? '16px' : 0,
         flex: '1 1 auto', minHeight: 0,
         display: 'flex', flexDirection: 'column',
       }}>{children}</div>
@@ -268,11 +268,11 @@ export function DashChipBtn({
       onClick={onClick}
       disabled={disabled}
       style={{
-        padding: '8px 16px',
+        padding: '6px 12px',
         background: active ? C.accent : 'transparent',
         color: active ? C.accentInk : C.dim,
         border: `1px solid ${active ? C.accent : C.faint}`,
-        fontFamily: 'var(--display)', fontSize: 13, letterSpacing: '-0.005em',
+        fontFamily: 'var(--display)', fontSize: 12, letterSpacing: '-0.005em',
         fontWeight: active ? 700 : 500,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
@@ -294,12 +294,12 @@ export function MeasureCellD({
   return (
     <div style={{
       background: C.bg,
-      padding: '16px 16px',
-      display: 'flex', flexDirection: 'column', gap: 8,
+      padding: '10px 12px',
+      display: 'flex', flexDirection: 'column', gap: 4,
       border: `1px solid ${C.faint}`,
     }}>
       <span style={{
-        fontFamily: 'var(--display)', fontSize: 11, letterSpacing: '0.06em',
+        fontFamily: 'var(--display)', fontSize: 10, letterSpacing: '0.06em',
         color: C.dim, textTransform: 'uppercase', fontWeight: 500,
       }}>{label}</span>
       {editable && onChange ? (
@@ -310,26 +310,26 @@ export function MeasureCellD({
             onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
             style={{
               fontFamily: 'var(--display)', fontWeight: 700,
-              fontSize: 28, letterSpacing: '-0.025em',
+              fontSize: 20, letterSpacing: '-0.025em',
               color: C.ink, lineHeight: 1,
               background: 'transparent', border: 'none', outline: 'none',
-              width: 80,
+              width: 70,
             }}
           />
           <span style={{
-            fontFamily: 'var(--display)', fontSize: 13, fontWeight: 400, color: C.dim,
+            fontFamily: 'var(--display)', fontSize: 12, fontWeight: 400, color: C.dim,
             letterSpacing: '0.02em',
           }}>{unit}</span>
         </div>
       ) : (
         <span style={{
           fontFamily: 'var(--display)', fontWeight: 700,
-          fontSize: 28, letterSpacing: '-0.025em',
+          fontSize: 20, letterSpacing: '-0.025em',
           color: C.ink, lineHeight: 1,
         }}>
           {value}{' '}
           <span style={{
-            fontFamily: 'var(--display)', fontSize: 13, fontWeight: 400, color: C.dim,
+            fontFamily: 'var(--display)', fontSize: 12, fontWeight: 400, color: C.dim,
             letterSpacing: '0.02em',
           }}>{unit}</span>
         </span>
@@ -349,15 +349,15 @@ export function LedgerRow({
   return (
     <div style={{
       borderBottom: last ? 'none' : `1px solid ${C.faint}`,
-      padding: '14px 0',
-      display: 'grid', gridTemplateColumns: '140px 1fr', gap: 14, alignItems: 'baseline',
+      padding: '9px 0',
+      display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12, alignItems: 'baseline',
     }}>
       <span style={{
-        fontFamily: 'var(--display)', fontSize: 11, letterSpacing: '0.04em',
+        fontFamily: 'var(--display)', fontSize: 10, letterSpacing: '0.04em',
         color: C.dim, textTransform: 'uppercase',
       }}>{label}</span>
       <span style={{
-        fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+        fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
         color: C.ink, letterSpacing: '-0.005em',
       }}>{value}</span>
     </div>
@@ -376,11 +376,11 @@ export function PassportPill({
   return (
     <div style={{
       borderBottom: last ? 'none' : `1px solid ${C.faint}`,
-      padding: '12px 0',
-      display: 'grid', gridTemplateColumns: '24px 1fr', gap: 12, alignItems: 'flex-start',
+      padding: '8px 0',
+      display: 'grid', gridTemplateColumns: '22px 1fr', gap: 10, alignItems: 'flex-start',
     }}>
       <span style={{
-        width: 18, height: 18, borderRadius: '50%',
+        width: 16, height: 16, borderRadius: '50%',
         border: `1.5px solid ${done ? C.good : C.faint}`,
         background: 'transparent',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginTop: 2,
@@ -393,12 +393,12 @@ export function PassportPill({
       </span>
       <div>
         <div style={{
-          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+          fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
           color: C.ink, letterSpacing: '-0.005em',
         }}>{label}</div>
         <div style={{
-          fontFamily: 'var(--display)', fontSize: 12, color: C.dim,
-          marginTop: 2, letterSpacing: '-0.005em',
+          fontFamily: 'var(--display)', fontSize: 11, color: C.dim,
+          marginTop: 1, letterSpacing: '-0.005em',
         }}>{sub}</div>
       </div>
     </div>
@@ -461,12 +461,12 @@ export function PageHeading({
     <div>
       <h1 style={{
         fontFamily: 'var(--display)', fontWeight: 700,
-        fontSize: mobile ? 28 : 34, letterSpacing: '-0.025em',
+        fontSize: mobile ? 22 : 26, letterSpacing: '-0.025em',
         lineHeight: 1.05, margin: 0, color: C.ink,
       }}>{title}</h1>
       <p style={{
-        fontFamily: 'var(--display)', fontSize: 14,
-        color: C.dim, margin: '6px 0 0', letterSpacing: '-0.005em',
+        fontFamily: 'var(--display)', fontSize: 13,
+        color: C.dim, margin: '4px 0 0', letterSpacing: '-0.005em',
       }}>{sub}</p>
     </div>
   );
