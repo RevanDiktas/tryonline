@@ -862,8 +862,17 @@
     const TRYON_GARMENT_Z_PUSHBACK = -0.012;
 
     /**
-     * Same avatar + garment rigs should share origin in XZ; shifting by bbox center often slides the
-     * shell forward and shows wrists/heels. Only match feet on Y, keep X = 0, Z = pushback constant.
+     * Two GLB authoring conventions exist in the wild:
+     *   1) Body-sized: bbox is full-body height (~1.8m), with the actual cloth geometry placed
+     *      anatomically inside it (Ramin's tshirt). Aligning bottoms to avatar's feet lands the cloth
+     *      at the chest naturally.
+     *   2) Real-size: bbox is just the cloth (~25-80% of avatar height — a t-shirt is ~0.66m).
+     *      Aligning bottoms puts the hem at the avatar's feet, which is wrong.
+     *
+     * Detect by height ratio. Real-size garments anchor by category-specific anatomical landmark:
+     * tops/dresses/outerwear → garment top sits at neck-base (~0.86 of avatar height);
+     * bottoms → garment top sits at waist (~0.58).
+     * X stays 0 and Z stays pushback constant in both branches.
      */
     function alignStackedGarmentToAvatar(group, avatarRoot, garmentRoot) {
       if (!avatarRoot || !garmentRoot) return;
@@ -871,7 +880,21 @@
       const boxA = geometryWorldBounds(avatarRoot);
       const boxG = geometryWorldBounds(garmentRoot);
       if (boxA.isEmpty() || boxG.isEmpty()) return;
-      garmentRoot.position.set(0, boxA.min.y - boxG.min.y, TRYON_GARMENT_Z_PUSHBACK);
+
+      const avatarHeight = boxA.max.y - boxA.min.y;
+      const garmentHeight = boxG.max.y - boxG.min.y;
+
+      if (avatarHeight > 1e-6 && garmentHeight < avatarHeight * 0.8) {
+        // Real-size garment — anchor garment top to category landmark.
+        const cat = (typeof garmentCategory === 'string' ? garmentCategory : 'tops').toLowerCase();
+        const topRatio = cat === 'bottoms' ? 0.58 : 0.86;
+        const targetTopY = boxA.min.y + avatarHeight * topRatio;
+        garmentRoot.position.set(0, targetTopY - boxG.max.y, TRYON_GARMENT_Z_PUSHBACK);
+      } else {
+        // Body-sized garment — legacy bottom-align (Ramin behavior preserved).
+        garmentRoot.position.set(0, boxA.min.y - boxG.min.y, TRYON_GARMENT_Z_PUSHBACK);
+      }
+
       group.updateMatrixWorld(true);
     }
 
