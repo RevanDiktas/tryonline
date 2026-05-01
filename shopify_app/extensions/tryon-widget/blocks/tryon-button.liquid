@@ -15,7 +15,7 @@
   assign product_image_enc = product.featured_image | image_url: width: 400 | url_encode
   assign product_price_enc = product.price | money_without_currency | strip | url_encode
   assign brand_name_enc = shop.name | url_encode
-  assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&product_name=' | append: product_name_enc | append: '&product_image=' | append: product_image_enc | append: '&product_price=' | append: product_price_enc | append: '&brand_name=' | append: brand_name_enc | append: '&open=1&v=24'
+  assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&product_name=' | append: product_name_enc | append: '&product_image=' | append: product_image_enc | append: '&product_price=' | append: product_price_enc | append: '&brand_name=' | append: brand_name_enc | append: '&open=1&v=25'
 
   assign btn_bg = block.settings.button_background
   assign btn_fg = block.settings.button_text_color

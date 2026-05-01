@@ -840,6 +840,24 @@
       return box;
     }
 
+    /**
+     * Bind bbox Y from GLB is in arbitrary units. Avatar pipelines often use meters (~1.8) or millimeters (~1800);
+     * garment GLBs may be authored body-sized in meters (Ramin: ~1.8m bbox) or as the real garment in mm
+     * (e.g. a t-shirt at ~665mm). Per-root scaling assumes both meshes are body-sized in matching units —
+     * a real-size garment in mm gets scaled to body height (1.87m), dwarfing the avatar.
+     * Convert each bind height to meters first; downstream scale formula then anchors garment to its real size
+     * relative to the avatar's world height. (Restored from commit db24965, layered over per-root scaling.)
+     */
+    function normalizeBindHeightToMeters(raw) {
+      const h = Number(raw);
+      if (!isFinite(h) || h <= 0) return 0;
+      if (h >= 0.25 && h <= 6)  return h;        // already meters
+      if (h >= 40  && h <= 260) return h / 100;  // cm → m
+      if (h >= 800)             return h / 1000; // mm → m
+      if (h > 6    && h < 800)  return h / 1000; // assume mm
+      return h;
+    }
+
     /** Negative Z tucks garment slightly “into” the rig (away from typical front camera); meters in stack group space. */
     const TRYON_GARMENT_Z_PUSHBACK = -0.012;
 
@@ -2130,19 +2148,27 @@
         const rawG = Number(garmentRoot.userData.tryonBindHeight) || 0;
         const rawA = stackAvatar ? (Number(avatarCache.userData.tryonBindHeight) || 0) : 0;
         const rawRef = garmentRefBindHeightY() || rawG;
+        const hRefM = normalizeBindHeightToMeters(rawRef);
+        const hAM = normalizeBindHeightToMeters(rawA) || 1.8;
         group.scale.set(1, 1, 1);
-        const sG = rawRef > 1e-9 ? (1.8 / rawRef) * TRYON_GARMENT_CLEARANCE : TRYON_GARMENT_CLEARANCE;
         const sA = rawA > 1e-9 ? 1.8 / rawA : 1;
+        // Garment world size = its real-meter height relative to avatar's world (1.8m).
+        // (hRefM / hAM) preserves real garment-to-body proportion; *(1.8/rawRef) converts raw units to world.
+        const sG = (rawRef > 1e-9 && hRefM > 0)
+          ? ((hRefM / hAM) * 1.8 / rawRef) * TRYON_GARMENT_CLEARANCE
+          : TRYON_GARMENT_CLEARANCE;
         garmentRoot.scale.setScalar(sG);
         if (stackAvatar) avatarCache.scale.setScalar(sA);
         if (stackAvatar) alignStackedGarmentToAvatar(group, avatarCache, garmentRoot);
         garmentRoot.position.y += TRYON_GARMENT_Y_NUDGE_BY_SIZE[key] || 0;
         group.updateMatrixWorld(true);
-        console.log('[TryOn] Per-root scale: garment (1.8/refY prefer M)*clearance, avatar 1.8/rawAvatarY:', {
+        console.log('[TryOn] Per-root scale (unit-normalized):', {
           rawThisGarmentY: rawG,
           rawRefGarmentY: rawRef,
-          clearance: TRYON_GARMENT_CLEARANCE,
           rawAvatarY: stackAvatar ? rawA : null,
+          hRefMeters: Number(hRefM.toFixed(4)),
+          hAvatarMeters: stackAvatar ? Number(hAM.toFixed(4)) : null,
+          clearance: TRYON_GARMENT_CLEARANCE,
           scaleGarment: Number(sG.toFixed(6)),
           scaleAvatar: stackAvatar ? Number(sA.toFixed(6)) : null,
         });
