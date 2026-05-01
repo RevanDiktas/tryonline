@@ -15,7 +15,7 @@
   assign product_image_enc = product.featured_image | image_url: width: 400 | url_encode
   assign product_price_enc = product.price | money_without_currency | strip | url_encode
   assign brand_name_enc = shop.name | url_encode
-  assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&product_name=' | append: product_name_enc | append: '&product_image=' | append: product_image_enc | append: '&product_price=' | append: product_price_enc | append: '&brand_name=' | append: brand_name_enc | append: '&open=1&v=26'
+  assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&product_name=' | append: product_name_enc | append: '&product_image=' | append: product_image_enc | append: '&product_price=' | append: product_price_enc | append: '&brand_name=' | append: brand_name_enc | append: '&open=1&v=27'
 
   assign btn_bg = block.settings.button_background
   assign btn_fg = block.settings.button_text_color
@@ -189,6 +189,11 @@
       }
 
       btn.addEventListener('click', function() {
+        // Re-parent iframe + close button to <body> so position:fixed escapes any ancestor
+        // with transform/filter/will-change/contain (some Shopify themes apply these on the
+        // product info column, which traps fixed-position children inside the column box).
+        if (iframe.parentElement !== document.body) document.body.appendChild(iframe);
+        if (closeBtn && closeBtn.parentElement !== document.body) document.body.appendChild(closeBtn);
         iframe.src = src;
         iframe.style.display = 'block';
         if (closeBtn) closeBtn.style.display = 'block';
