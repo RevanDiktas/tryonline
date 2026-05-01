@@ -1467,7 +1467,18 @@
             m.polygonOffset = false;
           }
           if (typeof m.opacity === 'number' && m.opacity < 0.01) m.opacity = 1;
-          /* Do not force transparent=false: glTF logos often use BLEND or MASK; forcing opaque shows the texture’s RGB in “transparent” pixels as a white box (Don McCurdy viewer keeps alpha). */
+          /*
+           * Narrow opaque-flip: if the material has no alpha contribution at all (no alphaMap,
+           * full opacity, no alphaTest threshold) but transparent=true was set by the GLB import,
+           * the alpha pass + depthWrite handling lets body pixels bleed through as visible "skin".
+           * Force opaque only in this guarded case — preserves logo'd garments that legitimately
+           * use BLEND or MASK (which need transparent=true to discard alpha pixels).
+           */
+          var hasAlphaContribution = !!m.alphaMap || (typeof m.opacity === 'number' && m.opacity < 0.99) || (m.alphaTest && m.alphaTest > 0);
+          if (m.transparent && !hasAlphaContribution) {
+            m.transparent = false;
+            m.needsUpdate = true;
+          }
         });
       });
     }
@@ -2046,6 +2057,24 @@
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1;
       container.appendChild(renderer.domElement);
+
+      // WebGL resilience: if the GPU drops the context (driver hiccup, OS swap, tab backgrounding,
+      // or context-cap exhaustion in long testing sessions), reload the iframe document so the
+      // scene rebuilds from scratch instead of leaving the user with a blank canvas.
+      renderer.domElement.addEventListener('webglcontextlost', function (e) {
+        e.preventDefault();
+        console.warn('[TryOn] WebGL context lost — reloading viewer');
+        try { renderer.dispose(); } catch (_) {}
+        setTimeout(function () { try { window.location.reload(); } catch (_) {} }, 200);
+      }, false);
+      // Release GPU resources cleanly before tab close / iframe unload so the OS can reclaim them.
+      window.addEventListener('pagehide', function () {
+        try {
+          renderer.dispose();
+          var ext = renderer.getContext().getExtension('WEBGL_lose_context');
+          if (ext) ext.loseContext();
+        } catch (_) {}
+      });
 
       // Controls
       controls = new OrbitControls(camera, renderer.domElement);
