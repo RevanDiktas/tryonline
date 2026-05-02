@@ -782,8 +782,8 @@ function DashboardPage() {
             right={
               <span style={{
                 fontFamily: 'var(--display)', fontSize: 12,
-                color: dark ? '#7CFFA1' : '#1F6B3D', fontWeight: 600,
-              }}>● Active</span>
+                color: dark ? '#F2F1EC' : '#0A0A0A', fontWeight: 600,
+              }}>Active</span>
             }
           >
             <div style={{

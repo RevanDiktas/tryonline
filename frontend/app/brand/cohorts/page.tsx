@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
+import { SharedNav, NavLink } from '@/components/redesign/SharedNav';
 
 const PAL = {
   light: {
@@ -11,7 +12,6 @@ const PAL = {
     line: 'rgba(10,10,10,0.10)',
     cardBg: '#0A0A0A', cardInk: '#FAFAF8', cardMute: '#9A9A9A',
     cardLine: 'rgba(255,255,255,0.14)',
-    pos: '#1F6B3D', neg: '#8E1F1F',
   },
   dark: {
     bg: '#0A0A0A', surface: '#121212',
@@ -19,7 +19,6 @@ const PAL = {
     line: 'rgba(255,255,255,0.10)',
     cardBg: '#F2F1EC', cardInk: '#0A0A0A', cardMute: '#6E6E6E',
     cardLine: 'rgba(0,0,0,0.10)',
-    pos: '#7CFFA1', neg: '#FF7C7C',
   },
 };
 type Palette = typeof PAL.light;
@@ -66,72 +65,26 @@ const headingStyle = (px: string): React.CSSProperties => ({
   fontSize: px, letterSpacing: '-0.022em', lineHeight: 1.04, margin: 0,
 });
 
-const labelStyle: React.CSSProperties = {
-  fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600,
-  textTransform: 'none',
-};
-
-function Nav({ C }: { C: Palette }) {
-  const router = useRouter();
-  return (
-    <div style={{
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '20px 32px',
-      borderBottom: `1px solid ${C.line}`, background: C.bg,
-      position: 'sticky', top: 0, zIndex: 60,
-    }}>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 28 }}>
-        <button
-          type="button"
-          onClick={() => router.push('/brand')}
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
-          aria-label="Brand dashboard"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-            alt="TryOn"
-            style={{ height: 18, width: 'auto', display: 'block' }}
-          />
-        </button>
-        <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500 }}>
-          Cohort lift report
-        </div>
-      </div>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 14 }}>
-        <button
-          onClick={() => router.push('/brand')}
-          style={{
-            background: 'transparent', color: C.ink,
-            padding: '8px 14px', border: `1px solid ${C.line}`, borderRadius: 999,
-            fontFamily: 'var(--display)', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-          }}
-        >Back to dashboard</button>
-      </div>
-    </div>
-  );
-}
-
 function Hero({ C }: { C: Palette }) {
   return (
-    <section style={{ background: C.bg, color: C.ink, padding: '64px 32px 24px' }}>
+    <section style={{ background: C.bg, color: C.ink, padding: '48px 32px 24px', borderBottom: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <div style={{
-          fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500, marginBottom: 12,
+          fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500, marginBottom: 10,
         }}>
           Ramin Studios pilot, last 30 days
         </div>
         <h1 style={{
-          ...headingStyle('clamp(44px, 6vw, 88px)'),
-          maxWidth: 1100, marginBottom: 18,
+          ...headingStyle('clamp(36px, 5vw, 72px)'),
+          maxWidth: 1100, marginBottom: 14,
         }}>
           Virtual try-on lifted conversion <CountUp to={1.78} decimals={2} suffix="x" />.
         </h1>
         <p style={{
-          fontFamily: 'var(--display)', fontSize: 17, lineHeight: 1.55,
+          fontFamily: 'var(--display)', fontSize: 15, lineHeight: 1.55,
           color: C.mute, maxWidth: 720, margin: 0,
         }}>
-          Side-by-side comparison of shoppers who used the TryOn widget against the store baseline. Numbers are computed on the rolling 30-day window. Baselines are pulled from your Shopify Analytics.
+          Side-by-side comparison of shoppers who used the TryOn widget against the store baseline. Numbers are computed on the rolling 30-day window. Baselines pulled from your Shopify Analytics.
         </p>
       </div>
     </section>
@@ -140,44 +93,30 @@ function Hero({ C }: { C: Palette }) {
 
 function MetricGrid({ C }: { C: Palette }) {
   const metrics = [
-    {
-      label: 'Conversion rate',
-      tryon: 3.2, baseline: 1.8, suffix: '%', decimals: 1,
-      delta: '+78%', positive: true,
-    },
-    {
-      label: 'Average order value',
-      tryon: 47, baseline: 39, prefix: '€', decimals: 0,
-      delta: '+20%', positive: true,
-    },
-    {
-      label: 'Return rate',
-      tryon: 8, baseline: 12, suffix: '%', decimals: 0,
-      delta: '−33%', positive: true,
-    },
-    {
-      label: 'Fit confidence',
-      tryon: 82, suffix: '%', decimals: 0,
-      delta: 'Per-SKU avg', positive: null,
-    },
+    { label: 'Conversion rate', tryon: 3.2, baseline: 1.8, suffix: '%', decimals: 1, delta: '+78%' },
+    { label: 'Average order value', tryon: 47, baseline: 39, prefix: '€', decimals: 0, delta: '+20%' },
+    { label: 'Return rate', tryon: 8, baseline: 12, suffix: '%', decimals: 0, delta: '−33%' },
+    { label: 'Fit confidence', tryon: 82, suffix: '%', decimals: 0, delta: 'Per-SKU avg' },
   ];
   return (
-    <section style={{ background: C.bg, color: C.ink, padding: '24px 32px 64px' }}>
+    <section style={{ background: C.bg, color: C.ink, padding: '24px 32px 56px' }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <div style={{
           display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0,
-          border: `1px solid ${C.line}`, borderRadius: 14, overflow: 'hidden', background: C.surface,
+          border: `1px solid ${C.line}`, background: C.surface,
         }}>
           {metrics.map((m, i) => (
             <div key={m.label} style={{
               borderRight: i < metrics.length - 1 ? `1px solid ${C.line}` : 'none',
-              padding: '28px 24px',
-              display: 'flex', flexDirection: 'column', gap: 14,
+              padding: '24px 22px',
+              display: 'flex', flexDirection: 'column', gap: 12,
             }}>
-              <div style={{ ...labelStyle, color: C.mute }}>{m.label}</div>
+              <div style={{
+                fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600, color: C.mute,
+              }}>{m.label}</div>
 
               <div style={{
-                fontFamily: 'var(--display)', fontSize: 44, fontWeight: 700,
+                fontFamily: 'var(--display)', fontSize: 38, fontWeight: 700,
                 letterSpacing: '-0.025em', lineHeight: 1, color: C.ink,
               }}>
                 <CountUp to={m.tryon} prefix={m.prefix} suffix={m.suffix} decimals={m.decimals} />
@@ -185,10 +124,9 @@ function MetricGrid({ C }: { C: Palette }) {
 
               {m.baseline !== undefined ? (
                 <div style={{
-                  display: 'flex', alignItems: 'baseline', gap: 8,
                   fontFamily: 'var(--display)', fontSize: 13, color: C.mute,
                 }}>
-                  <span>vs {m.prefix || ''}{m.baseline.toFixed(m.decimals || 0)}{m.suffix || ''} baseline</span>
+                  vs {m.prefix || ''}{m.baseline.toFixed(m.decimals || 0)}{m.suffix || ''} baseline
                 </div>
               ) : (
                 <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
@@ -198,13 +136,10 @@ function MetricGrid({ C }: { C: Palette }) {
 
               <div style={{
                 marginTop: 'auto',
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
-                color: m.positive === true ? C.pos : (m.positive === false ? C.neg : C.ink),
-                padding: '4px 10px', borderRadius: 999,
-                border: `1px solid ${m.positive === true ? C.pos : (m.positive === false ? C.neg : C.line)}`,
+                fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600, color: C.ink,
+                padding: '4px 10px',
+                border: `1px solid ${C.ink}`,
                 alignSelf: 'flex-start',
-                background: 'transparent',
               }}>{m.delta}</div>
             </div>
           ))}
@@ -225,34 +160,34 @@ function Funnel({ C }: { C: Palette }) {
   const max = stages[0].v;
   return (
     <section style={{
-      background: C.surface, color: C.ink, padding: '64px 32px',
+      background: C.surface, color: C.ink, padding: '56px 32px',
       borderTop: `1px solid ${C.line}`,
     }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <h2 style={{ ...headingStyle('clamp(28px, 3.5vw, 44px)'), marginBottom: 24 }}>
+        <h2 style={{ ...headingStyle('clamp(28px, 3.5vw, 44px)'), marginBottom: 20 }}>
           Fit-to-purchase funnel.
         </h2>
         <div style={{
-          border: `1px solid ${C.line}`, borderRadius: 14, overflow: 'hidden', background: C.bg,
+          border: `1px solid ${C.line}`, background: C.bg,
         }}>
           {stages.map((s, i) => {
             const pct = (s.v / max) * 100;
             return (
               <div key={s.k} style={{
-                padding: '20px 24px',
+                padding: '16px 22px',
                 borderBottom: i < stages.length - 1 ? `1px solid ${C.line}` : 'none',
-                display: 'grid', gridTemplateColumns: '1.4fr 2fr 0.8fr', alignItems: 'center', gap: 24,
+                display: 'grid', gridTemplateColumns: '1.4fr 2fr 0.8fr', alignItems: 'center', gap: 22,
               }}>
                 <div>
                   <div style={{
-                    fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600, color: C.ink,
+                    fontFamily: 'var(--display)', fontSize: 14.5, fontWeight: 600, color: C.ink,
                   }}>{s.k}</div>
                   <div style={{
                     fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginTop: 2,
                   }}>{s.sub}</div>
                 </div>
                 <div style={{
-                  height: 14, borderRadius: 999, background: C.line, position: 'relative', overflow: 'hidden',
+                  height: 12, background: C.line, position: 'relative', overflow: 'hidden',
                 }}>
                   <div style={{
                     position: 'absolute', left: 0, top: 0, bottom: 0,
@@ -261,7 +196,7 @@ function Funnel({ C }: { C: Palette }) {
                 </div>
                 <div style={{
                   textAlign: 'right',
-                  fontFamily: 'var(--display)', fontSize: 22, fontWeight: 700, color: C.ink,
+                  fontFamily: 'var(--display)', fontSize: 20, fontWeight: 700, color: C.ink,
                   letterSpacing: '-0.02em',
                 }}>
                   <CountUp to={s.v} />
@@ -286,11 +221,11 @@ function Dwell({ C }: { C: Palette }) {
   const max = Math.max(...buckets.map(b => b.count));
   return (
     <section style={{
-      background: C.bg, color: C.ink, padding: '64px 32px',
+      background: C.bg, color: C.ink, padding: '56px 32px',
       borderTop: `1px solid ${C.line}`,
     }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 20 }}>
           <h2 style={{ ...headingStyle('clamp(28px, 3.5vw, 44px)'), margin: 0 }}>
             Dwell time.
           </h2>
@@ -299,22 +234,22 @@ function Dwell({ C }: { C: Palette }) {
           </div>
         </div>
         <div style={{
-          border: `1px solid ${C.line}`, borderRadius: 14, padding: 28, background: C.surface,
-          display: 'flex', alignItems: 'flex-end', gap: 20, height: 220,
+          border: `1px solid ${C.line}`, padding: 24, background: C.surface,
+          display: 'flex', alignItems: 'flex-end', gap: 18, height: 200,
         }}>
           {buckets.map(b => {
-            const h = Math.round((b.count / max) * 160);
+            const h = Math.round((b.count / max) * 144);
             return (
               <div key={b.range} style={{
                 flex: 1,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
               }}>
                 <div style={{
                   fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600, color: C.ink,
                 }}>{b.count}</div>
                 <div style={{
                   width: '100%', height: h,
-                  background: C.ink, borderRadius: '6px 6px 2px 2px',
+                  background: C.ink,
                   transition: 'height 0.6s ease',
                 }} />
                 <div style={{
@@ -339,21 +274,18 @@ function TopProducts({ C }: { C: Palette }) {
   ];
   return (
     <section style={{
-      background: C.surface, color: C.ink, padding: '64px 32px',
+      background: C.surface, color: C.ink, padding: '56px 32px',
       borderTop: `1px solid ${C.line}`,
     }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <h2 style={{ ...headingStyle('clamp(28px, 3.5vw, 44px)'), marginBottom: 24 }}>
+        <h2 style={{ ...headingStyle('clamp(28px, 3.5vw, 44px)'), marginBottom: 20 }}>
           Top products by try-on volume.
         </h2>
-        <div style={{
-          border: `1px solid ${C.line}`, borderRadius: 14, overflow: 'hidden', background: C.bg,
-        }}>
+        <div style={{ border: `1px solid ${C.line}`, background: C.bg }}>
           <div style={{
-            padding: '14px 24px',
-            borderBottom: `1px solid ${C.line}`,
-            display: 'grid', gridTemplateColumns: '1.6fr 0.6fr 0.6fr 0.6fr', gap: 24,
-            ...labelStyle, color: C.mute,
+            padding: '12px 22px', borderBottom: `1px solid ${C.line}`,
+            display: 'grid', gridTemplateColumns: '1.6fr 0.6fr 0.6fr 0.6fr', gap: 22,
+            fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600, color: C.mute,
           }}>
             <span>Product</span>
             <span style={{ textAlign: 'right' }}>Try-ons</span>
@@ -362,9 +294,9 @@ function TopProducts({ C }: { C: Palette }) {
           </div>
           {rows.map((r, i) => (
             <div key={r.name} style={{
-              padding: '16px 24px',
+              padding: '14px 22px',
               borderBottom: i < rows.length - 1 ? `1px solid ${C.line}` : 'none',
-              display: 'grid', gridTemplateColumns: '1.6fr 0.6fr 0.6fr 0.6fr', gap: 24, alignItems: 'center',
+              display: 'grid', gridTemplateColumns: '1.6fr 0.6fr 0.6fr 0.6fr', gap: 22, alignItems: 'center',
             }}>
               <div style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 500 }}>
                 {r.name}
@@ -376,7 +308,7 @@ function TopProducts({ C }: { C: Palette }) {
                 {r.conv}%
               </div>
               <div style={{
-                fontFamily: 'var(--display)', fontSize: 14, color: C.pos, fontWeight: 600,
+                fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 600,
                 textAlign: 'right',
               }}>{r.lift}</div>
             </div>
@@ -389,7 +321,7 @@ function TopProducts({ C }: { C: Palette }) {
 
 function Footnote({ C }: { C: Palette }) {
   return (
-    <section style={{ background: C.bg, color: C.mute, padding: '32px 32px 56px', borderTop: `1px solid ${C.line}` }}>
+    <section style={{ background: C.bg, color: C.mute, padding: '28px 32px 44px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <p style={{ fontFamily: 'var(--display)', fontSize: 12, lineHeight: 1.6, margin: 0 }}>
           Ramin Studios pilot data, 2026-04-17 to 2026-05-02. Baselines: McKinsey State of Fashion 2025 (industry conversion), Shopify Plus Apparel benchmark 2024 (AOV), Coresight 2024 (apparel return rate). Fit confidence is the per-SKU average from our recommendation engine. Numbers refresh hourly when the brand dashboard is connected to Shopify Analytics.
@@ -403,12 +335,27 @@ export default function CohortsPage() {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const C = dark ? PAL.dark : PAL.light;
+  const router = useRouter();
+
+  const links = [
+    { label: 'Overview', onClick: () => router.push('/brand') },
+    { label: 'Cohorts', onClick: () => router.push('/brand/cohorts'), active: true },
+    { label: 'Garments', onClick: () => router.push('/brand/garments') },
+  ];
+
   return (
     <div className="tryon-redesign-root" style={{
       width: '100%', minHeight: '100vh',
       background: C.bg, color: C.ink, position: 'relative',
     }}>
-      <Nav C={C} />
+      <SharedNav
+        dark={dark}
+        homeHref="/brand"
+        links={links}
+        rightSlot={
+          <NavLink dark={dark} label="Back to dashboard" href="/brand" />
+        }
+      />
       <Hero C={C} />
       <MetricGrid C={C} />
       <Funnel C={C} />

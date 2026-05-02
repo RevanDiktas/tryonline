@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
+import { SharedNav, NavLink, NavCta } from '@/components/redesign/SharedNav';
 
 const PAL = {
   light: {
@@ -35,56 +36,6 @@ const mockPassport = {
   measurements: { chest: 98, waist: 78, hips: 92 },
 };
 
-function Nav({ C }: { C: Palette }) {
-  const router = useRouter();
-  return (
-    <div style={{
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '20px 32px',
-      borderBottom: `1px solid ${C.line}`,
-      background: C.bg,
-      position: 'sticky', top: 0, zIndex: 60,
-    }}>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 28 }}>
-        <button
-          type="button"
-          onClick={() => router.push('/')}
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
-          aria-label="TryOn home"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-            alt="TryOn"
-            style={{ height: 18, width: 'auto', display: 'block' }}
-          />
-        </button>
-        <div style={{
-          fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500,
-        }}>Demo</div>
-      </div>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 18 }}>
-        <button
-          onClick={() => router.push('/pricing')}
-          style={{
-            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-            fontFamily: 'var(--display)', fontSize: 14, color: C.mute, fontWeight: 500,
-          }}
-        >Pricing</button>
-        <button
-          onClick={() => router.push('/signup?type=brand')}
-          style={{
-            padding: '9px 16px',
-            background: C.ink, color: C.bg, border: 'none',
-            fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            borderRadius: 999,
-          }}
-        >Start free →</button>
-      </div>
-    </div>
-  );
-}
-
 function ProductPanel({ C, onTryOn }: { C: Palette; onTryOn: () => void }) {
   return (
     <div style={{
@@ -96,13 +47,13 @@ function ProductPanel({ C, onTryOn }: { C: Palette; onTryOn: () => void }) {
     }}>
       <div style={{
         fontFamily: 'var(--display)', fontSize: 12, color: C.mute, fontWeight: 600,
-        letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12,
-      }}>Nude Project</div>
+        letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12,
+      }}>Originals</div>
       <h1 style={{
-        fontFamily: 'var(--display)', fontSize: 28, fontWeight: 700,
+        fontFamily: 'var(--display)', fontSize: 30, fontWeight: 700,
         letterSpacing: '-0.02em', lineHeight: 1.15, margin: '0 0 12px',
         color: C.ink,
-      }}>NPC Oversized T-shirt</h1>
+      }}>Black T-shirt</h1>
       <div style={{
         fontFamily: 'var(--display)', fontSize: 22, fontWeight: 500,
         color: C.ink, marginBottom: 32,
@@ -112,9 +63,9 @@ function ProductPanel({ C, onTryOn }: { C: Palette; onTryOn: () => void }) {
         onClick={onTryOn}
         style={{
           background: C.ink, color: C.bg,
-          padding: '16px 22px', border: 'none', borderRadius: 999,
-          fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600, cursor: 'pointer',
-          marginBottom: 12,
+          padding: '15px 22px', border: 'none', borderRadius: 0,
+          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          marginBottom: 10,
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
         }}
       >Try on <span>→</span></button>
@@ -122,29 +73,21 @@ function ProductPanel({ C, onTryOn }: { C: Palette; onTryOn: () => void }) {
       <button
         style={{
           background: 'transparent', color: C.ink,
-          padding: '15px 22px', border: `1px solid ${C.ink}`, borderRadius: 999,
-          fontFamily: 'var(--display)', fontSize: 15, fontWeight: 500, cursor: 'pointer',
+          padding: '14px 22px', border: `1px solid ${C.ink}`, borderRadius: 0,
+          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500, cursor: 'pointer',
         }}
       >Add to cart</button>
 
       <div style={{
         marginTop: 28, padding: '14px 16px',
-        border: `1px solid ${C.line}`, borderRadius: 12,
-        background: C.surface,
-        display: 'flex', alignItems: 'center', gap: 12,
+        border: `1px solid ${C.line}`, background: C.surface,
       }}>
-        <span style={{
-          width: 8, height: 8, borderRadius: '50%', background: '#3FA66B',
-          boxShadow: '0 0 10px rgba(63,166,107,0.45)',
-        }} />
-        <div>
-          <div style={{
-            fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, color: C.ink,
-          }}>Demo mode</div>
-          <div style={{
-            fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
-          }}>Using sample fit passport data. No signup needed.</div>
-        </div>
+        <div style={{
+          fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 4,
+        }}>Demo mode</div>
+        <div style={{
+          fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
+        }}>Using sample fit passport data. No signup needed.</div>
       </div>
     </div>
   );
@@ -152,7 +95,6 @@ function ProductPanel({ C, onTryOn }: { C: Palette; onTryOn: () => void }) {
 
 function Widget({ C, onClose }: { C: Palette; onClose: () => void }) {
   const [currentSize, setCurrentSize] = useState('m');
-
   return (
     <div
       style={{
@@ -168,13 +110,12 @@ function Widget({ C, onClose }: { C: Palette; onClose: () => void }) {
         width: 880, maxWidth: '94vw',
         maxHeight: '92vh',
         background: C.surface,
-        border: `1px solid ${C.line}`, borderRadius: 16,
-        boxShadow: '0 32px 80px rgba(0,0,0,0.32)',
+        border: `1px solid ${C.line}`, borderRadius: 0,
         overflow: 'hidden',
         display: 'flex', flexDirection: 'column',
       }}>
         <div style={{
-          padding: '16px 24px',
+          padding: '14px 22px',
           borderBottom: `1px solid ${C.line}`,
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           background: C.bg,
@@ -188,17 +129,17 @@ function Widget({ C, onClose }: { C: Palette; onClose: () => void }) {
             />
             <div style={{
               fontFamily: 'var(--display)', fontSize: 12, color: C.mute, fontWeight: 500,
-            }}>Demo user · NPC Oversized T-shirt</div>
+            }}>Demo user · Originals Black T-shirt</div>
           </div>
           <button
             onClick={onClose}
             aria-label="Close"
             style={{
-              width: 32, height: 32, borderRadius: '50%',
+              width: 28, height: 28,
               background: 'transparent', border: `1px solid ${C.line}`,
               color: C.ink, cursor: 'pointer',
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 16,
+              fontSize: 16, borderRadius: 0,
             }}
           >×</button>
         </div>
@@ -221,19 +162,17 @@ function Widget({ C, onClose }: { C: Palette; onClose: () => void }) {
             <div style={{
               position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)',
               fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
-              background: 'rgba(255,255,255,0.85)',
-              padding: '6px 12px', borderRadius: 999,
-              backdropFilter: 'blur(8px)',
-              WebkitBackdropFilter: 'blur(8px)',
+              background: 'rgba(255,255,255,0.92)',
+              padding: '6px 12px',
               border: `1px solid ${C.line}`,
             }}>Drag to rotate. Scroll to zoom.</div>
           </div>
 
           <div style={{
-            padding: 24, background: C.surface, color: C.ink,
+            padding: 22, background: C.surface, color: C.ink,
             display: 'flex', flexDirection: 'column', gap: 18,
           }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               {[
                 { k: 'Height', v: `${mockPassport.height} cm` },
                 { k: 'Chest', v: `${mockPassport.measurements.chest} cm` },
@@ -242,8 +181,7 @@ function Widget({ C, onClose }: { C: Palette; onClose: () => void }) {
               ].map(row => (
                 <div key={row.k}>
                   <div style={{
-                    fontFamily: 'var(--display)', fontSize: 11, color: C.mute, fontWeight: 600,
-                    letterSpacing: '0.04em', marginBottom: 4,
+                    fontFamily: 'var(--display)', fontSize: 11, color: C.mute, fontWeight: 600, marginBottom: 4,
                   }}>{row.k}</div>
                   <div style={{
                     fontFamily: 'var(--display)', fontSize: 18, fontWeight: 600, color: C.ink,
@@ -255,8 +193,7 @@ function Widget({ C, onClose }: { C: Palette; onClose: () => void }) {
 
             <div>
               <div style={{
-                fontFamily: 'var(--display)', fontSize: 11, color: C.mute, fontWeight: 600,
-                marginBottom: 8,
+                fontFamily: 'var(--display)', fontSize: 11, color: C.mute, fontWeight: 600, marginBottom: 8,
               }}>Size</div>
               <div style={{ display: 'flex', gap: 6 }}>
                 {['xs', 's', 'm', 'l', 'xl'].map(size => {
@@ -266,11 +203,11 @@ function Widget({ C, onClose }: { C: Palette; onClose: () => void }) {
                       key={size}
                       onClick={() => setCurrentSize(size)}
                       style={{
-                        flex: 1, height: 40, minWidth: 40,
+                        flex: 1, height: 38, minWidth: 38,
                         background: active ? C.ink : 'transparent',
                         color: active ? C.bg : C.ink,
                         border: `1px solid ${active ? C.ink : C.line}`,
-                        borderRadius: 8,
+                        borderRadius: 0,
                         fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
                         cursor: 'pointer',
                       }}
@@ -285,8 +222,7 @@ function Widget({ C, onClose }: { C: Palette; onClose: () => void }) {
               fontFamily: 'var(--display)', fontSize: 13, lineHeight: 1.55, color: C.ink,
             }}>
               <div style={{
-                fontFamily: 'var(--display)', fontSize: 11, color: C.mute, fontWeight: 600,
-                marginBottom: 6,
+                fontFamily: 'var(--display)', fontSize: 11, color: C.mute, fontWeight: 600, marginBottom: 6,
               }}>Fit</div>
               {fitData[currentSize]}
             </div>
@@ -294,14 +230,13 @@ function Widget({ C, onClose }: { C: Palette; onClose: () => void }) {
             <div style={{
               marginTop: 'auto', paddingTop: 16,
               borderTop: `1px solid ${C.line}`,
-              display: 'flex', gap: 8,
             }}>
               <button
                 onClick={onClose}
                 style={{
-                  flex: 1,
+                  width: '100%',
                   background: C.ink, color: C.bg, border: 'none',
-                  padding: '12px 14px', borderRadius: 999,
+                  padding: '12px 14px', borderRadius: 0,
                   fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 }}
               >Add to cart</button>
@@ -317,16 +252,32 @@ export default function DemoPage() {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const C = dark ? PAL.dark : PAL.light;
+  const router = useRouter();
   const [showWidget, setShowWidget] = useState(false);
+
+  const links = [
+    { label: 'Home', href: '/' },
+    { label: 'Pricing', href: '/pricing' },
+    { label: 'Demo', href: '/demo', active: true },
+  ];
 
   return (
     <div className="tryon-redesign-root" style={{
       width: '100%', minHeight: '100vh',
       background: C.bg, color: C.ink,
     }}>
-      <Nav C={C} />
+      <SharedNav
+        dark={dark}
+        links={links}
+        rightSlot={
+          <>
+            <NavLink dark={dark} label="Sign in" href="/login" />
+            <NavCta dark={dark} label="Start free →" onClick={() => router.push('/signup?type=brand')} />
+          </>
+        }
+      />
 
-      <div style={{ display: 'flex', minHeight: 'calc(100vh - 64px)' }}>
+      <div style={{ display: 'flex', minHeight: 'calc(100vh - 60px)' }}>
         <div style={{
           flex: 1,
           background: C.surface,
@@ -336,8 +287,8 @@ export default function DemoPage() {
         }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/redesign/tryon-product.jpg"
-            alt="NPC Oversized T-shirt"
+            src="/redesign/originals-black-tshirt.png"
+            alt="Originals Black T-shirt"
             style={{
               maxWidth: '78%', maxHeight: '78%',
               objectFit: 'contain', display: 'block',

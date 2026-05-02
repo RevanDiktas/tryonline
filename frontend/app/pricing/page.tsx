@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
+import { SharedNav, NavLink, NavCta } from '@/components/redesign/SharedNav';
 
 const PAL = {
   light: {
@@ -22,31 +23,6 @@ const PAL = {
 };
 type Palette = typeof PAL.light;
 
-function useSmartNav() {
-  const [hidden, setHidden] = useState(false);
-  useEffect(() => {
-    let lastY = window.scrollY;
-    let downAccum = 0;
-    let raf = 0;
-    const onScroll = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        const y = window.scrollY;
-        const dy = y - lastY;
-        lastY = y;
-        raf = 0;
-        if (y < 100) { downAccum = 0; setHidden(false); return; }
-        if (dy < 0) { downAccum = 0; setHidden(false); return; }
-        downAccum += dy;
-        if (downAccum > 60) setHidden(true);
-      });
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-  return hidden;
-}
-
 const headingStyle = (px: string): React.CSSProperties => ({
   fontFamily: 'var(--display)',
   fontWeight: 700,
@@ -63,93 +39,23 @@ const bodyStyle: React.CSSProperties = {
   lineHeight: 1.6,
 };
 
-function Nav({ C }: { C: Palette }) {
-  const router = useRouter();
-  const hidden = useSmartNav();
-  return (
-    <div style={{
-      position: 'sticky', top: 0, zIndex: 70,
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '20px 32px',
-      pointerEvents: 'none',
-      transform: hidden ? 'translateY(-110%)' : 'translateY(0)',
-      transition: 'transform 0.28s cubic-bezier(0.4, 0.0, 0.2, 1)',
-    }}>
-      <div style={{ pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center', gap: 28 }}>
-        <button
-          type="button"
-          onClick={() => router.push('/')}
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
-          aria-label="TryOn home"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-            alt="TryOn"
-            style={{ height: 20, width: 'auto', display: 'block' }}
-          />
-        </button>
-        <div style={{ display: 'flex', gap: 22 }}>
-          <button
-            onClick={() => router.push('/')}
-            style={{
-              border: 0, padding: 0, background: 'transparent', cursor: 'pointer',
-              fontFamily: 'var(--display)', fontSize: 14, color: C.mute, fontWeight: 500,
-            }}
-          >Home</button>
-          <button
-            onClick={() => router.push('/demo')}
-            style={{
-              border: 0, padding: 0, background: 'transparent', cursor: 'pointer',
-              fontFamily: 'var(--display)', fontSize: 14, color: C.mute, fontWeight: 500,
-            }}
-          >Demo</button>
-          <span style={{
-            fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 600,
-          }}>Pricing</span>
-        </div>
-      </div>
-      <div style={{ pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-        <button
-          onClick={() => router.push('/login')}
-          style={{
-            padding: '8px 14px', background: 'transparent', border: 'none', color: C.ink,
-            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500, cursor: 'pointer',
-          }}
-        >Sign in</button>
-        <button
-          onClick={() => router.push('/signup?type=brand')}
-          style={{
-            padding: '10px 18px',
-            background: C.ink, color: C.bg, border: 'none',
-            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-            display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999,
-          }}
-        >Start free<span>→</span></button>
-      </div>
-    </div>
-  );
-}
-
 function Hero({ C }: { C: Palette }) {
   return (
-    <section style={{
-      background: C.bg, color: C.ink, padding: '80px 32px 40px',
-    }}>
+    <section style={{ background: C.bg, color: C.ink, padding: '64px 32px 32px', borderBottom: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <h1 style={{
-          ...headingStyle('clamp(48px, 6vw, 96px)'),
-          maxWidth: 1100, marginBottom: 20,
+          ...headingStyle('clamp(44px, 5.5vw, 80px)'),
+          maxWidth: 1100, marginBottom: 18,
         }}>
           Pay less than the cost of one return per day.
         </h1>
         <p style={{
-          ...bodyStyle, fontSize: 18, color: C.mute, maxWidth: 720, marginBottom: 8,
+          ...bodyStyle, fontSize: 17, color: C.mute, maxWidth: 720, marginBottom: 8,
         }}>
           TryOn costs less than the value of returns we save you. Every paid tier prices at well under 30% of the dollar value of returns prevented at conservative assumptions.
         </p>
         <p style={{
-          ...bodyStyle, fontSize: 14, color: C.mute, maxWidth: 720,
+          ...bodyStyle, fontSize: 13.5, color: C.mute, maxWidth: 720,
         }}>
           Built for Shopify Plus fashion brands losing six figures a month to returns. Pricing in USD, billed monthly. EU and UK customers invoiced in EUR or GBP.
         </p>
@@ -226,11 +132,11 @@ function Tiers({ C }: { C: Palette }) {
   ];
 
   return (
-    <section style={{ padding: '24px 32px 96px', background: C.bg }}>
+    <section style={{ padding: '24px 32px 80px', background: C.bg }}>
       <div style={{
         maxWidth: 1280, margin: '0 auto',
         display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0,
-        border: `1px solid ${C.line}`, borderRadius: 14, overflow: 'hidden', background: C.surface,
+        border: `1px solid ${C.line}`, background: C.surface,
       }}>
         {tiers.map((t, i) => {
           const dark = !!t.highlight;
@@ -241,25 +147,25 @@ function Tiers({ C }: { C: Palette }) {
             <div key={t.name} style={{
               background: bg, color: ink,
               borderRight: i < tiers.length - 1 ? `1px solid ${C.line}` : 'none',
-              padding: '32px 24px',
-              display: 'flex', flexDirection: 'column', gap: 18,
+              padding: '28px 22px',
+              display: 'flex', flexDirection: 'column', gap: 16,
             }}>
               <div>
                 <div style={{
-                  fontFamily: 'var(--display)', fontSize: 13, color: mute, fontWeight: 600, marginBottom: 12,
-                  display: 'flex', alignItems: 'center', gap: 8,
+                  fontFamily: 'var(--display)', fontSize: 13, color: mute, fontWeight: 600, marginBottom: 10,
+                  display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
                 }}>
                   {t.name}
                   {t.highlight && (
                     <span style={{
                       background: ink, color: bg,
-                      padding: '2px 8px', borderRadius: 999,
+                      padding: '2px 8px',
                       fontSize: 10, fontWeight: 700,
                     }}>Most popular</span>
                   )}
                 </div>
                 <div style={{
-                  fontFamily: 'var(--display)', fontSize: 44, fontWeight: 700,
+                  fontFamily: 'var(--display)', fontSize: 40, fontWeight: 700,
                   letterSpacing: '-0.025em', lineHeight: 1, color: ink,
                 }}>{t.price}</div>
                 {t.priceSub && (
@@ -274,23 +180,23 @@ function Tiers({ C }: { C: Palette }) {
                 )}
               </div>
               <p style={{
-                ...bodyStyle, fontSize: 13.5, lineHeight: 1.5, margin: 0,
+                ...bodyStyle, fontSize: 13, lineHeight: 1.5, margin: 0,
                 color: ink, opacity: dark ? 0.85 : 0.78,
               }}>{t.headline}</p>
               <ul style={{
                 listStyle: 'none', padding: 0, margin: 0,
                 display: 'flex', flexDirection: 'column', gap: 8,
-                borderTop: `1px solid ${dark ? C.cardLine : C.line}`, paddingTop: 18,
+                borderTop: `1px solid ${dark ? C.cardLine : C.line}`, paddingTop: 16,
               }}>
                 {t.features.map(f => (
                   <li key={f} style={{
-                    fontFamily: 'var(--display)', fontSize: 13, lineHeight: 1.5, color: ink,
+                    fontFamily: 'var(--display)', fontSize: 12.5, lineHeight: 1.5, color: ink,
                     opacity: dark ? 0.92 : 0.88,
-                    paddingLeft: 16, position: 'relative',
+                    paddingLeft: 14, position: 'relative',
                   }}>
                     <span style={{
-                      position: 'absolute', left: 0, top: 7,
-                      width: 6, height: 6, borderRadius: '50%',
+                      position: 'absolute', left: 0, top: 6,
+                      width: 5, height: 5,
                       background: ink, opacity: 0.5,
                     }} />
                     {f}
@@ -306,8 +212,8 @@ function Tiers({ C }: { C: Palette }) {
                   marginTop: 'auto',
                   background: dark ? C.cardInk : C.ink,
                   color: dark ? C.cardBg : C.bg,
-                  padding: '14px 18px', borderRadius: 999, border: 'none',
-                  fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                  padding: '12px 16px', borderRadius: 0, border: 'none',
+                  fontFamily: 'var(--display)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer',
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}
               >{t.cta} <span>→</span></button>
@@ -321,106 +227,72 @@ function Tiers({ C }: { C: Palette }) {
 
 function ROI({ C }: { C: Palette }) {
   const cases = [
-    {
-      label: 'Starting brand',
-      orders: '600 orders / month',
-      aov: '$70 AOV',
-      returnRate: '25% return rate',
-      monthlyReturnCost: '$2,700',
-      ourPrice: '$149',
-      monthlySavings: '$540',
-      tier: 'Studio',
-    },
-    {
-      label: 'Mid-tier brand',
-      orders: '10,000 orders / month',
-      aov: '$115 AOV',
-      returnRate: '30% return rate',
-      monthlyReturnCost: '$96,000',
-      ourPrice: '$2,490',
-      monthlySavings: '$19,200',
-      tier: 'Brand',
-    },
-    {
-      label: 'Scale brand',
-      orders: '80,000 orders / month',
-      aov: '$160 AOV',
-      returnRate: '35% return rate',
-      monthlyReturnCost: '$1,260,000',
-      ourPrice: 'Custom',
-      monthlySavings: '$252,000',
-      tier: 'Scale',
-    },
+    { label: 'Starting brand', orders: '600 orders / month', aov: '$70 AOV', returnRate: '25% return rate',
+      monthlyReturnCost: '$2,700', ourPrice: '$149', monthlySavings: '$540', tier: 'Studio' },
+    { label: 'Mid-tier brand', orders: '10,000 orders / month', aov: '$115 AOV', returnRate: '30% return rate',
+      monthlyReturnCost: '$96,000', ourPrice: '$2,490', monthlySavings: '$19,200', tier: 'Brand' },
+    { label: 'Scale brand', orders: '80,000 orders / month', aov: '$160 AOV', returnRate: '35% return rate',
+      monthlyReturnCost: '$1,260,000', ourPrice: 'Custom', monthlySavings: '$252,000', tier: 'Scale' },
   ];
   return (
-    <section style={{
-      background: C.surface, color: C.ink, padding: '96px 32px',
-      borderTop: `1px solid ${C.line}`,
-    }}>
+    <section style={{ background: C.surface, color: C.ink, padding: '80px 32px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <h2 style={{
-          ...headingStyle('clamp(40px, 5vw, 72px)'),
-          marginBottom: 16, maxWidth: 1000,
-        }}>
+        <h2 style={{ ...headingStyle('clamp(36px, 4.5vw, 64px)'), marginBottom: 14, maxWidth: 1000 }}>
           Three brands. Every ROI positive.
         </h2>
-        <p style={{
-          ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 56,
-        }}>
+        <p style={{ ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48 }}>
           Industry data, conservative assumptions. Capital One Shopping puts apparel return rates at 25 to 40 percent. Zeta and Optoro put cost-per-return at $18 to $45. Conservative virtual try-on return reduction sits at 20 percent.
         </p>
 
         <div style={{
           display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0,
-          border: `1px solid ${C.line}`, borderRadius: 14, overflow: 'hidden', background: C.bg,
+          border: `1px solid ${C.line}`, background: C.bg,
         }}>
           {cases.map((c, i) => (
             <div key={c.label} style={{
               borderRight: i < cases.length - 1 ? `1px solid ${C.line}` : 'none',
-              padding: '32px 28px',
-              display: 'flex', flexDirection: 'column', gap: 16,
+              padding: '28px 24px',
+              display: 'flex', flexDirection: 'column', gap: 14,
             }}>
-              <div style={{
-                fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 600,
-              }}>{c.label}</div>
-              <div style={{
-                fontFamily: 'var(--display)', fontSize: 13, color: C.mute, lineHeight: 1.7,
-              }}>
+              <div style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 600 }}>
+                {c.label}
+              </div>
+              <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute, lineHeight: 1.7 }}>
                 {c.orders}<br/>{c.aov}<br/>{c.returnRate}
               </div>
               <div style={{ height: 1, background: C.line }} />
               <div>
+                <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4 }}>
+                  Current monthly return cost
+                </div>
                 <div style={{
-                  fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4,
-                }}>Current monthly return cost</div>
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 24, fontWeight: 600,
+                  fontFamily: 'var(--display)', fontSize: 22, fontWeight: 600,
                   letterSpacing: '-0.02em', color: C.ink,
                 }}>{c.monthlyReturnCost}</div>
               </div>
               <div>
+                <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4 }}>
+                  Monthly savings with TryOn
+                </div>
                 <div style={{
-                  fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4,
-                }}>Monthly savings with TryOn</div>
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 32, fontWeight: 700,
+                  fontFamily: 'var(--display)', fontSize: 28, fontWeight: 700,
                   letterSpacing: '-0.02em', color: C.ink,
                 }}>{c.monthlySavings}</div>
               </div>
               <div style={{ height: 1, background: C.line }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <div>
+                  <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4 }}>
+                    You pay
+                  </div>
                   <div style={{
-                    fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4,
-                  }}>You pay</div>
-                  <div style={{
-                    fontFamily: 'var(--display)', fontSize: 20, fontWeight: 600,
+                    fontFamily: 'var(--display)', fontSize: 18, fontWeight: 600,
                     letterSpacing: '-0.02em', color: C.ink,
                   }}>{c.ourPrice}</div>
                 </div>
                 <div style={{
                   fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600,
-                  color: C.ink, padding: '4px 10px', borderRadius: 999,
+                  color: C.ink, padding: '3px 8px',
                   border: `1px solid ${C.ink}`,
                 }}>{c.tier}</div>
               </div>
@@ -428,7 +300,7 @@ function ROI({ C }: { C: Palette }) {
           ))}
         </div>
         <div style={{
-          marginTop: 16, fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
+          marginTop: 14, fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
         }}>
           Sources: Capital One Shopping 2024, Zeta 2025, Optoro 2024, McKinsey State of Fashion 2025.
         </div>
@@ -439,45 +311,27 @@ function ROI({ C }: { C: Palette }) {
 
 function FAQ({ C }: { C: Palette }) {
   const items = [
-    {
-      q: 'How do you count a try-on session?',
-      a: 'A session is one shopper opening the TryOn widget on a product page and rendering at least one garment. Page views without a render do not count. Session counts reset monthly.',
-    },
-    {
-      q: 'Do you charge per garment upload?',
-      a: 'No. Garment counts are tier limits, not per-garment fees. We do not believe in per-asset pricing because it punishes brands for adding inventory.',
-    },
-    {
-      q: 'What happens if I exceed my tier limit?',
-      a: 'Free and Studio hard-cap at the monthly limit. Brand and Scale tiers allow overage at $0.04 per session billed monthly in arrears. We will warn you at 80 and 100 percent before charging.',
-    },
-    {
-      q: 'How long does Shopify integration take?',
-      a: '8 lines of code in your theme. Brands usually go live in under a week. Studio and above get a Slack channel with our team during install.',
-    },
-    {
-      q: 'Are you EU Digital Product Passport ready?',
-      a: 'Every garment we render is structurally a 3D digital twin. We are aligning our metadata schema with the ESPR textile delegated act due late 2026 / early 2027 so brands can plug TryOn assets into their DPP records when the regulation lands.',
-    },
-    {
-      q: 'Can I try before I commit?',
-      a: 'Yes. Free tier is forever-free, no credit card. 200 sessions per month is enough to validate the experience on your store before upgrading.',
-    },
+    { q: 'How do you count a try-on session?',
+      a: 'A session is one shopper opening the TryOn widget on a product page and rendering at least one garment. Page views without a render do not count. Session counts reset monthly.' },
+    { q: 'Do you charge per garment upload?',
+      a: 'No. Garment counts are tier limits, not per-garment fees. We do not believe in per-asset pricing because it punishes brands for adding inventory.' },
+    { q: 'What happens if I exceed my tier limit?',
+      a: 'Free and Studio hard-cap at the monthly limit. Brand and Scale tiers allow overage at $0.04 per session billed monthly in arrears. We will warn you at 80 and 100 percent before charging.' },
+    { q: 'How long does Shopify integration take?',
+      a: '8 lines of code in your theme. Brands usually go live in under a week. Studio and above get a Slack channel with our team during install.' },
+    { q: 'Are you EU Digital Product Passport ready?',
+      a: 'Every garment we render is structurally a 3D digital twin. We are aligning our metadata schema with the ESPR textile delegated act due late 2026 / early 2027 so brands can plug TryOn assets into their DPP records when the regulation lands.' },
+    { q: 'Can I try before I commit?',
+      a: 'Yes. Free tier is forever-free, no credit card. 200 sessions per month is enough to validate the experience on your store before upgrading.' },
   ];
   const [open, setOpen] = useState<number | null>(0);
   return (
-    <section style={{
-      background: C.bg, color: C.ink, padding: '96px 32px',
-      borderTop: `1px solid ${C.line}`,
-    }}>
+    <section style={{ background: C.bg, color: C.ink, padding: '80px 32px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 880, margin: '0 auto' }}>
-        <h2 style={{
-          ...headingStyle('clamp(36px, 4.5vw, 56px)'),
-          marginBottom: 36,
-        }}>
+        <h2 style={{ ...headingStyle('clamp(32px, 4vw, 56px)'), marginBottom: 32 }}>
           Questions we get from brands.
         </h2>
-        <div style={{ border: `1px solid ${C.line}`, borderRadius: 14, overflow: 'hidden', background: C.surface }}>
+        <div style={{ border: `1px solid ${C.line}`, background: C.surface }}>
           {items.map((it, i) => {
             const isOpen = open === i;
             return (
@@ -488,7 +342,7 @@ function FAQ({ C }: { C: Palette }) {
                   onClick={() => setOpen(isOpen ? null : i)}
                   style={{
                     width: '100%', textAlign: 'left',
-                    padding: '20px 24px',
+                    padding: '18px 22px',
                     background: 'transparent', border: 'none', cursor: 'pointer',
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16,
                     color: C.ink,
@@ -499,7 +353,7 @@ function FAQ({ C }: { C: Palette }) {
                     letterSpacing: '-0.005em',
                   }}>{it.q}</span>
                   <span style={{
-                    fontFamily: 'var(--display)', fontSize: 18, color: C.mute,
+                    fontFamily: 'var(--display)', fontSize: 16, color: C.mute,
                     transform: isOpen ? 'rotate(45deg)' : 'rotate(0)',
                     transition: 'transform 0.2s ease',
                     flexShrink: 0,
@@ -507,8 +361,8 @@ function FAQ({ C }: { C: Palette }) {
                 </button>
                 {isOpen && (
                   <div style={{
-                    padding: '0 24px 22px',
-                    ...bodyStyle, fontSize: 14.5, color: C.mute,
+                    padding: '0 22px 20px',
+                    ...bodyStyle, fontSize: 14, color: C.mute,
                     maxWidth: 720,
                   }}>{it.a}</div>
                 )}
@@ -524,20 +378,12 @@ function FAQ({ C }: { C: Palette }) {
 function FinalCTA({ C }: { C: Palette }) {
   const router = useRouter();
   return (
-    <section style={{
-      background: C.surface, color: C.ink, padding: '96px 32px 120px',
-      borderTop: `1px solid ${C.line}`,
-    }}>
+    <section style={{ background: C.surface, color: C.ink, padding: '80px 32px 96px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center' }}>
-        <h2 style={{
-          ...headingStyle('clamp(40px, 5vw, 72px)'),
-          marginBottom: 16,
-        }}>
+        <h2 style={{ ...headingStyle('clamp(36px, 4.5vw, 64px)'), marginBottom: 14 }}>
           Install free. Upgrade when it works.
         </h2>
-        <p style={{
-          ...bodyStyle, fontSize: 16, color: C.mute, margin: '0 auto 32px', maxWidth: 540,
-        }}>
+        <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, margin: '0 auto 28px', maxWidth: 540 }}>
           200 free sessions. No credit card. 10 minutes to live on your store. If the conversion data is not better than your last marketing spend, do not upgrade.
         </p>
         <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -545,10 +391,10 @@ function FinalCTA({ C }: { C: Palette }) {
             onClick={() => router.push('/signup?type=brand')}
             style={{
               background: C.ink, color: C.bg, border: 'none',
-              padding: '14px 24px',
-              fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+              padding: '13px 22px',
+              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
               display: 'inline-flex', alignItems: 'center', gap: 10,
-              borderRadius: 999,
+              borderRadius: 0,
             }}
           >Start free <span>→</span></button>
           <button
@@ -556,10 +402,10 @@ function FinalCTA({ C }: { C: Palette }) {
             style={{
               background: 'transparent', color: C.ink,
               border: `1px solid ${C.ink}`,
-              padding: '14px 24px',
-              fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+              padding: '13px 22px',
+              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
               display: 'inline-flex', alignItems: 'center', gap: 10,
-              borderRadius: 999,
+              borderRadius: 0,
             }}
           >Book a call</button>
         </div>
@@ -571,21 +417,18 @@ function FinalCTA({ C }: { C: Palette }) {
 function Footer({ C }: { C: Palette }) {
   const router = useRouter();
   return (
-    <section style={{
-      background: C.bg, color: C.ink, padding: '48px 32px 56px',
-      borderTop: `1px solid ${C.line}`,
-    }}>
+    <section style={{ background: C.bg, color: C.ink, padding: '36px 32px 44px' }}>
       <div style={{
         maxWidth: 1280, margin: '0 auto',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 24,
         flexWrap: 'wrap',
       }}>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
             alt="TryOn"
-            style={{ height: 16, width: 'auto', display: 'block' }}
+            style={{ height: 14, width: 'auto', display: 'block' }}
           />
           <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
             TryOn, 2026
@@ -617,12 +460,29 @@ export default function PricingPage() {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const C = dark ? PAL.dark : PAL.light;
+  const router = useRouter();
+
+  const links = [
+    { label: 'Home', href: '/' },
+    { label: 'Demo', href: '/demo' },
+    { label: 'Pricing', href: '/pricing', active: true },
+  ];
+
   return (
     <div className="tryon-redesign-root" style={{
       width: '100%', minHeight: '100vh',
       background: C.bg, color: C.ink, position: 'relative',
     }}>
-      <Nav C={C} />
+      <SharedNav
+        dark={dark}
+        links={links}
+        rightSlot={
+          <>
+            <NavLink dark={dark} label="Sign in" href="/login" />
+            <NavCta dark={dark} label="Start free →" onClick={() => router.push('/signup?type=brand')} />
+          </>
+        }
+      />
       <Hero C={C} />
       <Tiers C={C} />
       <ROI C={C} />

@@ -48,125 +48,105 @@ export function FloatingNav({
   const C = useDashTheme();
   const router = useRouter();
   const items: { key: DashTab; label: string }[] = [
-    { key: 'profile', label: 'PROFILE' },
-    { key: 'closet', label: mobile ? 'CLOSET' : 'MY CLOSET' },
-    { key: 'wish', label: mobile ? 'WISH' : 'WISHLIST' },
+    { key: 'profile', label: 'Profile' },
+    { key: 'closet', label: mobile ? 'Closet' : 'My closet' },
+    { key: 'wish', label: 'Wishlist' },
   ];
-
-  const cap: React.CSSProperties = {
-    background: dark ? 'rgba(245,243,239,0.08)' : 'rgba(255,255,255,0.78)',
-    border: `1px solid ${C.faint}`,
-    boxShadow: '0 8px 24px rgba(10,10,10,0.06), 0 1px 3px rgba(10,10,10,0.04)',
-    backdropFilter: 'saturate(180%) blur(20px)',
-    WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-  };
 
   return (
     <div style={{
       position: 'sticky', top: 0, zIndex: 70,
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: mobile ? '10px 12px' : '14px 20px',
-      pointerEvents: 'none',
+      background: C.bg,
+      borderBottom: `1px solid ${C.faint}`,
     }}>
       <div style={{
-        ...cap, pointerEvents: 'auto',
-        display: 'inline-flex', alignItems: 'center',
-        gap: mobile ? 10 : 22,
-        padding: mobile ? '7px 11px' : '10px 18px 10px 14px',
-        borderRadius: 999,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        gap: mobile ? 10 : 24,
+        padding: mobile ? '10px 14px' : '14px 24px',
+        maxWidth: 1440, margin: '0 auto',
       }}>
-        <button
-          type="button"
-          onClick={() => router.push('/')}
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
-          aria-label="TRYON home"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={dark ? '/redesign/wordmark-white.png' : '/redesign/wordmark.png'}
-            alt="TRYON"
-            style={{ height: mobile ? 18 : 22, width: 'auto', display: 'block' }}
-          />
-        </button>
-        <div style={{ width: 1, height: mobile ? 14 : 18, background: C.faint }} />
-        <div style={{ display: 'flex', gap: mobile ? 10 : 18 }}>
-          {items.map(it => {
-            const on = active === it.key;
-            return (
-              <button
-                key={it.key}
-                onClick={() => onChange(it.key)}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: mobile ? 5 : 8,
-                  border: 0, padding: 0, background: 'transparent', cursor: 'pointer',
-                  fontFamily: 'var(--mono)', fontSize: mobile ? 8 : 10,
-                  letterSpacing: mobile ? '0.24em' : '0.32em',
-                  color: on ? C.ink : C.dim,
-                  textTransform: 'uppercase', fontWeight: on ? 700 : 500,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <span style={{
-                  width: mobile ? 6 : 7, height: mobile ? 6 : 7,
-                  background: on ? C.ink : 'transparent',
-                  border: on ? 'none' : `1px solid ${C.dim}`,
-                  display: 'inline-block',
-                }} />
-                {it.label}
-              </button>
-            );
-          })}
+        <div style={{
+          display: 'inline-flex', alignItems: 'center',
+          gap: mobile ? 14 : 24, minWidth: 0,
+        }}>
+          <button
+            type="button"
+            onClick={() => router.push('/')}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
+            aria-label="TryOn home"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={dark ? '/redesign/wordmark-white.png' : '/redesign/wordmark.png'}
+              alt="TryOn"
+              style={{ height: mobile ? 16 : 18, width: 'auto', display: 'block' }}
+            />
+          </button>
+          <div style={{ display: 'flex', gap: mobile ? 14 : 22, alignItems: 'center' }}>
+            {items.map(it => {
+              const on = active === it.key;
+              return (
+                <button
+                  key={it.key}
+                  onClick={() => onChange(it.key)}
+                  style={{
+                    border: 0, padding: 0, background: 'transparent', cursor: 'pointer',
+                    fontFamily: 'var(--display)',
+                    fontSize: mobile ? 13 : 14,
+                    color: on ? C.ink : C.dim,
+                    fontWeight: on ? 600 : 500,
+                    whiteSpace: 'nowrap',
+                  }}
+                >{it.label}</button>
+              );
+            })}
+          </div>
         </div>
-      </div>
 
-      <div style={{
-        ...cap, pointerEvents: 'auto',
-        display: 'inline-flex', alignItems: 'center',
-        padding: mobile ? '4px 6px' : '4px 6px 4px 14px',
-        gap: mobile ? 6 : 14,
-        borderRadius: 999,
-      }}>
-        {!mobile && (
-          <span style={{
-            fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.04em',
-            color: C.dim, whiteSpace: 'nowrap',
-          }}>{email}</span>
-        )}
-        {!mobile && <div style={{ width: 1, height: 16, background: C.faint }} />}
-        <button
-          onClick={onToggleDark}
-          title="Toggle theme"
-          style={{
-            width: mobile ? 24 : 28, height: mobile ? 24 : 28,
-            border: 'none', background: 'transparent',
-            color: C.ink, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            borderRadius: 999,
-          }}
-        >
-          {dark ? (
-            <svg width={mobile ? 12 : 14} height={mobile ? 12 : 14} viewBox="0 0 24 24" fill="none" stroke={C.ink} strokeWidth="1.6">
-              <circle cx="12" cy="12" r="4" />
-              <path strokeLinecap="round" d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-            </svg>
-          ) : (
-            <svg width={mobile ? 12 : 14} height={mobile ? 12 : 14} viewBox="0 0 14 14" fill="none">
-              <path d="M11 8.5A4.5 4.5 0 016.5 4 4 4 0 109 11.5 4.5 4.5 0 0111 8.5z" stroke={C.ink} strokeWidth="1.4"/>
-            </svg>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center',
+          gap: mobile ? 8 : 14,
+        }}>
+          {!mobile && (
+            <span style={{
+              fontFamily: 'var(--display)', fontSize: 13,
+              color: C.dim, whiteSpace: 'nowrap',
+            }}>{email}</span>
           )}
-        </button>
-        <button
-          onClick={onSignOut}
-          style={{
-            background: C.ink, color: C.bg, border: 'none',
-            padding: mobile ? '6px 10px' : '8px 14px',
-            fontFamily: 'var(--mono)', fontSize: mobile ? 8 : 10,
-            letterSpacing: mobile ? '0.24em' : '0.28em',
-            textTransform: 'uppercase', fontWeight: 700, cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            borderRadius: 999,
-          }}
-        >SIGN OUT</button>
+          <button
+            onClick={onToggleDark}
+            title="Toggle theme"
+            aria-label="Toggle theme"
+            style={{
+              width: 30, height: 30,
+              border: `1px solid ${C.faint}`, background: 'transparent',
+              color: C.ink, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: 0,
+            }}
+          >
+            {dark ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.ink} strokeWidth="1.6">
+                <circle cx="12" cy="12" r="4" />
+                <path strokeLinecap="round" d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M11 8.5A4.5 4.5 0 016.5 4 4 4 0 109 11.5 4.5 4.5 0 0111 8.5z" stroke={C.ink} strokeWidth="1.4"/>
+              </svg>
+            )}
+          </button>
+          <button
+            onClick={onSignOut}
+            style={{
+              background: C.ink, color: C.bg, border: 'none',
+              padding: mobile ? '8px 12px' : '9px 16px',
+              fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', whiteSpace: 'nowrap',
+              borderRadius: 0,
+            }}
+          >Sign out</button>
+        </div>
       </div>
     </div>
   );
