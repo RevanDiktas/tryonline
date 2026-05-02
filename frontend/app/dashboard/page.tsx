@@ -518,6 +518,22 @@ function DashboardPage() {
 
   return (
     <DashThemeShell dark={dark}>
+      <button
+        onClick={() => router.push('/dashboard/lobby')}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: mobile ? '8px 14px' : '8px 24px',
+          background: dark ? '#F2F1EC' : '#0A0A0A',
+          color: dark ? '#0A0A0A' : '#F2F1EC',
+          border: 'none', cursor: 'pointer',
+          fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600,
+          letterSpacing: '0.04em',
+          borderRadius: 0,
+        }}
+      >
+        <span>Try the new lobby (beta). The shopper experience we are building next.</span>
+        <span style={{ marginLeft: 12 }}>→</span>
+      </button>
       <FloatingNav
         active={activeTab}
         onChange={switchTab}
