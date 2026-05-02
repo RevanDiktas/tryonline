@@ -1,25 +1,26 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
 
 const PAL = {
   light: {
-    void: '#ffffff', ash: '#fafafa', steel: '#f5f4ef', iron: '#ebebe5',
-    bone: '#0A0A0A', dim: '#6E6E6E', faint: '#D8D4C9',
-    slit: 'rgba(0,0,0,0.07)',
-    cardBg: '#0A0A0A', cardInk: '#F2F1EC',
-    cardHair: 'rgba(255,255,255,0.12)', cardDim: '#9A9A9A',
+    bg: '#FAFAF8', surface: '#FFFFFF',
+    ink: '#0A0A0A', mute: '#6E6E6E',
+    line: 'rgba(10,10,10,0.10)',
+    cardBg: '#0A0A0A', cardInk: '#FAFAF8',
+    cardLine: 'rgba(255,255,255,0.14)', cardMute: '#9A9A9A',
   },
   dark: {
-    void: '#0A0A0A', ash: '#0E0E0E', steel: '#141414', iron: '#1A1A1A',
-    bone: '#F2F1EC', dim: '#8A8A8A', faint: '#252525',
-    slit: 'rgba(255,255,255,0.05)',
+    bg: '#0A0A0A', surface: '#121212',
+    ink: '#F2F1EC', mute: '#8A8A8A',
+    line: 'rgba(255,255,255,0.10)',
     cardBg: '#F2F1EC', cardInk: '#0A0A0A',
-    cardHair: 'rgba(0,0,0,0.12)', cardDim: '#6E6E6E',
+    cardLine: 'rgba(0,0,0,0.10)', cardMute: '#6E6E6E',
   },
 };
+type Palette = typeof PAL.light;
 
 function useSmartNav() {
   const [hidden, setHidden] = useState(false);
@@ -46,84 +47,85 @@ function useSmartNav() {
   return hidden;
 }
 
-type Palette = typeof PAL.light;
+const headingStyle = (px: string): React.CSSProperties => ({
+  fontFamily: 'var(--display)',
+  fontWeight: 700,
+  fontSize: px,
+  letterSpacing: '-0.022em',
+  lineHeight: 1.04,
+  margin: 0,
+});
+
+const bodyStyle: React.CSSProperties = {
+  fontFamily: 'var(--display)',
+  fontWeight: 400,
+  fontSize: 16,
+  lineHeight: 1.6,
+};
 
 function Nav({ C }: { C: Palette }) {
   const router = useRouter();
   const hidden = useSmartNav();
-  const cap: React.CSSProperties = {
-    background: C.bone === '#0A0A0A' ? 'rgba(255,255,255,0.78)' : 'rgba(10,10,10,0.72)',
-    border: `1px solid ${C.faint}`,
-    boxShadow: '0 8px 24px rgba(10,10,10,0.06), 0 1px 3px rgba(10,10,10,0.04)',
-    backdropFilter: 'saturate(180%) blur(20px)',
-    WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-  };
   return (
     <div style={{
       position: 'sticky', top: 0, zIndex: 70,
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '14px 20px',
+      padding: '20px 32px',
       pointerEvents: 'none',
       transform: hidden ? 'translateY(-110%)' : 'translateY(0)',
       transition: 'transform 0.28s cubic-bezier(0.4, 0.0, 0.2, 1)',
     }}>
-      <div style={{
-        ...cap, pointerEvents: 'auto',
-        display: 'inline-flex', alignItems: 'center',
-        gap: 22, padding: '10px 18px 10px 14px', borderRadius: 999,
-      }}>
+      <div style={{ pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center', gap: 28 }}>
         <button
           type="button"
           onClick={() => router.push('/')}
           style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
-          aria-label="TRYON home"
+          aria-label="TryOn home"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={C.bone === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-            alt="TRYON"
-            style={{ height: 22, width: 'auto', display: 'block' }}
+            src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
+            alt="TryOn"
+            style={{ height: 20, width: 'auto', display: 'block' }}
           />
         </button>
-        <div style={{ width: 1, height: 18, background: C.faint }} />
         <div style={{ display: 'flex', gap: 22 }}>
           <button
             onClick={() => router.push('/')}
             style={{
               border: 0, padding: 0, background: 'transparent', cursor: 'pointer',
-              fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em',
-              color: C.dim, textTransform: 'uppercase', fontWeight: 500,
+              fontFamily: 'var(--display)', fontSize: 14, color: C.mute, fontWeight: 500,
             }}
-          >HOME</button>
+          >Home</button>
+          <button
+            onClick={() => router.push('/demo')}
+            style={{
+              border: 0, padding: 0, background: 'transparent', cursor: 'pointer',
+              fontFamily: 'var(--display)', fontSize: 14, color: C.mute, fontWeight: 500,
+            }}
+          >Demo</button>
           <span style={{
-            fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em',
-            color: C.bone, textTransform: 'uppercase', fontWeight: 700,
-          }}>PRICING</span>
+            fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 600,
+          }}>Pricing</span>
         </div>
       </div>
-      <div style={{
-        ...cap, pointerEvents: 'auto',
-        display: 'inline-flex', alignItems: 'stretch',
-        padding: 4, gap: 4, borderRadius: 999,
-      }}>
+      <div style={{ pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
         <button
           onClick={() => router.push('/login')}
           style={{
-            padding: '9px 16px', background: 'transparent', border: 'none', color: C.bone,
-            fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em',
-            textTransform: 'uppercase', fontWeight: 500, cursor: 'pointer',
+            padding: '8px 14px', background: 'transparent', border: 'none', color: C.ink,
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500, cursor: 'pointer',
           }}
-        >SIGN IN</button>
+        >Sign in</button>
         <button
           onClick={() => router.push('/signup?type=brand')}
           style={{
-            padding: '9px 16px',
-            background: C.bone, color: C.void, border: 'none',
-            fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em',
-            textTransform: 'uppercase', fontWeight: 700, cursor: 'pointer',
+            padding: '10px 18px',
+            background: C.ink, color: C.bg, border: 'none',
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
             display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999,
           }}
-        >START FREE<span style={{ fontSize: 12 }}>→</span></button>
+        >Start free<span>→</span></button>
       </div>
     </div>
   );
@@ -132,33 +134,26 @@ function Nav({ C }: { C: Palette }) {
 function Hero({ C }: { C: Palette }) {
   return (
     <section style={{
-      background: C.void, color: C.bone,
-      padding: '96px 32px 48px', maxWidth: 1280, margin: '0 auto',
+      background: C.bg, color: C.ink, padding: '80px 32px 40px',
     }}>
-      <div style={{
-        fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.4em',
-        color: C.dim, textTransform: 'uppercase', marginBottom: 24,
-      }}>FOR BRANDS · FASHION E-COMMERCE</div>
-      <h1 style={{
-        fontFamily: 'var(--display)', fontWeight: 900,
-        fontSize: 'clamp(64px, 9vw, 144px)', letterSpacing: '-0.05em', lineHeight: 0.84,
-        margin: '0 0 28px', textTransform: 'uppercase', maxWidth: 1100,
-      }}>
-        PAY LESS THAN<br/>
-        <span style={{ WebkitTextStroke: `2px ${C.bone}`, color: 'transparent' }}>ONE RETURN</span> A DAY.
-      </h1>
-      <p style={{
-        fontSize: 18, lineHeight: 1.55, margin: '0 0 8px', maxWidth: 720,
-        color: C.bone, opacity: 0.8, fontWeight: 500,
-      }}>
-        TRYON costs less than the value of returns we save you. The math is simple: every paid tier prices at well under 30% of the dollar value of returns prevented at conservative assumptions.
-      </p>
-      <p style={{
-        fontSize: 14, lineHeight: 1.55, margin: 0, maxWidth: 720,
-        color: C.dim,
-      }}>
-        Built for Shopify Plus fashion brands losing six figures a month to returns. Pricing in USD, billed monthly. EU and UK customers invoiced in EUR or GBP.
-      </p>
+      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+        <h1 style={{
+          ...headingStyle('clamp(48px, 6vw, 96px)'),
+          maxWidth: 1100, marginBottom: 20,
+        }}>
+          Pay less than the cost of one return per day.
+        </h1>
+        <p style={{
+          ...bodyStyle, fontSize: 18, color: C.mute, maxWidth: 720, marginBottom: 8,
+        }}>
+          TryOn costs less than the value of returns we save you. Every paid tier prices at well under 30% of the dollar value of returns prevented at conservative assumptions.
+        </p>
+        <p style={{
+          ...bodyStyle, fontSize: 14, color: C.mute, maxWidth: 720,
+        }}>
+          Built for Shopify Plus fashion brands losing six figures a month to returns. Pricing in USD, billed monthly. EU and UK customers invoiced in EUR or GBP.
+        </p>
+      </div>
     </section>
   );
 }
@@ -170,61 +165,50 @@ function Tiers({ C }: { C: Palette }) {
     headline: string; features: string[]; cta: string; ctaHref: string; highlight?: boolean;
   }[] = [
     {
-      name: 'FREE',
-      price: '$0',
-      priceSub: 'forever',
+      name: 'Free', price: '$0', priceSub: 'forever',
       headline: 'Try it on your store in 10 minutes.',
       features: [
-        '200 try-on sessions / mo',
+        '200 try-on sessions per month',
         '3 garment uploads',
-        'Branded TRYON widget',
+        'Branded TryOn widget',
         'Basic funnel analytics',
         'Self-serve install',
         'Community support',
       ],
-      cta: 'Start free',
-      ctaHref: '/signup?type=brand',
+      cta: 'Start free', ctaHref: '/signup?type=brand',
     },
     {
-      name: 'STUDIO',
-      price: '$149',
-      priceSub: '/ month',
+      name: 'Studio', price: '$149', priceSub: 'per month',
       headline: 'For SMB Shopify brands testing 3D try-on.',
       features: [
-        '2,500 try-on sessions / mo',
+        '2,500 try-on sessions per month',
         '15 garment uploads',
         'Custom-branded widget',
         'Size recommendation v1',
         'Basic analytics dashboard',
         'Email support, 48h SLA',
       ],
-      cta: 'Start',
-      ctaHref: '/signup?type=brand&plan=studio',
+      cta: 'Start', ctaHref: '/signup?type=brand&plan=studio',
     },
     {
-      name: 'BRAND',
-      price: '$2,490',
-      priceSub: '/ month',
+      name: 'Brand', price: '$2,490', priceSub: 'per month',
       setup: '+ $1,500 one-time setup',
       highlight: true,
       headline: 'For Shopify Plus brands losing $5K to $50K a month to returns.',
       features: [
-        '40,000 try-on sessions / mo',
+        '40,000 try-on sessions per month',
         '100 garment uploads',
-        'Full Palantir-grade analytics',
-        'Size recommendation v2 + confidence',
+        'Full cohort + funnel analytics',
+        'Size recommendation v2 with confidence',
         'Return-reason export',
         'Cohort dashboards + A/B testing',
         'Shopify webhook integration',
         'Slack support, 24h SLA',
       ],
-      cta: 'Start',
-      ctaHref: '/signup?type=brand&plan=brand',
+      cta: 'Start', ctaHref: '/signup?type=brand&plan=brand',
     },
     {
-      name: 'SCALE',
-      price: 'Custom',
-      priceSub: 'talk to us',
+      name: 'Scale', price: 'Custom', priceSub: 'talk to us',
       setup: '+ $7,500 onboarding',
       headline: 'For multi-brand houses and DTC scale-ups losing six figures a month.',
       features: [
@@ -232,76 +216,82 @@ function Tiers({ C }: { C: Palette }) {
         'Unlimited garment uploads',
         'Multi-brand workspace',
         'Custom avatar pipeline',
-        'Stressmaps + dedicated CSM',
-        'SLA + SOC2 documentation',
+        'Stressmaps and dedicated CSM',
+        'SLA and SOC2 documentation',
         'Custom analytics export',
         'White-label option',
       ],
-      cta: 'Book a call',
-      ctaHref: 'mailto:revandiktas1@gmail.com?subject=TryOn%20Scale%20pricing',
+      cta: 'Book a call', ctaHref: 'mailto:revandiktas1@gmail.com?subject=TryOn%20Scale%20pricing',
     },
   ];
+
   return (
-    <section style={{
-      padding: '32px 32px 96px', maxWidth: 1280, margin: '0 auto',
-    }}>
+    <section style={{ padding: '24px 32px 96px', background: C.bg }}>
       <div style={{
+        maxWidth: 1280, margin: '0 auto',
         display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0,
-        border: `1px solid ${C.faint}`, background: C.ash,
+        border: `1px solid ${C.line}`, borderRadius: 14, overflow: 'hidden', background: C.surface,
       }}>
         {tiers.map((t, i) => {
           const dark = !!t.highlight;
-          const bg = dark ? C.bone : C.ash;
-          const ink = dark ? C.void : C.bone;
-          const dim = dark ? 'rgba(255,255,255,0.6)' : C.dim;
-          const hair = dark ? 'rgba(255,255,255,0.18)' : C.faint;
+          const bg = dark ? C.cardBg : C.surface;
+          const ink = dark ? C.cardInk : C.ink;
+          const mute = dark ? C.cardMute : C.mute;
           return (
             <div key={t.name} style={{
               background: bg, color: ink,
-              borderRight: i < tiers.length - 1 ? `1px solid ${C.faint}` : 'none',
-              padding: '32px 24px 32px',
+              borderRight: i < tiers.length - 1 ? `1px solid ${C.line}` : 'none',
+              padding: '32px 24px',
               display: 'flex', flexDirection: 'column', gap: 18,
             }}>
               <div>
                 <div style={{
-                  fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em',
-                  color: dim, textTransform: 'uppercase', fontWeight: 700, marginBottom: 12,
-                }}>{t.name}{t.highlight ? ' · MOST POPULAR' : ''}</div>
+                  fontFamily: 'var(--display)', fontSize: 13, color: mute, fontWeight: 600, marginBottom: 12,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  {t.name}
+                  {t.highlight && (
+                    <span style={{
+                      background: ink, color: bg,
+                      padding: '2px 8px', borderRadius: 999,
+                      fontSize: 10, fontWeight: 700,
+                    }}>Most popular</span>
+                  )}
+                </div>
                 <div style={{
-                  fontFamily: 'var(--display)', fontSize: 48, fontWeight: 900,
-                  letterSpacing: '-0.04em', lineHeight: 1, color: ink,
+                  fontFamily: 'var(--display)', fontSize: 44, fontWeight: 700,
+                  letterSpacing: '-0.025em', lineHeight: 1, color: ink,
                 }}>{t.price}</div>
                 {t.priceSub && (
                   <div style={{
-                    fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.18em',
-                    color: dim, textTransform: 'uppercase', marginTop: 6,
+                    fontFamily: 'var(--display)', fontSize: 13, color: mute, marginTop: 6,
                   }}>{t.priceSub}</div>
                 )}
                 {t.setup && (
                   <div style={{
-                    fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.18em',
-                    color: dim, textTransform: 'uppercase', marginTop: 4,
+                    fontFamily: 'var(--display)', fontSize: 12, color: mute, marginTop: 4,
                   }}>{t.setup}</div>
                 )}
               </div>
               <p style={{
-                fontSize: 13, lineHeight: 1.5, margin: 0,
+                ...bodyStyle, fontSize: 13.5, lineHeight: 1.5, margin: 0,
                 color: ink, opacity: dark ? 0.85 : 0.78,
               }}>{t.headline}</p>
               <ul style={{
                 listStyle: 'none', padding: 0, margin: 0,
                 display: 'flex', flexDirection: 'column', gap: 8,
-                borderTop: `1px solid ${hair}`, paddingTop: 18,
+                borderTop: `1px solid ${dark ? C.cardLine : C.line}`, paddingTop: 18,
               }}>
                 {t.features.map(f => (
                   <li key={f} style={{
-                    fontSize: 12.5, lineHeight: 1.45, color: ink,
-                    opacity: dark ? 0.9 : 0.85,
-                    paddingLeft: 14, position: 'relative',
+                    fontFamily: 'var(--display)', fontSize: 13, lineHeight: 1.5, color: ink,
+                    opacity: dark ? 0.92 : 0.88,
+                    paddingLeft: 16, position: 'relative',
                   }}>
                     <span style={{
-                      position: 'absolute', left: 0, top: 6,
-                      width: 6, height: 6, background: ink, opacity: 0.5,
+                      position: 'absolute', left: 0, top: 7,
+                      width: 6, height: 6, borderRadius: '50%',
+                      background: ink, opacity: 0.5,
                     }} />
                     {f}
                   </li>
@@ -314,14 +304,13 @@ function Tiers({ C }: { C: Palette }) {
                 }}
                 style={{
                   marginTop: 'auto',
-                  background: dark ? C.void : C.bone,
-                  color: dark ? C.bone : C.void,
+                  background: dark ? C.cardInk : C.ink,
+                  color: dark ? C.cardBg : C.bg,
                   padding: '14px 18px', borderRadius: 999, border: 'none',
-                  fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.28em',
-                  textTransform: 'uppercase', fontWeight: 800, cursor: 'pointer',
+                  fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}
-              >{t.cta} <span style={{ fontSize: 14 }}>→</span></button>
+              >{t.cta} <span>→</span></button>
             </div>
           );
         })}
@@ -333,127 +322,116 @@ function Tiers({ C }: { C: Palette }) {
 function ROI({ C }: { C: Palette }) {
   const cases = [
     {
-      label: 'STARTING BRAND',
-      orders: '600 orders/mo',
+      label: 'Starting brand',
+      orders: '600 orders / month',
       aov: '$70 AOV',
       returnRate: '25% return rate',
       monthlyReturnCost: '$2,700',
       ourPrice: '$149',
       monthlySavings: '$540',
-      tier: 'STUDIO',
+      tier: 'Studio',
     },
     {
-      label: 'MID-TIER BRAND',
-      orders: '10,000 orders/mo',
+      label: 'Mid-tier brand',
+      orders: '10,000 orders / month',
       aov: '$115 AOV',
       returnRate: '30% return rate',
       monthlyReturnCost: '$96,000',
       ourPrice: '$2,490',
       monthlySavings: '$19,200',
-      tier: 'BRAND',
+      tier: 'Brand',
     },
     {
-      label: 'SCALE BRAND',
-      orders: '80,000 orders/mo',
+      label: 'Scale brand',
+      orders: '80,000 orders / month',
       aov: '$160 AOV',
       returnRate: '35% return rate',
       monthlyReturnCost: '$1,260,000',
       ourPrice: 'Custom',
       monthlySavings: '$252,000',
-      tier: 'SCALE',
+      tier: 'Scale',
     },
   ];
   return (
     <section style={{
-      background: C.ash, color: C.bone, padding: '96px 32px',
+      background: C.surface, color: C.ink, padding: '96px 32px',
+      borderTop: `1px solid ${C.line}`,
     }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <div style={{
-          fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.4em',
-          color: C.dim, textTransform: 'uppercase', marginBottom: 18,
-        }}>THE MATH</div>
         <h2 style={{
-          fontFamily: 'var(--display)', fontWeight: 900, margin: '0 0 18px',
-          fontSize: 'clamp(48px, 6.5vw, 96px)', letterSpacing: '-0.04em', lineHeight: 0.86,
-          textTransform: 'uppercase', maxWidth: 1000,
+          ...headingStyle('clamp(40px, 5vw, 72px)'),
+          marginBottom: 16, maxWidth: 1000,
         }}>
-          THREE BRANDS.<br/>
-          <span style={{ WebkitTextStroke: `2px ${C.bone}`, color: 'transparent' }}>EVERY ROI</span> POSITIVE.
+          Three brands. Every ROI positive.
         </h2>
         <p style={{
-          fontSize: 15, lineHeight: 1.55, margin: '0 0 48px', maxWidth: 720,
-          color: C.bone, opacity: 0.78,
+          ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 56,
         }}>
-          Industry data, conservative assumptions. Capital One Shopping puts apparel return rates at 25 to 40 percent. Zeta and Optoro put cost-per-return at $18 to $45. Conservative virtual try-on return reduction sits at 20 percent. Math below uses those numbers.
+          Industry data, conservative assumptions. Capital One Shopping puts apparel return rates at 25 to 40 percent. Zeta and Optoro put cost-per-return at $18 to $45. Conservative virtual try-on return reduction sits at 20 percent.
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0, border: `1px solid ${C.faint}` }}>
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0,
+          border: `1px solid ${C.line}`, borderRadius: 14, overflow: 'hidden', background: C.bg,
+        }}>
           {cases.map((c, i) => (
             <div key={c.label} style={{
-              background: C.steel,
-              borderRight: i < cases.length - 1 ? `1px solid ${C.faint}` : 'none',
+              borderRight: i < cases.length - 1 ? `1px solid ${C.line}` : 'none',
               padding: '32px 28px',
-              display: 'flex', flexDirection: 'column', gap: 14,
+              display: 'flex', flexDirection: 'column', gap: 16,
             }}>
               <div style={{
-                fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em',
-                color: C.dim, textTransform: 'uppercase', fontWeight: 700,
+                fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 600,
               }}>{c.label}</div>
               <div style={{
-                fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.12em',
-                color: C.bone, opacity: 0.6, lineHeight: 1.6,
+                fontFamily: 'var(--display)', fontSize: 13, color: C.mute, lineHeight: 1.7,
               }}>
                 {c.orders}<br/>{c.aov}<br/>{c.returnRate}
               </div>
-              <div style={{ height: 1, background: C.faint }} />
+              <div style={{ height: 1, background: C.line }} />
               <div>
                 <div style={{
-                  fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.32em',
-                  color: C.dim, textTransform: 'uppercase', marginBottom: 4,
-                }}>CURRENT MONTHLY RETURN COST</div>
+                  fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4,
+                }}>Current monthly return cost</div>
                 <div style={{
-                  fontFamily: 'var(--display)', fontSize: 28, fontWeight: 900,
-                  letterSpacing: '-0.03em', color: C.bone,
+                  fontFamily: 'var(--display)', fontSize: 24, fontWeight: 600,
+                  letterSpacing: '-0.02em', color: C.ink,
                 }}>{c.monthlyReturnCost}</div>
               </div>
               <div>
                 <div style={{
-                  fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.32em',
-                  color: C.dim, textTransform: 'uppercase', marginBottom: 4,
-                }}>MONTHLY SAVINGS WITH TRYON</div>
+                  fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4,
+                }}>Monthly savings with TryOn</div>
                 <div style={{
-                  fontFamily: 'var(--display)', fontSize: 36, fontWeight: 900,
-                  letterSpacing: '-0.03em', color: C.bone,
+                  fontFamily: 'var(--display)', fontSize: 32, fontWeight: 700,
+                  letterSpacing: '-0.02em', color: C.ink,
                 }}>{c.monthlySavings}</div>
               </div>
-              <div style={{ height: 1, background: C.faint }} />
-              <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-              }}>
+              <div style={{ height: 1, background: C.line }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <div>
                   <div style={{
-                    fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.32em',
-                    color: C.dim, textTransform: 'uppercase', marginBottom: 4,
-                  }}>TIER · YOU PAY</div>
+                    fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4,
+                  }}>You pay</div>
                   <div style={{
-                    fontFamily: 'var(--display)', fontSize: 22, fontWeight: 900,
-                    letterSpacing: '-0.03em', color: C.bone,
+                    fontFamily: 'var(--display)', fontSize: 20, fontWeight: 600,
+                    letterSpacing: '-0.02em', color: C.ink,
                   }}>{c.ourPrice}</div>
                 </div>
                 <div style={{
-                  fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.28em',
-                  color: C.bone, fontWeight: 700, textTransform: 'uppercase',
-                  border: `1px solid ${C.bone}`, padding: '4px 8px',
+                  fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600,
+                  color: C.ink, padding: '4px 10px', borderRadius: 999,
+                  border: `1px solid ${C.ink}`,
                 }}>{c.tier}</div>
               </div>
             </div>
           ))}
         </div>
         <div style={{
-          marginTop: 18,
-          fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.28em',
-          color: C.dim, textTransform: 'uppercase',
-        }}>SOURCES · CAPITAL ONE SHOPPING 2024 · ZETA 2025 · OPTORO 2024 · MCKINSEY STATE OF FASHION 2025</div>
+          marginTop: 16, fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
+        }}>
+          Sources: Capital One Shopping 2024, Zeta 2025, Optoro 2024, McKinsey State of Fashion 2025.
+        </div>
       </div>
     </section>
   );
@@ -462,8 +440,8 @@ function ROI({ C }: { C: Palette }) {
 function FAQ({ C }: { C: Palette }) {
   const items = [
     {
-      q: 'How do you count a "try-on session"?',
-      a: 'A session is one shopper opening the TRYON widget on a product page and rendering at least one garment. Page views without a render do not count. Session counts reset monthly.',
+      q: 'How do you count a try-on session?',
+      a: 'A session is one shopper opening the TryOn widget on a product page and rendering at least one garment. Page views without a render do not count. Session counts reset monthly.',
     },
     {
       q: 'Do you charge per garment upload?',
@@ -471,7 +449,7 @@ function FAQ({ C }: { C: Palette }) {
     },
     {
       q: 'What happens if I exceed my tier limit?',
-      a: 'Free and Studio hard-cap at the monthly limit. Brand and Scale tiers allow overage at $0.04 per session billed monthly in arrears. We will warn you at 80 percent and 100 percent before charging.',
+      a: 'Free and Studio hard-cap at the monthly limit. Brand and Scale tiers allow overage at $0.04 per session billed monthly in arrears. We will warn you at 80 and 100 percent before charging.',
     },
     {
       q: 'How long does Shopify integration take?',
@@ -489,27 +467,22 @@ function FAQ({ C }: { C: Palette }) {
   const [open, setOpen] = useState<number | null>(0);
   return (
     <section style={{
-      background: C.void, color: C.bone, padding: '96px 32px',
+      background: C.bg, color: C.ink, padding: '96px 32px',
+      borderTop: `1px solid ${C.line}`,
     }}>
       <div style={{ maxWidth: 880, margin: '0 auto' }}>
-        <div style={{
-          fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.4em',
-          color: C.dim, textTransform: 'uppercase', marginBottom: 18,
-        }}>FAQ</div>
         <h2 style={{
-          fontFamily: 'var(--display)', fontWeight: 900, margin: '0 0 36px',
-          fontSize: 'clamp(40px, 5vw, 72px)', letterSpacing: '-0.04em', lineHeight: 0.9,
-          textTransform: 'uppercase',
+          ...headingStyle('clamp(36px, 4.5vw, 56px)'),
+          marginBottom: 36,
         }}>
-          QUESTIONS WE GET FROM BRANDS.
+          Questions we get from brands.
         </h2>
-        <div style={{ border: `1px solid ${C.faint}` }}>
+        <div style={{ border: `1px solid ${C.line}`, borderRadius: 14, overflow: 'hidden', background: C.surface }}>
           {items.map((it, i) => {
             const isOpen = open === i;
             return (
               <div key={it.q} style={{
-                borderBottom: i < items.length - 1 ? `1px solid ${C.faint}` : 'none',
-                background: C.ash,
+                borderBottom: i < items.length - 1 ? `1px solid ${C.line}` : 'none',
               }}>
                 <button
                   onClick={() => setOpen(isOpen ? null : i)}
@@ -517,24 +490,25 @@ function FAQ({ C }: { C: Palette }) {
                     width: '100%', textAlign: 'left',
                     padding: '20px 24px',
                     background: 'transparent', border: 'none', cursor: 'pointer',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    color: C.bone,
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16,
+                    color: C.ink,
                   }}
                 >
                   <span style={{
-                    fontFamily: 'var(--display)', fontSize: 17, fontWeight: 700,
-                    letterSpacing: '-0.01em',
+                    fontFamily: 'var(--display)', fontSize: 16, fontWeight: 600,
+                    letterSpacing: '-0.005em',
                   }}>{it.q}</span>
                   <span style={{
-                    fontFamily: 'var(--mono)', fontSize: 16, color: C.dim,
+                    fontFamily: 'var(--display)', fontSize: 18, color: C.mute,
                     transform: isOpen ? 'rotate(45deg)' : 'rotate(0)',
                     transition: 'transform 0.2s ease',
+                    flexShrink: 0,
                   }}>+</span>
                 </button>
                 {isOpen && (
                   <div style={{
                     padding: '0 24px 22px',
-                    fontSize: 14, lineHeight: 1.6, color: C.bone, opacity: 0.78,
+                    ...bodyStyle, fontSize: 14.5, color: C.mute,
                     maxWidth: 720,
                   }}>{it.a}</div>
                 )}
@@ -551,49 +525,43 @@ function FinalCTA({ C }: { C: Palette }) {
   const router = useRouter();
   return (
     <section style={{
-      background: C.ash, color: C.bone, padding: '96px 32px 120px',
+      background: C.surface, color: C.ink, padding: '96px 32px 120px',
+      borderTop: `1px solid ${C.line}`,
     }}>
-      <div style={{
-        maxWidth: 880, margin: '0 auto', textAlign: 'center',
-      }}>
+      <div style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center' }}>
         <h2 style={{
-          fontFamily: 'var(--display)', fontWeight: 900, margin: '0 0 16px',
-          fontSize: 'clamp(48px, 6.5vw, 96px)', letterSpacing: '-0.04em', lineHeight: 0.88,
-          textTransform: 'uppercase',
+          ...headingStyle('clamp(40px, 5vw, 72px)'),
+          marginBottom: 16,
         }}>
-          INSTALL FREE.<br/>
-          <span style={{ WebkitTextStroke: `2px ${C.bone}`, color: 'transparent' }}>UPGRADE</span> WHEN IT WORKS.
+          Install free. Upgrade when it works.
         </h2>
         <p style={{
-          fontSize: 16, lineHeight: 1.55, margin: '0 auto 36px', maxWidth: 560,
-          color: C.bone, opacity: 0.8,
+          ...bodyStyle, fontSize: 16, color: C.mute, margin: '0 auto 32px', maxWidth: 540,
         }}>
           200 free sessions. No credit card. 10 minutes to live on your store. If the conversion data is not better than your last marketing spend, do not upgrade.
         </p>
-        <div style={{ display: 'inline-flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+        <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
           <button
             onClick={() => router.push('/signup?type=brand')}
             style={{
-              background: C.bone, color: C.void, border: 'none',
-              padding: '18px 28px',
-              fontFamily: 'var(--mono)', fontSize: 12, letterSpacing: '0.32em',
-              textTransform: 'uppercase', fontWeight: 800, cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 12,
+              background: C.ink, color: C.bg, border: 'none',
+              padding: '14px 24px',
+              fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 10,
               borderRadius: 999,
             }}
-          >START FREE <span style={{ fontSize: 16 }}>→</span></button>
+          >Start free <span>→</span></button>
           <button
             onClick={() => { window.location.href = 'mailto:revandiktas1@gmail.com?subject=TryOn%20Brand%20Demo'; }}
             style={{
-              background: 'transparent', color: C.bone,
-              border: `1px solid ${C.bone}`,
-              padding: '18px 28px',
-              fontFamily: 'var(--mono)', fontSize: 12, letterSpacing: '0.32em',
-              textTransform: 'uppercase', fontWeight: 800, cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 12,
+              background: 'transparent', color: C.ink,
+              border: `1px solid ${C.ink}`,
+              padding: '14px 24px',
+              fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 10,
               borderRadius: 999,
             }}
-          >BOOK A CALL</button>
+          >Book a call</button>
         </div>
       </div>
     </section>
@@ -604,41 +572,38 @@ function Footer({ C }: { C: Palette }) {
   const router = useRouter();
   return (
     <section style={{
-      background: C.void, color: C.bone, padding: '64px 32px 48px',
-      borderTop: `1px solid ${C.faint}`,
+      background: C.bg, color: C.ink, padding: '48px 32px 56px',
+      borderTop: `1px solid ${C.line}`,
     }}>
       <div style={{
         maxWidth: 1280, margin: '0 auto',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 32,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 24,
         flexWrap: 'wrap',
       }}>
-        <div style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={C.bone === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-            alt="TRYON"
-            style={{ height: 18, width: 'auto', display: 'block' }}
+            src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
+            alt="TryOn"
+            style={{ height: 16, width: 'auto', display: 'block' }}
           />
-          <div style={{ width: 1, height: 14, background: C.faint }} />
-          <div style={{
-            fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em',
-            color: C.dim, textTransform: 'uppercase',
-          }}>FIT FOLLOWS · TRYON · MMXXVI</div>
+          <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
+            TryOn, 2026
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 22 }}>
           {[
-            { label: 'HOME', href: '/' },
-            { label: 'PRIVACY', href: '/privacy' },
-            { label: 'DEMO', href: '/demo' },
-            { label: 'SIGN IN', href: '/login' },
+            { label: 'Home', href: '/' },
+            { label: 'Demo', href: '/demo' },
+            { label: 'Privacy', href: '/privacy' },
+            { label: 'Sign in', href: '/login' },
           ].map(it => (
             <button
               key={it.label}
               onClick={() => router.push(it.href)}
               style={{
                 background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.32em',
-                color: C.dim, textTransform: 'uppercase', fontWeight: 500,
+                fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500,
               }}
             >{it.label}</button>
           ))}
@@ -653,9 +618,9 @@ export default function PricingPage() {
   const dark = theme === 'dark';
   const C = dark ? PAL.dark : PAL.light;
   return (
-    <div style={{
+    <div className="tryon-redesign-root" style={{
       width: '100%', minHeight: '100vh',
-      background: C.void, color: C.bone, position: 'relative',
+      background: C.bg, color: C.ink, position: 'relative',
     }}>
       <Nav C={C} />
       <Hero C={C} />

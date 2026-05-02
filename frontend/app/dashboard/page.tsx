@@ -15,8 +15,6 @@ import {
   DashPrimaryBtn,
   DashChipBtn,
   MeasureCellD,
-  LedgerRow,
-  PassportPill,
   EmptyZone,
   PageHeading,
   type DashTab,
@@ -779,51 +777,57 @@ function DashboardPage() {
             )}
           </DashCard>
 
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: mobile ? '1fr' : '1fr 1fr',
-            gap: mobile ? 12 : 16,
-          }}>
-            <DashCard title="Account information">
-              <div style={{ display: 'grid', gap: 0 }}>
-                <LedgerRow label="Name" value={user.name || '-'} />
-                <LedgerRow label="Email" value={user.email} />
-                <LedgerRow
-                  label="Member since"
-                  value={user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}
-                />
-                <LedgerRow label="Gender" value={passport?.gender ? passport.gender[0].toUpperCase() + passport.gender.slice(1) : 'Not set'} last />
-              </div>
-            </DashCard>
-
-            <DashCard
-              title="Fit Passport status"
-              right={
-                <span style={{
-                  fontFamily: 'var(--display)', fontSize: 12,
-                  color: dark ? '#7CFFA1' : '#1F6B3D', fontWeight: 600,
-                }}>● Active</span>
-              }
-            >
-              <div style={{ display: 'grid', gap: 0 }}>
-                <PassportPill done={!!passport?.avatarUrl} label="Avatar created" sub="Ready to try on clothes." />
-                <PassportPill done={!!passport?.height} label="Measurements saved" sub="Size recommendations enabled." />
-                <PassportPill done label="Encrypted & revocable" sub="Your data is yours. Delete anytime." last />
-              </div>
-              <button
-                onClick={handleClearData}
-                style={{
-                  marginTop: 18, width: '100%',
-                  background: 'transparent',
-                  color: dark ? '#FF7C7C' : '#8E1F1F',
-                  border: `1px solid ${FAINT}`,
-                  padding: '11px 14px',
-                  fontFamily: 'var(--display)', fontSize: 13, fontWeight: 500,
-                  letterSpacing: '-0.005em', cursor: 'pointer',
-                }}
-              >Delete account and data</button>
-            </DashCard>
-          </div>
+          <DashCard
+            title="Fit Passport status"
+            right={
+              <span style={{
+                fontFamily: 'var(--display)', fontSize: 12,
+                color: dark ? '#7CFFA1' : '#1F6B3D', fontWeight: 600,
+              }}>● Active</span>
+            }
+          >
+            <div style={{
+              display: 'flex', flexWrap: 'wrap', gap: 16,
+              fontFamily: 'var(--display)', fontSize: 14, color: dark ? '#F2F1EC' : '#0A0A0A',
+              marginBottom: 10,
+            }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                opacity: passport?.avatarUrl ? 1 : 0.5,
+              }}>
+                <span style={{ fontSize: 13 }}>{passport?.avatarUrl ? '✓' : '○'}</span> Avatar
+              </span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                opacity: passport?.height ? 1 : 0.5,
+              }}>
+                <span style={{ fontSize: 13 }}>{passport?.height ? '✓' : '○'}</span> Measurements
+              </span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}>
+                <span style={{ fontSize: 13 }}>✓</span> Encrypted, revocable
+              </span>
+            </div>
+            <p style={{
+              fontFamily: 'var(--display)', fontSize: 12,
+              color: dark ? '#8A8A8A' : '#6E6E6E', margin: '0 0 14px',
+            }}>
+              Your data is yours. Delete anytime.
+            </p>
+            <button
+              onClick={handleClearData}
+              style={{
+                width: '100%',
+                background: 'transparent',
+                color: dark ? '#FF7C7C' : '#8E1F1F',
+                border: `1px solid ${FAINT}`,
+                padding: '11px 14px',
+                fontFamily: 'var(--display)', fontSize: 13, fontWeight: 500,
+                letterSpacing: '-0.005em', cursor: 'pointer',
+              }}
+            >Delete account and data</button>
+          </DashCard>
         </div>
       </div>
 

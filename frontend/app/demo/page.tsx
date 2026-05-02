@@ -1,163 +1,353 @@
 'use client';
 
-import { useState } from 'react';
-import { TryonLogo } from '@/components/TryonLogo';
+import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useTheme } from '@/contexts/ThemeContext';
 
-export default function DemoPage() {
-  const [showWidget, setShowWidget] = useState(false);
+const PAL = {
+  light: {
+    bg: '#FAFAF8', surface: '#FFFFFF',
+    ink: '#0A0A0A', mute: '#6E6E6E',
+    line: 'rgba(10,10,10,0.10)',
+    cardBg: '#0A0A0A', cardInk: '#FAFAF8', cardMute: '#9A9A9A',
+    cardLine: 'rgba(255,255,255,0.14)',
+  },
+  dark: {
+    bg: '#0A0A0A', surface: '#121212',
+    ink: '#F2F1EC', mute: '#8A8A8A',
+    line: 'rgba(255,255,255,0.10)',
+    cardBg: '#F2F1EC', cardInk: '#0A0A0A', cardMute: '#6E6E6E',
+    cardLine: 'rgba(0,0,0,0.10)',
+  },
+};
+type Palette = typeof PAL.light;
+
+const fitData: Record<string, string> = {
+  xs: 'Too tight in the chest and shoulders. Size up for a comfortable fit.',
+  s: 'Slightly fitted, may feel snug around the chest. Good for a slim fit.',
+  m: 'Recommended fit. Fits very well, not too tight, not too baggy.',
+  l: 'Relaxed fit with extra room in the body. Good for a loose fit.',
+  xl: 'Oversized fit, very roomy throughout. Ideal for an oversized look.',
+};
+
+const mockPassport = {
+  height: 175,
+  measurements: { chest: 98, waist: 78, hips: 92 },
+};
+
+function Nav({ C }: { C: Palette }) {
+  const router = useRouter();
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '20px 32px',
+      borderBottom: `1px solid ${C.line}`,
+      background: C.bg,
+      position: 'sticky', top: 0, zIndex: 60,
+    }}>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 28 }}>
+        <button
+          type="button"
+          onClick={() => router.push('/')}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
+          aria-label="TryOn home"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
+            alt="TryOn"
+            style={{ height: 18, width: 'auto', display: 'block' }}
+          />
+        </button>
+        <div style={{
+          fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500,
+        }}>Demo</div>
+      </div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 18 }}>
+        <button
+          onClick={() => router.push('/pricing')}
+          style={{
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            fontFamily: 'var(--display)', fontSize: 14, color: C.mute, fontWeight: 500,
+          }}
+        >Pricing</button>
+        <button
+          onClick={() => router.push('/signup?type=brand')}
+          style={{
+            padding: '9px 16px',
+            background: C.ink, color: C.bg, border: 'none',
+            fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            borderRadius: 999,
+          }}
+        >Start free →</button>
+      </div>
+    </div>
+  );
+}
+
+function ProductPanel({ C, onTryOn }: { C: Palette; onTryOn: () => void }) {
+  return (
+    <div style={{
+      width: 440,
+      padding: '56px 48px',
+      display: 'flex', flexDirection: 'column', justifyContent: 'center',
+      background: C.bg, color: C.ink,
+      borderLeft: `1px solid ${C.line}`,
+    }}>
+      <div style={{
+        fontFamily: 'var(--display)', fontSize: 12, color: C.mute, fontWeight: 600,
+        letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12,
+      }}>Nude Project</div>
+      <h1 style={{
+        fontFamily: 'var(--display)', fontSize: 28, fontWeight: 700,
+        letterSpacing: '-0.02em', lineHeight: 1.15, margin: '0 0 12px',
+        color: C.ink,
+      }}>NPC Oversized T-shirt</h1>
+      <div style={{
+        fontFamily: 'var(--display)', fontSize: 22, fontWeight: 500,
+        color: C.ink, marginBottom: 32,
+      }}>€49.00</div>
+
+      <button
+        onClick={onTryOn}
+        style={{
+          background: C.ink, color: C.bg,
+          padding: '16px 22px', border: 'none', borderRadius: 999,
+          fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+          marginBottom: 12,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+        }}
+      >Try on <span>→</span></button>
+
+      <button
+        style={{
+          background: 'transparent', color: C.ink,
+          padding: '15px 22px', border: `1px solid ${C.ink}`, borderRadius: 999,
+          fontFamily: 'var(--display)', fontSize: 15, fontWeight: 500, cursor: 'pointer',
+        }}
+      >Add to cart</button>
+
+      <div style={{
+        marginTop: 28, padding: '14px 16px',
+        border: `1px solid ${C.line}`, borderRadius: 12,
+        background: C.surface,
+        display: 'flex', alignItems: 'center', gap: 12,
+      }}>
+        <span style={{
+          width: 8, height: 8, borderRadius: '50%', background: '#3FA66B',
+          boxShadow: '0 0 10px rgba(63,166,107,0.45)',
+        }} />
+        <div>
+          <div style={{
+            fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, color: C.ink,
+          }}>Demo mode</div>
+          <div style={{
+            fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
+          }}>Using sample fit passport data. No signup needed.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Widget({ C, onClose }: { C: Palette; onClose: () => void }) {
   const [currentSize, setCurrentSize] = useState('m');
 
-  // Demo/mock data - no auth required
-  const mockUser = {
-    name: 'Demo User',
-    email: 'demo@tryon.app',
-  };
-
-  const mockPassport = {
-    height: 175,
-    measurements: {
-      chest: 98,
-      waist: 78,
-      hips: 92,
-    },
-  };
-
-  const fitData: Record<string, string> = {
-    xs: 'TOO TIGHT in the chest and shoulders. Size up for a comfortable fit.',
-    s: 'SLIGHTLY FITTED, may feel snug around the chest. Good for a slim fit.',
-    m: 'FITS VERY WELL, not too tight, not too baggy. RECOMMENDED FIT',
-    l: 'RELAXED FIT with extra room in the body. Good for a loose fit.',
-    xl: 'OVERSIZED FIT, very roomy throughout. Ideal for an oversized look.',
-  };
-
   return (
-    <div className="min-h-screen bg-white">
-      {/* Simulated PDP */}
-      <div className="flex min-h-screen">
-        {/* Product Image */}
-        <div className="flex-1 bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 flex items-center justify-center">
-          <span className="text-[200px] drop-shadow-2xl">👕</span>
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 80,
+        background: 'rgba(10,10,10,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 16,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{
+        position: 'relative',
+        width: 880, maxWidth: '94vw',
+        maxHeight: '92vh',
+        background: C.surface,
+        border: `1px solid ${C.line}`, borderRadius: 16,
+        boxShadow: '0 32px 80px rgba(0,0,0,0.32)',
+        overflow: 'hidden',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{
+          padding: '16px 24px',
+          borderBottom: `1px solid ${C.line}`,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          background: C.bg,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
+              alt="TryOn"
+              style={{ height: 14, width: 'auto', display: 'block' }}
+            />
+            <div style={{
+              fontFamily: 'var(--display)', fontSize: 12, color: C.mute, fontWeight: 500,
+            }}>Demo user · NPC Oversized T-shirt</div>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: 32, height: 32, borderRadius: '50%',
+              background: 'transparent', border: `1px solid ${C.line}`,
+              color: C.ink, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 16,
+            }}
+          >×</button>
         </div>
 
-        {/* Product Info */}
-        <div className="w-[400px] p-10 flex flex-col justify-center bg-white">
-          <p className="text-xs tracking-widest text-gray-500 mb-2">NUDE PROJECT</p>
-          <h1 className="text-2xl font-medium mb-4">NPC Oversized T-Shirt</h1>
-          <p className="text-lg mb-6">€49.00</p>
-          
-          <button
-            onClick={() => setShowWidget(true)}
-            className="w-full py-4 bg-black text-white font-medium tracking-wide hover:bg-gray-800 transition mb-4"
-          >
-            TRY ON
-          </button>
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 280px',
+          flex: 1, minHeight: 540,
+        }}>
+          <div style={{
+            position: 'relative',
+            background: '#ffffff',
+            borderRight: `1px solid ${C.line}`,
+          }}>
+            <iframe
+              src={`/embed-viewer.html#${currentSize}`}
+              className="viewer-canvas"
+              style={{ width: '100%', height: '100%', border: 0, display: 'block', minHeight: 540 }}
+              title="TryOn 3D viewer"
+            />
+            <div style={{
+              position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)',
+              fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
+              background: 'rgba(255,255,255,0.85)',
+              padding: '6px 12px', borderRadius: 999,
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              border: `1px solid ${C.line}`,
+            }}>Drag to rotate. Scroll to zoom.</div>
+          </div>
 
-          <button className="w-full py-4 border border-black text-black font-medium tracking-wide hover:bg-gray-50 transition">
-            ADD TO CART
-          </button>
+          <div style={{
+            padding: 24, background: C.surface, color: C.ink,
+            display: 'flex', flexDirection: 'column', gap: 18,
+          }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              {[
+                { k: 'Height', v: `${mockPassport.height} cm` },
+                { k: 'Chest', v: `${mockPassport.measurements.chest} cm` },
+                { k: 'Hips', v: `${mockPassport.measurements.hips} cm` },
+                { k: 'Waist', v: `${mockPassport.measurements.waist} cm` },
+              ].map(row => (
+                <div key={row.k}>
+                  <div style={{
+                    fontFamily: 'var(--display)', fontSize: 11, color: C.mute, fontWeight: 600,
+                    letterSpacing: '0.04em', marginBottom: 4,
+                  }}>{row.k}</div>
+                  <div style={{
+                    fontFamily: 'var(--display)', fontSize: 18, fontWeight: 600, color: C.ink,
+                    letterSpacing: '-0.01em',
+                  }}>{row.v}</div>
+                </div>
+              ))}
+            </div>
 
-          {/* Demo indicator */}
-          <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-            <div className="flex items-center gap-3">
-              <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">Demo Mode</p>
-                <p className="text-xs text-gray-500">Using sample Fit Passport data</p>
+            <div>
+              <div style={{
+                fontFamily: 'var(--display)', fontSize: 11, color: C.mute, fontWeight: 600,
+                marginBottom: 8,
+              }}>Size</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {['xs', 's', 'm', 'l', 'xl'].map(size => {
+                  const active = currentSize === size;
+                  return (
+                    <button
+                      key={size}
+                      onClick={() => setCurrentSize(size)}
+                      style={{
+                        flex: 1, height: 40, minWidth: 40,
+                        background: active ? C.ink : 'transparent',
+                        color: active ? C.bg : C.ink,
+                        border: `1px solid ${active ? C.ink : C.line}`,
+                        borderRadius: 8,
+                        fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >{size.toUpperCase()}</button>
+                  );
+                })}
               </div>
+            </div>
+
+            <div style={{
+              borderTop: `1px solid ${C.line}`, paddingTop: 16,
+              fontFamily: 'var(--display)', fontSize: 13, lineHeight: 1.55, color: C.ink,
+            }}>
+              <div style={{
+                fontFamily: 'var(--display)', fontSize: 11, color: C.mute, fontWeight: 600,
+                marginBottom: 6,
+              }}>Fit</div>
+              {fitData[currentSize]}
+            </div>
+
+            <div style={{
+              marginTop: 'auto', paddingTop: 16,
+              borderTop: `1px solid ${C.line}`,
+              display: 'flex', gap: 8,
+            }}>
+              <button
+                onClick={onClose}
+                style={{
+                  flex: 1,
+                  background: C.ink, color: C.bg, border: 'none',
+                  padding: '12px 14px', borderRadius: 999,
+                  fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                }}
+              >Add to cart</button>
             </div>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* TryOn Widget Modal */}
-      {showWidget && (
-        <div 
-          className="fixed inset-0 bg-black/25 z-50 flex items-center justify-center"
-          onClick={(e) => e.target === e.currentTarget && setShowWidget(false)}
-        >
-          <div className="relative w-[800px] max-w-[92vw]">
-            {/* Close button */}
-            <button
-              onClick={() => setShowWidget(false)}
-              className="absolute -top-12 right-0 w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition"
-            >
-              ✕
-            </button>
+export default function DemoPage() {
+  const { theme } = useTheme();
+  const dark = theme === 'dark';
+  const C = dark ? PAL.dark : PAL.light;
+  const [showWidget, setShowWidget] = useState(false);
 
-            {/* Glassmorphism popup */}
-            <div className="bg-white/20 backdrop-blur-xl border border-white/40 rounded-3xl shadow-2xl overflow-hidden" style={{ backdropFilter: 'blur(40px) saturate(180%)' }}>
-              {/* Header */}
-              <div className="flex justify-between items-center px-6 py-4 border-b border-white/30 bg-white/30">
-                <TryonLogo className="h-5 w-auto" href="/" />
-                <span className="text-sm font-medium text-gray-700">{mockUser.name.toUpperCase()}</span>
-              </div>
+  return (
+    <div className="tryon-redesign-root" style={{
+      width: '100%', minHeight: '100vh',
+      background: C.bg, color: C.ink,
+    }}>
+      <Nav C={C} />
 
-              {/* Content */}
-              <div className="flex min-h-[540px]">
-                {/* Avatar Viewer */}
-                <div className="flex-1 relative border-r border-white/20 bg-white/10">
-                  <iframe 
-                    src={`/embed-viewer.html#${currentSize}`}
-                    className="w-full h-full border-0 bg-transparent"
-                    style={{ minHeight: '540px' }}
-                  />
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-gray-500 bg-white/70 px-3 py-1.5 rounded-full backdrop-blur-sm">
-                    Drag to rotate • Scroll to zoom • Right-drag to move
-                  </div>
-                </div>
-
-                {/* Info Panel */}
-                <div className="w-[230px] p-6 bg-white/40 flex flex-col">
-                  {/* Measurements from Fit Passport */}
-                  <div className="flex-1 space-y-5">
-                    <div>
-                      <p className="text-[10px] font-semibold tracking-widest text-gray-400">HEIGHT</p>
-                      <p className="text-xl font-semibold text-gray-900">{mockPassport.height}CM</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold tracking-widest text-gray-400">CHEST</p>
-                      <p className="text-xl font-semibold text-gray-900">{mockPassport.measurements.chest}CM</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold tracking-widest text-gray-400">HIPS</p>
-                      <p className="text-xl font-semibold text-gray-900">{mockPassport.measurements.hips}CM</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold tracking-widest text-gray-400">WAIST</p>
-                      <p className="text-xl font-semibold text-gray-900">{mockPassport.measurements.waist}CM</p>
-                    </div>
-                  </div>
-
-                  {/* Size Selector */}
-                  <div className="flex gap-2 mb-5">
-                    {['xs', 's', 'm', 'l', 'xl'].map((size) => (
-                      <button
-                        key={size}
-                        onClick={() => setCurrentSize(size)}
-                        className={`w-[42px] h-[42px] rounded-lg border font-semibold text-xs transition ${
-                          currentSize === size
-                            ? 'bg-black text-white border-black'
-                            : 'bg-white/50 text-gray-900 border-gray-200 hover:bg-white/80'
-                        }`}
-                      >
-                        {size.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Fit Description */}
-                  <div className="border-t border-white/30 pt-4">
-                    <p className="text-[10px] font-semibold tracking-widest text-gray-400 mb-2">FIT</p>
-                    <p className="text-xs leading-relaxed text-gray-700">
-                      {fitData[currentSize]}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+      <div style={{ display: 'flex', minHeight: 'calc(100vh - 64px)' }}>
+        <div style={{
+          flex: 1,
+          background: C.surface,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 48,
+          borderRight: `1px solid ${C.line}`,
+        }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/redesign/tryon-product.jpg"
+            alt="NPC Oversized T-shirt"
+            style={{
+              maxWidth: '78%', maxHeight: '78%',
+              objectFit: 'contain', display: 'block',
+            }}
+          />
         </div>
-      )}
+        <ProductPanel C={C} onTryOn={() => setShowWidget(true)} />
+      </div>
+
+      {showWidget && <Widget C={C} onClose={() => setShowWidget(false)} />}
     </div>
   );
 }

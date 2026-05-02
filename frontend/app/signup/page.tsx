@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { TryonLogo } from '@/components/TryonLogo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { signup, signInWithSocial } from '@/lib/supabase-auth';
 import { registerBrand } from '@/lib/api';
@@ -151,7 +150,22 @@ function ShopperSignupView({ dark, router }: { dark: boolean; router: ReturnType
   );
 }
 
-/* ───────── Brand signup - preserved unchanged from previous design ───────── */
+/* ───────── Brand signup, redesigned theme ───────── */
+const BRAND_PAL = {
+  light: {
+    bg: '#FAFAF8', surface: '#FFFFFF',
+    ink: '#0A0A0A', mute: '#6E6E6E',
+    line: 'rgba(10,10,10,0.10)',
+    danger: '#C13128',
+  },
+  dark: {
+    bg: '#0A0A0A', surface: '#121212',
+    ink: '#F2F1EC', mute: '#8A8A8A',
+    line: 'rgba(255,255,255,0.10)',
+    danger: '#FF7C7C',
+  },
+};
+
 function BrandSignupView({
   dark, shopifyMode, resolvedShop,
 }: {
@@ -162,6 +176,7 @@ function BrandSignupView({
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const countryDropdownRef = useRef<HTMLDivElement>(null);
+  const C = dark ? BRAND_PAL.dark : BRAND_PAL.light;
 
   const [phoneCode, setPhoneCode] = useState('+31');
   const [showCodeDropdown, setShowCodeDropdown] = useState(false);
@@ -267,32 +282,66 @@ function BrandSignupView({
     && formData.password && formData.confirmPassword
     && formData.password === formData.confirmPassword && formData.password.length >= 6;
 
+  const labelStyle: React.CSSProperties = {
+    display: 'block',
+    fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
+    color: C.ink, marginBottom: 6,
+  };
+
+  const fieldStyle = (hasError?: boolean): React.CSSProperties => ({
+    width: '100%', padding: '12px 14px',
+    border: `1px solid ${hasError ? C.danger : C.line}`,
+    borderRadius: 10,
+    background: C.surface,
+    fontFamily: 'var(--display)', fontSize: 15, fontWeight: 500,
+    color: C.ink,
+    outline: 'none',
+    boxSizing: 'border-box',
+  });
+
+  const errorStyle: React.CSSProperties = {
+    fontFamily: 'var(--display)', fontSize: 12, color: C.danger, marginTop: 4,
+  };
+
   return (
-    <div className={`min-h-screen flex items-center justify-center p-4 transition-colors ${dark ? 'bg-black' : 'bg-white'}`}>
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <TryonLogo href="/" className="h-10 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
-          <p className={dark ? 'text-white/60' : 'text-gray-500'}>Set up your brand account</p>
+    <div className="tryon-redesign-root" style={{
+      minHeight: '100vh', background: C.bg, color: C.ink,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '40px 20px',
+    }}>
+      <div style={{ width: '100%', maxWidth: 480 }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <button
+            onClick={() => router.push('/')}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex', marginBottom: 18 }}
+            aria-label="TryOn home"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={dark ? '/redesign/wordmark-white.png' : '/redesign/wordmark.png'}
+              alt="TryOn"
+              style={{ height: 22, width: 'auto' }}
+            />
+          </button>
+          <h1 style={{
+            fontFamily: 'var(--display)', fontSize: 26, fontWeight: 700,
+            color: C.ink, letterSpacing: '-0.015em', margin: '0 0 6px',
+          }}>Set up your brand account</h1>
+          <p style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.mute, margin: 0 }}>
+            Connect your store. Start cutting returns.
+          </p>
         </div>
 
-        <div className={`rounded-2xl p-8 shadow-sm border ${dark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-gray-200'}`}>
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-orange-500 to-pink-600">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-              </svg>
-            </div>
+        <div style={{
+          background: C.surface,
+          border: `1px solid ${C.line}`,
+          borderRadius: 14,
+          padding: 28,
+          boxShadow: '0 12px 40px rgba(0,0,0,0.04)',
+        }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
-              <h2 className={`text-xl font-semibold ${dark ? 'text-white' : 'text-black'}`}>Brand Account</h2>
-              <p className={dark ? 'text-white/60 text-sm' : 'text-gray-500 text-sm'}>Enter your details below</p>
-            </div>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className={`block text-sm font-medium mb-2 ${dark ? 'text-white/70' : 'text-gray-700'}`}>
-                Brand / Company Name <span className="text-red-500">*</span>
-              </label>
+              <label style={labelStyle}>Brand or company name</label>
               <input
                 type="text"
                 required
@@ -302,15 +351,13 @@ function BrandSignupView({
                   setFormData({ ...formData, brandName: e.target.value });
                   if (errors.brandName) setErrors({ ...errors, brandName: '' });
                 }}
-                className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:border-transparent transition ${errors.brandName ? 'border-red-500' : ''} ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'bg-gray-50 border-gray-200 text-black focus:ring-black'}`}
+                style={fieldStyle(!!errors.brandName)}
               />
-              {errors.brandName && <p className="text-red-500 text-xs mt-1">{errors.brandName}</p>}
+              {errors.brandName && <p style={errorStyle}>{errors.brandName}</p>}
             </div>
 
             <div>
-              <label className={`block text-sm font-medium mb-2 ${dark ? 'text-white/70' : 'text-gray-700'}`}>
-                Contact Person Name <span className="text-red-500">*</span>
-              </label>
+              <label style={labelStyle}>Contact name</label>
               <input
                 type="text"
                 required
@@ -319,15 +366,13 @@ function BrandSignupView({
                   setFormData({ ...formData, contactName: e.target.value });
                   if (errors.contactName) setErrors({ ...errors, contactName: '' });
                 }}
-                className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:border-transparent transition ${errors.contactName ? 'border-red-500' : ''} ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'bg-gray-50 border-gray-200 text-black focus:ring-black'}`}
+                style={fieldStyle(!!errors.contactName)}
               />
-              {errors.contactName && <p className="text-red-500 text-xs mt-1">{errors.contactName}</p>}
+              {errors.contactName && <p style={errorStyle}>{errors.contactName}</p>}
             </div>
 
             <div>
-              <label className={`block text-sm font-medium mb-2 ${dark ? 'text-white/70' : 'text-gray-700'}`}>
-                Business Email <span className="text-red-500">*</span>
-              </label>
+              <label style={labelStyle}>Business email</label>
               <input
                 type="email"
                 required
@@ -336,40 +381,58 @@ function BrandSignupView({
                   setFormData({ ...formData, email: e.target.value });
                   if (errors.email) setErrors({ ...errors, email: '' });
                 }}
-                className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:border-transparent transition ${errors.email ? 'border-red-500' : ''} ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'bg-gray-50 border-gray-200 text-black focus:ring-black'}`}
+                style={fieldStyle(!!errors.email)}
               />
-              {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
+              {errors.email && <p style={errorStyle}>{errors.email}</p>}
             </div>
 
             <div>
-              <label className={`block text-sm font-medium mb-2 ${dark ? 'text-white/70' : 'text-gray-700'}`}>
-                Phone Number <span className="text-red-500">*</span>
-              </label>
-              <div className="flex gap-2">
-                <div className="relative" ref={dropdownRef}>
+              <label style={labelStyle}>Phone</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ position: 'relative' }} ref={dropdownRef}>
                   <button
                     type="button"
                     onClick={() => setShowCodeDropdown(!showCodeDropdown)}
-                    className={`flex items-center gap-2 px-3 py-3 border rounded-xl transition min-w-[110px] ${errors.phone ? 'border-red-500' : ''} ${dark ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-gray-50 border-gray-200 text-black hover:bg-gray-100'}`}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 8,
+                      padding: '12px 12px',
+                      border: `1px solid ${errors.phone ? C.danger : C.line}`,
+                      borderRadius: 10,
+                      background: C.surface, color: C.ink,
+                      fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500,
+                      cursor: 'pointer', minWidth: 116,
+                    }}
                   >
-                    <span className={`text-xs font-semibold w-6 text-center ${dark ? 'text-white/50' : 'text-gray-500'}`}>{selectedCountry.abbr}</span>
-                    <span className="font-medium">{phoneCode}</span>
-                    <svg className={`w-4 h-4 ml-auto ${dark ? 'text-white/40' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: C.mute, width: 22, textAlign: 'center' }}>
+                      {selectedCountry.abbr}
+                    </span>
+                    <span>{phoneCode}</span>
+                    <span style={{ marginLeft: 'auto', color: C.mute, fontSize: 12 }}>▾</span>
                   </button>
                   {showCodeDropdown && (
-                    <div className={`absolute top-full left-0 mt-1 w-64 border rounded-xl shadow-lg z-50 max-h-60 overflow-y-auto ${dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-gray-200'}`}>
+                    <div style={{
+                      position: 'absolute', top: 'calc(100% + 4px)', left: 0,
+                      width: 280,
+                      background: C.surface, border: `1px solid ${C.line}`,
+                      borderRadius: 10, boxShadow: '0 16px 40px rgba(0,0,0,0.1)',
+                      zIndex: 50, maxHeight: 240, overflowY: 'auto',
+                    }}>
                       {countryCodes.map((c) => (
                         <button
                           key={c.code}
                           type="button"
                           onClick={() => { setPhoneCode(c.code); setShowCodeDropdown(false); }}
-                          className={`w-full flex items-center gap-3 px-4 py-2.5 transition text-left ${phoneCode === c.code ? (dark ? 'bg-white/10' : 'bg-gray-100') : ''} ${dark ? 'hover:bg-white/5 text-white' : 'hover:bg-gray-50 text-black'}`}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 12,
+                            width: '100%', padding: '10px 14px',
+                            background: phoneCode === c.code ? C.bg : 'transparent',
+                            border: 'none', cursor: 'pointer', textAlign: 'left',
+                            fontFamily: 'var(--display)', fontSize: 13, color: C.ink,
+                          }}
                         >
-                          <span className={`text-xs font-semibold w-6 text-center ${dark ? 'text-white/50' : 'text-gray-500'}`}>{c.abbr}</span>
-                          <span className="flex-1">{c.country}</span>
-                          <span className={dark ? 'text-white/40 text-sm' : 'text-gray-500 text-sm'}>{c.code}</span>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: C.mute, width: 22, textAlign: 'center' }}>{c.abbr}</span>
+                          <span style={{ flex: 1 }}>{c.country}</span>
+                          <span style={{ color: C.mute, fontSize: 12 }}>{c.code}</span>
                         </button>
                       ))}
                     </div>
@@ -385,49 +448,69 @@ function BrandSignupView({
                     setFormData({ ...formData, phone: value });
                     if (errors.phone) setErrors({ ...errors, phone: '' });
                   }}
-                  className={`flex-1 px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:border-transparent transition ${errors.phone ? 'border-red-500' : ''} ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'bg-gray-50 border-gray-200 text-black focus:ring-black'}`}
+                  style={{ ...fieldStyle(!!errors.phone), flex: 1 }}
                 />
               </div>
-              {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone}</p>}
+              {errors.phone && <p style={errorStyle}>{errors.phone}</p>}
             </div>
 
             {!shopifyMode && (
               <div>
-                <label className={`block text-sm font-medium mb-2 ${dark ? 'text-white/70' : 'text-gray-700'}`}>
-                  Shopify Store URL <span className={dark ? 'text-white/30 font-normal' : 'text-gray-400 font-normal'}>(optional)</span>
+                <label style={labelStyle}>
+                  Shopify store URL <span style={{ color: C.mute, fontWeight: 400 }}>(optional)</span>
                 </label>
-                <div className="flex items-center gap-0">
+                <div style={{ display: 'flex' }}>
                   <input
                     type="text"
                     placeholder="your-store"
                     value={formData.shopifyDomain}
                     onChange={(e) => setFormData({ ...formData, shopifyDomain: e.target.value.replace(/\s/g, '').toLowerCase() })}
-                    className={`flex-1 px-4 py-3 border rounded-l-xl focus:outline-none focus:ring-2 focus:border-transparent transition ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'bg-gray-50 border-gray-200 text-black focus:ring-black'}`}
+                    style={{
+                      ...fieldStyle(false),
+                      flex: 1,
+                      borderRadius: '10px 0 0 10px',
+                      borderRight: 'none',
+                    }}
                   />
-                  <span className={`px-3 py-3 border border-l-0 rounded-r-xl text-sm whitespace-nowrap ${dark ? 'bg-white/5 border-white/10 text-white/50' : 'bg-gray-100 border-gray-200 text-gray-500'}`}>.myshopify.com</span>
+                  <span style={{
+                    padding: '12px 14px',
+                    border: `1px solid ${C.line}`,
+                    borderRadius: '0 10px 10px 0',
+                    background: C.bg, color: C.mute,
+                    fontFamily: 'var(--display)', fontSize: 13,
+                    display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap',
+                  }}>.myshopify.com</span>
                 </div>
-                <p className={`text-xs mt-1 ${dark ? 'text-white/40' : 'text-gray-400'}`}>You can connect your store later from the dashboard</p>
+                <p style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginTop: 4 }}>
+                  You can connect your store later from the dashboard.
+                </p>
               </div>
             )}
 
-            <div className="relative" ref={countryDropdownRef}>
-              <label className={`block text-sm font-medium mb-2 ${dark ? 'text-white/70' : 'text-gray-700'}`}>
-                Country <span className="text-red-500">*</span>
-              </label>
+            <div style={{ position: 'relative' }} ref={countryDropdownRef}>
+              <label style={labelStyle}>Country</label>
               <button
                 type="button"
                 onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                className={`w-full px-4 py-3 border rounded-xl text-left flex items-center justify-between transition ${errors.country ? 'border-red-500' : ''} ${dark ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-gray-50 border-gray-200 text-black hover:bg-gray-100'}`}
+                style={{
+                  ...fieldStyle(!!errors.country),
+                  textAlign: 'left',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  cursor: 'pointer',
+                }}
               >
-                <span className={formData.country ? '' : (dark ? 'text-white/40' : 'text-gray-400')}>
+                <span style={{ color: formData.country ? C.ink : C.mute }}>
                   {formData.country || 'Select country'}
                 </span>
-                <svg className={`w-4 h-4 ${dark ? 'text-white/40' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                <span style={{ color: C.mute, fontSize: 12 }}>▾</span>
               </button>
               {showCountryDropdown && (
-                <div className={`absolute top-full left-0 right-0 mt-1 border rounded-xl shadow-lg z-50 max-h-60 overflow-y-auto ${dark ? 'bg-zinc-900 border-white/10' : 'bg-white border-gray-200'}`}>
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                  background: C.surface, border: `1px solid ${C.line}`,
+                  borderRadius: 10, boxShadow: '0 16px 40px rgba(0,0,0,0.1)',
+                  zIndex: 50, maxHeight: 240, overflowY: 'auto',
+                }}>
                   {countries.map((c) => (
                     <button
                       key={c}
@@ -437,20 +520,21 @@ function BrandSignupView({
                         setShowCountryDropdown(false);
                         if (errors.country) setErrors({ ...errors, country: '' });
                       }}
-                      className={`w-full px-4 py-2 text-left text-sm ${dark ? 'hover:bg-white/5 text-white' : 'hover:bg-gray-50 text-black'}`}
-                    >
-                      {c}
-                    </button>
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        padding: '10px 14px',
+                        background: 'transparent', border: 'none', cursor: 'pointer',
+                        fontFamily: 'var(--display)', fontSize: 13, color: C.ink,
+                      }}
+                    >{c}</button>
                   ))}
                 </div>
               )}
-              {errors.country && <p className="text-red-500 text-xs mt-1">{errors.country}</p>}
+              {errors.country && <p style={errorStyle}>{errors.country}</p>}
             </div>
 
             <div>
-              <label className={`block text-sm font-medium mb-2 ${dark ? 'text-white/70' : 'text-gray-700'}`}>
-                Password <span className="text-red-500">*</span>
-              </label>
+              <label style={labelStyle}>Password</label>
               <input
                 type="password"
                 required
@@ -459,15 +543,13 @@ function BrandSignupView({
                   setFormData({ ...formData, password: e.target.value });
                   if (errors.password) setErrors({ ...errors, password: '' });
                 }}
-                className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:border-transparent transition ${errors.password ? 'border-red-500' : ''} ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'bg-gray-50 border-gray-200 text-black focus:ring-black'}`}
+                style={fieldStyle(!!errors.password)}
               />
-              {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
+              {errors.password && <p style={errorStyle}>{errors.password}</p>}
             </div>
 
             <div>
-              <label className={`block text-sm font-medium mb-2 ${dark ? 'text-white/70' : 'text-gray-700'}`}>
-                Confirm Password <span className="text-red-500">*</span>
-              </label>
+              <label style={labelStyle}>Confirm password</label>
               <input
                 type="password"
                 required
@@ -476,35 +558,50 @@ function BrandSignupView({
                   setFormData({ ...formData, confirmPassword: e.target.value });
                   if (errors.confirmPassword) setErrors({ ...errors, confirmPassword: '' });
                 }}
-                className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:border-transparent transition ${errors.confirmPassword ? 'border-red-500' : ''} ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'bg-gray-50 border-gray-200 text-black focus:ring-black'}`}
+                style={fieldStyle(!!errors.confirmPassword)}
               />
-              {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>}
+              {errors.confirmPassword && <p style={errorStyle}>{errors.confirmPassword}</p>}
             </div>
 
             {errors.form && (
-              <div className={`text-sm rounded-lg p-3 ${dark ? 'text-red-400 bg-red-500/10 border border-red-500/20' : 'text-red-600 bg-red-50 border border-red-100'}`}>
-                {errors.form}
-              </div>
+              <div style={{
+                padding: '12px 14px', borderRadius: 10,
+                background: 'rgba(193,49,40,0.08)',
+                color: C.danger, fontSize: 13, fontFamily: 'var(--display)',
+                border: '1px solid rgba(193,49,40,0.18)',
+              }}>{errors.form}</div>
             )}
 
             <button
               type="submit"
               disabled={loading || !isFormValid}
-              className="w-full py-3 bg-black text-white font-semibold rounded-xl hover:bg-gray-800 transition disabled:opacity-40 disabled:cursor-not-allowed mt-6"
-            >
-              {loading ? 'Creating account...' : 'Create Account'}
-            </button>
+              style={{
+                marginTop: 8,
+                background: C.ink, color: C.bg,
+                padding: '14px 18px', borderRadius: 999, border: 'none',
+                fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600,
+                cursor: (loading || !isFormValid) ? 'not-allowed' : 'pointer',
+                opacity: (loading || !isFormValid) ? 0.4 : 1,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              }}
+            >{loading ? 'Creating account...' : (<>Create account <span>→</span></>)}</button>
           </form>
 
-          <p className={`text-center text-sm mt-6 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+          <p style={{
+            textAlign: 'center', fontFamily: 'var(--display)', fontSize: 13, color: C.mute,
+            marginTop: 20, marginBottom: 0,
+          }}>
             Already have an account?{' '}
-            <Link href="/login" className={dark ? 'text-white font-medium hover:underline' : 'text-black font-medium hover:underline'}>Sign in</Link>
+            <Link href="/login" style={{ color: C.ink, fontWeight: 600, textDecoration: 'underline' }}>Sign in</Link>
           </p>
         </div>
 
-        <p className={`text-center text-xs mt-6 ${dark ? 'text-white/40' : 'text-gray-400'}`}>
+        <p style={{
+          textAlign: 'center', fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
+          marginTop: 18,
+        }}>
           By signing up, you agree to our Terms of Service and{' '}
-          <Link href="/privacy" className={dark ? 'text-white/60 hover:text-white underline' : 'text-gray-600 hover:text-black underline'}>Privacy Policy</Link>.
+          <Link href="/privacy" style={{ color: C.mute, textDecoration: 'underline' }}>Privacy Policy</Link>.
         </p>
       </div>
     </div>
