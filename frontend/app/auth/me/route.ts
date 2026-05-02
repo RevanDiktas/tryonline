@@ -6,7 +6,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 /**
- * GET /auth/me — returns current user from session (cookie).
+ * GET /auth/me - returns current user from session (cookie).
  * Used by the widget to avoid showing login gate when user is already signed in (session memory).
  */
 export async function GET() {

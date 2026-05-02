@@ -246,7 +246,7 @@ function ThemeShell({ dark, children }: { dark: boolean; children: ReactNode }) 
   );
 }
 
-/* ─────────────── STEP 01 — Measure ─────────────── */
+/* ─────────────── STEP 01 - Measure ─────────────── */
 export type MeasureValues = {
   height: string;
   weight: string;
@@ -369,7 +369,7 @@ function MeasureBody({
   );
 }
 
-/* ─────────────── STEP 02 — Upload ─────────────── */
+/* ─────────────── STEP 02 - Upload ─────────────── */
 function CheckIcon({ color, size = 12 }: { color: string; size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 14 14" fill="none">
@@ -550,7 +550,7 @@ function UploadBody({
               }}>Do</div>
               <GuideRow kind="good" text="Stand straight, arms out (A-pose)." />
               <GuideRow kind="good" text="Plain wall, grey or white background." />
-              <GuideRow kind="good" text="Tight clothing — shorts + tank top." />
+              <GuideRow kind="good" text="Tight clothing: shorts + tank top." />
               <GuideRow kind="good" text="Full body visible, head to toe." />
             </div>
             <div style={{ display: 'grid', gap: 10 }}>
@@ -634,7 +634,7 @@ function UploadBody({
             }}>Do</div>
             <GuideRow kind="good" text="Stand straight, arms out (A-pose)." />
             <GuideRow kind="good" text="Plain wall, grey or white background." />
-            <GuideRow kind="good" text="Tight clothing — shorts + tank top." />
+            <GuideRow kind="good" text="Tight clothing: shorts + tank top." />
             <div style={{
               fontFamily: 'var(--display)', fontSize: 10, letterSpacing: '0.05em',
               color: C.dim, textTransform: 'uppercase', marginTop: 6,
@@ -673,7 +673,7 @@ function UploadBody({
   );
 }
 
-/* ─────────────── STEP 03 — Building ─────────────── */
+/* ─────────────── STEP 03 - Building ─────────────── */
 const BUILD_STAGES = [
   { from:  0, to: 22, label: 'Uploading photo',     hint: 'Encrypted transfer.' },
   { from: 22, to: 48, label: 'Reading silhouette',  hint: 'Detecting body landmarks.' },
@@ -802,7 +802,7 @@ function BuildBody({ mobile, pct, message }: { mobile: boolean; pct: number; mes
                   fontFamily: 'var(--display)', fontSize: mobile ? 10 : 11,
                   letterSpacing: '0.04em', textTransform: 'uppercase',
                   color: done ? C.dim : (active ? C.ink : C.dim),
-                }}>{done ? 'Done' : (active ? 'Now' : '—')}</span>
+                }}>{done ? 'Done' : (active ? 'Now' : '·')}</span>
               </div>
             );
           })}
@@ -816,7 +816,7 @@ function BuildBody({ mobile, pct, message }: { mobile: boolean; pct: number; mes
   );
 }
 
-/* ─────────────── STEP 04 — Complete ─────────────── */
+/* ─────────────── STEP 04 - Complete ─────────────── */
 export type CompleteMeasurement = { key: string; value: number; unit: string };
 
 function MeasurementCell({ label, value, unit, mobile }: {

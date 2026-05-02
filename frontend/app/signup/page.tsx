@@ -84,7 +84,7 @@ function SignupContent() {
   return <ShopperSignupView dark={dark} router={router} />;
 }
 
-/* ───────── Shopper signup — redesigned ───────── */
+/* ───────── Shopper signup - redesigned ───────── */
 function ShopperSignupView({ dark, router }: { dark: boolean; router: ReturnType<typeof useRouter> }) {
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -151,7 +151,7 @@ function ShopperSignupView({ dark, router }: { dark: boolean; router: ReturnType
   );
 }
 
-/* ───────── Brand signup — preserved unchanged from previous design ───────── */
+/* ───────── Brand signup - preserved unchanged from previous design ───────── */
 function BrandSignupView({
   dark, shopifyMode, resolvedShop,
 }: {

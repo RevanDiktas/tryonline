@@ -63,7 +63,7 @@ function AuthCallbackInner() {
               { type: 'TRYON_USER_ID', user_id: user.id, display_name: displayName },
               '*',
             );
-          } catch (_) { /* cross-origin opener — fall through to redirect */ }
+          } catch (_) { /* cross-origin opener - fall through to redirect */ }
           setTimeout(() => window.close(), 200);
           return;
         }

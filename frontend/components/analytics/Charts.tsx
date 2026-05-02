@@ -430,7 +430,7 @@ export function FitConfidenceChart({
   const data = products.slice(0, 10).map((p) => ({
     product: p.product_id.length > 14 ? p.product_id.slice(0, 14) + '…' : p.product_id,
     score: p.fit_confidence_score,
-    deviation: p.most_common_deviation ?? '—',
+    deviation: p.most_common_deviation ?? '-',
   }));
 
   const scoreColor = (score: number) => (score > 80 ? '#22c55e' : score >= 60 ? '#f59e0b' : '#ef4444');
@@ -545,7 +545,7 @@ export function ReturnRiskChart({
             cursor={tt.cursor}
             isAnimationActive={false}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            formatter={(...args: any[]) => { const v = args[0] as number | undefined; const p = args[2] as { payload?: { factors?: string } } | undefined; return [`${v ?? 0} — ${p?.payload?.factors ?? ''}`, 'Risk']; }}
+            formatter={(...args: any[]) => { const v = args[0] as number | undefined; const p = args[2] as { payload?: { factors?: string } } | undefined; return [`${v ?? 0} - ${p?.payload?.factors ?? ''}`, 'Risk']; }}
           />
           <Bar dataKey="score" radius={[0, 6, 6, 0]} maxBarSize={20} isAnimationActive={false}>
             {data.map((entry, i) => (

@@ -182,7 +182,7 @@ body {
 
 /* ─────────────────────────────────────────────────────────────
    TRYON redesign (auth/onboarding/dashboard/website) tokens
-   Scoped via custom CSS vars + utility classes — no conflict
+   Scoped via custom CSS vars + utility classes - no conflict
    with existing SF Pro / glass-panel system above.
    ───────────────────────────────────────────────────────────── */
 :root {

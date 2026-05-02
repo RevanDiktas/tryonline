@@ -87,7 +87,7 @@ function SizeCell({ label, data, dark }: { label: string; data: Record<string, n
           </div>
         </div>
       ) : (
-        <p className={`${sumCl} text-xs`}>—</p>
+        <p className={`${sumCl} text-xs`}>-</p>
       )}
     </div>
   );
@@ -117,9 +117,9 @@ function LoadingSpinner({ dark }: { dark: boolean }) {
   );
 }
 
-const fmtPct = (v: number | null | undefined) => v != null ? `${(v * 100).toFixed(1)}%` : '—';
-const fmtEur = (v: number | null | undefined) => v != null ? `€${v.toFixed(2)}` : '—';
-const fmtHours = (v: number | null | undefined) => v != null ? `${v.toFixed(0)}h` : '—';
+const fmtPct = (v: number | null | undefined) => v != null ? `${(v * 100).toFixed(1)}%` : '-';
+const fmtEur = (v: number | null | undefined) => v != null ? `€${v.toFixed(2)}` : '-';
+const fmtHours = (v: number | null | undefined) => v != null ? `${v.toFixed(0)}h` : '-';
 
 export default function BrandDashboardPage() {
   const router = useRouter();
@@ -507,8 +507,8 @@ export default function BrandDashboardPage() {
                               <td className={`px-4 py-2 text-right ${borderCl}`}>{w.add_to_carts}</td>
                               <td className={`px-4 py-2 text-right ${borderCl}`}>{w.purchases}</td>
                               <td className={`px-4 py-2 text-right ${borderCl}`}>€{w.revenue.toFixed(2)}</td>
-                              <td className={`px-4 py-2 text-right ${borderCl}`}>{w.conversion_rate != null ? `${w.conversion_rate.toFixed(1)}%` : '—'}</td>
-                              <td className={`px-4 py-2 text-right ${borderCl}`}>{w.atc_rate != null ? `${w.atc_rate.toFixed(1)}%` : '—'}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{w.conversion_rate != null ? `${w.conversion_rate.toFixed(1)}%` : '-'}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{w.atc_rate != null ? `${w.atc_rate.toFixed(1)}%` : '-'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -574,7 +574,7 @@ export default function BrandDashboardPage() {
                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.add_to_carts}</td>
                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.purchases}</td>
                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>€{(p.revenue_attributed ?? 0).toFixed(2)}</td>
-                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.aov_tryon != null ? `€${p.aov_tryon.toFixed(2)}` : '—'}</td>
+                               <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.aov_tryon != null ? `€${p.aov_tryon.toFixed(2)}` : '-'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -597,12 +597,12 @@ export default function BrandDashboardPage() {
             ) : fitMetrics ? (
               <>
                 <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
-                  <MetricCell label="Acceptance" value={fitMetrics.acceptance_rate != null ? `${(Number(fitMetrics.acceptance_rate) * 100).toFixed(1)}%` : '—'} highlight dark={dark} />
-                  <MetricCell label="Size up" value={fitMetrics.size_up_rate != null ? `${(Number(fitMetrics.size_up_rate) * 100).toFixed(1)}%` : '—'} dark={dark} />
-                  <MetricCell label="Size down" value={fitMetrics.size_down_rate != null ? `${(Number(fitMetrics.size_down_rate) * 100).toFixed(1)}%` : '—'} dark={dark} />
-                  <MetricCell label="MASE" value={fitMetrics.mase != null ? Number(fitMetrics.mase).toFixed(2) : '—'} dark={dark} />
-                  <MetricCell label="Sess w/ rec" value={String(fitMetrics.sessions_with_recommendation ?? '—')} dark={dark} />
-                  <MetricCell label="Purch+size" value={String(fitMetrics.sessions_with_purchase_and_size ?? '—')} dark={dark} />
+                  <MetricCell label="Acceptance" value={fitMetrics.acceptance_rate != null ? `${(Number(fitMetrics.acceptance_rate) * 100).toFixed(1)}%` : '-'} highlight dark={dark} />
+                  <MetricCell label="Size up" value={fitMetrics.size_up_rate != null ? `${(Number(fitMetrics.size_up_rate) * 100).toFixed(1)}%` : '-'} dark={dark} />
+                  <MetricCell label="Size down" value={fitMetrics.size_down_rate != null ? `${(Number(fitMetrics.size_down_rate) * 100).toFixed(1)}%` : '-'} dark={dark} />
+                  <MetricCell label="MASE" value={fitMetrics.mase != null ? Number(fitMetrics.mase).toFixed(2) : '-'} dark={dark} />
+                  <MetricCell label="Sess w/ rec" value={String(fitMetrics.sessions_with_recommendation ?? '-')} dark={dark} />
+                  <MetricCell label="Purch+size" value={String(fitMetrics.sessions_with_purchase_and_size ?? '-')} dark={dark} />
                 </div>
                 <div className={`${panelClass} p-5`} style={chartPanelMinH}>
                   <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-2 ${labelCl}`}>Size distribution</p>
@@ -621,7 +621,7 @@ export default function BrandDashboardPage() {
                     <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Fit-to-purchase correlation</p>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                       <MetricCell label="Sessions w/ Rec" value={fitPurchaseCorrelation.total_sessions_with_recommendation} dark={dark} />
-                      <MetricCell label="Acceptance Rate" value={fitPurchaseCorrelation.overall_acceptance_rate != null ? `${fitPurchaseCorrelation.overall_acceptance_rate.toFixed(1)}%` : '—'} highlight dark={dark} />
+                      <MetricCell label="Acceptance Rate" value={fitPurchaseCorrelation.overall_acceptance_rate != null ? `${fitPurchaseCorrelation.overall_acceptance_rate.toFixed(1)}%` : '-'} highlight dark={dark} />
                       <MetricCell label="Buckets" value={fitPurchaseCorrelation.buckets.length} dark={dark} />
                     </div>
                     <div className={`${panelClass} p-5`}>
@@ -650,8 +650,8 @@ export default function BrandDashboardPage() {
                               <td className={`px-4 py-2 text-right ${borderCl}`}>{b.sessions}</td>
                               <td className={`px-4 py-2 text-right ${borderCl}`}>{b.purchases}</td>
                               <td className={`px-4 py-2 text-right ${borderCl}`}>{b.returns}</td>
-                              <td className={`px-4 py-2 text-right ${borderCl}`}>{b.purchase_rate != null ? `${b.purchase_rate.toFixed(1)}%` : '—'}</td>
-                              <td className={`px-4 py-2 text-right ${borderCl}`}>{b.return_rate != null ? `${b.return_rate.toFixed(1)}%` : '—'}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{b.purchase_rate != null ? `${b.purchase_rate.toFixed(1)}%` : '-'}</td>
+                              <td className={`px-4 py-2 text-right ${borderCl}`}>{b.return_rate != null ? `${b.return_rate.toFixed(1)}%` : '-'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -751,7 +751,7 @@ export default function BrandDashboardPage() {
           return (
           <div className="relative" style={{ minHeight: 'calc(100vh - 150px)' }}>
 
-            {/* ── Floating globe — right side, viewport-sticky, desktop only ── */}
+            {/* ── Floating globe - right side, viewport-sticky, desktop only ── */}
             <div className="hidden lg:block fixed right-0 bottom-0 z-0 overflow-visible" style={{ width: '58vw', top: '36px' }}>
               <div className={`absolute top-2 right-3 z-20 flex rounded-lg overflow-hidden border backdrop-blur-md ${dark ? 'border-white/10 bg-black/30' : 'border-black/10 bg-white/50'}`}>
                 <button
@@ -797,7 +797,7 @@ export default function BrandDashboardPage() {
               )}
             </div>
 
-            {/* ── Analytics cards — left side, scrollable ── */}
+            {/* ── Analytics cards - left side, scrollable ── */}
             <div className="relative z-10 lg:max-w-[44%] space-y-6">
               {/* Mobile only: Regional size (globe + chart) at top so it's visible when scrolling; desktop keeps globe in fixed right panel */}
               <div className="lg:hidden">
@@ -876,12 +876,12 @@ export default function BrandDashboardPage() {
               ) : (
                 <>
                   <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                    <MetricCell label="Tryon 7d" value={String(velocity?.tryon_velocity_7d ?? '—')} dark={dark} />
-                    <MetricCell label="Tryon 30d" value={String(velocity?.tryon_velocity_30d ?? '—')} dark={dark} />
-                    <MetricCell label="Purch 7d" value={String(velocity?.purchase_velocity_7d ?? '—')} dark={dark} />
-                    <MetricCell label="Purch 30d" value={String(velocity?.purchase_velocity_30d ?? '—')} dark={dark} />
-                    <MetricCell label="Ratio 7d" value={velocity?.velocity_ratio_7d != null ? Number(velocity.velocity_ratio_7d).toFixed(2) : '—'} dark={dark} />
-                    <MetricCell label="Ratio 30d" value={velocity?.velocity_ratio_30d != null ? Number(velocity.velocity_ratio_30d).toFixed(2) : '—'} dark={dark} />
+                    <MetricCell label="Tryon 7d" value={String(velocity?.tryon_velocity_7d ?? '-')} dark={dark} />
+                    <MetricCell label="Tryon 30d" value={String(velocity?.tryon_velocity_30d ?? '-')} dark={dark} />
+                    <MetricCell label="Purch 7d" value={String(velocity?.purchase_velocity_7d ?? '-')} dark={dark} />
+                    <MetricCell label="Purch 30d" value={String(velocity?.purchase_velocity_30d ?? '-')} dark={dark} />
+                    <MetricCell label="Ratio 7d" value={velocity?.velocity_ratio_7d != null ? Number(velocity.velocity_ratio_7d).toFixed(2) : '-'} dark={dark} />
+                    <MetricCell label="Ratio 30d" value={velocity?.velocity_ratio_30d != null ? Number(velocity.velocity_ratio_30d).toFixed(2) : '-'} dark={dark} />
                   </div>
                   {velocity && <div className={`${panelClass} p-5`} style={chartPanelMinH}><div style={{ height: CHART_HEIGHT }}><VelocityChart velocity={{ tryon_velocity_7d: Number(velocity.tryon_velocity_7d), tryon_velocity_30d: Number(velocity.tryon_velocity_30d), purchase_velocity_7d: Number(velocity.purchase_velocity_7d), purchase_velocity_30d: Number(velocity.purchase_velocity_30d) }} dark={dark} /></div></div>}
                   <div>
@@ -961,7 +961,7 @@ export default function BrandDashboardPage() {
                   <MetricCell label="Total Returns" value={returnMetrics.total_returns ?? 0} dark={dark} />
                   <MetricCell label="Return Rate" value={fmtPct(returnMetrics.return_rate)} highlight dark={dark} />
                   <MetricCell label="Revenue Lost" value={fmtEur(returnMetrics.revenue_lost)} dark={dark} />
-                  <MetricCell label="Avg Days to Return" value={returnMetrics.avg_days_to_return != null ? `${Number(returnMetrics.avg_days_to_return).toFixed(1)}d` : '—'} dark={dark} />
+                  <MetricCell label="Avg Days to Return" value={returnMetrics.avg_days_to_return != null ? `${Number(returnMetrics.avg_days_to_return).toFixed(1)}d` : '-'} dark={dark} />
                 </div>
 
                 {/* TryOn Cohort vs Baseline */}
@@ -972,8 +972,8 @@ export default function BrandDashboardPage() {
                       <div className="space-y-3">
                         <p className={`text-xs font-semibold ${dark ? 'text-white/70' : 'text-black/70'}`}>TryOn Users</p>
                         <div className="grid grid-cols-2 gap-3">
-                          <MetricCell label="Count" value={cohortComparison.tryon_users_count ?? '—'} dark={dark} />
-                          <MetricCell label="Purchases" value={cohortComparison.tryon_purchases ?? '—'} dark={dark} />
+                          <MetricCell label="Count" value={cohortComparison.tryon_users_count ?? '-'} dark={dark} />
+                          <MetricCell label="Purchases" value={cohortComparison.tryon_purchases ?? '-'} dark={dark} />
                           <MetricCell label="AOV" value={fmtEur(cohortComparison.tryon_aov)} dark={dark} />
                           <MetricCell label="Conv Rate" value={fmtPct(cohortComparison.tryon_conversion_rate)} highlight dark={dark} />
                           <MetricCell label="Bracket Rate" value={fmtPct(cohortComparison.tryon_bracket_rate)} dark={dark} />
@@ -1024,8 +1024,8 @@ export default function BrandDashboardPage() {
                   <div className="space-y-4">
                     <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Return risk scoring</p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <MetricCell label="Avg Risk Score" value={returnRisk.avg_risk_score != null ? Number(returnRisk.avg_risk_score).toFixed(1) : '—'} dark={dark} />
-                      <MetricCell label="Total Scored" value={returnRisk.total_scored ?? '—'} dark={dark} />
+                      <MetricCell label="Avg Risk Score" value={returnRisk.avg_risk_score != null ? Number(returnRisk.avg_risk_score).toFixed(1) : '-'} dark={dark} />
+                      <MetricCell label="Total Scored" value={returnRisk.total_scored ?? '-'} dark={dark} />
                     </div>
                     {returnRisk.high_risk_orders && returnRisk.high_risk_orders.length > 0 && (
                       <>
@@ -1055,7 +1055,7 @@ export default function BrandDashboardPage() {
                                         ))}
                                       </div>
                                     </td>
-                                    <td className={`${tableCellClass} font-medium`}>{o.product_id ?? '—'}</td>
+                                    <td className={`${tableCellClass} font-medium`}>{o.product_id ?? '-'}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -1085,10 +1085,10 @@ export default function BrandDashboardPage() {
                   <div className="space-y-4">
                     <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Dwell time</p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <MetricCell label="Avg Dwell" value={dwellMetrics.avg_dwell_seconds != null ? `${Number(dwellMetrics.avg_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
-                      <MetricCell label="Median Dwell" value={dwellMetrics.median_dwell_seconds != null ? `${Number(dwellMetrics.median_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
-                      <MetricCell label="P90 Dwell" value={dwellMetrics.p90_dwell_seconds != null ? `${Number(dwellMetrics.p90_dwell_seconds).toFixed(1)}s` : '—'} dark={dark} />
-                      <MetricCell label="Dwell→Conv %" value={dwellMetrics.dwell_to_conversion != null ? `${Number(dwellMetrics.dwell_to_conversion).toFixed(1)}%` : '—'} highlight dark={dark} />
+                      <MetricCell label="Avg Dwell" value={dwellMetrics.avg_dwell_seconds != null ? `${Number(dwellMetrics.avg_dwell_seconds).toFixed(1)}s` : '-'} dark={dark} />
+                      <MetricCell label="Median Dwell" value={dwellMetrics.median_dwell_seconds != null ? `${Number(dwellMetrics.median_dwell_seconds).toFixed(1)}s` : '-'} dark={dark} />
+                      <MetricCell label="P90 Dwell" value={dwellMetrics.p90_dwell_seconds != null ? `${Number(dwellMetrics.p90_dwell_seconds).toFixed(1)}s` : '-'} dark={dark} />
+                      <MetricCell label="Dwell→Conv %" value={dwellMetrics.dwell_to_conversion != null ? `${Number(dwellMetrics.dwell_to_conversion).toFixed(1)}%` : '-'} highlight dark={dark} />
                     </div>
                     <div className={`${panelClass} p-5`} style={chartPanelMinH}>
                       <div style={{ height: CHART_HEIGHT }}>
@@ -1141,10 +1141,10 @@ export default function BrandDashboardPage() {
                   <div className="space-y-4">
                     <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Repeat visitors</p>
                     <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
-                      <MetricCell label="Unique Users" value={repeatVisitors.metrics?.unique_users ?? '—'} dark={dark} />
-                      <MetricCell label="Returning Users" value={repeatVisitors.metrics?.returning_users ?? '—'} dark={dark} />
+                      <MetricCell label="Unique Users" value={repeatVisitors.metrics?.unique_users ?? '-'} dark={dark} />
+                      <MetricCell label="Returning Users" value={repeatVisitors.metrics?.returning_users ?? '-'} dark={dark} />
                       <MetricCell label="Returning %" value={fmtPct(repeatVisitors.metrics?.returning_user_rate)} highlight dark={dark} />
-                      <MetricCell label="High-Intent Users" value={repeatVisitors.metrics?.high_intent_users ?? '—'} dark={dark} />
+                      <MetricCell label="High-Intent Users" value={repeatVisitors.metrics?.high_intent_users ?? '-'} dark={dark} />
                       <MetricCell label="High-Intent Conv %" value={fmtPct(repeatVisitors.metrics?.high_intent_conversion_rate)} highlight dark={dark} />
                     </div>
                     {repeatVisitors.top_repeated_products && repeatVisitors.top_repeated_products.length > 0 && (

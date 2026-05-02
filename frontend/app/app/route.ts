@@ -5,10 +5,10 @@ const APP_BRIDGE_URL = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
 /**
  * Embedded entry: Shopify loads tryon.global/app?shop=... in ONE iframe (direct child of admin).
  *
- * 1) This response is minimal HTML with App Bridge as the ONLY external script (sync, first) —
+ * 1) This response is minimal HTML with App Bridge as the ONLY external script (sync, first) -
  *    satisfies Shopify’s embedded checks.
  * 2) We run getSessionToken + shopify:admin fetch here.
- * 3) We then redirect IN THE SAME IFRAME to /?shop=... (Next app). No nested iframe — avoids
+ * 3) We then redirect IN THE SAME IFRAME to /?shop=... (Next app). No nested iframe - avoids
  *    postMessage errors (code was posting to admin.shopify.com with targetOrigin tryon.global).
  */
 export function GET(request: NextRequest) {

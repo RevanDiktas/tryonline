@@ -24,7 +24,7 @@ function HomePageContent() {
   useEffect(() => {
     let active = true;
     (async () => {
-      // The marketing page is for everyone — even signed-in users. Clicking
+      // The marketing page is for everyone - even signed-in users. Clicking
       // the TRYON wordmark from the dashboard should land here without an
       // auto-bounce back. Auth state still drives the nav buttons.
       if (shopifyMode) {

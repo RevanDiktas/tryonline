@@ -530,7 +530,7 @@ function DashboardPage() {
         mobile={mobile}
       />
 
-      {/* Profile tab — always mounted, hidden via display so the Three.js canvas survives switches */}
+      {/* Profile tab - always mounted, hidden via display so the Three.js canvas survives switches */}
       <div style={{
         display: activeTab === 'profile' ? 'block' : 'none',
         padding: mobile ? '16px 14px 24px' : '20px 24px 28px',
@@ -786,11 +786,11 @@ function DashboardPage() {
           }}>
             <DashCard title="Account information">
               <div style={{ display: 'grid', gap: 0 }}>
-                <LedgerRow label="Name" value={user.name || '—'} />
+                <LedgerRow label="Name" value={user.name || '-'} />
                 <LedgerRow label="Email" value={user.email} />
                 <LedgerRow
                   label="Member since"
-                  value={user.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}
+                  value={user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}
                 />
                 <LedgerRow label="Gender" value={passport?.gender ? passport.gender[0].toUpperCase() + passport.gender.slice(1) : 'Not set'} last />
               </div>

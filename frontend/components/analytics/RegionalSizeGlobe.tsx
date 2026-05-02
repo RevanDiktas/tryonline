@@ -6,7 +6,7 @@ import * as THREE from 'three';
 
 const GLOBE_R = 2;
 
-// ─── Country coordinates (lat, lon) — comprehensive global coverage ─────────
+// ─── Country coordinates (lat, lon) - comprehensive global coverage ─────────
 const CC: Record<string, [number, number]> = {
   // Europe
   'Netherlands': [52.3, 4.9], 'United Kingdom': [54.0, -2.0],
@@ -77,11 +77,11 @@ const CC: Record<string, [number, number]> = {
   // Russia / Eurasia
   'Russia': [61.5, 105.3], 'Georgia': [42.3, 43.4],
   'Armenia': [40.1, 45.0], 'Azerbaijan': [40.1, 47.6],
-  // Africa — North
+  // Africa - North
   'Morocco': [31.8, -7.1], 'Algeria': [28.0, 1.7],
   'Tunisia': [34.0, 9.5], 'Libya': [26.3, 17.2],
   'Egypt': [26.8, 30.8], 'Sudan': [12.9, 30.2],
-  // Africa — West
+  // Africa - West
   'Nigeria': [9.1, 8.7], 'Ghana': [7.9, -1.0],
   'Senegal': [14.5, -14.5], 'Ivory Coast': [7.5, -5.5],
   'Mali': [17.6, -4.0], 'Burkina Faso': [12.4, -1.6],
@@ -90,19 +90,19 @@ const CC: Record<string, [number, number]> = {
   'Benin': [9.3, 2.3], 'Liberia': [6.4, -9.4],
   'Mauritania': [21.0, -10.9], 'Gambia': [13.4, -16.6],
   'Cape Verde': [16.0, -24.0], 'Guinea-Bissau': [12.0, -15.2],
-  // Africa — East
+  // Africa - East
   'Kenya': [-0.02, 37.9], 'Ethiopia': [9.1, 40.5],
   'Tanzania': [-6.4, 34.9], 'Uganda': [1.4, 32.3],
   'Rwanda': [-1.9, 29.9], 'Somalia': [5.2, 46.2],
   'Eritrea': [15.2, 39.8], 'Djibouti': [11.6, 43.2],
   'Madagascar': [-18.8, 46.9], 'Mauritius': [-20.3, 57.6],
-  // Africa — Central
+  // Africa - Central
   'Democratic Republic of the Congo': [-4.0, 21.8],
   'Republic of the Congo': [-0.2, 15.8],
   'Cameroon': [7.4, 12.4], 'Gabon': [-0.8, 11.6],
   'Central African Republic': [6.6, 20.9], 'Chad': [15.5, 18.7],
   'Equatorial Guinea': [1.7, 10.3],
-  // Africa — Southern
+  // Africa - Southern
   'South Africa': [-30.6, 22.9], 'Namibia': [-22.6, 17.1],
   'Botswana': [-22.3, 24.7], 'Zimbabwe': [-19.0, 29.2],
   'Mozambique': [-18.7, 35.5], 'Zambia': [-13.1, 27.8],
@@ -954,7 +954,7 @@ export default function RegionalSizeGlobe({
   }
 
   const tooltipData = hoveredCity
-    ? { label: hoveredCity.city, sub: `${hoveredCity.country} — ${hoveredCity.total} event${hoveredCity.total !== 1 ? 's' : ''}`, sizes: hoveredCity.sizes, topSize: hoveredCity.topSize }
+    ? { label: hoveredCity.city, sub: `${hoveredCity.country} - ${hoveredCity.total} event${hoveredCity.total !== 1 ? 's' : ''}`, sizes: hoveredCity.sizes, topSize: hoveredCity.topSize }
     : hoveredCountry
     ? { label: hoveredCountry.country, sub: `${hoveredCountry.totalCount} event${hoveredCountry.totalCount !== 1 ? 's' : ''}`, sizes: hoveredCountry.sizes, topSize: hoveredCountry.topSize }
     : null;

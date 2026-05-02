@@ -8,7 +8,7 @@ const SHOPIFY_APP_BRIDGE_URL = 'https://cdn.shopify.com/shopifycloud/app-bridge.
 
 /**
  * Embedded flow: Shopify loads /app first (App Bridge as first script) → we redirect to /?shop=...
- * On the / page we are inside the admin iframe. We must NOT inject App Bridge here — it would
+ * On the / page we are inside the admin iframe. We must NOT inject App Bridge here - it would
  * load with async and not be first, so App Bridge aborts and you get "getSessionToken not found".
  * The embedded check is already satisfied by /app. Here we no-op when in iframe.
  */
@@ -23,7 +23,7 @@ export function ShopifyAppBridge() {
     const isEmbedded = shop?.includes('.myshopify.com');
     const inIframe = window.self !== window.top;
 
-    // We're in the admin iframe on / after redirect from /app. Do NOT inject App Bridge —
+    // We're in the admin iframe on / after redirect from /app. Do NOT inject App Bridge -
     // it would be async and not first → App Bridge aborts, getSessionToken never exists.
     if (inIframe && isEmbedded) {
       return;

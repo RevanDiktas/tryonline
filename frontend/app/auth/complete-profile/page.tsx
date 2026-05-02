@@ -138,7 +138,7 @@ function CompleteProfileInner() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <TryonLogo href="/" className="h-10 w-auto mx-auto mb-4 cursor-pointer hover:opacity-80 transition" />
-          <p className="text-white/60">Almost there — a few details for your Fit Passport</p>
+          <p className="text-white/60">Almost there - a few details for your Fit Passport</p>
         </div>
 
         <div className="rounded-2xl p-8 shadow-sm border bg-white/[0.04] border-white/10">

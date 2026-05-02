@@ -48,7 +48,7 @@ interface TryOnViewerProps {
 
 // ---------------------------------------------------------------------------
 // Geometry-based bounding box (works for SkinnedMesh bind pose)
-// Ported from test-viewer.html — the PDP widget uses this to get accurate
+// Ported from test-viewer.html - the PDP widget uses this to get accurate
 // heights even when Object3D world AABB from three.js is ~0 for skinned meshes.
 // ---------------------------------------------------------------------------
 function geometryWorldBounds(root: THREE.Object3D): THREE.Box3 {
@@ -81,7 +81,7 @@ const AVATAR_Z_OFFSET = -0.010
 
 // ---------------------------------------------------------------------------
 // Aligned scene: loads avatar + garment, normalizes both to TARGET_HEIGHT,
-// aligns garment feet to avatar feet — identical to the PDP widget.
+// aligns garment feet to avatar feet - identical to the PDP widget.
 // ---------------------------------------------------------------------------
 function AlignedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; garmentUrl: string }) {
   const avatarGltf = useGLTF(avatarUrl)
@@ -415,7 +415,7 @@ export default function TryOnViewer({
 
           <Environment preset="city" />
 
-          {/* Clean white — no floor shadow */}
+          {/* Clean white - no floor shadow */}
 
           <Suspense fallback={null}>
             {avatarUrl && activeGarmentUrl ? (

@@ -531,7 +531,7 @@ export default function GarmentsPage() {
                               <tr key={sz} className={dark ? 'text-white/70' : 'text-gray-700'}>
                                 <td className="pr-4 py-1 font-medium uppercase">{sz}</td>
                                 {usedMeasurements.map((m) => (
-                                  <td key={m} className="text-right px-2 py-1">{row[m] ?? '—'}</td>
+                                  <td key={m} className="text-right px-2 py-1">{row[m] ?? '-'}</td>
                                 ))}
                               </tr>
                             );
@@ -579,7 +579,7 @@ export default function GarmentsPage() {
                               type="number"
                               value={sizeChartData[sz]?.[m] ?? ''}
                               onChange={(e) => updateSizeChartCell(sz, m, e.target.value)}
-                              placeholder="—"
+                              placeholder="-"
                               className={`w-full px-2 py-1.5 border rounded text-center text-sm focus:outline-none focus:ring-1 ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'border-gray-200 text-black focus:ring-black'}`}
                             />
                           </td>

@@ -256,7 +256,7 @@ export default function PhotoUpload({ onUpload, onSkip, isLoading = false }: Pho
           onClick={onSkip}
           className="w-full mt-4 py-3 text-sm text-[#86868b] hover:text-[#1d1d1f] transition-colors"
         >
-          Skip for now — use a demo avatar
+          Skip for now. Use a demo avatar.
         </motion.button>
       )}
 
