@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { useIsMobile } from './useIsMobile';
-import { SharedNav, NavLink, NavCta } from './SharedNav';
+import { SharedNav, NavLink, NavCta, AuthAwareSignInLink } from './SharedNav';
 
 const PAL = {
   light: {
@@ -104,7 +104,7 @@ function DesktopHero() {
             ...headingStyle('clamp(52px, 7vw, 104px)'),
             maxWidth: 1100, margin: '0 auto 20px',
           }}>
-            Try on before you buy.
+            TRYON BEFORE YOU BUY.
           </h1>
           <p style={{
             ...bodyStyle, fontSize: 18, color: C.mute,
@@ -722,7 +722,7 @@ function MobileHero() {
     }}>
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
         <h1 style={{ ...headingStyle('40px'), maxWidth: 520, margin: '0 auto 14px' }}>
-          Try on before you buy.
+          TRYON BEFORE YOU BUY.
         </h1>
         <p style={{ ...bodyStyle, fontSize: 14, color: C.mute, maxWidth: 360, margin: '0 auto 22px' }}>
           One avatar. Every brand. Real cloth, real measurements, real fit.
@@ -1088,7 +1088,7 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
             <NavCta dark={dark} label="Try the demo →" onClick={() => router.push('/demo')} />
           ) : (
             <>
-              <NavLink dark={dark} label="Sign in" href="/login" />
+              <AuthAwareSignInLink dark={dark} />
               <NavCta dark={dark} label="Try the demo →" onClick={() => router.push('/demo')} />
             </>
           )}

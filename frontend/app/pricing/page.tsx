@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
-import { SharedNav, NavLink, NavCta } from '@/components/redesign/SharedNav';
+import { SharedNav, NavCta, AuthAwareSignInLink } from '@/components/redesign/SharedNav';
+import { useIsMobile } from '@/components/redesign/useIsMobile';
 
 const PAL = {
   light: {
@@ -41,7 +42,7 @@ const bodyStyle: React.CSSProperties = {
 
 function Hero({ C }: { C: Palette }) {
   return (
-    <section style={{ background: C.bg, color: C.ink, padding: '64px 32px 32px', borderBottom: `1px solid ${C.line}` }}>
+    <section style={{ background: C.bg, color: C.ink, padding: '56px 20px 28px', borderBottom: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <h1 style={{
           ...headingStyle('clamp(44px, 5.5vw, 80px)'),
@@ -132,10 +133,10 @@ function Tiers({ C }: { C: Palette }) {
   ];
 
   return (
-    <section style={{ padding: '24px 32px 80px', background: C.bg }}>
+    <section style={{ padding: '24px 20px 64px', background: C.bg }}>
       <div style={{
         maxWidth: 1280, margin: '0 auto',
-        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0,
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 0,
         border: `1px solid ${C.line}`, background: C.surface,
       }}>
         {tiers.map((t, i) => {
@@ -235,9 +236,9 @@ function ROI({ C }: { C: Palette }) {
       monthlyReturnCost: '$1,260,000', ourPrice: 'Custom', monthlySavings: '$252,000', tier: 'Scale' },
   ];
   return (
-    <section style={{ background: C.surface, color: C.ink, padding: '80px 32px', borderTop: `1px solid ${C.line}` }}>
+    <section style={{ background: C.surface, color: C.ink, padding: '64px 20px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <h2 style={{ ...headingStyle('clamp(36px, 4.5vw, 64px)'), marginBottom: 14, maxWidth: 1000 }}>
+        <h2 style={{ ...headingStyle('clamp(32px, 4.5vw, 64px)'), marginBottom: 14, maxWidth: 1000 }}>
           Three brands. Every ROI positive.
         </h2>
         <p style={{ ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48 }}>
@@ -245,13 +246,14 @@ function ROI({ C }: { C: Palette }) {
         </p>
 
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0,
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 0,
           border: `1px solid ${C.line}`, background: C.bg,
         }}>
-          {cases.map((c, i) => (
+          {cases.map((c) => (
             <div key={c.label} style={{
-              borderRight: i < cases.length - 1 ? `1px solid ${C.line}` : 'none',
-              padding: '28px 24px',
+              borderRight: `1px solid ${C.line}`,
+              borderBottom: `1px solid ${C.line}`,
+              padding: '24px 22px',
               display: 'flex', flexDirection: 'column', gap: 14,
             }}>
               <div style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 600 }}>
@@ -326,9 +328,9 @@ function FAQ({ C }: { C: Palette }) {
   ];
   const [open, setOpen] = useState<number | null>(0);
   return (
-    <section style={{ background: C.bg, color: C.ink, padding: '80px 32px', borderTop: `1px solid ${C.line}` }}>
+    <section style={{ background: C.bg, color: C.ink, padding: '64px 20px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 880, margin: '0 auto' }}>
-        <h2 style={{ ...headingStyle('clamp(32px, 4vw, 56px)'), marginBottom: 32 }}>
+        <h2 style={{ ...headingStyle('clamp(28px, 4vw, 56px)'), marginBottom: 28 }}>
           Questions we get from brands.
         </h2>
         <div style={{ border: `1px solid ${C.line}`, background: C.surface }}>
@@ -378,7 +380,7 @@ function FAQ({ C }: { C: Palette }) {
 function FinalCTA({ C }: { C: Palette }) {
   const router = useRouter();
   return (
-    <section style={{ background: C.surface, color: C.ink, padding: '80px 32px 96px', borderTop: `1px solid ${C.line}` }}>
+    <section style={{ background: C.surface, color: C.ink, padding: '64px 20px 80px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center' }}>
         <h2 style={{ ...headingStyle('clamp(36px, 4.5vw, 64px)'), marginBottom: 14 }}>
           Install free. Upgrade when it works.
@@ -461,6 +463,7 @@ export default function PricingPage() {
   const dark = theme === 'dark';
   const C = dark ? PAL.dark : PAL.light;
   const router = useRouter();
+  const mobile = useIsMobile();
 
   const links = [
     { label: 'Home', href: '/' },
@@ -475,11 +478,11 @@ export default function PricingPage() {
     }}>
       <SharedNav
         dark={dark}
-        links={links}
+        links={mobile ? undefined : links}
         rightSlot={
           <>
-            <NavLink dark={dark} label="Sign in" href="/login" />
-            <NavCta dark={dark} label="Start free →" onClick={() => router.push('/signup?type=brand')} />
+            <AuthAwareSignInLink dark={dark} />
+            <NavCta dark={dark} label={mobile ? 'Start' : 'Start free →'} onClick={() => router.push('/signup?type=brand')} />
           </>
         }
       />

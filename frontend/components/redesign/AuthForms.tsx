@@ -706,3 +706,303 @@ function SignInInner({
     </>
   );
 }
+
+/* ───────────── Brand sign up (two-column, mirrors shopper) ───────────── */
+export type BrandSignUpData = {
+  brandName: string;
+  contactName: string;
+  email: string;
+  code: string;
+  phone: string;
+  shopifyDomain: string;
+  country: string;
+  password: string;
+  confirm: string;
+};
+
+export type AuthBrandSignUpProps = {
+  dark?: boolean;
+  loading?: boolean;
+  formError?: string | null;
+  onSubmit: (data: BrandSignUpData) => void | Promise<void>;
+  onSignInClick?: () => void;
+  shopifyMode?: boolean;
+  prefilledShop?: string | null;
+};
+
+export function AuthBrandSignUp({
+  dark = false,
+  loading = false,
+  formError = null,
+  onSubmit,
+  onSignInClick,
+  shopifyMode = false,
+  prefilledShop = null,
+}: AuthBrandSignUpProps) {
+  const C = dark ? PAL.dark : PAL.light;
+  const mobile = useIsMobile();
+  return (
+    <ThemeCtx.Provider value={C}>
+      <div className="tryon-redesign-root" style={{
+        background: C.bg, color: C.ink,
+        minHeight: '100vh',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <BrandSignUpInner
+          mobile={mobile}
+          loading={loading}
+          formError={formError}
+          onSubmit={onSubmit}
+          onSignInClick={onSignInClick}
+          shopifyMode={shopifyMode}
+          prefilledShop={prefilledShop}
+          darkBg={dark}
+        />
+      </div>
+    </ThemeCtx.Provider>
+  );
+}
+
+function ShopifyDomainInput({
+  value, onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const C = useC();
+  const [focus, setFocus] = useState(false);
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'stretch',
+      border: `1px solid ${focus ? C.ink : C.faint}`,
+      background: C.surface,
+    }}>
+      <input
+        type="text"
+        autoComplete="off"
+        value={value}
+        placeholder="your-store"
+        onFocus={() => setFocus(true)}
+        onBlur={() => setFocus(false)}
+        onChange={(e) => onChange(e.target.value.replace(/\s/g, '').toLowerCase())}
+        style={{
+          flex: 1, minWidth: 0,
+          background: 'transparent', border: 'none', outline: 'none',
+          padding: '9px 12px',
+          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500,
+          color: C.ink, letterSpacing: '-0.005em',
+        }}
+      />
+      <span style={{
+        padding: '9px 12px',
+        background: C.bg,
+        borderLeft: `1px solid ${C.faint}`,
+        fontFamily: 'var(--display)', fontSize: 13, color: C.dim,
+        display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap',
+      }}>.myshopify.com</span>
+    </div>
+  );
+}
+
+function BrandSignUpInner({
+  mobile, loading, formError, onSubmit, onSignInClick, shopifyMode, prefilledShop, darkBg,
+}: {
+  mobile: boolean;
+  loading: boolean;
+  formError: string | null;
+  onSubmit: (data: BrandSignUpData) => void | Promise<void>;
+  onSignInClick?: () => void;
+  shopifyMode: boolean;
+  prefilledShop: string | null;
+  darkBg: boolean;
+}) {
+  const C = useC();
+  const [f, setF] = useState<BrandSignUpData>({
+    brandName: '', contactName: '', email: '',
+    code: '+31', phone: '',
+    shopifyDomain: prefilledShop ? prefilledShop.replace(/\.myshopify\.com$/i, '') : '',
+    country: '', password: '', confirm: '',
+  });
+  const set = <K extends keyof BrandSignUpData>(k: K) => (v: BrandSignUpData[K]) =>
+    setF(s => ({ ...s, [k]: v }));
+  const [agreed, setAgreed] = useState(false);
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    onSubmit(f);
+  };
+
+  const shopifyRequired = !shopifyMode;
+
+  return (
+    <>
+      <div style={{
+        borderBottom: `1px solid ${C.faint}`,
+        padding: mobile ? '12px 18px' : '14px 28px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        flexShrink: 0,
+      }}>
+        <Wordmark darkBg={darkBg} />
+        <span style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.dim }}>
+          Already have an account?{' '}
+          <button
+            type="button"
+            onClick={onSignInClick}
+            style={{ color: C.ink, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}
+          >Sign in</button>
+        </span>
+      </div>
+
+      <form
+        onSubmit={handleSubmit}
+        style={{
+          flex: 1, display: 'grid',
+          gridTemplateColumns: mobile ? '1fr' : '1fr 1fr',
+          minHeight: 0,
+        }}
+      >
+        {!mobile && (
+          <div style={{
+            background: C.surface, borderRight: `1px solid ${C.faint}`,
+            padding: '40px 40px',
+            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+          }}>
+            <div>
+              <div style={{
+                fontFamily: 'var(--display)', fontSize: 12, letterSpacing: '0.04em',
+                color: C.dim, textTransform: 'uppercase', marginBottom: 16,
+              }}>For brands</div>
+              <h1 style={{
+                fontFamily: 'var(--display)', fontWeight: 700,
+                fontSize: 44, letterSpacing: '-0.03em', lineHeight: 1.05,
+                margin: 0, color: C.ink,
+              }}>Set up your brand.</h1>
+              <p style={{
+                fontFamily: 'var(--display)', fontSize: 14, color: C.dim,
+                margin: '14px 0 0', maxWidth: 380, letterSpacing: '-0.005em', lineHeight: 1.5,
+              }}>Connect your Shopify store. Cut returns. Pay less than the cost of one return per day. Live in under a week.</p>
+            </div>
+
+            <div style={{
+              borderTop: `1px solid ${C.faint}`, paddingTop: 18, marginTop: 24,
+              display: 'grid', gap: 8,
+            }}>
+              <LedgerLine k="Brand" v="Your store identity." />
+              <LedgerLine k="Contact" v="Who we email and Slack." />
+              <LedgerLine k="Email" v="Login. Invoices. Receipts." />
+              <LedgerLine k="Phone" v="Account alerts only." />
+              <LedgerLine k="Shopify" v="Where the widget lives." />
+              <LedgerLine k="Country" v="Currency · billing · VAT." />
+              <LedgerLine k="Password" v="Encrypted. We never see it." />
+            </div>
+          </div>
+        )}
+
+        <div style={{
+          padding: mobile ? '20px 18px' : '32px 40px',
+          overflowY: 'auto', minHeight: 0,
+        }}>
+          <div style={{ maxWidth: 460, margin: '0 auto' }}>
+            {mobile && (
+              <h1 style={{
+                fontFamily: 'var(--display)', fontWeight: 700,
+                fontSize: 28, letterSpacing: '-0.025em', lineHeight: 1.05,
+                margin: '0 0 16px', color: C.ink,
+              }}>Set up your brand.</h1>
+            )}
+
+            <div style={{ display: 'grid', gap: 12 }}>
+              <Field label="Brand or company name" required>
+                <TextInput value={f.brandName} onChange={set('brandName')} placeholder="e.g. Moncler" autoComplete="organization" />
+              </Field>
+              <Field label="Contact name" required>
+                <TextInput value={f.contactName} onChange={set('contactName')} placeholder="First and last name" autoComplete="name" />
+              </Field>
+              <Field label="Business email" required>
+                <TextInput value={f.email} onChange={set('email')} placeholder="you@brand.com" type="email" autoComplete="email" />
+              </Field>
+              <Field label="Phone" required>
+                <PhoneInput code={f.code} onCodeChange={set('code')} value={f.phone} onChange={set('phone')} />
+              </Field>
+              <Field label="Shopify store URL" required={shopifyRequired}>
+                <ShopifyDomainInput value={f.shopifyDomain} onChange={set('shopifyDomain')} />
+              </Field>
+              <Field label="Country" required>
+                <SelectInput
+                  value={f.country}
+                  onChange={set('country')}
+                  placeholder="Select country"
+                  options={['Netherlands', 'Belgium', 'Germany', 'France', 'United Kingdom', 'United States', 'Spain', 'Italy', 'Denmark', 'Sweden']}
+                />
+              </Field>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Field label="Password" required>
+                  <TextInput value={f.password} onChange={set('password')} placeholder="••••••••••" type="password" autoComplete="new-password" />
+                </Field>
+                <Field label="Confirm" required>
+                  <TextInput value={f.confirm} onChange={set('confirm')} placeholder="••••••••••" type="password" autoComplete="new-password" />
+                </Field>
+              </div>
+
+              <label style={{
+                display: 'flex', gap: 10, alignItems: 'flex-start', padding: '4px 0', cursor: 'pointer',
+              }}>
+                <span
+                  onClick={() => setAgreed(a => !a)}
+                  style={{
+                    width: 14, height: 14, border: `1px solid ${C.faint}`,
+                    background: agreed ? C.ink : C.surface,
+                    marginTop: 2, flexShrink: 0,
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  {agreed && (
+                    <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                      <path d="M2 5.5L4 7.5L8 2.5" stroke={C.bg} strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                  )}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
+                />
+                <div style={{
+                  fontFamily: 'var(--display)', fontSize: 12, lineHeight: 1.5,
+                  color: C.dim, letterSpacing: '-0.005em',
+                }}>
+                  I agree to the <a href="#" style={{ color: C.ink, borderBottom: `1px solid ${C.ink}`, textDecoration: 'none' }}>Terms</a> and <a href="/privacy" style={{ color: C.ink, borderBottom: `1px solid ${C.ink}`, textDecoration: 'none' }}>Privacy Protocol</a>.
+                </div>
+              </label>
+
+              {formError && (
+                <div style={{
+                  fontFamily: 'var(--display)', fontSize: 13, color: '#B00020',
+                  background: 'rgba(176, 0, 32, 0.06)', padding: '10px 12px',
+                  border: '1px solid rgba(176, 0, 32, 0.2)',
+                }}>{formError}</div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || !agreed}
+                style={{
+                  width: '100%',
+                  background: C.accent, color: C.accentInk,
+                  border: 'none', padding: '12px 14px',
+                  fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700,
+                  letterSpacing: '-0.005em',
+                  cursor: (loading || !agreed) ? 'not-allowed' : 'pointer',
+                  opacity: (loading || !agreed) ? 0.5 : 1,
+                }}
+              >
+                {loading ? 'Creating account…' : 'Create account →'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </>
+  );
+}

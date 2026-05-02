@@ -2,6 +2,7 @@
 
 import React, { ReactNode, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { getCurrentUser, type User } from '@/lib/supabase-auth';
 
 /* Shared color tokens for nav. Black + white only. */
 type NavTheme = {
@@ -228,6 +229,31 @@ export function NavIconButton({
       }}
     >{icon}</button>
   );
+}
+
+/**
+ * Auth-aware right side: detects current user and shows Dashboard link if signed in,
+ * Sign in link otherwise. Use this everywhere the marketing nav lives so a returning
+ * brand or shopper does not get prompted to sign in again.
+ */
+export function AuthAwareSignInLink({ dark }: { dark?: boolean }) {
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    getCurrentUser()
+      .then(u => { if (alive) setUser(u); })
+      .catch(() => { if (alive) setUser(null); });
+    return () => { alive = false; };
+  }, []);
+
+  if (user === undefined) {
+    return <span style={{ width: 50, height: 14, display: 'inline-block' }} aria-hidden />;
+  }
+  if (user) {
+    const dashHref = user.user_type === 'brand' ? '/brand' : '/dashboard';
+    return <NavLink dark={dark} label="Dashboard" href={dashHref} />;
+  }
+  return <NavLink dark={dark} label="Sign in" href="/login" />;
 }
 
 export function NavThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }) {

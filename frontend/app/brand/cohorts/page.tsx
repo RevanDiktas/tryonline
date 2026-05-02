@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
 import { SharedNav, NavLink } from '@/components/redesign/SharedNav';
+import { useIsMobile } from '@/components/redesign/useIsMobile';
 
 const PAL = {
   light: {
@@ -99,16 +100,17 @@ function MetricGrid({ C }: { C: Palette }) {
     { label: 'Fit confidence', tryon: 82, suffix: '%', decimals: 0, delta: 'Per-SKU avg' },
   ];
   return (
-    <section style={{ background: C.bg, color: C.ink, padding: '24px 32px 56px' }}>
+    <section style={{ background: C.bg, color: C.ink, padding: '24px 20px 48px' }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0,
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 0,
           border: `1px solid ${C.line}`, background: C.surface,
         }}>
-          {metrics.map((m, i) => (
+          {metrics.map((m) => (
             <div key={m.label} style={{
-              borderRight: i < metrics.length - 1 ? `1px solid ${C.line}` : 'none',
-              padding: '24px 22px',
+              borderRight: `1px solid ${C.line}`,
+              borderBottom: `1px solid ${C.line}`,
+              padding: '22px 20px',
               display: 'flex', flexDirection: 'column', gap: 12,
             }}>
               <div style={{
@@ -336,6 +338,7 @@ export default function CohortsPage() {
   const dark = theme === 'dark';
   const C = dark ? PAL.dark : PAL.light;
   const router = useRouter();
+  const mobile = useIsMobile();
 
   const links = [
     { label: 'Overview', onClick: () => router.push('/brand') },
@@ -351,9 +354,9 @@ export default function CohortsPage() {
       <SharedNav
         dark={dark}
         homeHref="/brand"
-        links={links}
+        links={mobile ? undefined : links}
         rightSlot={
-          <NavLink dark={dark} label="Back to dashboard" href="/brand" />
+          <NavLink dark={dark} label={mobile ? 'Dashboard' : 'Back to dashboard'} href="/brand" />
         }
       />
       <Hero C={C} />
