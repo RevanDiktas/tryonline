@@ -467,8 +467,10 @@ export default function PricingPage() {
 
   const links = [
     { label: 'Home', href: '/' },
-    { label: 'Demo', href: '/demo' },
     { label: 'Pricing', href: '/pricing', active: true },
+    { label: 'Demo', href: '/demo' },
+    { label: 'Shoppers', href: '/signup' },
+    { label: 'Deck', href: '/pitch-deck.html', external: true },
   ];
 
   return (
@@ -478,13 +480,15 @@ export default function PricingPage() {
     }}>
       <SharedNav
         dark={dark}
-        links={mobile ? undefined : links}
-        rightSlot={
+        links={links}
+        rightSlot={mobile ? (
+          <NavCta dark={dark} label="Start" onClick={() => router.push('/signup?type=brand')} />
+        ) : (
           <>
             <AuthAwareSignInLink dark={dark} />
-            <NavCta dark={dark} label={mobile ? 'Start' : 'Start free →'} onClick={() => router.push('/signup?type=brand')} />
+            <NavCta dark={dark} label="Start free →" onClick={() => router.push('/signup?type=brand')} />
           </>
-        }
+        )}
       />
       <Hero C={C} />
       <Tiers C={C} />

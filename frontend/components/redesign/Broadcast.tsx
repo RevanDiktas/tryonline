@@ -243,13 +243,13 @@ function DesktopComponents() {
               display: 'flex', flexDirection: 'column',
             }}>
               <div style={{
-                aspectRatio: '4/3', background: '#ffffff',
+                aspectRatio: '4/5', background: '#ffffff',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
                 padding: 20, boxSizing: 'border-box',
                 borderBottom: `1px solid ${C.line}`,
               }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={it.image} alt={it.tag} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                <img src={it.image} alt={it.tag} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
               </div>
               <div style={{ padding: '20px 22px 24px' }}>
                 <div style={{
@@ -655,7 +655,7 @@ function DesktopShoppers() {
             <img
               src="/redesign/wishlist.png"
               alt="Closet and wishlist"
-              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
             />
           </div>
         </div>
@@ -788,7 +788,7 @@ function MobileComponents() {
             border: `1px solid ${C.line}`, borderRadius: 0, background: C.bg, overflow: 'hidden',
           }}>
             <div style={{
-              aspectRatio: '4/3', background: '#ffffff',
+              aspectRatio: '4/5', background: '#ffffff',
               display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
               padding: 14, boxSizing: 'border-box',
               borderBottom: `1px solid ${C.line}`,
@@ -994,7 +994,7 @@ function MobileShoppers() {
       }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/redesign/wishlist.png" alt="Closet and wishlist"
-          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+          style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
         />
       </div>
 
@@ -1069,10 +1069,11 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
   const mobile = useIsMobile();
   const router = useRouter();
 
-  const desktopLinks = [
+  const navLinks = [
     { label: 'Pricing', href: '/pricing' },
     { label: 'Demo', href: '/demo' },
     { label: 'Shoppers', href: '/signup' },
+    { label: 'Deck', href: '/pitch-deck.html', external: true },
   ];
 
   return (
@@ -1083,9 +1084,9 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
       }}>
         <SharedNav
           dark={dark}
-          links={mobile ? undefined : desktopLinks}
+          links={navLinks}
           rightSlot={mobile ? (
-            <NavCta dark={dark} label="Try the demo →" onClick={() => router.push('/demo')} />
+            <NavCta dark={dark} label="Try demo" onClick={() => router.push('/demo')} />
           ) : (
             <>
               <AuthAwareSignInLink dark={dark} />

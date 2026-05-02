@@ -289,6 +289,8 @@ export default function DemoPage() {
     { label: 'Home', href: '/' },
     { label: 'Pricing', href: '/pricing' },
     { label: 'Demo', href: '/demo', active: true },
+    { label: 'Shoppers', href: '/signup' },
+    { label: 'Deck', href: '/pitch-deck.html', external: true },
   ];
 
   return (
@@ -298,13 +300,15 @@ export default function DemoPage() {
     }}>
       <SharedNav
         dark={dark}
-        links={mobile ? undefined : links}
-        rightSlot={
+        links={links}
+        rightSlot={mobile ? (
+          <NavCta dark={dark} label="Start" onClick={() => router.push('/signup?type=brand')} />
+        ) : (
           <>
             <AuthAwareSignInLink dark={dark} />
             <NavCta dark={dark} label="Start free" onClick={() => router.push('/signup?type=brand')} />
           </>
-        }
+        )}
       />
 
       <div style={{

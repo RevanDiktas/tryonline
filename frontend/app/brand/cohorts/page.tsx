@@ -354,10 +354,10 @@ export default function CohortsPage() {
       <SharedNav
         dark={dark}
         homeHref="/brand"
-        links={mobile ? undefined : links}
-        rightSlot={
-          <NavLink dark={dark} label={mobile ? 'Dashboard' : 'Back to dashboard'} href="/brand" />
-        }
+        links={links}
+        rightSlot={mobile ? null : (
+          <NavLink dark={dark} label="Back to dashboard" href="/brand" />
+        )}
       />
       <Hero C={C} />
       <MetricGrid C={C} />

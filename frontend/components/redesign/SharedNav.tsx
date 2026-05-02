@@ -3,6 +3,7 @@
 import React, { ReactNode, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUser, type User } from '@/lib/supabase-auth';
+import { useIsMobile } from './useIsMobile';
 
 /* Shared color tokens for nav. Black + white only. */
 type NavTheme = {
@@ -51,6 +52,7 @@ export type NavLinkSpec = {
   href?: string;
   onClick?: () => void;
   active?: boolean;
+  external?: boolean;
 };
 
 /* The nav itself. Sharp corners, sentence case, single font, no pills. */
@@ -70,6 +72,10 @@ export function SharedNav({
   const C = useNavTheme(dark);
   const router = useRouter();
   const hidden = useSmartNav();
+  const mobile = useIsMobile();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const hasLinks = !!(links && links.length > 0);
 
   return (
     <div style={{
@@ -85,12 +91,12 @@ export function SharedNav({
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        gap: 24,
-        padding: '14px 24px',
+        gap: 16,
+        padding: mobile ? '12px 16px' : '14px 24px',
         maxWidth: 1440,
         margin: '0 auto',
       }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 28, minWidth: 0 }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 24, minWidth: 0 }}>
           <button
             type="button"
             onClick={() => router.push(homeHref)}
@@ -108,21 +114,86 @@ export function SharedNav({
             />
           </button>
 
-          {links && links.length > 0 && (
+          {!mobile && hasLinks && (
             <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
-              {links.map(it => (
+              {links!.map(it => (
                 <NavTextLink key={it.label} link={it} dark={dark} />
               ))}
             </div>
           )}
         </div>
 
-        {rightSlot && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 14 }}>
-            {rightSlot}
-          </div>
-        )}
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: mobile ? 10 : 14 }}>
+          {rightSlot}
+          {mobile && hasLinks && (
+            <button
+              type="button"
+              onClick={() => setMenuOpen(o => !o)}
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={menuOpen}
+              style={{
+                width: 36, height: 36,
+                background: 'transparent',
+                border: `1px solid ${C.line}`,
+                color: C.ink,
+                cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: 0,
+                flexShrink: 0,
+              }}
+            >
+              {menuOpen ? (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M2 2l10 10M12 2L2 12" stroke={C.ink} strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg width="16" height="14" viewBox="0 0 16 14" fill="none">
+                  <path d="M0 1.5h16M0 7h16M0 12.5h16" stroke={C.ink} strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              )}
+            </button>
+          )}
+        </div>
       </div>
+
+      {mobile && menuOpen && hasLinks && (
+        <div style={{
+          borderTop: `1px solid ${C.line}`,
+          background: C.bg,
+          padding: '10px 16px 14px',
+          display: 'flex', flexDirection: 'column', gap: 0,
+        }}>
+          {links!.map(it => (
+            <button
+              key={it.label}
+              onClick={() => {
+                setMenuOpen(false);
+                if (it.onClick) it.onClick();
+                else if (it.href) {
+                  if (it.external) window.open(it.href, '_blank', 'noopener');
+                  else router.push(it.href);
+                }
+              }}
+              style={{
+                background: 'none', border: 'none', padding: '14px 0',
+                textAlign: 'left', cursor: 'pointer',
+                fontFamily: 'var(--display)',
+                fontSize: 16,
+                color: it.active ? C.ink : C.mute,
+                fontWeight: it.active ? 600 : 500,
+                borderBottom: `1px solid ${C.line}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              }}
+            >
+              <span>{it.label}</span>
+              <span style={{ fontSize: 14, color: C.mute }}>{it.external ? '↗' : '→'}</span>
+            </button>
+          ))}
+          <div style={{ paddingTop: 14 }}>
+            <AuthAwareSignInLink dark={dark} mobile />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -133,7 +204,10 @@ function NavTextLink({ link, dark }: { link: NavLinkSpec; dark?: boolean }) {
   const router = useRouter();
   const handle = () => {
     if (link.onClick) link.onClick();
-    else if (link.href) router.push(link.href);
+    else if (link.href) {
+      if (link.external) window.open(link.href, '_blank', 'noopener');
+      else router.push(link.href);
+    }
   };
   return (
     <button
@@ -149,14 +223,15 @@ function NavTextLink({ link, dark }: { link: NavLinkSpec; dark?: boolean }) {
   );
 }
 
-export function NavLink({ label, href, onClick, active, dark }: {
+export function NavLink({ label, href, onClick, active, dark, external }: {
   label: string;
   href?: string;
   onClick?: () => void;
   active?: boolean;
   dark?: boolean;
+  external?: boolean;
 }) {
-  return <NavTextLink link={{ label, href, onClick, active }} dark={dark} />;
+  return <NavTextLink link={{ label, href, onClick, active, external }} dark={dark} />;
 }
 
 export function NavText({ children, dark }: { children: ReactNode; dark?: boolean }) {
@@ -236,7 +311,9 @@ export function NavIconButton({
  * Sign in link otherwise. Use this everywhere the marketing nav lives so a returning
  * brand or shopper does not get prompted to sign in again.
  */
-export function AuthAwareSignInLink({ dark }: { dark?: boolean }) {
+export function AuthAwareSignInLink({ dark, mobile }: { dark?: boolean; mobile?: boolean }) {
+  const C = useNavTheme(dark);
+  const router = useRouter();
   const [user, setUser] = useState<User | null | undefined>(undefined);
   useEffect(() => {
     let alive = true;
@@ -247,13 +324,35 @@ export function AuthAwareSignInLink({ dark }: { dark?: boolean }) {
   }, []);
 
   if (user === undefined) {
+    if (mobile) return null;
     return <span style={{ width: 50, height: 14, display: 'inline-block' }} aria-hidden />;
   }
-  if (user) {
-    const dashHref = user.user_type === 'brand' ? '/brand' : '/dashboard';
-    return <NavLink dark={dark} label="Dashboard" href={dashHref} />;
+
+  const label = user ? 'Dashboard' : 'Sign in';
+  const href = user
+    ? (user.user_type === 'brand' ? '/brand' : '/dashboard')
+    : '/login';
+
+  if (mobile) {
+    return (
+      <button
+        onClick={() => router.push(href)}
+        style={{
+          background: C.ctaBg, color: C.ctaInk,
+          border: 'none', padding: '12px 16px',
+          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+          cursor: 'pointer', borderRadius: 0,
+          width: '100%', textAlign: 'left',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}
+      >
+        <span>{label}</span>
+        <span>→</span>
+      </button>
+    );
   }
-  return <NavLink dark={dark} label="Sign in" href="/login" />;
+
+  return <NavLink dark={dark} label={label} href={href} />;
 }
 
 export function NavThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }) {
