@@ -531,86 +531,104 @@ window.runDrape = async function() {
             }
           }
 
-          // v35: rewrite MTL text inline with blob URLs BEFORE parsing.
-          // Previous code parsed first then iterated materials.materials, but in
-          // three.js r160 MTLLoader.parse() only populates materialsInfo (raw
-          // MTL data); materials.materials stays {} until preload(). The old
-          // for-loop iterated an empty object, the swap was dead code, and
-          // preload() then loaded textures with baseUrl '' which 404'd silently.
-          // Result: every CLO3D-textured drape rendered flat. Rewriting the MTL
-          // text upfront lets MTLLoader resolve textures to blob: URLs natively
-          // during preload().
-          let rewrittenMtl = mtlText;
-          const blobNames = Object.keys(textureBlobUrls);
-          for (const filename of blobNames) {
-            const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            // Match map_Kd|map_Ka|map_Ks|map_Bump|map_d|bump|disp|decal|refl
-            // followed by an optional path prefix and the basename. Handler
-            // already rewrote MTL to basenames, but be defensive in case any
-            // CLO3D path (POSIX or Windows) survived.
-            const re = new RegExp(
-              `^(\\s*(?:map_\\w+|bump|disp|decal|refl)\\s+)(?:.*[/\\\\])?(${escaped})\\s*$`,
-              'gmi'
-            );
-            rewrittenMtl = rewrittenMtl.replace(re, `$1${textureBlobUrls[filename]}`);
-          }
-
+          // v38: bypass MTLLoader.preload() entirely. v35 used regex rewrite
+          // of MTL text + preload(). v37 added colorSpace=SRGBColorSpace.
+          // Neither produced visible textures. The print decals never showed.
+          //
+          // Root cause: MTLLoader.preload() in three.js r160 has multiple
+          // fragile behaviors (async texture creation, colorSpace not set,
+          // material lifecycle that's hard to intercept correctly). Rather
+          // than fight it, build materials manually from the parsed MTL info
+          // and attach textures directly. This is bulletproof.
+          //
+          // Strategy:
+          // 1. Use MTLLoader.parse() ONLY to get materialsInfo (raw MTL data
+          //    keyed by material name with kd/ka/map_kd fields). This part
+          //    is reliable.
+          // 2. Build a THREE.MeshStandardMaterial per material name ourselves.
+          // 3. Manually load each texture from its blob URL via TextureLoader,
+          //    set colorSpace=SRGBColorSpace explicitly, attach to mat.map.
+          // 4. Replace materials.materials with our hand-built dict so
+          //    OBJLoader's lookup at materials.materials[name] returns our
+          //    material.
           const mtlLoader = new MTLLoader();
-          materials = mtlLoader.parse(rewrittenMtl, '');
-          materials.preload();
+          materials = mtlLoader.parse(mtlText, '');
+          // Do NOT call preload(); we are constructing materials ourselves.
 
-          // After preload(), materials.materials is populated. Force DoubleSide
-          // on every material because CLO3D hoodies export with mixed triangle
-          // winding across panels (outer shell, hood liner, zipper lining);
-          // MTLLoader defaults to FrontSide so backfacing tris are invisible,
-          // producing the "shredded with holes" front view while the back
-          // looked perfect. Cloth is physically 2-sided anyway.
           let matsWithMap = 0;
           let matsWithoutMap = 0;
           const matsMissingMap = [];
-          for (const [name, mat] of Object.entries(materials.materials)) {
-            mat.side = THREE.DoubleSide;
-            if (mat.map) {
-              // v37: three.js r160 uses sRGB color management by default but
-              // MTLLoader does NOT auto-set colorSpace on textures it loads.
-              // Without this assignment, color textures render with NoColorSpace
-              // (linear) and the renderer treats them as if already-linearized,
-              // producing washed-out or near-invisible results. The orange
-              // RAMIN logos on PT_FABRIC_* materials in v36 loaded but didn't
-              // appear because of this. Setting SRGBColorSpace after load
-              // tells the renderer to convert to linear correctly during
-              // shading. Critical for any color/diffuse texture in r160+.
-              mat.map.colorSpace = THREE.SRGBColorSpace;
-              mat.map.needsUpdate = true;
-              matsWithMap++;
+          const builtMaterials = {};
+
+          for (const [name, info] of Object.entries(materials.materialsInfo || {})) {
+            const mat = new THREE.MeshStandardMaterial({
+              side: THREE.DoubleSide,
+              metalness: 0.0,
+              roughness: 0.85,
+            });
+
+            // Kd → base color. CLO3D conventions: Kd=0,0,0 means solid black
+            // fabric; Kd=1,1,1 with map_Kd means use the texture as the diffuse.
+            if (Array.isArray(info.kd) && info.kd.length >= 3) {
+              mat.color = new THREE.Color(info.kd[0], info.kd[1], info.kd[2]);
+            }
+
+            // map_Kd → diffuse texture. Look up the blob URL by basename.
+            // CLO3D may have written full paths but the handler already
+            // rewrote them to basenames before packaging.
+            const mapKdRaw = info.map_kd;
+            if (mapKdRaw) {
+              const mapKdStr = Array.isArray(mapKdRaw) ? mapKdRaw[mapKdRaw.length - 1] : String(mapKdRaw);
+              const filename = mapKdStr.replace(/\\/g, '/').split('/').pop();
+              const blobUrl = textureBlobUrls[filename];
+              if (blobUrl) {
+                const texLoader = new THREE.TextureLoader();
+                const tex = texLoader.load(
+                  blobUrl,
+                  (loaded) => {
+                    loaded.colorSpace = THREE.SRGBColorSpace;
+                    loaded.needsUpdate = true;
+                    mat.needsUpdate = true;
+                    log(`  Texture loaded: ${filename} on ${name} (${loaded.image.width}x${loaded.image.height})`, 'ok');
+                  },
+                  undefined,
+                  (err) => {
+                    log(`  Texture FAILED: ${filename} on ${name} (${err?.message || err})`, 'warn');
+                  }
+                );
+                tex.colorSpace = THREE.SRGBColorSpace;
+                mat.map = tex;
+                // CLO3D PT_FABRIC_* materials have Kd=1,1,1 already, but force
+                // white when texture is set so any non-white Kd from a future
+                // material doesn't tint the texture.
+                mat.color = new THREE.Color(1, 1, 1);
+                matsWithMap++;
+              } else {
+                matsMissingMap.push(`${name} (wanted ${filename})`);
+                matsWithoutMap++;
+              }
             } else {
               matsWithoutMap++;
-              matsMissingMap.push(name);
             }
-            mat.needsUpdate = true;
+
+            builtMaterials[name] = mat;
           }
 
-          // Diagnostic: visible at the test page log so future texture failures
-          // are loud, not silent. If matsMissingMap is non-empty AND blobNames
-          // is non-empty, the regex didn't match a map_* line that was supposed
-          // to resolve to a blob URL.
-          log(`  MTL: ${Object.keys(materials.materialsInfo || {}).length} materials parsed, ${blobNames.length} blob URLs available`, 'info');
-          log(`  Materials: ${matsWithMap} with diffuse map, ${matsWithoutMap} without`, matsWithoutMap > 0 ? 'warn' : 'ok');
-          if (matsWithoutMap > 0 && blobNames.length > 0) {
-            log(`  Missing-map materials: ${matsMissingMap.slice(0, 5).join(', ')}${matsMissingMap.length > 5 ? '...' : ''}`, 'warn');
-            // Surface raw materialsInfo for the missing ones so we can see what
-            // the MTL referenced and why the rewrite did or didn't catch it.
-            for (const matName of matsMissingMap.slice(0, 3)) {
-              const info = materials.materialsInfo?.[matName] || {};
-              const mapKeys = Object.keys(info).filter(k => k.startsWith('map_') || k === 'bump');
-              if (mapKeys.length > 0) {
-                for (const k of mapKeys) {
-                  const ref = info[k];
-                  const resolved = typeof ref === 'string' && ref.startsWith('blob:');
-                  log(`    ${matName}.${k}: ${resolved ? 'blob URL' : ref}`, resolved ? 'ok' : 'warn');
-                }
-              }
-            }
+          // Replace MaterialCreator.materials with our hand-built dict.
+          // OBJLoader uses materials.materials[name] for direct lookup during
+          // parse(). Also override .create() and .preload() so OBJLoader
+          // never tries to run MTLLoader's flow on our materials.
+          materials.materials = builtMaterials;
+          materials.create = (name) => builtMaterials[name];
+          materials.preload = () => {};
+
+          // Diagnostic: total material count, how many got textures, what's
+          // missing. This logs to the test page log, not the browser console.
+          const totalMats = Object.keys(builtMaterials).length;
+          log(`  v38 manual MTL: ${totalMats} materials built, ${matsWithMap} with texture, ${matsWithoutMap} without`,
+              matsWithoutMap > 0 && Object.keys(textureBlobUrls).length > 0 ? 'warn' : 'ok');
+          if (matsMissingMap.length > 0) {
+            log(`  Materials with map_Kd but no blob match: ${matsMissingMap.slice(0, 5).join(', ')}${matsMissingMap.length > 5 ? '...' : ''}`, 'warn');
           }
         }
 
