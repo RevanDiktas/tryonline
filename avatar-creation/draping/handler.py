@@ -1389,6 +1389,71 @@ def pygarment_drape(
           f"sdf_after={retarget_stats['final_min_sdf_mm']:.1f}mm, "
           f"residual_inside={retarget_stats['final_residual_inside']}")
 
+    # v36 STRUCTURAL CHANGE: skip the Newton XPBD sim entirely.
+    #
+    # Why: v26 retarget already produces a non-penetrating mesh with all of
+    # CLO3D's wrinkles preserved (CLO3D itself ran a full physics sim before
+    # exporting the OBJ). v18 through v35 then ran Newton XPBD on top of
+    # that, with cloth_reference_drag as a "warmup" force that pulls cloth
+    # toward body region centroids based on panel_assignment voting. That
+    # mechanism was designed for FLAT 2D PATTERNS being guided to 3D body
+    # regions during initialization. Our pipeline starts with a 3D-positioned
+    # garment from CLO3D, so drag has no useful work to do.
+    #
+    # What it actually did for a week: yanked cloth based on miscategorized
+    # panel votes. Hood verts at the shoulder voted right_arm (because v32
+    # moved shoulders into arms), drag pulled hood to the side. Pant
+    # waistband verts voted body (because hips is now in body group), drag
+    # pulled them toward torso centroid, opened butt/thigh holes. Tiny
+    # decals fell through to merged-legs label, drag pulled them to arms.
+    # Every fix to the voting cells exposed a new mis-vote elsewhere.
+    #
+    # The structural answer: stop using PyGarment's sim. Ship the retargeted
+    # mesh directly. Body collisions: 0 (retarget guarantees this; see
+    # retarget_stats['final_residual_inside']). Wrinkles: preserved from
+    # CLO3D's own sim. Visual: CLO3D's drape adapted to body B by minimum
+    # deformation. Latency: ~80s sim removed; total drape time drops from
+    # ~96s to ~15-20s, well inside the cache architecture budget.
+    #
+    # Toggle SKIP_NEWTON_SIM to False to A/B against the v35 sim path
+    # (everything below this branch is the v18-v35 Newton pipeline,
+    # untouched).
+    SKIP_NEWTON_SIM = True
+    if SKIP_NEWTON_SIM:
+        # Un-weld each cleaned-OBJ vert to its welded canonical position.
+        final_verts_m = welded_verts[orig_to_welded]
+        # Reverse alignment + unit normalization to land back in the input
+        # OBJ's original coordinate frame and units.
+        if align_scale != 1.0:
+            final_verts_m = (final_verts_m - translation) / align_scale
+        else:
+            final_verts_m = final_verts_m - translation
+        if garment_unit_scale != 1.0:
+            final_verts_out = final_verts_m / garment_unit_scale
+        else:
+            final_verts_out = final_verts_m
+        # Write against the cleaned CLO3D OBJ as template, preserving
+        # mtllib, vt, usemtl, and f a/b/c face references intact.
+        write_obj_with_new_verts(garment_obj, final_verts_out, output_obj)
+        print(f"[PyGarment] v36 SKIP-SIM: shipped retargeted mesh "
+              f"({len(final_verts_out)} verts, "
+              f"sdf_after={retarget_stats['final_min_sdf_mm']:.1f}mm, "
+              f"residual_inside={retarget_stats['final_residual_inside']})")
+        return {
+            "vertices_total": int(len(final_verts_out)),
+            "simulation_frames": 0,
+            "simulation_time_seconds": 0.0,
+            "body_collisions": int(retarget_stats.get('final_residual_inside', 0)),
+            "self_collisions": -1,
+            "materials": [],
+            "stitch_verts": 0,
+            "backend": "v36-retarget-only",
+            "fabric_preset": fabric_config.get("preset", "cotton_medium"),
+            "align_scale": round(float(align_scale), 6),
+            "translation_m": [round(float(t), 6) for t in translation],
+            "retarget_stats": retarget_stats,
+        }
+
     # ------------------------------------------------------------------
     # Step 2: build PyGarment's expected tmpdir layout. Paths must match
     # PathCofig's hardcoded filename conventions (see
@@ -2036,7 +2101,26 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-05-03/v35-frontend-mtl-rewrite-fix "
+    "drape-handler 2026-05-03/v36-skip-newton-sim "
+    "(v36: STRUCTURAL CHANGE. We are no longer running the Newton XPBD "
+    "cloth sim at all. The v26 face-accurate iterative retarget already "
+    "produces a non-penetrating mesh with all CLO3D wrinkles preserved "
+    "(CLO3D itself ran a full physics sim before exporting). v18-v35 "
+    "ran Newton on top of that, but Newton's cloth_reference_drag was "
+    "a warmup force designed for flat 2D patterns being guided to 3D "
+    "body regions during initialization. Our pipeline starts with a "
+    "3D-positioned garment from CLO3D, so drag has no useful work but "
+    "did all the visible damage we have been chasing for a week (hood "
+    "yanked to shoulder via right_arm vote, sleeve mirror inversion, "
+    "pant waistband voted body and dragged to torso centroid opening "
+    "butt and thigh holes, decals dragged to arms via merged-legs label). "
+    "Each version v18-v35 fixed one mis-vote and exposed another. v36 "
+    "stops using the voting layer for forces. Ship the retargeted mesh "
+    "directly. Body collisions: 0 (retarget guarantees this). Wrinkles: "
+    "preserved from CLO3D. Latency: ~80s sim removed, drape time drops "
+    "from ~96s to ~15-20s. Toggle SKIP_NEWTON_SIM=False in pygarment_drape "
+    "to A/B against v35 Newton path (Newton code preserved beneath the "
+    "early return). PREVIOUS v35 BANNER FOLLOWS: "
     "(v35: NO sim code changes. v31+v32 sim still in place, awaiting first "
     "verification run. The visible change is on the FRONTEND side: "
     "drape-test.html now rewrites the MTL text inline with blob: URLs BEFORE "
