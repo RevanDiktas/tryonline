@@ -602,6 +602,22 @@ window.runDrape = async function() {
                 // white when texture is set so any non-white Kd from a future
                 // material doesn't tint the texture.
                 mat.color = new THREE.Color(1, 1, 1);
+                // v40: CLO3D PT_FABRIC print decals are RGBA PNGs with the
+                // logo/print on a transparent (alpha=0) background. The RGB
+                // at alpha=0 is solid white, so without alpha-aware rendering
+                // the print appears as a white rectangle around the logo
+                // instead of the underlying fabric showing through. Verified
+                // empirically: 73% of 1.png and 51% of 2.png are alpha=0,
+                // RGB pure white.
+                //
+                // alphaTest=0.5 discards any pixel with alpha < 0.5 (binary
+                // mask) so we get crisp logo edges with the underlying black
+                // fabric panel showing through where the PNG was transparent.
+                // transparent=true enables the renderer's alpha pipeline so
+                // the test actually applies. depthWrite stays true so the
+                // logo writes depth normally and we don't get z-fighting.
+                mat.transparent = true;
+                mat.alphaTest = 0.5;
                 matsWithMap++;
               } else {
                 matsMissingMap.push(`${name} (wanted ${filename})`);
