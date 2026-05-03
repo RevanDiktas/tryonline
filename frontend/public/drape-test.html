@@ -747,12 +747,18 @@ window.runDrape = async function() {
               (iterFrameCount - 1) * iterVertsPerFrame * 3,
               iterFrameCount * iterVertsPerFrame * 3
             );
-            log(`  Drape animation: ${iterFrameCount} frames, ${iterVertsPerFrame} verts/frame, ${(buf.byteLength / 1024 / 1024).toFixed(1)} MB`, 'info');
+            log(`  Drape animation: ${iterFrameCount} frames, ${iterVertsPerFrame} verts/frame, ${(buf.byteLength / 1024 / 1024).toFixed(1)} MB. Click Play Drape.`, 'ok');
             if (playBtn) playBtn.disabled = false;
           } catch (e) {
             log(`  Drape animation decode failed: ${e.message}`, 'warn');
             iterFrames = null;
           }
+        } else {
+          // Loud diagnostic so it is obvious when streaming data is missing.
+          // Most common cause: handler in production is older than v44 and
+          // doesn't capture iteration frames yet. Less common: handler is
+          // v44+ but hit the exception path during capture.
+          log(`  No iteration_frames_base64 in response. Play Drape disabled. Handler may be older than v44 (rebuild may still be in flight).`, 'warn');
         }
 
         // If no MTL, swap any default Lambert material for a PBR cotton one so
