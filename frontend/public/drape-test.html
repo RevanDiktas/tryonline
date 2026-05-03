@@ -140,6 +140,16 @@
       <button class="btn btn-primary" id="btnDrape" onclick="runDrape()">Run Draping</button>
       <button class="btn btn-secondary" id="btnLoad" onclick="loadPreview()">Load Preview</button>
       <button class="btn btn-secondary" id="btnPlayDrape" onclick="playDrape()" disabled>Play Drape</button>
+      <button class="btn btn-danger" id="btnStopDrape" onclick="stopDrape()" disabled>Stop</button>
+    </div>
+
+    <div class="row" style="align-items:center; gap:12px; padding:8px 0;">
+      <label for="drapeDuration" style="white-space:nowrap;">Duration: <span id="drapeDurationLabel">3.0s</span></label>
+      <input type="range" id="drapeDuration" min="1" max="8" step="0.5" value="3" style="flex:1;"
+        oninput="document.getElementById('drapeDurationLabel').textContent = parseFloat(this.value).toFixed(1) + 's';" />
+      <label style="white-space:nowrap;">
+        <input type="checkbox" id="drapeLoop" /> Loop
+      </label>
     </div>
 
     <div class="row">
@@ -969,9 +979,14 @@ window.playDrape = function() {
     cancelAnimationFrame(iterAnimationHandle);
     iterAnimationHandle = 0;
   }
-  const durationMs = 1500;
-  const startTime = performance.now();
-  log(`Playing drape: ${iterFrameCount} frames over ${durationMs}ms`, 'info');
+  const slider = document.getElementById('drapeDuration');
+  const loopBox = document.getElementById('drapeLoop');
+  const durationMs = (slider ? parseFloat(slider.value) : 3.0) * 1000;
+  const loop = loopBox ? !!loopBox.checked : false;
+  const stopBtn = document.getElementById('btnStopDrape');
+  if (stopBtn) stopBtn.disabled = false;
+  let startTime = performance.now();
+  log(`Playing drape: ${iterFrameCount} frames over ${(durationMs / 1000).toFixed(1)}s${loop ? ' (looping)' : ''}`, 'info');
   function tick() {
     const elapsed = performance.now() - startTime;
     const t = Math.min(elapsed / durationMs, 1);
@@ -979,14 +994,34 @@ window.playDrape = function() {
     applyFrameToGarment(frameIdx);
     if (t < 1) {
       iterAnimationHandle = requestAnimationFrame(tick);
+    } else if (loop) {
+      // Restart from frame 0.
+      startTime = performance.now();
+      iterAnimationHandle = requestAnimationFrame(tick);
     } else {
       // Final settled state.
       applyFrameToGarment(iterFrameCount - 1);
       iterAnimationHandle = 0;
+      if (stopBtn) stopBtn.disabled = true;
       log('Drape animation complete.', 'ok');
     }
   }
   iterAnimationHandle = requestAnimationFrame(tick);
+};
+
+window.stopDrape = function() {
+  if (iterAnimationHandle) {
+    cancelAnimationFrame(iterAnimationHandle);
+    iterAnimationHandle = 0;
+  }
+  // Snap to final settled state so clicking Stop never leaves the cloth in
+  // an in-progress pose.
+  if (iterFrames && iterFrameCount > 0) {
+    applyFrameToGarment(iterFrameCount - 1);
+  }
+  const stopBtn = document.getElementById('btnStopDrape');
+  if (stopBtn) stopBtn.disabled = true;
+  log('Drape animation stopped.', 'info');
 };
 
 window.clearViewer = function() {
@@ -998,6 +1033,8 @@ window.clearViewer = function() {
   iterFlatMapping = null; iterFinalVerts = null;
   const playBtn = document.getElementById('btnPlayDrape');
   if (playBtn) playBtn.disabled = true;
+  const stopBtn = document.getElementById('btnStopDrape');
+  if (stopBtn) stopBtn.disabled = true;
   if (avatarMesh) { scene.remove(avatarMesh); avatarMesh = null; }
   if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
   meshBadge.style.display = 'none';
