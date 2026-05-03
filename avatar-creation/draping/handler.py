@@ -1947,6 +1947,23 @@ def handler(event: dict) -> dict:
                     _rewritten_lines.append(_mline)
                 mtl_dest.write_text("\n".join(_rewritten_lines))
 
+                # v39 belt-and-suspenders: also save the MTL under the OBJ's
+                # original mtllib reference name. CLO3D OBJ may reference
+                # `mm.mtl` while Supabase only hosts `m.mtl`. We've successfully
+                # downloaded m.mtl as a basename fallback, but the OBJ's
+                # mtllib still says `mm.mtl`. Output-side packaging looks up
+                # the MTL by the OBJ's mtllib reference and would otherwise
+                # find nothing on disk and silently ship empty mtl_b64 +
+                # textures_b64. Aliasing to the expected name resolves this.
+                if mtl_name_in_obj and mtl_cand != mtl_name_in_obj:
+                    expected_path = garment_obj.parent / mtl_name_in_obj
+                    if not expected_path.exists():
+                        try:
+                            shutil.copy(mtl_dest, expected_path)
+                            print(f"[Draping] MTL aliased: {mtl_cand} also saved as {mtl_name_in_obj}")
+                        except Exception as _e:
+                            print(f"[Draping] MTL alias failed: {_e}")
+
                 # Parse rewritten MTL (now all basenames) and download each texture
                 for _mline in mtl_dest.read_text().split("\n"):
                     _mline = _mline.strip()
@@ -2041,6 +2058,23 @@ def handler(event: dict) -> dict:
 
         if mtl_name:
             mtl_source = garment_obj.parent / mtl_name
+            if not mtl_source.exists():
+                # v39 fallback: scan parent dir for any .mtl file. CLO3D OBJ
+                # may reference a name (e.g. mm.mtl) that does not match what
+                # was actually downloadable on Supabase (e.g. m.mtl). Without
+                # this fallback the entire MTL+textures packaging block was
+                # silently skipped, shipping empty mtl_b64 and empty
+                # textures_b64. THE bug fixed in v39: textures looked broken
+                # for weeks but the backend was sending nothing. Pick the
+                # first .mtl on disk; the input-side already rewrote it to
+                # use basename texture references.
+                candidates = list(garment_obj.parent.glob("*.mtl"))
+                if candidates:
+                    print(f"[Draping] mtllib '{mtl_name}' not on disk; using {candidates[0].name} from {garment_obj.parent}")
+                    mtl_source = candidates[0]
+                    mtl_name = mtl_source.name
+                else:
+                    print(f"[Draping] mtllib '{mtl_name}' not on disk and no .mtl found in {garment_obj.parent}")
             if mtl_source.exists():
                 mtl_text_orig = mtl_source.read_text(encoding="utf-8", errors="replace")
                 cleaned_lines = []
@@ -2113,7 +2147,33 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-05-03/v38-manual-mtl-bypass-preload "
+    "drape-handler 2026-05-03/v39-mtl-name-mismatch-fix "
+    "(v39: TEXTURES FOR REAL THIS TIME. v35-v38 frontend efforts were "
+    "doomed because the BACKEND was shipping empty mtl_b64 and empty "
+    "textures_b64 the entire time. The bug: CLO3D OBJ's mtllib line "
+    "references mm.mtl (two m's), but Supabase only hosts m.mtl. The "
+    "input-side download flow correctly falls back to m.mtl as the "
+    "basename. But the output-side packager reads mtllib from the draped "
+    "OBJ ('mm.mtl'), looks for mm.mtl on disk, fails, and SILENTLY skips "
+    "the whole MTL+textures packaging block. Response goes out with "
+    "empty draped_mtl_base64 and empty draped_textures_base64. v35-v38 "
+    "frontend built progressively more bulletproof texture loaders that "
+    "all received nothing to load. Confirmed by absence of '[Draping] MTL:' "
+    "and '[Draping] Texture:' output-side log lines in the v38 run logs. "
+    "v39 fixes with two layers: "
+    "(1) Input-side belt-and-suspenders. After successfully downloading "
+    "the basename-fallback MTL, ALSO save it under the OBJ's mtllib "
+    "reference name (mm.mtl in this case). The OBJ's mtllib then resolves "
+    "naturally on disk. "
+    "(2) Output-side glob fallback. If the mtllib reference does not "
+    "resolve on disk, scan garment_obj.parent for any .mtl file and use "
+    "the first one. The input-side rewrote it to basename texture "
+    "references already, so the rest of the packaging works. "
+    "After v39, expect '[Draping] MTL: m.mtl (X KB, 2 textures included)' "
+    "and '[Draping] Texture: 1.png' / '[Draping] Texture: 2.png' to "
+    "appear in the run log, and the response to actually contain the "
+    "MTL and texture base64 data the frontend has been asking for. "
+    "PREVIOUS v38 BANNER FOLLOWS: "
     "(v38: textures fix #4. v35 rewrote MTL text inline with blob URLs "
     "before MTLLoader.parse(). v37 added mat.map.colorSpace=SRGBColorSpace "
     "after preload(). Neither produced visible texture. The orange RAMIN "
