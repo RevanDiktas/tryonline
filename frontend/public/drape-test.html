@@ -560,41 +560,28 @@ window.runDrape = async function() {
           const matsMissingMap = [];
           const builtMaterials = {};
 
-          // v42: switch the approach. The previous tweaks (alphaTest, transparent,
-          // MeshBasic, toneMapped) were addressing the wrong layer. Two STRUCTURAL
-          // fixes here for what's actually visible in the render:
+          // v43: depth-buffer layering. v42 overrode FABRIC_2's gray Kd to
+          // body black, which hid the print backing (good) but also killed
+          // the zipper (bad). The right fix is depth-buffer ordering, not
+          // color override. Three layers from front to back:
           //
-          // (1) Print decals (PT_FABRIC_*) and body fabric end up coplanar after
-          //     v26 retarget snaps everything to body+12mm, collapsing CLO3D's
-          //     intentional layer offsets. The renderer's depth test picks one
-          //     or the other per-pixel arbitrarily, producing the irregular
-          //     "black blob covering the print" pattern. Industry-standard fix
-          //     for decals on coplanar surfaces: polygonOffset. It biases the
-          //     depth values for a material WITHOUT moving its geometry, so
-          //     prints win the z-test against body fabric every time.
+          //   PT_FABRIC_*    polygonOffset = -2  (closest to camera, on top)
+          //   Body_*/Sleeves_*/FABRIC_1_*  no offset  (default depth)
+          //   FABRIC_2_*     polygonOffset = +1  (pushed behind)
           //
-          // (2) FABRIC_2_FRONT_2738 has Kd=0.82 (light gray) in the CLO3D MTL.
-          //     It's the zipper binding / print backing fabric. With the rest
-          //     of the garment uniformly black (Body_*, FABRIC_1_*, Sleeves_*
-          //     all Kd=0,0,0), the gray FABRIC_2 panel renders as a visible
-          //     light-gray rectangle behind the prints, which is the "white
-          //     background" the user is seeing. Override non-print non-Body
-          //     materials to match the dominant body Kd so the garment is
-          //     uniformly colored as CLO3D drew the body fabric.
-
-          // Phase 1: find the dominant body fabric color (most-common Kd among
-          // Body_* and Sleeves_* materials).
-          let dominantBodyKd = null;
-          for (const [name, info] of Object.entries(materials.materialsInfo || {})) {
-            if (/^(Body_|Sleeves_)/i.test(name) && Array.isArray(info.kd) && info.kd.length >= 3) {
-              dominantBodyKd = info.kd;
-              break;
-            }
-          }
-          if (dominantBodyKd) {
-            log(`  Dominant body Kd: (${dominantBodyKd.map(v => v.toFixed(2)).join(', ')})`, 'info');
-          }
-
+          // Effect on different regions of the garment:
+          //
+          // - Print region: PT wins z-test, shows orange where alpha>=0.5,
+          //   discarded where alpha<0.5. Behind discarded fragments: body
+          //   fabric (default offset) renders, showing black. FABRIC_2
+          //   print-backing component (pushed back) is HIDDEN by body.
+          //
+          // - Zipper region: body fabric has a slit/hole here in CLO3D's
+          //   geometry. With no body fragment at this depth, the only
+          //   geometry is FABRIC_2's zipper component. FABRIC_2 renders
+          //   gray (its real Kd from MTL) and the zipper is visible.
+          //
+          // Materials keep their original CLO3D Kd values. No color override.
           for (const [name, info] of Object.entries(materials.materialsInfo || {})) {
             const mapKdRaw = info.map_kd;
             const filename = mapKdRaw
@@ -605,12 +592,11 @@ window.runDrape = async function() {
 
             let mat;
             if (blobUrl) {
-              // Print decal: MeshBasicMaterial + toneMapped=false gives vivid
-              // texture color. polygonOffset pushes the decal toward camera in
-              // the depth buffer, winning z-fights against the coplanar body
-              // fabric. alphaTest discards transparent pixels so the underlying
-              // body fabric (now correctly behind in the depth test) shows
-              // through where the PNG is transparent.
+              // Print decal: MeshBasicMaterial + toneMapped=false renders the
+              // texture at full saturation. Negative polygon offset pulls the
+              // decal toward the camera so it wins z-fights against coplanar
+              // body fabric. alphaTest discards transparent pixels so the
+              // body fabric (default offset, behind the decal) shows through.
               mat = new THREE.MeshBasicMaterial({
                 side: THREE.DoubleSide,
                 color: new THREE.Color(1, 1, 1),
@@ -639,29 +625,24 @@ window.runDrape = async function() {
               mat.map = tex;
               matsWithMap++;
             } else {
-              // Solid fabric: PBR-shaded for 3D cloth feel. Force non-Body
-              // fabrics to use the dominant body Kd so the garment is uniform
-              // (no surprise light-gray FABRIC_2 panels showing behind prints).
+              // Solid fabric: PBR-shaded. Keep CLO3D's original Kd untouched.
               mat = new THREE.MeshStandardMaterial({
                 side: THREE.DoubleSide,
                 metalness: 0.0,
                 roughness: 0.85,
               });
+              if (Array.isArray(info.kd) && info.kd.length >= 3) {
+                mat.color = new THREE.Color(info.kd[0], info.kd[1], info.kd[2]);
+              }
+              // Push non-Body fabrics (FABRIC_2 zipper binding, print backing)
+              // BEHIND body fabric. Body fabric covers most of the garment area
+              // and wins the z-test there. Where body has a slit (zipper),
+              // FABRIC_2 fills in and is visible.
               const isBodyOrSleeve = /^(Body_|Sleeves_)/i.test(name);
-              if (isBodyOrSleeve && Array.isArray(info.kd) && info.kd.length >= 3) {
-                mat.color = new THREE.Color(info.kd[0], info.kd[1], info.kd[2]);
-              } else if (dominantBodyKd) {
-                // FABRIC_1_*, FABRIC_2_*, etc. inherit the body's color so the
-                // garment reads as one consistent color.
-                mat.color = new THREE.Color(dominantBodyKd[0], dominantBodyKd[1], dominantBodyKd[2]);
-                if (Array.isArray(info.kd) && info.kd.length >= 3 &&
-                    Math.max(Math.abs(info.kd[0] - dominantBodyKd[0]),
-                             Math.abs(info.kd[1] - dominantBodyKd[1]),
-                             Math.abs(info.kd[2] - dominantBodyKd[2])) > 0.05) {
-                  log(`  ${name}: Kd (${info.kd.map(v => v.toFixed(2)).join(', ')}) overridden to body`, 'info');
-                }
-              } else if (Array.isArray(info.kd) && info.kd.length >= 3) {
-                mat.color = new THREE.Color(info.kd[0], info.kd[1], info.kd[2]);
+              if (!isBodyOrSleeve) {
+                mat.polygonOffset = true;
+                mat.polygonOffsetFactor = 1;
+                mat.polygonOffsetUnits = 1;
               }
               if (mapKdRaw && filename) {
                 matsMissingMap.push(`${name} (wanted ${filename})`);
