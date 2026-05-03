@@ -39,6 +39,7 @@ import json
 import base64
 import hashlib
 import shutil
+import struct
 import tempfile
 import subprocess
 from pathlib import Path
@@ -211,6 +212,7 @@ def _retarget_garment_to_body(
     target_offset: float = 0.005,
     n_iters: int = 15,
     smooth_factor: float = 0.3,
+    capture_frames: bool = False,
 ) -> tuple:
     """
     Iterative face-accurate retargeting of the cloth mesh so no vertex
@@ -313,6 +315,14 @@ def _retarget_garment_to_body(
     total_pushed_first_iter = 0
     iters_run = 0
 
+    # v44: optionally capture per-iteration vertex states for streamed
+    # animation playback in the frontend. Frame 0 is the pre-retarget
+    # state (cloth deeply inside the body, dramatic starting pose).
+    # Subsequent frames are the verts after each iteration converges.
+    captured_frames: list = []
+    if capture_frames:
+        captured_frames.append(verts.copy())
+
     for iteration in range(n_iters):
         # Face-accurate closest points via the cached ProximityQuery.
         closest, _, tri_ids = pq.on_surface(verts)
@@ -383,11 +393,14 @@ def _retarget_garment_to_body(
         if clamp_mask.any():
             verts[clamp_mask] = clamp_closest[clamp_mask] + clamp_normals[clamp_mask] * target_offset
 
+        if capture_frames:
+            captured_frames.append(verts.copy())
+
     # Final SDF readout for the log.
     final_closest, _, final_tri = pq.on_surface(verts)
     final_sdf = np.einsum("ij,ij->i", verts - final_closest, face_normals[final_tri])
 
-    return verts, {
+    stats_out = {
         "iterations": iters_run,
         "pushed_first_iter": total_pushed_first_iter,
         "initial_min_sdf_mm": initial_min_sdf_mm,
@@ -395,6 +408,9 @@ def _retarget_garment_to_body(
         "final_residual_inside": int((final_sdf < 0.0).sum()),
         "target_offset_mm": float(target_offset * 1000.0),
     }
+    if capture_frames:
+        stats_out["captured_frames"] = captured_frames
+    return verts, stats_out
 
 
 def align_meshes(body_verts: np.ndarray, garment_verts: np.ndarray) -> tuple:
@@ -1394,6 +1410,7 @@ def pygarment_drape(
         target_offset=0.012,
         n_iters=25,
         smooth_factor=0.3,
+        capture_frames=True,
     )
     print(f"[PyGarment] Retarget: iters={retarget_stats['iterations']}/15, "
           f"pushed_first={retarget_stats['pushed_first_iter']}/{len(welded_verts)}, "
@@ -1451,6 +1468,47 @@ def pygarment_drape(
               f"({len(final_verts_out)} verts, "
               f"sdf_after={retarget_stats['final_min_sdf_mm']:.1f}mm, "
               f"residual_inside={retarget_stats['final_residual_inside']})")
+
+        # v44: pack per-iteration vertex states for streamed animation
+        # playback. Each captured frame is in welded space (post-align,
+        # pre-translation). Apply the same un-weld + undo-translate +
+        # undo-scale pipeline as the final mesh so frames render in the
+        # exact same coordinate frame as the static draped output.
+        # Format: <num_frames:u32 LE><verts_per_frame:u32 LE><float32 LE positions>
+        # Frame data: frame_i_vert_j has positions at offset
+        # 8 + (i * verts_per_frame + j) * 12 bytes.
+        iter_frames_b64 = ""
+        iter_frame_count = 0
+        iter_verts_per_frame = 0
+        captured_welded = retarget_stats.pop("captured_frames", [])
+        if captured_welded:
+            try:
+                frame_arrays = []
+                for welded_frame in captured_welded:
+                    frame_m = welded_frame[orig_to_welded]
+                    if align_scale != 1.0:
+                        frame_m = (frame_m - translation) / align_scale
+                    else:
+                        frame_m = frame_m - translation
+                    if garment_unit_scale != 1.0:
+                        frame_out = frame_m / garment_unit_scale
+                    else:
+                        frame_out = frame_m
+                    frame_arrays.append(frame_out.astype(np.float32))
+                iter_frame_count = len(frame_arrays)
+                iter_verts_per_frame = int(frame_arrays[0].shape[0])
+                header = struct.pack("<II", iter_frame_count, iter_verts_per_frame)
+                body = b"".join(arr.tobytes() for arr in frame_arrays)
+                iter_frames_b64 = base64.b64encode(header + body).decode("utf-8")
+                print(f"[PyGarment] v44 streaming: captured {iter_frame_count} frames "
+                      f"({iter_verts_per_frame} verts each, "
+                      f"{len(header) + len(body) / 1024 / 1024:.1f} MB raw)")
+            except Exception as _e:
+                print(f"[PyGarment] v44 streaming: capture pack failed: {_e}")
+                iter_frames_b64 = ""
+                iter_frame_count = 0
+                iter_verts_per_frame = 0
+
         return {
             "vertices_total": int(len(final_verts_out)),
             "simulation_frames": 0,
@@ -1464,6 +1522,9 @@ def pygarment_drape(
             "align_scale": round(float(align_scale), 6),
             "translation_m": [round(float(t), 6) for t in translation],
             "retarget_stats": retarget_stats,
+            "iteration_frames_base64": iter_frames_b64,
+            "iteration_frame_count": iter_frame_count,
+            "iteration_verts_per_frame": iter_verts_per_frame,
         }
 
     # ------------------------------------------------------------------
@@ -2014,7 +2075,10 @@ def handler(event: dict) -> dict:
                 simulation_mode=simulation_mode,
             )
             simulation_method = "pygarment"
-            print(f"[Draping] PyGarment success: {sim_stats}")
+            # v44: log a slim copy without the multi-MB iteration_frames_base64
+            # blob so RunPod logs stay readable.
+            _slim = {k: v for k, v in sim_stats.items() if k != "iteration_frames_base64"}
+            print(f"[Draping] PyGarment success: {_slim}")
         except Exception as e:
             print(f"[Draping] PyGarment failed, falling back to geometric: {e}")
             import traceback
@@ -2147,7 +2211,24 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-05-03/v39-mtl-name-mismatch-fix "
+    "drape-handler 2026-05-03/v44-stream-retarget-iterations "
+    "(v44: stream the retarget iterations as a vertex animation cache. "
+    "_retarget_garment_to_body now optionally captures welded vertex state "
+    "after each iteration. v36 SKIP-SIM path enables capture, un-welds each "
+    "frame to original-OBJ-vertex space, applies the same translate/scale "
+    "undo as the final mesh, and packs all 26 frames (frame 0 plus 25 iters) "
+    "as a binary blob: <num_frames:u32 LE><verts_per_frame:u32 LE><float32 LE "
+    "positions>. base64-encoded into iteration_frames_base64 in sim_stats. "
+    "About 8MB raw / 11MB base64 for 26630 verts x 26 frames. Frontend "
+    "decodes, parses OBJ once for per-material vert-index mappings, and "
+    "animates the cloth conforming to the body over ~1.5s on a Play Drape "
+    "button. Honest physics flex content: this is OUR custom iterative "
+    "deformation solver, not a black-box library. PREVIOUS v43 BANNER "
+    "FOLLOWS (frontend only, no handler change in v43): zipper restored via "
+    "depth-buffer layering instead of Kd override. PT_FABRIC_* offset -2, "
+    "Body_/Sleeves_/FABRIC_1_ no offset, FABRIC_2_* offset +1. Body covers "
+    "print-backing area showing black; body has slit at zipper area where "
+    "FABRIC_2 gray fills in unobstructed. PREVIOUS v39 BANNER FOLLOWS: "
     "(v39: TEXTURES FOR REAL THIS TIME. v35-v38 frontend efforts were "
     "doomed because the BACKEND was shipping empty mtl_b64 and empty "
     "textures_b64 the entire time. The bug: CLO3D OBJ's mtllib line "

@@ -139,6 +139,7 @@
     <div class="row">
       <button class="btn btn-primary" id="btnDrape" onclick="runDrape()">Run Draping</button>
       <button class="btn btn-secondary" id="btnLoad" onclick="loadPreview()">Load Preview</button>
+      <button class="btn btn-secondary" id="btnPlayDrape" onclick="playDrape()" disabled>Play Drape</button>
     </div>
 
     <div class="row">
@@ -221,6 +222,15 @@ scene.add(fill);
 const loader = new GLTFLoader();
 let avatarMesh = null;
 let garmentMesh = null;
+
+// v44: streaming animation state. Set when a drape response arrives with
+// iteration_frames_base64. Used by the Play Drape button.
+let iterFrames = null;          // Float32Array, all frames concatenated
+let iterFrameCount = 0;
+let iterVertsPerFrame = 0;
+let iterVertMappings = null;    // { [materialName]: Uint32Array of OBJ vert indices }
+let iterFinalVerts = null;      // Float32Array of the final settled positions (frame N-1)
+let iterAnimationHandle = 0;    // requestAnimationFrame handle, for cancel
 
 function resize() {
   const rect = canvas.parentElement.getBoundingClientRect();
@@ -650,6 +660,10 @@ window.runDrape = async function() {
               matsWithoutMap++;
             }
 
+            // v44: tag the material with its CLO3D name so we can
+            // resolve mesh -> vertex-index-mapping during streamed
+            // animation playback.
+            mat.name = name;
             builtMaterials[name] = mat;
           }
 
@@ -674,6 +688,72 @@ window.runDrape = async function() {
         const objLoader = new OBJLoader();
         if (materials) objLoader.setMaterials(materials);
         const objModel = objLoader.parse(objText);
+
+        // v44: build per-material OBJ-vertex-index mappings for streamed
+        // animation. Three.js OBJLoader produces non-indexed BufferGeometry
+        // where each face vertex is a separate position entry. To update
+        // positions per animation frame using our compact per-OBJ-vertex
+        // frame data, we need to know which OBJ vertex each entry in the
+        // mesh's position attribute came from. Parse the OBJ text in the
+        // same order OBJLoader does (faces grouped by usemtl, fan-
+        // triangulated for n-gons) and record the mapping.
+        iterVertMappings = (function buildMappings(text) {
+          const out = {};
+          let cur = null;
+          const lines = text.split('\n');
+          for (const line of lines) {
+            const s = line.trim();
+            if (s.startsWith('usemtl ')) {
+              cur = s.substring(7).trim();
+              if (!out[cur]) out[cur] = [];
+            } else if (s.startsWith('f ') && cur) {
+              const parts = s.substring(2).trim().split(/\s+/);
+              const verts = [];
+              for (const p of parts) {
+                const idx = parseInt(p.split('/')[0], 10);
+                if (!isNaN(idx)) verts.push(idx - 1);
+              }
+              // Fan-triangulate. For triangles this is just (0,1,2).
+              for (let i = 1; i < verts.length - 1; i++) {
+                out[cur].push(verts[0], verts[i], verts[i + 1]);
+              }
+            }
+          }
+          const result = {};
+          for (const [k, arr] of Object.entries(out)) {
+            result[k] = new Uint32Array(arr);
+          }
+          return result;
+        })(objText);
+
+        // v44: decode iteration_frames_base64 from the response if present.
+        // Format: <num_frames:u32 LE><verts_per_frame:u32 LE><float32 LE positions>
+        iterFrames = null; iterFrameCount = 0; iterVertsPerFrame = 0; iterFinalVerts = null;
+        const playBtn = document.getElementById('btnPlayDrape');
+        if (playBtn) playBtn.disabled = true;
+        const stats = data.sim_stats || {};
+        if (stats.iteration_frames_base64) {
+          try {
+            const bin = atob(stats.iteration_frames_base64);
+            const buf = new ArrayBuffer(bin.length);
+            const bytes = new Uint8Array(buf);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const view = new DataView(buf);
+            iterFrameCount = view.getUint32(0, true);
+            iterVertsPerFrame = view.getUint32(4, true);
+            iterFrames = new Float32Array(buf, 8, iterFrameCount * iterVertsPerFrame * 3);
+            // Cache final-frame slice so we can reset after preview animations.
+            iterFinalVerts = iterFrames.subarray(
+              (iterFrameCount - 1) * iterVertsPerFrame * 3,
+              iterFrameCount * iterVertsPerFrame * 3
+            );
+            log(`  Drape animation: ${iterFrameCount} frames, ${iterVertsPerFrame} verts/frame, ${(buf.byteLength / 1024 / 1024).toFixed(1)} MB`, 'info');
+            if (playBtn) playBtn.disabled = false;
+          } catch (e) {
+            log(`  Drape animation decode failed: ${e.message}`, 'warn');
+            iterFrames = null;
+          }
+        }
 
         // If no MTL, swap any default Lambert material for a PBR cotton one so
         // the garment doesn't render as flat grey plastic.
@@ -833,7 +913,76 @@ window.runDrape = async function() {
   }
 };
 
+// v44: apply one captured frame's vertex positions to every mesh in the
+// currently-loaded garmentMesh. Walks each Mesh's position attribute and
+// pulls the per-OBJ-vertex positions from iterFrames using the per-material
+// vertex-index mapping built at OBJ load time.
+function applyFrameToGarment(frameIdx) {
+  if (!iterFrames || !garmentMesh || !iterVertMappings) return;
+  const frameOffset = frameIdx * iterVertsPerFrame * 3;
+  garmentMesh.traverse(c => {
+    if (!c.isMesh || !c.material || !c.geometry) return;
+    const matName = c.material.name;
+    const mapping = iterVertMappings[matName];
+    if (!mapping) return;
+    const posAttr = c.geometry.attributes.position;
+    if (!posAttr) return;
+    const arr = posAttr.array;
+    if (arr.length < mapping.length * 3) return;
+    for (let i = 0; i < mapping.length; i++) {
+      const objVertIdx = mapping[i];
+      const src = frameOffset + objVertIdx * 3;
+      arr[i * 3 + 0] = iterFrames[src + 0];
+      arr[i * 3 + 1] = iterFrames[src + 1];
+      arr[i * 3 + 2] = iterFrames[src + 2];
+    }
+    posAttr.needsUpdate = true;
+    // Recompute normals so MeshStandardMaterial fabric still shades right
+    // as the cloth deforms. MeshBasicMaterial decals don't need normals,
+    // but it's cheaper to recompute everything than to filter per material.
+    c.geometry.computeVertexNormals();
+  });
+}
+
+window.playDrape = function() {
+  if (!iterFrames || iterFrameCount < 2 || !garmentMesh) {
+    log('Play Drape: no animation frames available. Run a fresh drape first.', 'warn');
+    return;
+  }
+  // Cancel any in-flight animation so re-clicks restart cleanly.
+  if (iterAnimationHandle) {
+    cancelAnimationFrame(iterAnimationHandle);
+    iterAnimationHandle = 0;
+  }
+  const durationMs = 1500;
+  const startTime = performance.now();
+  log(`Playing drape: ${iterFrameCount} frames over ${durationMs}ms`, 'info');
+  function tick() {
+    const elapsed = performance.now() - startTime;
+    const t = Math.min(elapsed / durationMs, 1);
+    const frameIdx = Math.min(iterFrameCount - 1, Math.floor(t * iterFrameCount));
+    applyFrameToGarment(frameIdx);
+    if (t < 1) {
+      iterAnimationHandle = requestAnimationFrame(tick);
+    } else {
+      // Final settled state.
+      applyFrameToGarment(iterFrameCount - 1);
+      iterAnimationHandle = 0;
+      log('Drape animation complete.', 'ok');
+    }
+  }
+  iterAnimationHandle = requestAnimationFrame(tick);
+};
+
 window.clearViewer = function() {
+  if (iterAnimationHandle) {
+    cancelAnimationFrame(iterAnimationHandle);
+    iterAnimationHandle = 0;
+  }
+  iterFrames = null; iterFrameCount = 0; iterVertsPerFrame = 0;
+  iterVertMappings = null; iterFinalVerts = null;
+  const playBtn = document.getElementById('btnPlayDrape');
+  if (playBtn) playBtn.disabled = true;
   if (avatarMesh) { scene.remove(avatarMesh); avatarMesh = null; }
   if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
   meshBadge.style.display = 'none';
