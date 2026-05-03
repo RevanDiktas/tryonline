@@ -571,6 +571,16 @@ window.runDrape = async function() {
           for (const [name, mat] of Object.entries(materials.materials)) {
             mat.side = THREE.DoubleSide;
             if (mat.map) {
+              // v37: three.js r160 uses sRGB color management by default but
+              // MTLLoader does NOT auto-set colorSpace on textures it loads.
+              // Without this assignment, color textures render with NoColorSpace
+              // (linear) and the renderer treats them as if already-linearized,
+              // producing washed-out or near-invisible results. The orange
+              // RAMIN logos on PT_FABRIC_* materials in v36 loaded but didn't
+              // appear because of this. Setting SRGBColorSpace after load
+              // tells the renderer to convert to linear correctly during
+              // shading. Critical for any color/diffuse texture in r160+.
+              mat.map.colorSpace = THREE.SRGBColorSpace;
               mat.map.needsUpdate = true;
               matsWithMap++;
             } else {

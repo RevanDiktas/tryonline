@@ -1374,13 +1374,25 @@ def pygarment_drape(
     # deformation + local Laplacian smoothing. Produces a globally
     # non-penetrating, mesh-regular rest state. See
     # _retarget_garment_to_body for the full reasoning.
+    # v37: bump target_offset from 5mm to 12mm. Two reasons:
+    # 1. drape-test.html renders avatar_textured.glb, but the handler retargets
+    #    against body_apose.obj. Same SMPL person, but topology often differs
+    #    (subdivision, post-processing). At convex apex regions (chest, waist,
+    #    front-of-thighs) the avatar mesh can sit higher than body_apose, so
+    #    cloth pushed only 5mm off body_apose still intersects avatar_textured
+    #    in those regions. Visible as bow-tie skin patches at the chest in v36.
+    # 2. Face-plane interpolation: with verts at 5mm sdf, the triangle face
+    #    plane between two verts can dip back toward the body. Bigger vertex
+    #    offset gives buffer for the face plane to stay above the body.
+    # n_iters bumped 15 → 25 because the higher offset needs more iterations
+    # for the smooth-and-clamp loop to converge.
     welded_verts, retarget_stats = _retarget_garment_to_body(
         welded_verts,
         welded_faces,
         body_verts,
         body_obj,
-        target_offset=0.005,
-        n_iters=15,
+        target_offset=0.012,
+        n_iters=25,
         smooth_factor=0.3,
     )
     print(f"[PyGarment] Retarget: iters={retarget_stats['iterations']}/15, "
@@ -2101,7 +2113,32 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-05-03/v36-skip-newton-sim "
+    "drape-handler 2026-05-03/v37-retarget-offset-12mm-iters-25 "
+    "(v37: tiny but critical pair of fixes on top of v36. v36 made the back "
+    "view perfectly clean (residual_inside=0, no skin pokethrough) but the "
+    "FRONT view still showed bow-tie skin patches at the chest, small skin "
+    "around the waist, and pocket-shaped skin patches at the front of the "
+    "thighs. Two structural causes: "
+    "(1) drape-test.html renders avatar_textured.glb but the handler retargets "
+    "against body_apose.obj (per CLAUDE.md test URLs). Both meshes are the "
+    "same SMPL person but topology differs slightly (subdivision, "
+    "post-processing). At convex apex regions like chest, waist, and front "
+    "thighs, the avatar mesh sits higher than body_apose, so cloth pushed "
+    "only 5mm off body_apose still intersects avatar_textured. "
+    "(2) Face-plane interpolation: with verts at 5mm sdf, the triangle face "
+    "plane between two verts can dip back toward the body. v37 bumps "
+    "target_offset 5mm to 12mm and n_iters 15 to 25 in _retarget_garment_to_body. "
+    "12mm comfortably clears the body_apose vs avatar_textured topology gap "
+    "AND gives face-plane buffer. "
+    "Frontend texture fix: three.js r160 uses sRGB color management by "
+    "default, but MTLLoader does NOT auto-set colorSpace on the textures it "
+    "loads. With NoColorSpace (the default), color textures render way too "
+    "dark or near-invisible. The orange RAMIN logo decals on the PT_FABRIC_* "
+    "materials loaded correctly via the v35 blob-URL rewrite but never "
+    "appeared on screen because of the colorSpace gap. v37 sets "
+    "mat.map.colorSpace = THREE.SRGBColorSpace after MTLLoader.preload() so "
+    "the renderer linearizes textures correctly. "
+    "PREVIOUS v36 BANNER FOLLOWS: "
     "(v36: STRUCTURAL CHANGE. We are no longer running the Newton XPBD "
     "cloth sim at all. The v26 face-accurate iterative retarget already "
     "produces a non-penetrating mesh with all CLO3D wrinkles preserved "
