@@ -531,22 +531,77 @@ window.runDrape = async function() {
             }
           }
 
+          // v35: rewrite MTL text inline with blob URLs BEFORE parsing.
+          // Previous code parsed first then iterated materials.materials, but in
+          // three.js r160 MTLLoader.parse() only populates materialsInfo (raw
+          // MTL data); materials.materials stays {} until preload(). The old
+          // for-loop iterated an empty object, the swap was dead code, and
+          // preload() then loaded textures with baseUrl '' which 404'd silently.
+          // Result: every CLO3D-textured drape rendered flat. Rewriting the MTL
+          // text upfront lets MTLLoader resolve textures to blob: URLs natively
+          // during preload().
+          let rewrittenMtl = mtlText;
+          const blobNames = Object.keys(textureBlobUrls);
+          for (const filename of blobNames) {
+            const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // Match map_Kd|map_Ka|map_Ks|map_Bump|map_d|bump|disp|decal|refl
+            // followed by an optional path prefix and the basename. Handler
+            // already rewrote MTL to basenames, but be defensive in case any
+            // CLO3D path (POSIX or Windows) survived.
+            const re = new RegExp(
+              `^(\\s*(?:map_\\w+|bump|disp|decal|refl)\\s+)(?:.*[/\\\\])?(${escaped})\\s*$`,
+              'gmi'
+            );
+            rewrittenMtl = rewrittenMtl.replace(re, `$1${textureBlobUrls[filename]}`);
+          }
+
           const mtlLoader = new MTLLoader();
-          materials = mtlLoader.parse(mtlText, '');
+          materials = mtlLoader.parse(rewrittenMtl, '');
+          materials.preload();
+
+          // After preload(), materials.materials is populated. Force DoubleSide
+          // on every material because CLO3D hoodies export with mixed triangle
+          // winding across panels (outer shell, hood liner, zipper lining);
+          // MTLLoader defaults to FrontSide so backfacing tris are invisible,
+          // producing the "shredded with holes" front view while the back
+          // looked perfect. Cloth is physically 2-sided anyway.
+          let matsWithMap = 0;
+          let matsWithoutMap = 0;
+          const matsMissingMap = [];
           for (const [name, mat] of Object.entries(materials.materials)) {
-            // CLO3D hoodies export with mixed triangle winding across panels
-            // (outer shell, hood liner, zipper lining). MTLLoader defaults to
-            // THREE.FrontSide so any backfacing tri is invisible — that's
-            // exactly what produced the "shredded with holes" front view
-            // while the back view looked perfect. Cloth is physically
-            // 2-sided anyway (you see inside of a hood when you look up at
-            // someone). Force DoubleSide on every material.
             mat.side = THREE.DoubleSide;
-            if (mat.map && mat.map.sourceFile && textureBlobUrls[mat.map.sourceFile]) {
-              mat.map = new THREE.TextureLoader().load(textureBlobUrls[mat.map.sourceFile]);
+            if (mat.map) {
+              mat.map.needsUpdate = true;
+              matsWithMap++;
+            } else {
+              matsWithoutMap++;
+              matsMissingMap.push(name);
+            }
+            mat.needsUpdate = true;
+          }
+
+          // Diagnostic: visible at the test page log so future texture failures
+          // are loud, not silent. If matsMissingMap is non-empty AND blobNames
+          // is non-empty, the regex didn't match a map_* line that was supposed
+          // to resolve to a blob URL.
+          log(`  MTL: ${Object.keys(materials.materialsInfo || {}).length} materials parsed, ${blobNames.length} blob URLs available`, 'info');
+          log(`  Materials: ${matsWithMap} with diffuse map, ${matsWithoutMap} without`, matsWithoutMap > 0 ? 'warn' : 'ok');
+          if (matsWithoutMap > 0 && blobNames.length > 0) {
+            log(`  Missing-map materials: ${matsMissingMap.slice(0, 5).join(', ')}${matsMissingMap.length > 5 ? '...' : ''}`, 'warn');
+            // Surface raw materialsInfo for the missing ones so we can see what
+            // the MTL referenced and why the rewrite did or didn't catch it.
+            for (const matName of matsMissingMap.slice(0, 3)) {
+              const info = materials.materialsInfo?.[matName] || {};
+              const mapKeys = Object.keys(info).filter(k => k.startsWith('map_') || k === 'bump');
+              if (mapKeys.length > 0) {
+                for (const k of mapKeys) {
+                  const ref = info[k];
+                  const resolved = typeof ref === 'string' && ref.startsWith('blob:');
+                  log(`    ${matName}.${k}: ${resolved ? 'blob URL' : ref}`, resolved ? 'ok' : 'warn');
+                }
+              }
             }
           }
-          materials.preload();
         }
 
         const objLoader = new OBJLoader();
