@@ -228,7 +228,12 @@ let garmentMesh = null;
 let iterFrames = null;          // Float32Array, all frames concatenated
 let iterFrameCount = 0;
 let iterVertsPerFrame = 0;
-let iterVertMappings = null;    // { [materialName]: Uint32Array of OBJ vert indices }
+// v44.2: single FLAT mapping in OBJ face-traversal order. Matches three.js
+// OBJLoader's non-indexed position attribute layout exactly when the OBJ has
+// no `o` lines (CLO3D exports omit them). One Uint32Array of OBJ vertex
+// indices, length = total face vertices. iterFlatMapping[i] is the OBJ vert
+// index for the i-th entry in the position attribute.
+let iterFlatMapping = null;
 let iterFinalVerts = null;      // Float32Array of the final settled positions (frame N-1)
 let iterAnimationHandle = 0;    // requestAnimationFrame handle, for cancel
 
@@ -689,41 +694,36 @@ window.runDrape = async function() {
         if (materials) objLoader.setMaterials(materials);
         const objModel = objLoader.parse(objText);
 
-        // v44: build per-material OBJ-vertex-index mappings for streamed
-        // animation. Three.js OBJLoader produces non-indexed BufferGeometry
-        // where each face vertex is a separate position entry. To update
-        // positions per animation frame using our compact per-OBJ-vertex
-        // frame data, we need to know which OBJ vertex each entry in the
-        // mesh's position attribute came from. Parse the OBJ text in the
-        // same order OBJLoader does (faces grouped by usemtl, fan-
-        // triangulated for n-gons) and record the mapping.
-        iterVertMappings = (function buildMappings(text) {
-          const out = {};
-          let cur = null;
+        // v44.2: build a SINGLE FLAT mapping in OBJ face-traversal order.
+        // Three.js OBJLoader produces non-indexed BufferGeometry where each
+        // face vertex is a separate position entry. CLO3D OBJs have no `o`
+        // lines, so OBJLoader produces ONE mesh with all faces, and the
+        // mesh has a material ARRAY (per-face groups indexing into it).
+        // Therefore c.material.name does not resolve (Arrays have no .name).
+        //
+        // The single position attribute is laid out in OBJ face-traversal
+        // order (face 0 vert 0, face 0 vert 1, face 0 vert 2, face 1 vert 0,
+        // ...). We build a single Uint32Array of OBJ vertex indices in the
+        // same order, then index into it during animation. This works
+        // regardless of how OBJLoader split materials.
+        iterFlatMapping = (function buildFlatMapping(text) {
+          const out = [];
           const lines = text.split('\n');
           for (const line of lines) {
             const s = line.trim();
-            if (s.startsWith('usemtl ')) {
-              cur = s.substring(7).trim();
-              if (!out[cur]) out[cur] = [];
-            } else if (s.startsWith('f ') && cur) {
-              const parts = s.substring(2).trim().split(/\s+/);
-              const verts = [];
-              for (const p of parts) {
-                const idx = parseInt(p.split('/')[0], 10);
-                if (!isNaN(idx)) verts.push(idx - 1);
-              }
-              // Fan-triangulate. For triangles this is just (0,1,2).
-              for (let i = 1; i < verts.length - 1; i++) {
-                out[cur].push(verts[0], verts[i], verts[i + 1]);
-              }
+            if (!s.startsWith('f ')) continue;
+            const parts = s.substring(2).trim().split(/\s+/);
+            const verts = [];
+            for (const p of parts) {
+              const idx = parseInt(p.split('/')[0], 10);
+              if (!isNaN(idx)) verts.push(idx - 1);
+            }
+            // Fan-triangulate. For triangles this is just (0, 1, 2).
+            for (let i = 1; i < verts.length - 1; i++) {
+              out.push(verts[0], verts[i], verts[i + 1]);
             }
           }
-          const result = {};
-          for (const [k, arr] of Object.entries(out)) {
-            result[k] = new Uint32Array(arr);
-          }
-          return result;
+          return new Uint32Array(out);
         })(objText);
 
         // v44: decode iteration_frames_base64 from the response if present.
@@ -919,24 +919,28 @@ window.runDrape = async function() {
   }
 };
 
-// v44: apply one captured frame's vertex positions to every mesh in the
-// currently-loaded garmentMesh. Walks each Mesh's position attribute and
-// pulls the per-OBJ-vertex positions from iterFrames using the per-material
-// vertex-index mapping built at OBJ load time.
+// v44.2: apply one captured frame's vertex positions to whichever mesh
+// holds the cloth geometry. Uses the single flat mapping built at OBJ
+// load time. Walks meshes; for any mesh whose non-indexed position attribute
+// length matches mapping.length * 3, walks the mapping and rewrites positions
+// from the frame slice. Logs diagnostic info on frame 0 so mismatches are
+// loud (counts visible in the test page log).
 function applyFrameToGarment(frameIdx) {
-  if (!iterFrames || !garmentMesh || !iterVertMappings) return;
+  if (!iterFrames || !garmentMesh || !iterFlatMapping) return;
   const frameOffset = frameIdx * iterVertsPerFrame * 3;
+  const expected = iterFlatMapping.length * 3;
+  let meshCount = 0, appliedCount = 0;
+  const attrLengths = [];
   garmentMesh.traverse(c => {
-    if (!c.isMesh || !c.material || !c.geometry) return;
-    const matName = c.material.name;
-    const mapping = iterVertMappings[matName];
-    if (!mapping) return;
+    if (!c.isMesh || !c.geometry) return;
+    meshCount++;
     const posAttr = c.geometry.attributes.position;
     if (!posAttr) return;
     const arr = posAttr.array;
-    if (arr.length < mapping.length * 3) return;
-    for (let i = 0; i < mapping.length; i++) {
-      const objVertIdx = mapping[i];
+    attrLengths.push(arr.length);
+    if (arr.length !== expected) return;
+    for (let i = 0; i < iterFlatMapping.length; i++) {
+      const objVertIdx = iterFlatMapping[i];
       const src = frameOffset + objVertIdx * 3;
       arr[i * 3 + 0] = iterFrames[src + 0];
       arr[i * 3 + 1] = iterFrames[src + 1];
@@ -944,10 +948,15 @@ function applyFrameToGarment(frameIdx) {
     }
     posAttr.needsUpdate = true;
     // Recompute normals so MeshStandardMaterial fabric still shades right
-    // as the cloth deforms. MeshBasicMaterial decals don't need normals,
-    // but it's cheaper to recompute everything than to filter per material.
+    // as cloth deforms. MeshBasicMaterial decals don't need normals, but
+    // it's cheaper to recompute everything than to filter per material.
     c.geometry.computeVertexNormals();
+    appliedCount++;
   });
+  if (frameIdx === 0) {
+    log(`  applyFrame diag: ${meshCount} meshes, attrLengths=[${attrLengths.join(', ')}], expected=${expected}, applied=${appliedCount}`,
+        appliedCount > 0 ? 'info' : 'warn');
+  }
 }
 
 window.playDrape = function() {
@@ -986,7 +995,7 @@ window.clearViewer = function() {
     iterAnimationHandle = 0;
   }
   iterFrames = null; iterFrameCount = 0; iterVertsPerFrame = 0;
-  iterVertMappings = null; iterFinalVerts = null;
+  iterFlatMapping = null; iterFinalVerts = null;
   const playBtn = document.getElementById('btnPlayDrape');
   if (playBtn) playBtn.disabled = true;
   if (avatarMesh) { scene.remove(avatarMesh); avatarMesh = null; }
