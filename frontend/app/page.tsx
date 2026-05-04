@@ -18,42 +18,33 @@ function HomePageContent() {
   const resolvedShop = useResolvedShopifyShop();
   useEnsureShopifyAdminOAuth(resolvedShop, searchParams.get('error'));
 
-  const [checking, setChecking] = useState(true);
-  const [showLanding, setShowLanding] = useState(!shopifyMode);
+  const [redirecting, setRedirecting] = useState(shopifyMode);
 
   useEffect(() => {
+    if (!shopifyMode) return;
     let active = true;
     (async () => {
-      // The marketing page is for everyone - even signed-in users. Clicking
-      // the TRYON wordmark from the dashboard should land here without an
-      // auto-bounce back. Auth state still drives the nav buttons.
-      if (shopifyMode) {
-        try {
-          const u: User | null = await getCurrentUser();
-          if (!active) return;
-          // Inside Shopify-admin, never render the public marketing page.
-          if (!u) {
-            router.replace(resolvedShop ? `/login?shop=${encodeURIComponent(resolvedShop)}` : '/login');
-          } else if (u.user_type === 'brand') {
-            router.replace(resolvedShop ? `/brand?shop=${encodeURIComponent(resolvedShop)}` : '/brand');
-          } else {
-            router.replace('/dashboard');
-          }
-        } catch (e) {
-          console.error('[HomePage] Auth check error in shopifyMode:', e);
-          router.replace('/login');
-        } finally {
-          if (active) setChecking(false);
+      try {
+        const u: User | null = await getCurrentUser();
+        if (!active) return;
+        if (!u) {
+          router.replace(resolvedShop ? `/login?shop=${encodeURIComponent(resolvedShop)}` : '/login');
+        } else if (u.user_type === 'brand') {
+          router.replace(resolvedShop ? `/brand?shop=${encodeURIComponent(resolvedShop)}` : '/brand');
+        } else {
+          router.replace('/dashboard');
         }
-        return;
+      } catch (e) {
+        console.error('[HomePage] Auth check error in shopifyMode:', e);
+        router.replace('/login');
+      } finally {
+        if (active) setRedirecting(false);
       }
-      // Public web: render the landing immediately.
-      if (active) setChecking(false);
     })();
     return () => { active = false; };
   }, [router, shopifyMode, resolvedShop]);
 
-  if (checking || !showLanding) {
+  if (shopifyMode && redirecting) {
     return (
       <div className={`min-h-screen flex items-center justify-center transition-colors ${dark ? 'bg-black' : 'bg-white'}`}>
         <div className={dark ? 'text-white/50' : 'text-gray-400'}>Loading…</div>
@@ -66,11 +57,7 @@ function HomePageContent() {
 
 export default function HomePage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-gray-400">Loading…</div>
-      </div>
-    }>
+    <Suspense fallback={<BroadcastLanding dark={false} />}>
       <HomePageContent />
     </Suspense>
   );
