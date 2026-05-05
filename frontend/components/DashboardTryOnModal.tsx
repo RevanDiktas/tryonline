@@ -21,9 +21,14 @@ export default function DashboardTryOnModal({ item, passport, dark, onClose }: D
     model_type?: string;
     category?: string;
     fit_type?: string;
+    draped_urls?: Record<string, string> | null;
+    garment_id?: string | null;
+    draping_available?: boolean;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const userId = passport?.user_id;
 
   const loadConfig = useCallback(async () => {
     setLoading(true);
@@ -31,14 +36,23 @@ export default function DashboardTryOnModal({ item, passport, dark, onClose }: D
     try {
       const config = await api.getProductTryonConfig(item.product_id, {
         shop: item.shop_domain,
+        user_id: userId || undefined,
       });
+      // If draped URLs exist, merge them into model_urls for seamless rendering
+      if (config.draped_urls) {
+        const merged = { ...config.model_urls };
+        for (const [size, url] of Object.entries(config.draped_urls)) {
+          if (url) merged[size] = url;
+        }
+        config.model_urls = merged;
+      }
       setGarmentConfig(config);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load try-on config');
     } finally {
       setLoading(false);
     }
-  }, [item.product_id, item.shop_domain]);
+  }, [item.product_id, item.shop_domain, userId]);
 
   useEffect(() => {
     loadConfig();

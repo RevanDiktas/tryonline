@@ -1073,6 +1073,10 @@
     let modelType = 'combined'; // 'combined' | 'garment_only'
     let garmentCategory = 'tops';
     let garmentFitType = 'regular';
+    let drapedUrls = {};
+    let drapingAvailable = false;
+    let serverGarmentId = null;
+    let drapingPollTimers = {};
 
     // Fetch user data (avatar, measurements) when user_id present
     // 1) Try same-origin /api/avatar/:id (Next.js rewrites to backend).
@@ -1154,8 +1158,13 @@
     async function fetchProductConfig() {
       try {
         var cfgPath = '/api/products/' + encodeURIComponent(config.productId) + '/tryon-config';
+        var sep = '?';
         if (config.shopDomain) {
-          cfgPath += '?shop=' + encodeURIComponent(config.shopDomain);
+          cfgPath += sep + 'shop=' + encodeURIComponent(config.shopDomain);
+          sep = '&';
+        }
+        if (config.userId) {
+          cfgPath += sep + 'user_id=' + encodeURIComponent(config.userId);
         }
         const r = await fetch(config.apiUrl + cfgPath);
         if (!r.ok) return null;
@@ -1165,7 +1174,17 @@
         for (const [k, v] of Object.entries(d.model_urls || {})) {
           urls[k] = (v && v.startsWith('http')) ? v : (base + (v.startsWith('/') ? v : '/' + v));
         }
-        return { modelUrls: urls, sizeChart: d.size_chart || {}, modelType: d.model_type || 'combined', category: d.category || 'tops', fitType: d.fit_type || 'regular' };
+        return {
+          modelUrls: urls,
+          sizeChart: d.size_chart || {},
+          modelType: d.model_type || 'combined',
+          category: d.category || 'tops',
+          fitType: d.fit_type || 'regular',
+          drapedUrls: d.draped_urls || null,
+          hasObj: !!d.has_obj,
+          garmentId: d.garment_id || null,
+          drapingAvailable: !!d.draping_available,
+        };
       } catch (e) {
         console.warn('[TryOn] Fetch product config failed:', e);
         return null;
@@ -1291,9 +1310,18 @@
       modelType = productConfig.modelType || 'combined';
       garmentCategory = productConfig.category || 'tops';
       garmentFitType = productConfig.fitType || 'regular';
+      drapedUrls = productConfig.drapedUrls || {};
+      drapingAvailable = !!productConfig.drapingAvailable;
+      serverGarmentId = productConfig.garmentId || null;
       console.log('[TryOn] Garment from Supabase:', Object.keys(modelPaths));
+      if (drapingAvailable) {
+        console.log('[TryOn] Draping available. Cached:', Object.keys(drapedUrls));
+      }
       updateSizeSelectorVisibility();
       preloadAllModels();
+      if (drapingAvailable && config.userId && serverGarmentId) {
+        requestDrapingForMissingSizes();
+      }
       return true;
     }
 
@@ -1572,18 +1600,21 @@
           onPreloadDone();
         });
         Object.entries(modelPaths).forEach(([size, path]) => {
-          gltfLoader.load(path, (gltf) => {
+          var loadUrl = (drapedUrls[size]) ? drapedUrls[size] : path;
+          var isDraped = !!drapedUrls[size];
+          gltfLoader.load(loadUrl, (gltf) => {
             refreshSkinnedMeshes(gltf.scene);
             const gb = geometryWorldBounds(gltf.scene);
             const gs = gb.getSize(new THREE.Vector3());
-            console.log('[TryOn] Garment loaded', size, '| bind-pose geometry bbox:', gs.x.toFixed(4), gs.y.toFixed(4), gs.z.toFixed(4));
+            console.log('[TryOn] Garment loaded', size, isDraped ? '(DRAPED)' : '', '| bind-pose geometry bbox:', gs.x.toFixed(4), gs.y.toFixed(4), gs.z.toFixed(4));
             gltf.scene.userData.tryonBindHeight = gs.y;
             gltf.scene.userData.tryonBindSize = { x: gs.x, y: gs.y, z: gs.z };
+            gltf.scene.userData.isDraped = isDraped;
             garmentCache[size] = gltf.scene;
             onPreloadDone();
             if (size === firstSize && avatarCache) onFirstModelReady();
           }, undefined, (err) => {
-            console.error('[TryOn] Garment load failed:', size, path, err);
+            console.error('[TryOn] Garment load failed:', size, loadUrl, err);
             onPreloadDone();
           });
         });
@@ -1619,6 +1650,119 @@
             onPreloadDone();
           });
         });
+      }
+    }
+
+    // ============================================
+    // CLOTH DRAPING — request, poll, hot-swap
+    // ============================================
+    function requestDrapingForMissingSizes() {
+      if (!drapingAvailable || !config.userId || !serverGarmentId) return;
+      var sizes = Object.keys(modelPaths);
+      sizes.forEach(function(size) {
+        if (drapedUrls[size]) return;
+        requestDrapingForSize(size);
+      });
+    }
+
+    function requestDrapingForSize(size) {
+      var url = config.apiUrl + '/api/draping/request';
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          garment_id: serverGarmentId,
+          size: size,
+          user_id: config.userId,
+        }),
+      }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.cached && data.draped_url) {
+          console.log('[TryOn] Drape cached for', size, ':', data.draped_url);
+          drapedUrls[size] = data.draped_url;
+          hotSwapDrapedMesh(size, data.draped_url);
+        } else if (data.request_id && data.request_id !== 'cached') {
+          console.log('[TryOn] Drape requested for', size, '— polling', data.request_id);
+          showDrapingIndicator(size);
+          pollDrapingStatus(data.request_id, size);
+        }
+      }).catch(function(e) {
+        console.warn('[TryOn] Draping request failed for', size, ':', e);
+      });
+    }
+
+    function pollDrapingStatus(requestId, size) {
+      if (drapingPollTimers[size]) clearTimeout(drapingPollTimers[size]);
+      var attempt = 0;
+      var maxAttempts = 60;
+      function poll() {
+        attempt++;
+        if (attempt > maxAttempts) {
+          console.warn('[TryOn] Draping poll timeout for', size);
+          hideDrapingIndicator(size);
+          return;
+        }
+        fetch(config.apiUrl + '/api/draping/status/' + encodeURIComponent(requestId))
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.status === 'completed' && data.draped_url) {
+              console.log('[TryOn] Drape complete for', size, ':', data.draped_url);
+              drapedUrls[size] = data.draped_url;
+              hideDrapingIndicator(size);
+              hotSwapDrapedMesh(size, data.draped_url);
+            } else if (data.status === 'failed') {
+              console.warn('[TryOn] Draping failed for', size, ':', data.error);
+              hideDrapingIndicator(size);
+            } else {
+              var delay = Math.min(2000 * Math.pow(1.5, attempt - 1), 10000);
+              drapingPollTimers[size] = setTimeout(poll, delay);
+            }
+          }).catch(function() {
+            drapingPollTimers[size] = setTimeout(poll, 5000);
+          });
+      }
+      drapingPollTimers[size] = setTimeout(poll, 1500);
+    }
+
+    function hotSwapDrapedMesh(size, url) {
+      var key = size.toLowerCase();
+      console.log('[TryOn] Hot-swapping draped mesh for', key);
+      var loader = new GLTFLoader();
+      loader.setCrossOrigin('anonymous');
+      loader.load(url, function(gltf) {
+        refreshSkinnedMeshes(gltf.scene);
+        var gb = geometryWorldBounds(gltf.scene);
+        var gs = gb.getSize(new THREE.Vector3());
+        gltf.scene.userData.tryonBindHeight = gs.y;
+        gltf.scene.userData.tryonBindSize = { x: gs.x, y: gs.y, z: gs.z };
+        gltf.scene.userData.isDraped = true;
+        garmentCache[key] = gltf.scene;
+        if (currentSize && currentSize.toLowerCase() === key) {
+          displayModel(currentSize);
+        }
+        console.log('[TryOn] Hot-swap complete for', key, '— draped mesh active');
+      }, undefined, function(err) {
+        console.error('[TryOn] Hot-swap load failed for', key, ':', err);
+      });
+    }
+
+    function showDrapingIndicator(size) {
+      var el = document.getElementById('draping-indicator');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'draping-indicator';
+        el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:8px 16px;border-radius:20px;font-size:12px;z-index:9999;font-family:Inter,sans-serif;backdrop-filter:blur(10px);transition:opacity 0.3s;';
+        document.body.appendChild(el);
+      }
+      el.textContent = 'Optimizing fit for your body...';
+      el.style.opacity = '1';
+      el.style.display = 'block';
+    }
+
+    function hideDrapingIndicator() {
+      var el = document.getElementById('draping-indicator');
+      if (el) {
+        el.style.opacity = '0';
+        setTimeout(function() { el.style.display = 'none'; }, 300);
       }
     }
 

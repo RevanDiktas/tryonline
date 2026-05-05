@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drape Test — Internal Only</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; background: #0a0a0a; color: #e5e5e5; min-height: 100vh; }
+
+    .layout { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+
+    /* ---- Left Panel ---- */
+    .panel {
+      background: #111; border-right: 1px solid #222; padding: 24px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    .panel h1 { font-size: 18px; font-weight: 700; color: #fff; }
+    .panel h1 span { color: #666; font-weight: 400; font-size: 12px; display: block; margin-top: 2px; }
+    label { font-size: 12px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+    input, select {
+      width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #333;
+      background: #1a1a1a; color: #fff; font-size: 14px; font-family: 'Inter', sans-serif;
+    }
+    input:focus, select:focus { outline: none; border-color: #555; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+
+    .btn {
+      padding: 12px 16px; border-radius: 8px; border: none; font-size: 14px; font-weight: 600;
+      cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.15s;
+    }
+    .btn-primary { background: #fff; color: #000; }
+    .btn-primary:hover { background: #ddd; }
+    .btn-primary:disabled { background: #333; color: #666; cursor: not-allowed; }
+    .btn-secondary { background: #1a1a1a; color: #fff; border: 1px solid #333; }
+    .btn-secondary:hover { background: #222; }
+    .btn-danger { background: #3a1111; color: #ff4444; border: 1px solid #441111; }
+
+    .log-box {
+      flex: 1; min-height: 200px; background: #0d0d0d; border: 1px solid #222; border-radius: 8px;
+      padding: 12px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px;
+      line-height: 1.6; overflow-y: auto; color: #777; white-space: pre-wrap; word-break: break-all;
+    }
+    .log-box .ok { color: #4ade80; }
+    .log-box .err { color: #f87171; }
+    .log-box .info { color: #60a5fa; }
+    .log-box .warn { color: #fbbf24; }
+
+    .status-pill {
+      display: inline-block; padding: 4px 10px; border-radius: 100px; font-size: 11px; font-weight: 600;
+    }
+    .status-idle { background: #1a1a1a; color: #666; }
+    .status-loading { background: #1a1a00; color: #fbbf24; }
+    .status-done { background: #0a1a0a; color: #4ade80; }
+    .status-error { background: #1a0a0a; color: #f87171; }
+
+    .row { display: flex; gap: 8px; }
+    .row > * { flex: 1; }
+    hr { border: none; border-top: 1px solid #222; }
+
+    /* ---- Viewer ---- */
+    .viewer { position: relative; background: #fff; }
+    #canvas { width: 100%; height: 100%; display: block; }
+    .viewer-overlay {
+      position: absolute; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px;
+      align-items: flex-end;
+    }
+    .mesh-badge {
+      padding: 6px 12px; border-radius: 100px; font-size: 11px; font-weight: 600;
+      backdrop-filter: blur(8px);
+    }
+    .mesh-static { background: rgba(0,0,0,0.6); color: #fbbf24; }
+    .mesh-draped { background: rgba(0,0,0,0.6); color: #4ade80; }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <!-- Left Panel -->
+  <div class="panel">
+    <h1>Drape Test <span>Internal — not visible to shoppers</span></h1>
+
+    <div class="field">
+      <label>RunPod API Key</label>
+      <input id="runpodApiKey" type="password" placeholder="rpa_XXXXXXXXXX" />
+    </div>
+
+    <div class="field">
+      <label>RunPod Draping Endpoint ID</label>
+      <input id="runpodEndpointId" value="e86juazm1b4mig" placeholder="e86juazm1b4mig" />
+    </div>
+
+    <hr />
+
+    <div class="field">
+      <label>Body OBJ URL (your avatar's tpose mesh)</label>
+      <input id="bodyObjUrl" placeholder="https://xxx.supabase.co/storage/v1/object/public/avatars/..." />
+    </div>
+
+    <div class="field">
+      <label>Garment OBJ URL (CLO3D export)</label>
+      <input id="garmentObjUrl" placeholder="https://xxx.supabase.co/storage/v1/object/public/garments/..." />
+    </div>
+
+    <div class="field">
+      <label>Garment GLB URL (visual preview — optional)</label>
+      <input id="garmentGlbUrl" placeholder="https://xxx.supabase.co/storage/v1/object/public/garments/.../m.glb" />
+    </div>
+
+    <div class="field">
+      <label>Avatar GLB URL (your avatar model)</label>
+      <input id="avatarGlbUrl" placeholder="https://xxx.supabase.co/storage/v1/object/public/avatars/.../avatar.glb" />
+    </div>
+
+    <hr />
+
+    <div class="row">
+      <div class="field">
+        <label>Fabric Preset</label>
+        <select id="fabricPreset">
+          <option value="cotton_medium">Cotton (medium)</option>
+          <option value="cotton_light">Cotton (light)</option>
+          <option value="denim">Denim</option>
+          <option value="silk">Silk</option>
+          <option value="jersey_knit">Jersey Knit</option>
+          <option value="wool">Wool</option>
+          <option value="polyester">Polyester</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Sim Mode</label>
+        <select id="simMode">
+          <option value="swift">Swift (fast)</option>
+          <option value="quality">Quality (slow)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="btn btn-primary" id="btnDrape" onclick="runDrape()">Run Draping</button>
+      <button class="btn btn-secondary" id="btnLoad" onclick="loadPreview()">Load Preview</button>
+      <button class="btn btn-secondary" id="btnPlayDrape" onclick="playDrape()" disabled>Play Drape</button>
+      <button class="btn btn-danger" id="btnStopDrape" onclick="stopDrape()" disabled>Stop</button>
+    </div>
+
+    <div class="row" style="align-items:center; gap:12px; padding:8px 0;">
+      <label for="drapeDuration" style="white-space:nowrap;">Duration: <span id="drapeDurationLabel">3.0s</span></label>
+      <input type="range" id="drapeDuration" min="1" max="8" step="0.5" value="3" style="flex:1;"
+        oninput="document.getElementById('drapeDurationLabel').textContent = parseFloat(this.value).toFixed(1) + 's';" />
+      <label style="white-space:nowrap;">
+        <input type="checkbox" id="drapeLoop" /> Loop
+      </label>
+    </div>
+
+    <div class="row">
+      <button class="btn btn-secondary" onclick="clearViewer()">Clear Viewer</button>
+      <button class="btn btn-danger" onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <div>
+      <label>Status</label>
+      <span id="statusPill" class="status-pill status-idle">Idle</span>
+    </div>
+
+    <div class="field">
+      <label>Log</label>
+      <div class="log-box" id="logBox"></div>
+    </div>
+  </div>
+
+  <!-- 3D Viewer -->
+  <div class="viewer">
+    <canvas id="canvas"></canvas>
+    <div class="viewer-overlay">
+      <span id="meshBadge" class="mesh-badge mesh-static" style="display:none;">STATIC</span>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const canvas = document.getElementById('canvas');
+const logBox = document.getElementById('logBox');
+const statusPill = document.getElementById('statusPill');
+const meshBadge = document.getElementById('meshBadge');
+
+// ---- Three.js Setup ----
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setClearColor(0xffffff, 1);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xffffff);
+
+const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
+camera.position.set(0, 1.0, 2.5);
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 0.9, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 0.5;
+controls.maxDistance = 5;
+controls.update();
+
+// Lights
+const amb = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(amb);
+const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+dir.position.set(2, 3, 2);
+scene.add(dir);
+const fill = new THREE.DirectionalLight(0xffffff, 0.4);
+fill.position.set(-2, 1, -1);
+scene.add(fill);
+
+const loader = new GLTFLoader();
+let avatarMesh = null;
+let garmentMesh = null;
+
+// v44: streaming animation state. Set when a drape response arrives with
+// iteration_frames_base64. Used by the Play Drape button.
+let iterFrames = null;          // Float32Array, all frames concatenated
+let iterFrameCount = 0;
+let iterVertsPerFrame = 0;
+// v44.2: single FLAT mapping in OBJ face-traversal order. Matches three.js
+// OBJLoader's non-indexed position attribute layout exactly when the OBJ has
+// no `o` lines (CLO3D exports omit them). One Uint32Array of OBJ vertex
+// indices, length = total face vertices. iterFlatMapping[i] is the OBJ vert
+// index for the i-th entry in the position attribute.
+let iterFlatMapping = null;
+let iterFinalVerts = null;      // Float32Array of the final settled positions (frame N-1)
+let iterAnimationHandle = 0;    // requestAnimationFrame handle, for cancel
+
+function resize() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  renderer.setSize(rect.width, rect.height);
+  camera.aspect = rect.width / rect.height;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// ---- Logging ----
+function log(msg, cls = '') {
+  const line = document.createElement('span');
+  line.className = cls;
+  const ts = new Date().toLocaleTimeString();
+  line.textContent = `[${ts}] ${msg}\n`;
+  logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function setStatus(text, cls) {
+  statusPill.textContent = text;
+  statusPill.className = 'status-pill status-' + cls;
+}
+
+function showBadge(type) {
+  meshBadge.style.display = 'block';
+  if (type === 'draped') {
+    meshBadge.textContent = 'DRAPED';
+    meshBadge.className = 'mesh-badge mesh-draped';
+  } else {
+    meshBadge.textContent = 'STATIC';
+    meshBadge.className = 'mesh-badge mesh-static';
+  }
+}
+
+const TARGET_HEIGHT = 1.8;
+const GARMENT_Z_PUSHBACK = -0.012;
+
+function normalizeModel(model, name) {
+  model.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const rawH = size.y;
+
+  if (rawH > 0.001 && (rawH < 0.5 || rawH > 50)) {
+    const s = TARGET_HEIGHT / rawH;
+    model.scale.setScalar(s);
+    model.updateMatrixWorld(true);
+    const newBox = new THREE.Box3().setFromObject(model);
+    const newSize = newBox.getSize(new THREE.Vector3());
+    log(`  ${name}: scaled ${rawH.toFixed(3)} → ${newSize.y.toFixed(3)}m (factor ${s.toFixed(4)})`, 'info');
+  }
+
+  model.updateMatrixWorld(true);
+  const finalBox = new THREE.Box3().setFromObject(model);
+  const center = finalBox.getCenter(new THREE.Vector3());
+  const finalSize = finalBox.getSize(new THREE.Vector3());
+  model.position.x = -center.x;
+  model.position.y = -center.y + finalSize.y / 2;
+  model.position.z = -center.z;
+}
+
+// ---- Load GLBs ----
+function loadGlb(url, name) {
+  return new Promise((resolve, reject) => {
+    log(`Loading ${name}...`, 'info');
+    loader.load(url, (gltf) => {
+      const model = gltf.scene;
+      model.traverse(c => {
+        if (c.isMesh) {
+          c.frustumCulled = false;
+          if (c.material) c.material.needsUpdate = true;
+        }
+        if (c.isSkinnedMesh) c.skeleton.pose();
+      });
+
+      if (gltf.animations && gltf.animations.length > 0) {
+        log(`  ${name}: ${gltf.animations.length} animations found (ignored — static pose)`, 'warn');
+      }
+
+      const box = new THREE.Box3().setFromObject(model);
+      const h = box.max.y - box.min.y;
+      log(`  ${name}: loaded, raw height=${h.toFixed(3)}m`, 'ok');
+      resolve(model);
+    }, undefined, (err) => {
+      log(`  ${name}: FAILED — ${err.message || err}`, 'err');
+      reject(err);
+    });
+  });
+}
+
+// ---- Public Functions ----
+window.loadPreview = async function() {
+  const avatarUrl = document.getElementById('avatarGlbUrl').value.trim();
+  const garmentUrl = document.getElementById('garmentGlbUrl').value.trim();
+
+  if (!avatarUrl && !garmentUrl) {
+    log('Enter at least one GLB URL', 'err');
+    return;
+  }
+
+  setStatus('Loading...', 'loading');
+
+  try {
+    if (avatarMesh) { scene.remove(avatarMesh); avatarMesh = null; }
+    if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
+
+    if (avatarUrl) {
+      avatarMesh = await loadGlb(avatarUrl, 'Avatar');
+      normalizeModel(avatarMesh, 'Avatar');
+      scene.add(avatarMesh);
+    }
+
+    if (garmentUrl) {
+      garmentMesh = await loadGlb(garmentUrl, 'Garment (static)');
+      normalizeModel(garmentMesh, 'Garment');
+      if (avatarMesh) {
+        garmentMesh.position.z += GARMENT_Z_PUSHBACK;
+      }
+      scene.add(garmentMesh);
+      showBadge('static');
+    }
+
+    setStatus('Preview loaded', 'done');
+    log('Preview ready — use Run Draping to see the cloth sim result', 'ok');
+  } catch (e) {
+    setStatus('Load failed', 'error');
+    log(`Error: ${e.message}`, 'err');
+  }
+};
+
+window.runDrape = async function() {
+  const bodyObjUrl = document.getElementById('bodyObjUrl').value.trim();
+  const garmentObjUrl = document.getElementById('garmentObjUrl').value.trim();
+  const garmentGlbUrl = document.getElementById('garmentGlbUrl').value.trim();
+  const avatarGlbUrl = document.getElementById('avatarGlbUrl').value.trim();
+  const runpodKey = document.getElementById('runpodApiKey').value.trim();
+  const endpointId = document.getElementById('runpodEndpointId').value.trim();
+
+  if (!bodyObjUrl || !garmentObjUrl) {
+    log('Both Body OBJ URL and Garment OBJ URL are required', 'err');
+    return;
+  }
+  if (!runpodKey) {
+    log('RunPod API Key is required — find it at runpod.io → Settings → API Keys', 'err');
+    return;
+  }
+  if (!endpointId) {
+    log('RunPod Endpoint ID is required', 'err');
+    return;
+  }
+
+  const fabricPreset = document.getElementById('fabricPreset').value;
+  const simMode = document.getElementById('simMode').value;
+
+  const btn = document.getElementById('btnDrape');
+  btn.disabled = true;
+  setStatus('Draping...', 'loading');
+  log('=== DRAPING JOB STARTED ===', 'info');
+
+  // Auto-load the avatar into the scene so the draped garment renders around
+  // something visible. If no Avatar GLB URL was pasted, derive it from the Body
+  // OBJ URL (same Supabase folder, different filename) so the user can drape
+  // without filling both fields.
+  let resolvedAvatarUrl = avatarGlbUrl;
+  if (!resolvedAvatarUrl && bodyObjUrl) {
+    const slash = bodyObjUrl.lastIndexOf('/');
+    if (slash > 0) {
+      resolvedAvatarUrl = bodyObjUrl.substring(0, slash + 1) + 'avatar_textured.glb';
+      log(`Auto-derived avatar URL: ${resolvedAvatarUrl.substring(0, 80)}...`, 'info');
+    }
+  }
+  if (resolvedAvatarUrl && !avatarMesh) {
+    try {
+      log('Auto-loading avatar for visual context...', 'info');
+      avatarMesh = await loadGlb(resolvedAvatarUrl, 'Avatar');
+      normalizeModel(avatarMesh, 'Avatar');
+      scene.add(avatarMesh);
+    } catch (e) {
+      log(`Avatar auto-load failed (non-fatal): ${e.message}`, 'warn');
+    }
+  }
+  log(`Body OBJ:    ${bodyObjUrl.substring(0, 80)}...`, 'info');
+  log(`Garment OBJ: ${garmentObjUrl.substring(0, 80)}...`, 'info');
+  if (garmentGlbUrl) log(`Garment GLB: ${garmentGlbUrl.substring(0, 80)}... (for textures)`, 'info');
+  log(`Fabric:      ${fabricPreset}`, 'info');
+  log(`Mode:        ${simMode}`, 'info');
+  log(`Endpoint:    ${endpointId}`, 'info');
+
+  try {
+    log('Calling RunPod directly (bypassing Railway)...', 'info');
+
+    const payload = {
+      body_obj_url: bodyObjUrl,
+      garment_obj_url: garmentObjUrl,
+      fabric_config: { preset: fabricPreset },
+      simulation_mode: simMode,
+      garment_id: 'test',
+      size: 'test',
+      user_id: 'test',
+    };
+    if (garmentGlbUrl) payload.garment_glb_url = garmentGlbUrl;
+
+    // Use /run + poll /status (not /runsync) so we can wait the full sim time.
+    // /runsync caps at ~60-90s server-side; PyGarment warm sim is ~20-60s
+    // and cold start (kernel compile) adds another 30s — either way over
+    // the /runsync cap on cold workers, so always use /run.
+    const submitUrl = `https://api.runpod.ai/v2/${endpointId}/run`;
+    const submitResp = await fetch(submitUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${runpodKey}`,
+      },
+      body: JSON.stringify({ input: payload }),
+    });
+
+    if (!submitResp.ok) {
+      const errText = await submitResp.text();
+      throw new Error(`RunPod submit HTTP ${submitResp.status}: ${errText.substring(0, 300)}`);
+    }
+
+    const submitJson = await submitResp.json();
+    const jobId = submitJson.id;
+    if (!jobId) throw new Error(`RunPod submit returned no job id: ${JSON.stringify(submitJson)}`);
+    log(`Job queued: ${jobId} — polling status...`, 'info');
+
+    // Poll status until COMPLETED / FAILED / CANCELLED. Cap at 10 minutes.
+    const statusUrl = `https://api.runpod.ai/v2/${endpointId}/status/${jobId}`;
+    const pollStart = Date.now();
+    const pollTimeoutMs = 10 * 60 * 1000;
+    let result = null;
+    while (true) {
+      if (Date.now() - pollStart > pollTimeoutMs) {
+        throw new Error(`Job ${jobId} still not done after 10 minutes`);
+      }
+      await new Promise(r => setTimeout(r, 3000));
+      const statusResp = await fetch(statusUrl, {
+        headers: { 'Authorization': `Bearer ${runpodKey}` },
+      });
+      if (!statusResp.ok) {
+        const errText = await statusResp.text();
+        throw new Error(`RunPod status HTTP ${statusResp.status}: ${errText.substring(0, 300)}`);
+      }
+      const statusJson = await statusResp.json();
+      const elapsed = Math.floor((Date.now() - pollStart) / 1000);
+      log(`  [${elapsed}s] ${statusJson.status}`, 'info');
+      if (statusJson.status === 'COMPLETED') {
+        result = statusJson;
+        break;
+      }
+      if (statusJson.status === 'FAILED' || statusJson.status === 'CANCELLED') {
+        throw new Error(`Job ${statusJson.status}: ${JSON.stringify(statusJson.error || statusJson).substring(0, 500)}`);
+      }
+    }
+
+    const data = result.output || {};
+
+    if (!data.success) {
+      throw new Error(data.error || 'RunPod returned success=false');
+    }
+
+    log(`Response received!`, 'ok');
+    log(`  Method:     ${data.simulation_method}`, 'ok');
+    log(`  Vertices:   ${data.vertex_count}`, 'ok');
+    log(`  Time:       ${data.processing_time_seconds}s`, 'ok');
+    log(`  OBJ size:   ${(data.obj_size_bytes / 1024).toFixed(1)} KB`, 'ok');
+    log(`  GLB size:   ${(data.glb_size_bytes / 1024).toFixed(1)} KB`, 'ok');
+
+    // --- Render OBJ directly (preferred — no GLB nearest-vertex remapping artifacts) ---
+    // Use OBJ+MTL+textures when MTL is available; otherwise apply a sensible
+    // default cotton material so we still see the actual draped geometry instead
+    // of falling back to the lossy GLB path.
+    if (data.draped_obj_base64) {
+      const hasMtl = !!data.draped_mtl_base64;
+      log(hasMtl
+        ? 'Loading draped OBJ+MTL (direct, preserves textures)...'
+        : 'Loading draped OBJ (no MTL — using default cotton material)...', 'info');
+
+      try {
+        const objBinary = atob(data.draped_obj_base64);
+        const objText = new TextDecoder().decode(Uint8Array.from(objBinary, c => c.charCodeAt(0)));
+
+        let materials = null;
+        if (hasMtl) {
+          const mtlBinary = atob(data.draped_mtl_base64);
+          const mtlText = new TextDecoder().decode(Uint8Array.from(mtlBinary, c => c.charCodeAt(0)));
+
+          const textureBlobUrls = {};
+          if (data.draped_textures_base64) {
+            for (const [filename, b64] of Object.entries(data.draped_textures_base64)) {
+              const bin = atob(b64);
+              const bytes = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              const ext = filename.split('.').pop().toLowerCase();
+              const mime = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png';
+              const blob = new Blob([bytes], { type: mime });
+              textureBlobUrls[filename] = URL.createObjectURL(blob);
+              log(`  Texture: ${filename} (${(bin.length/1024).toFixed(1)} KB)`, 'ok');
+            }
+          }
+
+          // v38: bypass MTLLoader.preload() entirely. v35 used regex rewrite
+          // of MTL text + preload(). v37 added colorSpace=SRGBColorSpace.
+          // Neither produced visible textures. The print decals never showed.
+          //
+          // Root cause: MTLLoader.preload() in three.js r160 has multiple
+          // fragile behaviors (async texture creation, colorSpace not set,
+          // material lifecycle that's hard to intercept correctly). Rather
+          // than fight it, build materials manually from the parsed MTL info
+          // and attach textures directly. This is bulletproof.
+          //
+          // Strategy:
+          // 1. Use MTLLoader.parse() ONLY to get materialsInfo (raw MTL data
+          //    keyed by material name with kd/ka/map_kd fields). This part
+          //    is reliable.
+          // 2. Build a THREE.MeshStandardMaterial per material name ourselves.
+          // 3. Manually load each texture from its blob URL via TextureLoader,
+          //    set colorSpace=SRGBColorSpace explicitly, attach to mat.map.
+          // 4. Replace materials.materials with our hand-built dict so
+          //    OBJLoader's lookup at materials.materials[name] returns our
+          //    material.
+          const mtlLoader = new MTLLoader();
+          materials = mtlLoader.parse(mtlText, '');
+          // Do NOT call preload(); we are constructing materials ourselves.
+
+          let matsWithMap = 0;
+          let matsWithoutMap = 0;
+          const matsMissingMap = [];
+          const builtMaterials = {};
+
+          // v43: depth-buffer layering. v42 overrode FABRIC_2's gray Kd to
+          // body black, which hid the print backing (good) but also killed
+          // the zipper (bad). The right fix is depth-buffer ordering, not
+          // color override. Three layers from front to back:
+          //
+          //   PT_FABRIC_*    polygonOffset = -2  (closest to camera, on top)
+          //   Body_*/Sleeves_*/FABRIC_1_*  no offset  (default depth)
+          //   FABRIC_2_*     polygonOffset = +1  (pushed behind)
+          //
+          // Effect on different regions of the garment:
+          //
+          // - Print region: PT wins z-test, shows orange where alpha>=0.5,
+          //   discarded where alpha<0.5. Behind discarded fragments: body
+          //   fabric (default offset) renders, showing black. FABRIC_2
+          //   print-backing component (pushed back) is HIDDEN by body.
+          //
+          // - Zipper region: body fabric has a slit/hole here in CLO3D's
+          //   geometry. With no body fragment at this depth, the only
+          //   geometry is FABRIC_2's zipper component. FABRIC_2 renders
+          //   gray (its real Kd from MTL) and the zipper is visible.
+          //
+          // Materials keep their original CLO3D Kd values. No color override.
+          for (const [name, info] of Object.entries(materials.materialsInfo || {})) {
+            const mapKdRaw = info.map_kd;
+            const filename = mapKdRaw
+              ? (Array.isArray(mapKdRaw) ? mapKdRaw[mapKdRaw.length - 1] : String(mapKdRaw))
+                  .replace(/\\/g, '/').split('/').pop()
+              : null;
+            const blobUrl = filename ? textureBlobUrls[filename] : null;
+
+            let mat;
+            if (blobUrl) {
+              // Print decal: MeshBasicMaterial + toneMapped=false renders the
+              // texture at full saturation. Negative polygon offset pulls the
+              // decal toward the camera so it wins z-fights against coplanar
+              // body fabric. alphaTest discards transparent pixels so the
+              // body fabric (default offset, behind the decal) shows through.
+              mat = new THREE.MeshBasicMaterial({
+                side: THREE.DoubleSide,
+                color: new THREE.Color(1, 1, 1),
+                transparent: true,
+                alphaTest: 0.5,
+                toneMapped: false,
+                polygonOffset: true,
+                polygonOffsetFactor: -2,
+                polygonOffsetUnits: -2,
+              });
+              const texLoader = new THREE.TextureLoader();
+              const tex = texLoader.load(
+                blobUrl,
+                (loaded) => {
+                  loaded.colorSpace = THREE.SRGBColorSpace;
+                  loaded.needsUpdate = true;
+                  mat.needsUpdate = true;
+                  log(`  Texture loaded: ${filename} on ${name} (${loaded.image.width}x${loaded.image.height})`, 'ok');
+                },
+                undefined,
+                (err) => {
+                  log(`  Texture FAILED: ${filename} on ${name} (${err?.message || err})`, 'warn');
+                }
+              );
+              tex.colorSpace = THREE.SRGBColorSpace;
+              mat.map = tex;
+              matsWithMap++;
+            } else {
+              // Solid fabric: PBR-shaded. Keep CLO3D's original Kd untouched.
+              mat = new THREE.MeshStandardMaterial({
+                side: THREE.DoubleSide,
+                metalness: 0.0,
+                roughness: 0.85,
+              });
+              if (Array.isArray(info.kd) && info.kd.length >= 3) {
+                mat.color = new THREE.Color(info.kd[0], info.kd[1], info.kd[2]);
+              }
+              // Push non-Body fabrics (FABRIC_2 zipper binding, print backing)
+              // BEHIND body fabric. Body fabric covers most of the garment area
+              // and wins the z-test there. Where body has a slit (zipper),
+              // FABRIC_2 fills in and is visible.
+              const isBodyOrSleeve = /^(Body_|Sleeves_)/i.test(name);
+              if (!isBodyOrSleeve) {
+                mat.polygonOffset = true;
+                mat.polygonOffsetFactor = 1;
+                mat.polygonOffsetUnits = 1;
+              }
+              if (mapKdRaw && filename) {
+                matsMissingMap.push(`${name} (wanted ${filename})`);
+              }
+              matsWithoutMap++;
+            }
+
+            // v44: tag the material with its CLO3D name so we can
+            // resolve mesh -> vertex-index-mapping during streamed
+            // animation playback.
+            mat.name = name;
+            builtMaterials[name] = mat;
+          }
+
+          // Replace MaterialCreator.materials with our hand-built dict.
+          // OBJLoader uses materials.materials[name] for direct lookup during
+          // parse(). Also override .create() and .preload() so OBJLoader
+          // never tries to run MTLLoader's flow on our materials.
+          materials.materials = builtMaterials;
+          materials.create = (name) => builtMaterials[name];
+          materials.preload = () => {};
+
+          // Diagnostic: total material count, how many got textures, what's
+          // missing. This logs to the test page log, not the browser console.
+          const totalMats = Object.keys(builtMaterials).length;
+          log(`  v38 manual MTL: ${totalMats} materials built, ${matsWithMap} with texture, ${matsWithoutMap} without`,
+              matsWithoutMap > 0 && Object.keys(textureBlobUrls).length > 0 ? 'warn' : 'ok');
+          if (matsMissingMap.length > 0) {
+            log(`  Materials with map_Kd but no blob match: ${matsMissingMap.slice(0, 5).join(', ')}${matsMissingMap.length > 5 ? '...' : ''}`, 'warn');
+          }
+        }
+
+        const objLoader = new OBJLoader();
+        if (materials) objLoader.setMaterials(materials);
+        const objModel = objLoader.parse(objText);
+
+        // v44.2: build a SINGLE FLAT mapping in OBJ face-traversal order.
+        // Three.js OBJLoader produces non-indexed BufferGeometry where each
+        // face vertex is a separate position entry. CLO3D OBJs have no `o`
+        // lines, so OBJLoader produces ONE mesh with all faces, and the
+        // mesh has a material ARRAY (per-face groups indexing into it).
+        // Therefore c.material.name does not resolve (Arrays have no .name).
+        //
+        // The single position attribute is laid out in OBJ face-traversal
+        // order (face 0 vert 0, face 0 vert 1, face 0 vert 2, face 1 vert 0,
+        // ...). We build a single Uint32Array of OBJ vertex indices in the
+        // same order, then index into it during animation. This works
+        // regardless of how OBJLoader split materials.
+        iterFlatMapping = (function buildFlatMapping(text) {
+          const out = [];
+          const lines = text.split('\n');
+          for (const line of lines) {
+            const s = line.trim();
+            if (!s.startsWith('f ')) continue;
+            const parts = s.substring(2).trim().split(/\s+/);
+            const verts = [];
+            for (const p of parts) {
+              const idx = parseInt(p.split('/')[0], 10);
+              if (!isNaN(idx)) verts.push(idx - 1);
+            }
+            // Fan-triangulate. For triangles this is just (0, 1, 2).
+            for (let i = 1; i < verts.length - 1; i++) {
+              out.push(verts[0], verts[i], verts[i + 1]);
+            }
+          }
+          return new Uint32Array(out);
+        })(objText);
+
+        // v44: decode iteration_frames_base64 from the response if present.
+        // Format: <num_frames:u32 LE><verts_per_frame:u32 LE><float32 LE positions>
+        iterFrames = null; iterFrameCount = 0; iterVertsPerFrame = 0; iterFinalVerts = null;
+        const playBtn = document.getElementById('btnPlayDrape');
+        if (playBtn) playBtn.disabled = true;
+        const stats = data.sim_stats || {};
+        if (stats.iteration_frames_base64) {
+          try {
+            const bin = atob(stats.iteration_frames_base64);
+            const buf = new ArrayBuffer(bin.length);
+            const bytes = new Uint8Array(buf);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const view = new DataView(buf);
+            iterFrameCount = view.getUint32(0, true);
+            iterVertsPerFrame = view.getUint32(4, true);
+            iterFrames = new Float32Array(buf, 8, iterFrameCount * iterVertsPerFrame * 3);
+            // Cache final-frame slice so we can reset after preview animations.
+            iterFinalVerts = iterFrames.subarray(
+              (iterFrameCount - 1) * iterVertsPerFrame * 3,
+              iterFrameCount * iterVertsPerFrame * 3
+            );
+            log(`  Drape animation: ${iterFrameCount} frames, ${iterVertsPerFrame} verts/frame, ${(buf.byteLength / 1024 / 1024).toFixed(1)} MB. Click Play Drape.`, 'ok');
+            if (playBtn) playBtn.disabled = false;
+          } catch (e) {
+            log(`  Drape animation decode failed: ${e.message}`, 'warn');
+            iterFrames = null;
+          }
+        } else {
+          // Loud diagnostic so it is obvious when streaming data is missing.
+          // Most common cause: handler in production is older than v44 and
+          // doesn't capture iteration frames yet. Less common: handler is
+          // v44+ but hit the exception path during capture.
+          log(`  No iteration_frames_base64 in response. Play Drape disabled. Handler may be older than v44 (rebuild may still be in flight).`, 'warn');
+        }
+
+        // If no MTL, swap any default Lambert material for a PBR cotton one so
+        // the garment doesn't render as flat grey plastic.
+        const defaultMat = !hasMtl ? new THREE.MeshStandardMaterial({
+          color: 0x1a1a1a, roughness: 0.85, metalness: 0.0, side: THREE.DoubleSide,
+        }) : null;
+
+        objModel.traverse(c => {
+          if (c.isMesh) {
+            c.frustumCulled = false;
+            if (defaultMat) c.material = defaultMat;
+            if (c.material) {
+              // Belt-and-suspenders: ensure DoubleSide even if materials were
+              // constructed via a path that bypassed the MTL loop above.
+              if (Array.isArray(c.material)) {
+                c.material.forEach(m => { m.side = THREE.DoubleSide; m.needsUpdate = true; });
+              } else {
+                c.material.side = THREE.DoubleSide;
+                c.material.needsUpdate = true;
+              }
+            }
+          }
+        });
+
+        const wrapper = new THREE.Group();
+        wrapper.add(objModel);
+
+        if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
+        garmentMesh = wrapper;
+        normalizeModel(garmentMesh, 'Draped OBJ');
+        if (avatarMesh) garmentMesh.position.z += GARMENT_Z_PUSHBACK;
+        scene.add(garmentMesh);
+        showBadge('draped');
+
+        setStatus(hasMtl ? 'Draped! (OBJ+MTL)' : 'Draped! (OBJ)', 'done');
+        log(`=== DRAPING COMPLETE (${hasMtl ? 'OBJ+MTL' : 'OBJ'}) ===`, 'ok');
+        log(`  Method: ${data.simulation_method}`, 'ok');
+        if (data.sim_stats) {
+          if (data.sim_stats.simulation_frames) log(`  Frames: ${data.sim_stats.simulation_frames}`, 'ok');
+          if (data.sim_stats.simulation_time_seconds) log(`  Sim time: ${data.sim_stats.simulation_time_seconds}s`, 'ok');
+          if (data.sim_stats.fabric_preset) log(`  Fabric: ${data.sim_stats.fabric_preset}`, 'ok');
+        }
+      } catch (objErr) {
+        log(`OBJ loading failed (${objErr.message}), falling back to GLB...`, 'warn');
+        // Fall through to GLB below
+      }
+    }
+
+    // --- Fallback to GLB if OBJ didn't work or wasn't available ---
+    if (!garmentMesh && data.draped_glb_base64) {
+      log('Decoding base64 GLB...', 'info');
+      const binary = atob(data.draped_glb_base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: 'model/gltf-binary' });
+      const blobUrl = URL.createObjectURL(blob);
+
+      // Load the draped model off-screen to capture target vertex positions
+      const drapedModel = await loadGlb(blobUrl, 'Garment (DRAPED)');
+      normalizeModel(drapedModel, 'Draped Garment');
+
+      // Collect original (static) and target (draped) vertex positions
+      const staticPositions = [];
+      const targetPositions = [];
+      const meshPairs = [];
+
+      if (garmentMesh) {
+        const staticMeshes = [];
+        garmentMesh.traverse(c => { if (c.isMesh) staticMeshes.push(c); });
+        const drapedMeshes = [];
+        drapedModel.traverse(c => { if (c.isMesh) drapedMeshes.push(c); });
+
+        const count = Math.min(staticMeshes.length, drapedMeshes.length);
+        for (let i = 0; i < count; i++) {
+          const sGeo = staticMeshes[i].geometry;
+          const dGeo = drapedMeshes[i].geometry;
+          if (sGeo.attributes.position && dGeo.attributes.position &&
+              sGeo.attributes.position.count === dGeo.attributes.position.count) {
+            const sArr = new Float32Array(sGeo.attributes.position.array);
+            const dArr = new Float32Array(dGeo.attributes.position.array);
+            meshPairs.push({ mesh: staticMeshes[i], source: sArr, target: dArr });
+          }
+        }
+      }
+
+      if (meshPairs.length > 0) {
+        // Animate morph over ~1.5 seconds at 60fps
+        const MORPH_DURATION = 1500;
+        const MORPH_FPS = 60;
+        const totalFrames = Math.round(MORPH_DURATION / (1000 / MORPH_FPS));
+        let frame = 0;
+
+        log(`Morphing ${meshPairs.reduce((a,p) => a + p.source.length/3, 0)} verts over ${totalFrames} frames...`, 'info');
+        showBadge('static');
+        setStatus('Morphing...', 'loading');
+
+        await new Promise(resolve => {
+          function morphStep() {
+            frame++;
+            const t = Math.min(frame / totalFrames, 1.0);
+            // Ease-out cubic for natural settling feel
+            const ease = 1 - Math.pow(1 - t, 3);
+
+            for (const pair of meshPairs) {
+              const pos = pair.mesh.geometry.attributes.position;
+              for (let i = 0; i < pair.source.length; i++) {
+                pos.array[i] = pair.source[i] + (pair.target[i] - pair.source[i]) * ease;
+              }
+              pos.needsUpdate = true;
+            }
+
+            if (t < 1.0) {
+              requestAnimationFrame(morphStep);
+            } else {
+              resolve();
+            }
+          }
+          requestAnimationFrame(morphStep);
+        });
+
+        showBadge('draped');
+        log('Morph animation complete!', 'ok');
+      } else {
+        // Fallback: just swap the mesh instantly
+        if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
+        garmentMesh = drapedModel;
+        if (avatarMesh) garmentMesh.position.z += GARMENT_Z_PUSHBACK;
+        scene.add(garmentMesh);
+        showBadge('draped');
+      }
+
+      setStatus('Draped!', 'done');
+      log('=== DRAPING COMPLETE (GLB) ===', 'ok');
+      log(`  Method: ${data.simulation_method}`, 'ok');
+      if (data.sim_stats) {
+        const ss = data.sim_stats;
+        if (ss.simulation_frames) log(`  Frames: ${ss.simulation_frames}`, 'ok');
+        if (ss.simulation_time_seconds) log(`  Sim time: ${ss.simulation_time_seconds}s`, 'ok');
+        if (ss.fabric_preset) log(`  Fabric: ${ss.fabric_preset}`, 'ok');
+        if (ss.passes) log(`  Passes: ${ss.passes}`, 'ok');
+        if (ss.final_penetrating !== undefined) log(`  Penetrating: ${ss.final_penetrating} verts`, 'ok');
+      }
+    } else if (!garmentMesh) {
+      throw new Error('No draped mesh data in RunPod response');
+    }
+
+  } catch (e) {
+    setStatus('Failed', 'error');
+    log(`ERROR: ${e.message}`, 'err');
+    if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+      log('CORS blocked? Try running: curl the endpoint from terminal instead.', 'warn');
+      log('Or run the backend locally: cd backend && uvicorn app.main:app --port 8000', 'warn');
+    }
+    log('=== DRAPING FAILED ===', 'err');
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+// v44.2: apply one captured frame's vertex positions to whichever mesh
+// holds the cloth geometry. Uses the single flat mapping built at OBJ
+// load time. Walks meshes; for any mesh whose non-indexed position attribute
+// length matches mapping.length * 3, walks the mapping and rewrites positions
+// from the frame slice. Logs diagnostic info on frame 0 so mismatches are
+// loud (counts visible in the test page log).
+function applyFrameToGarment(frameIdx) {
+  if (!iterFrames || !garmentMesh || !iterFlatMapping) return;
+  const frameOffset = frameIdx * iterVertsPerFrame * 3;
+  const expected = iterFlatMapping.length * 3;
+  let meshCount = 0, appliedCount = 0;
+  const attrLengths = [];
+  garmentMesh.traverse(c => {
+    if (!c.isMesh || !c.geometry) return;
+    meshCount++;
+    const posAttr = c.geometry.attributes.position;
+    if (!posAttr) return;
+    const arr = posAttr.array;
+    attrLengths.push(arr.length);
+    if (arr.length !== expected) return;
+    for (let i = 0; i < iterFlatMapping.length; i++) {
+      const objVertIdx = iterFlatMapping[i];
+      const src = frameOffset + objVertIdx * 3;
+      arr[i * 3 + 0] = iterFrames[src + 0];
+      arr[i * 3 + 1] = iterFrames[src + 1];
+      arr[i * 3 + 2] = iterFrames[src + 2];
+    }
+    posAttr.needsUpdate = true;
+    // Recompute normals so MeshStandardMaterial fabric still shades right
+    // as cloth deforms. MeshBasicMaterial decals don't need normals, but
+    // it's cheaper to recompute everything than to filter per material.
+    c.geometry.computeVertexNormals();
+    appliedCount++;
+  });
+  if (frameIdx === 0) {
+    log(`  applyFrame diag: ${meshCount} meshes, attrLengths=[${attrLengths.join(', ')}], expected=${expected}, applied=${appliedCount}`,
+        appliedCount > 0 ? 'info' : 'warn');
+  }
+}
+
+window.playDrape = function() {
+  if (!iterFrames || iterFrameCount < 2 || !garmentMesh) {
+    log('Play Drape: no animation frames available. Run a fresh drape first.', 'warn');
+    return;
+  }
+  // Cancel any in-flight animation so re-clicks restart cleanly.
+  if (iterAnimationHandle) {
+    cancelAnimationFrame(iterAnimationHandle);
+    iterAnimationHandle = 0;
+  }
+  const slider = document.getElementById('drapeDuration');
+  const loopBox = document.getElementById('drapeLoop');
+  const durationMs = (slider ? parseFloat(slider.value) : 3.0) * 1000;
+  const loop = loopBox ? !!loopBox.checked : false;
+  const stopBtn = document.getElementById('btnStopDrape');
+  if (stopBtn) stopBtn.disabled = false;
+  let startTime = performance.now();
+  log(`Playing drape: ${iterFrameCount} frames over ${(durationMs / 1000).toFixed(1)}s${loop ? ' (looping)' : ''}`, 'info');
+  function tick() {
+    const elapsed = performance.now() - startTime;
+    const t = Math.min(elapsed / durationMs, 1);
+    const frameIdx = Math.min(iterFrameCount - 1, Math.floor(t * iterFrameCount));
+    applyFrameToGarment(frameIdx);
+    if (t < 1) {
+      iterAnimationHandle = requestAnimationFrame(tick);
+    } else if (loop) {
+      // Restart from frame 0.
+      startTime = performance.now();
+      iterAnimationHandle = requestAnimationFrame(tick);
+    } else {
+      // Final settled state.
+      applyFrameToGarment(iterFrameCount - 1);
+      iterAnimationHandle = 0;
+      if (stopBtn) stopBtn.disabled = true;
+      log('Drape animation complete.', 'ok');
+    }
+  }
+  iterAnimationHandle = requestAnimationFrame(tick);
+};
+
+window.stopDrape = function() {
+  if (iterAnimationHandle) {
+    cancelAnimationFrame(iterAnimationHandle);
+    iterAnimationHandle = 0;
+  }
+  // Snap to final settled state so clicking Stop never leaves the cloth in
+  // an in-progress pose.
+  if (iterFrames && iterFrameCount > 0) {
+    applyFrameToGarment(iterFrameCount - 1);
+  }
+  const stopBtn = document.getElementById('btnStopDrape');
+  if (stopBtn) stopBtn.disabled = true;
+  log('Drape animation stopped.', 'info');
+};
+
+window.clearViewer = function() {
+  if (iterAnimationHandle) {
+    cancelAnimationFrame(iterAnimationHandle);
+    iterAnimationHandle = 0;
+  }
+  iterFrames = null; iterFrameCount = 0; iterVertsPerFrame = 0;
+  iterFlatMapping = null; iterFinalVerts = null;
+  const playBtn = document.getElementById('btnPlayDrape');
+  if (playBtn) playBtn.disabled = true;
+  const stopBtn = document.getElementById('btnStopDrape');
+  if (stopBtn) stopBtn.disabled = true;
+  if (avatarMesh) { scene.remove(avatarMesh); avatarMesh = null; }
+  if (garmentMesh) { scene.remove(garmentMesh); garmentMesh = null; }
+  meshBadge.style.display = 'none';
+  setStatus('Idle', 'idle');
+  log('Viewer cleared', 'info');
+};
+
+window.clearLog = function() {
+  logBox.innerHTML = '';
+};
+
+log('Drape Test ready. Paste your URLs and hit Load Preview or Run Draping.', 'ok');
+</script>
+</body>
+</html>

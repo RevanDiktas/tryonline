@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     # RunPod
     runpod_api_key: str = ""
     runpod_endpoint_id: str = ""
+    runpod_draping_endpoint_id: str = ""
+    runpod_heatmap_endpoint_id: str = ""
     
     # Storage Buckets
     photos_bucket: str = "photos"

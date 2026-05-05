@@ -1,6 +1,8 @@
 """
 TryOn Backend API - Main Application Entry Point
 """
+import asyncio
+import os
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -11,7 +13,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
-from app.api.routes import auth, avatar, measurements, events, health, webhooks, analytics, products, addresses, checkout_profile, shopify, brand, garments, wishlist
+from app.api.routes import auth, avatar, measurements, events, health, webhooks, analytics, products, addresses, checkout_profile, shopify, brand, garments, wishlist, draping
 
 
 settings = get_settings()
@@ -20,11 +22,30 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle management"""
-    # Startup
     print(f"Starting {settings.app_name}...")
-    yield
-    # Shutdown
-    print(f"Shutting down {settings.app_name}...")
+
+    # Drape dispatcher: opt-in via env (default on if RunPod is configured).
+    dispatcher_task = None
+    stop_event: asyncio.Event | None = None
+    enabled = os.getenv("DRAPE_DISPATCHER_ENABLED", "1") == "1"
+    if enabled and settings.runpod_api_key and settings.runpod_draping_endpoint_id:
+        from app.services.drape_dispatcher import dispatcher_loop
+        stop_event = asyncio.Event()
+        dispatcher_task = asyncio.create_task(dispatcher_loop(stop_event))
+    else:
+        print("[main] Drape dispatcher not started (disabled or RunPod not configured)")
+
+    try:
+        yield
+    finally:
+        print(f"Shutting down {settings.app_name}...")
+        if stop_event is not None:
+            stop_event.set()
+        if dispatcher_task is not None:
+            try:
+                await asyncio.wait_for(dispatcher_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                dispatcher_task.cancel()
 
 
 # Create FastAPI app
@@ -78,6 +99,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(brand.router, prefix="/api/brand", tags=["Brand"])
 app.include_router(garments.router, prefix="/api/garments", tags=["Garments"])
 app.include_router(wishlist.router, prefix="/api/wishlist", tags=["Wishlist"])
+app.include_router(draping.router, prefix="/api/draping", tags=["Draping"])
 
 
 @app.get("/")
