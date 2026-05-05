@@ -1,39 +1,80 @@
 """
-Body Shape Clustering for Draping Pre-computation
-==================================================
+Body Hash for Draping Cache
+============================
 
-Clusters users into body shape buckets based on their measurements.
-This allows pre-computing draped meshes for ~50 representative body shapes
-per garment+size, so most users get an instant cache hit.
+Per-user body hash. Each shopper gets their own drape, never shared.
 
-Bucket key = quantized measurements hash (e.g., chest rounded to nearest 4cm).
+The hash is sha256(user_id + canonical measurements). Two consequences:
+
+  1. Privacy / fit fidelity: shopper A and shopper B never share a draped mesh
+     even if their measurements happen to round to the same bucket. Bodies are
+     genuinely different and the sim must reflect that.
+  2. Auto-invalidation on re-measure: if the shopper updates their fit passport,
+     the canonical measurement string changes, so the hash changes, so the
+     existing cache row stops matching and the dispatcher re-drapes.
+
+Schema (`draped_meshes.body_hash`, `drape_jobs.body_hash`) is unchanged. Only
+the function that produces the hash flipped.
+
+The legacy quantized-cluster function is kept below as `compute_shape_cluster`
+in case we ever want shape-clustering for cost reduction. It is not used by the
+live pipeline.
 """
 
 import hashlib
+import json
 from typing import Optional
 
 
-# Quantization step sizes (cm) — controls bucket granularity
-# Smaller = more buckets (better fit, more compute)
-# Larger = fewer buckets (faster cache hits, slightly less precise)
-QUANT_STEPS = {
-    "height": 5,
-    "chest": 4,
-    "waist": 4,
-    "hips": 4,
-    "weight": 5,
-}
-
-# Gender multiplier for separation
 GENDER_MAP = {"male": "M", "female": "F", "other": "N", "neutral": "N"}
 
 
+def _canonical_measurements(passport: dict) -> str:
+    """Stable string representation of the measurements that drive a drape.
+    Any change here invalidates every cached row. Keep keys sorted."""
+    keys = ("height", "weight", "chest", "waist", "hips", "inseam",
+            "shoulder_width", "arm_length", "neck", "thigh", "torso_length")
+    payload = {k: passport.get(k) for k in keys if passport.get(k) is not None}
+    payload["gender"] = GENDER_MAP.get((passport.get("gender") or "").lower(), "N")
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def compute_body_hash(user_id: str, passport: dict) -> str:
+    """
+    Per-user body hash. 16 hex chars. Stable across calls as long as
+    measurements don't change. Includes user_id so two shoppers with identical
+    measurements still get distinct rows.
+    """
+    raw = f"u:{user_id}|{_canonical_measurements(passport)}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def compute_body_bucket_from_passport(passport: dict, user_id: Optional[str] = None) -> str:
+    """
+    Backwards-compatible name. Returns the per-user body hash.
+    `user_id` is required for per-user keying; if not supplied we fall back to a
+    measurements-only hash (legacy path; only used by tooling that pre-dates
+    per-user keying).
+    """
+    if user_id:
+        return compute_body_hash(user_id, passport)
+    raw = _canonical_measurements(passport)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+# ---------------------------------------------------------------------------
+# Legacy: quantized shape clustering. Not used by the live pipeline. Kept here
+# so a future cost-reduction pass can swap it back in by flipping one call.
+# ---------------------------------------------------------------------------
+
+QUANT_STEPS = {"height": 5, "chest": 4, "waist": 4, "hips": 4, "weight": 5}
+
+
 def quantize_measurement(value: float, step: int) -> int:
-    """Round a measurement to the nearest step."""
     return round(value / step) * step
 
 
-def compute_body_bucket(
+def compute_shape_cluster(
     height: Optional[int],
     chest: Optional[int],
     waist: Optional[int],
@@ -41,38 +82,19 @@ def compute_body_bucket(
     gender: Optional[str] = None,
     weight: Optional[int] = None,
 ) -> str:
-    """
-    Compute a body shape bucket hash from measurements.
-
-    Returns a 16-char hex string that groups similar body shapes together.
-    Two users with similar measurements will get the same bucket hash,
-    enabling shared draping cache.
-    """
+    """Quantized cluster hash. Multiple users may collide. Currently unused."""
     parts = []
-
     g = GENDER_MAP.get((gender or "").lower(), "N")
     parts.append(f"g:{g}")
-
     for key, step in QUANT_STEPS.items():
         val = {"height": height, "chest": chest, "waist": waist, "hips": hips, "weight": weight}.get(key)
         if val is not None and val > 0:
-            q = quantize_measurement(float(val), step)
-            parts.append(f"{key[0]}:{q}")
-
-    raw = "|".join(parts)
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+            parts.append(f"{key[0]}:{quantize_measurement(float(val), step)}")
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
-def compute_body_bucket_from_passport(passport: dict) -> str:
-    """Compute body bucket from a fit_passports row dict."""
-    return compute_body_bucket(
-        height=passport.get("height"),
-        chest=passport.get("chest"),
-        waist=passport.get("waist"),
-        hips=passport.get("hips"),
-        gender=passport.get("gender"),
-        weight=passport.get("weight"),
-    )
+# Old name kept as alias so callers don't break.
+compute_body_bucket = compute_shape_cluster
 
 
 def compute_body_bucket_from_smpl(smpl_betas: list[float]) -> str:

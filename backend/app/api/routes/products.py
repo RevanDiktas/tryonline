@@ -73,15 +73,15 @@ def _find_garment_row(product_id: str, brand_id: Optional[str]) -> Optional[dict
 
 
 def _body_hash_from_user(user_id: str) -> Optional[str]:
-    """Compute body bucket hash from user's fit passport for draping cache lookup."""
-    from app.services.body_clustering import compute_body_bucket_from_passport
+    """Compute per-user body hash from fit passport for draping cache lookup."""
+    from app.services.body_clustering import compute_body_hash
     try:
         r = supabase_service.client.table("fit_passports").select(
-            "pipeline_files,chest,waist,hips,height,weight,gender"
+            "chest,waist,hips,height,weight,gender,inseam,shoulder_width,arm_length,neck,thigh,torso_length"
         ).eq("user_id", user_id).limit(1).execute()
         if not r.data:
             return None
-        return compute_body_bucket_from_passport(r.data[0])
+        return compute_body_hash(user_id, r.data[0])
     except Exception:
         return None
 

@@ -402,11 +402,22 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 jobs[job_id]["avatar_url"] = avatar_url
                 jobs[job_id]["measurements"] = measurements
                 jobs[job_id]["completed_at"] = datetime.utcnow()
-                
+
                 print(f"[Avatar] ✓ Job {job_id} marked as completed")
                 print(f"[Avatar]   Avatar URL: {avatar_url[:80]}...")
                 print(f"[Avatar]   Measurements: {len(measurements)} values")
-                
+
+                # Pre-drape fan-out: enqueue this avatar against every active
+                # garment x size. Runs synchronously here (just a batch of
+                # Postgres inserts), the actual sims are picked up by the
+                # dispatcher loop. Failures here must NOT fail the avatar job.
+                try:
+                    from app.services.drape_queue import enqueue_full_drape
+                    drape_counts = enqueue_full_drape(request.user_id, priority=10)
+                    print(f"[Avatar] Pre-drape enqueue: {drape_counts}")
+                except Exception as drape_err:
+                    print(f"[Avatar] Pre-drape enqueue failed (non-fatal): {drape_err}")
+
                 return
                 
             elif runpod_status in ["FAILED", "CANCELLED"]:
