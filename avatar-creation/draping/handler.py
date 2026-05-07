@@ -607,6 +607,20 @@ def _drop_small_intra_material_components(
     drop_summary: list = []  # (mtl, vert_count, face_count)
 
     for mtl, flist in faces_by_mtl.items():
+        # v45: structural shell materials (Body_*, Sleeves_*) are exempt from
+        # the drop rule. Their multiple components are legitimate panels —
+        # CLO3D ships the back body fabric as 3 components (main + L wing + R
+        # wing) and sleeves as 2 (L + R). The 0.20× cutoff was tuned on
+        # FABRIC_* pocket bags. On size S of the Ramin tracksuit the
+        # Body_B_FRONT_2724 wings are 2182/2148 faces vs an 11234-face main —
+        # that's 19.4% / 19.1%, just under the cutoff. Result: both wings
+        # dropped → the entire back of the trousers rendered as a vertical
+        # missing strip on each leg. Sizes M and L survived only because the
+        # ratio happened to land at 21% rather than 19%. Heuristic conflated
+        # "pocket bag" with "structural panel" — fix is to whitelist by name.
+        if mtl and (mtl.startswith("Body_") or mtl.startswith("Sleeves_")):
+            continue
+
         parent: dict = {}
 
         def find(x: int) -> int:
@@ -1901,7 +1915,7 @@ def geometric_drape(
 
 
 def _obj_to_glb_bare(obj_path: Path, glb_path: Path) -> bool:
-    """Bare OBJ→GLB conversion without textures (last resort)."""
+    """Bare OBJ→GLB conversion without textures (last-resort fallback)."""
     try:
         import trimesh
         mesh = trimesh.load(str(obj_path), force="mesh", process=False)
@@ -1910,6 +1924,208 @@ def _obj_to_glb_bare(obj_path: Path, glb_path: Path) -> bool:
     except Exception as e:
         print(f"[Draping] Bare OBJ→GLB conversion failed: {e}")
         return False
+
+
+def _parse_mtl_for_glb(mtl_path: Path) -> dict:
+    """Parse an MTL file into {material_name: {'kd': [r,g,b], 'map_kd': basename or None}}.
+    Assumes the input pipeline has already rewritten map_* lines to use basenames."""
+    out: dict = {}
+    cur = None
+    if not mtl_path.exists():
+        return out
+    for line in mtl_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        s = line.strip()
+        if s.startswith("newmtl "):
+            cur = s.split(None, 1)[1].strip()
+            out[cur] = {"kd": [0.5, 0.5, 0.5], "map_kd": None}
+        elif cur is None:
+            continue
+        elif s.startswith("Kd "):
+            p = s.split()
+            if len(p) >= 4:
+                try:
+                    out[cur]["kd"] = [float(p[1]), float(p[2]), float(p[3])]
+                except ValueError:
+                    pass
+        elif s.startswith("map_Kd "):
+            p = s.split()
+            if len(p) >= 2:
+                out[cur]["map_kd"] = p[-1].replace("\\", "/").rsplit("/", 1)[-1]
+    return out
+
+
+def _resolve_mtl_for_obj(obj_path: Path) -> "Path | None":
+    """Locate the MTL companion of an OBJ on disk. Mirrors v39's
+    glob-fallback rule: try the mtllib name first, then any *.mtl in the
+    OBJ's parent directory."""
+    parent = obj_path.parent
+    mtllib_name = None
+    try:
+        for line in obj_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("mtllib "):
+                mtllib_name = line.strip().split(None, 1)[1].strip()
+                break
+    except Exception:
+        pass
+    if mtllib_name:
+        cand = parent / mtllib_name
+        if cand.exists():
+            return cand
+    for cand in parent.glob("*.mtl"):
+        return cand
+    return None
+
+
+def _obj_to_glb_textured(obj_path: Path, glb_path: Path) -> bool:
+    """OBJ → GLB with per-material PBR + embedded textures.
+
+    Replaces the bare `_obj_to_glb_bare` as the primary GLB output for the
+    cached drape pipeline (runpod-callback uploads only this GLB to
+    Supabase Storage; the OBJ + MTL + textures fields go in the JSON
+    response but are not currently persisted). Without baked textures, the
+    cached drape rendered uniform black on the PDP — every Kd in the CLO3D
+    MTL is (0,0,0) and the print decals (RAMIN logo PNGs) are referenced
+    only via map_Kd.
+
+    Strategy:
+      1. trimesh.load(obj_path, process=False) returns a Scene with one
+         Trimesh per usemtl group — geometry names match material names.
+      2. Discover the on-disk MTL via mtllib lookup with glob fallback,
+         parse Kd / map_Kd per material.
+      3. For each geometry, build a glTF PBRMaterial:
+           - if map_Kd resolves to a PNG with alpha < 255 anywhere:
+             baseColorTexture=<image>, alphaMode='MASK', alphaCutoff=0.5,
+             baseColorFactor=(1,1,1,1) (texture is the colour).
+           - else if map_Kd resolves to an opaque image:
+             baseColorTexture=<image>, alphaMode='OPAQUE'.
+           - else: baseColorFactor=(Kd_r, Kd_g, Kd_b, 1.0), opaque.
+         doubleSided=True everywhere — CLO3D garments are open shells.
+      4. Export the Scene as GLB; trimesh embeds textures into the glb
+         binary buffer.
+
+    Falls back to `_obj_to_glb_bare` on any error so the pipeline never
+    fails outright (bare GLB is always shippable, just textureless).
+    """
+    try:
+        import trimesh
+        from PIL import Image
+
+        mtl_path = _resolve_mtl_for_obj(obj_path)
+        materials_info = _parse_mtl_for_glb(mtl_path) if mtl_path else {}
+        tex_dir = mtl_path.parent if mtl_path else obj_path.parent
+
+        scene_or_mesh = trimesh.load(str(obj_path), process=False)
+        if isinstance(scene_or_mesh, trimesh.Trimesh):
+            scene = trimesh.Scene([scene_or_mesh])
+        elif isinstance(scene_or_mesh, trimesh.Scene):
+            scene = scene_or_mesh
+        else:
+            print(f"[Draping] Textured GLB: unexpected load type {type(scene_or_mesh)}")
+            return _obj_to_glb_bare(obj_path, glb_path)
+
+        # v45.1: physical world-space layering for the print decal. glTF has
+        # no polygonOffset; drape-test.html uses three polygonOffset values
+        # per material type to enforce PT_FABRIC > Body > FABRIC_2 ordering.
+        # The PDP widget (test-viewer.html) applies a uniform polygonOffset
+        # to ALL garment materials, which would z-fight on the coplanar
+        # post-retarget geometry of these three layers (all sit at sdf≈12mm
+        # after _retarget_garment_to_body). Pushing PT_FABRIC verts +2 mm
+        # along their normals (outward from body) and FABRIC_2 verts -1 mm
+        # encodes the same layering as physical depth, so the hardware
+        # z-buffer resolves it correctly under any downstream renderer.
+        # Magnitudes are well below visible parallax at PDP camera distance
+        # but well above z-buffer precision at typical depth ranges.
+        n_displaced_pt = 0
+        n_displaced_fab2 = 0
+        for geom_name, geom in scene.geometry.items():
+            try:
+                if geom_name.startswith("PT_FABRIC_"):
+                    geom.vertices = geom.vertices + geom.vertex_normals * 0.002
+                    n_displaced_pt += 1
+                elif geom_name.startswith("FABRIC_2_"):
+                    geom.vertices = geom.vertices - geom.vertex_normals * 0.001
+                    n_displaced_fab2 += 1
+            except Exception as _e:
+                print(f"[Draping] Layer displacement skip on {geom_name}: {_e}")
+        if n_displaced_pt or n_displaced_fab2:
+            print(f"[Draping] Layered: PT_FABRIC +2mm x {n_displaced_pt}, "
+                  f"FABRIC_2 -1mm x {n_displaced_fab2}")
+
+        n_textured = 0
+        n_solid = 0
+        n_unmatched = 0
+        for geom_name, geom in scene.geometry.items():
+            info = materials_info.get(geom_name)
+            if info is None:
+                for k, v in materials_info.items():
+                    if k in geom_name or geom_name in k:
+                        info = v
+                        break
+            if info is None:
+                n_unmatched += 1
+                if n_unmatched <= 3:
+                    print(f"[Draping] No MTL match for geom '{geom_name}' "
+                          f"(known: {list(materials_info.keys())[:5]}...)")
+            kd = (info or {}).get("kd", [0.5, 0.5, 0.5])
+            map_kd = (info or {}).get("map_kd")
+            base_factor = [kd[0], kd[1], kd[2], 1.0]
+            alpha_mode = "OPAQUE"
+            base_image = None
+
+            if map_kd:
+                tp = tex_dir / map_kd
+                if tp.exists():
+                    try:
+                        img = Image.open(str(tp)).convert("RGBA")
+                        base_image = img
+                        alpha_band = img.getchannel("A")
+                        if alpha_band.getextrema()[0] < 255:
+                            alpha_mode = "MASK"
+                        base_factor = [1.0, 1.0, 1.0, 1.0]
+                    except Exception as e:
+                        print(f"[Draping] Texture load failed for {map_kd}: {e}")
+
+            try:
+                pbr = trimesh.visual.material.PBRMaterial(
+                    name=geom_name,
+                    baseColorFactor=base_factor,
+                    baseColorTexture=base_image,
+                    alphaMode=alpha_mode,
+                    alphaCutoff=0.5,
+                    doubleSided=True,
+                )
+            except TypeError:
+                pbr = trimesh.visual.material.PBRMaterial(
+                    name=geom_name,
+                    baseColorFactor=base_factor,
+                    baseColorTexture=base_image,
+                    alphaMode=alpha_mode,
+                    doubleSided=True,
+                )
+
+            uv = None
+            if hasattr(geom.visual, "uv") and geom.visual.uv is not None:
+                uv = geom.visual.uv
+            if uv is not None:
+                geom.visual = trimesh.visual.TextureVisuals(uv=uv, material=pbr)
+            else:
+                geom.visual = trimesh.visual.TextureVisuals(material=pbr)
+
+            if base_image is not None:
+                n_textured += 1
+            else:
+                n_solid += 1
+
+        scene.export(str(glb_path), file_type="glb")
+        print(f"[Draping] Textured GLB: {len(scene.geometry)} mats "
+              f"({n_textured} textured, {n_solid} solid), "
+              f"{glb_path.stat().st_size/1024:.1f} KB")
+        return True
+    except Exception as e:
+        print(f"[Draping] Textured OBJ→GLB failed: {e}; falling back to bare")
+        import traceback
+        traceback.print_exc()
+        return _obj_to_glb_bare(obj_path, glb_path)
 
 
 def handler(event: dict) -> dict:
@@ -2172,12 +2388,16 @@ def handler(event: dict) -> dict:
         # injection into the CLO3D display GLB — that path does nearest-vertex
         # mapping between 27k sim verts and 194k display verts across 71
         # sub-meshes (zipper, drawstrings), which produces shredded/misaligned
-        # geometry. Per user feedback, OBJ + MTL is the authoritative pipeline;
-        # the GLB output here is only a fallback for Three.js GLTFLoader.
+        # geometry. Per user feedback, OBJ + MTL is the authoritative pipeline.
+        # v45: GLB now embeds textures + PBR materials so the cached drape
+        # renders correctly on the PDP. Earlier _obj_to_glb_bare path stripped
+        # all materials and produced uniform-black output (every CLO3D Kd is
+        # (0,0,0); only map_Kd carries the visible decals). Falls back to bare
+        # if anything goes wrong with material translation.
         glb_path = output_dir / "draped.glb"
         glb_b64 = ""
         glb_bytes = b""
-        if _obj_to_glb_bare(draped_obj, glb_path):
+        if _obj_to_glb_textured(draped_obj, glb_path):
             glb_bytes = glb_path.read_bytes()
             glb_b64 = base64.b64encode(glb_bytes).decode("utf-8")
             print(f"[Draping] GLB (direct from draped OBJ): {len(glb_bytes)/1024:.1f} KB")
@@ -2211,7 +2431,26 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-05-03/v44-stream-retarget-iterations "
+    "drape-handler 2026-05-07/v45-textured-glb-and-body-whitelist "
+    "(v45: two structural fixes after the 234-job batch run on 2026-05-06 "
+    "produced unusable cached drapes. Issue 1: cached GLBs were textureless "
+    "because the runpod-callback only persists draped_glb_base64, and the "
+    "handler's `_obj_to_glb_bare` collapsed everything to one untextured "
+    "mesh. Local drape-test.html looked good only because it used the "
+    "OBJ + MTL + textures fields, which the production batch path discards. "
+    "Fix: new `_obj_to_glb_textured` builds glTF PBRMaterial per-material "
+    "with embedded baseColorTexture; print decals get alphaMode=MASK + "
+    "alphaCutoff=0.5 so transparent PNG pixels are discarded cleanly without "
+    "needing polygon-offset depth-buffer tricks; bare path stays as a "
+    "fallback. Issue 2: `_drop_small_intra_material_components` ate the back "
+    "body panel on size S. CLO3D ships Body_B_FRONT_2724 as 3 connected "
+    "components (main + L wing + R wing). On size S the wings are 19% of "
+    "the main panel — just under the 0.20× cutoff that was tuned on "
+    "FABRIC_* pocket bags — so both wings were dropped, rendering as a "
+    "vertical missing strip on each leg. M and L escaped only because "
+    "their wings landed at 21% and 23%. Fix: whitelist Body_*/Sleeves_* "
+    "from the drop rule entirely. Those materials are always structural "
+    "shell, never decorative bags. PREVIOUS v44 BANNER FOLLOWS: "
     "(v44: stream the retarget iterations as a vertex animation cache. "
     "_retarget_garment_to_body now optionally captures welded vertex state "
     "after each iteration. v36 SKIP-SIM path enables capture, un-welds each "
