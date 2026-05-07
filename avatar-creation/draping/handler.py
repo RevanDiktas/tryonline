@@ -340,8 +340,33 @@ def _retarget_garment_to_body(
         if n_push == 0:
             break
 
-        # Move each penetrating vert to (closest + outward_normal * margin).
-        new_pos = closest[needs_push_mask] + tri_normals[needs_push_mask] * target_offset
+        # v45.3: cap per-iter push distance. Previously this moved each
+        # penetrating vert to (closest + outward_normal * target_offset) in a
+        # single step. For tight garments (size S of the Ramin tracksuit on
+        # an M-fit avatar), 37% of verts have sdf < target and many need to
+        # move 30-50mm to reach target. When adjacent verts have closest
+        # points on different parts of the body (e.g., one closest to back
+        # of upper arm, the next closest to front of upper arm), they get
+        # pushed in dramatically different directions in ONE step. Result:
+        # ragged "spike fingers" radiating outward from the shoulders/upper
+        # arms — empirically 365 verts in S-Sleeves had >5mm 1-ring offset
+        # post-retarget vs 41 in source, with edges stretching from 8mm to
+        # 80mm in a single iteration.
+        #
+        # Capping the per-iter move to MAX_PUSH_PER_ITER means deep-
+        # penetration verts converge over multiple iterations with the
+        # existing Laplacian smoothing running between each step. Adjacent
+        # verts evolve gradually together. Loose fits (M, L on this avatar)
+        # are unaffected because their per-vert push is already small.
+        # Existing n_iters=25 is plenty: worst case sdf=-50mm reaches
+        # target=12mm in ceil(62/15)=5 iters.
+        MAX_PUSH_PER_ITER = 0.015  # 15mm
+        push_dists = target_offset - sdf[needs_push_mask]
+        push_dists = np.minimum(push_dists, MAX_PUSH_PER_ITER)
+        new_pos = (
+            verts[needs_push_mask]
+            + tri_normals[needs_push_mask] * push_dists[:, None]
+        )
         verts[needs_push_mask] = new_pos
 
         # Laplacian smooth the 1-ring AROUND pushed verts. v27 added a
@@ -396,64 +421,15 @@ def _retarget_garment_to_body(
         if capture_frames:
             captured_frames.append(verts.copy())
 
-    # v45.2 spike repair: the SDF-based push + neighbor-only smoothing in the
-    # main loop above leaves isolated 'spike' verts at high-curvature regions
-    # on tight garments. Adjacent verts are pushed toward different parts of
-    # the body (their face-normal closest-points diverge), so post-convergence
-    # they sit at sdf >= target but in wildly different lateral positions.
-    # Manifests visually as ragged shoulder/upper-arm/cuff geometry on size S
-    # of the Ramin tracksuit, even though residual_inside=0 and sdf_after looks
-    # clean. Loose fits (M, L on this avatar) don't trigger it because the
-    # main loop barely pushes anything.
-    #
-    # Empirical (size S, post-main-loop): 365 verts in Sleeves_FRONT_2731 had
-    # 1-ring centroid offset > 5mm, worst at 51.5mm. Source pre-retarget had
-    # only 41 such outliers worst 7.5mm. The retarget itself is the source of
-    # the spike differential.
-    #
-    # Repair pass: iteratively pull verts whose 1-ring centroid offset > 20mm
-    # back 50% toward that centroid, then run the existing inside-body clamp
-    # so we never re-penetrate. 20mm threshold preserves CLO3D wrinkles
-    # (typically 2-7mm offset) while killing visible spikes (>20mm).
-    SPIKE_THRESHOLD_M = 0.020
-    SPIKE_PULL_FACTOR = 0.5
-    SPIKE_MAX_ITERS = 8
-    n_spike_total = 0
-    spike_iters_run = 0
-    for s_iter in range(SPIKE_MAX_ITERS):
-        new_verts = verts.copy()
-        n_repaired = 0
-        for vi in range(len(verts)):
-            ns = neighbor_arrays.get(vi)
-            if ns is None or len(ns) == 0:
-                continue
-            centroid = verts[ns].mean(axis=0)
-            offset = float(np.linalg.norm(verts[vi] - centroid))
-            if offset > SPIKE_THRESHOLD_M:
-                new_verts[vi] = (
-                    verts[vi] * (1.0 - SPIKE_PULL_FACTOR)
-                    + centroid * SPIKE_PULL_FACTOR
-                )
-                n_repaired += 1
-        spike_iters_run = s_iter + 1
-        if n_repaired == 0:
-            break
-        # Body-clamp identical to the main-loop post-smooth clamp — guarantees
-        # repaired verts never end up inside the body.
-        cc, _, ct = pq.on_surface(new_verts)
-        cn = face_normals[ct]
-        csdf = np.einsum("ij,ij->i", new_verts - cc, cn)
-        inside = csdf < target_offset
-        if inside.any():
-            new_verts[inside] = cc[inside] + cn[inside] * target_offset
-        verts = new_verts
-        n_spike_total += n_repaired
-        if capture_frames:
-            captured_frames.append(verts.copy())
-    if n_spike_total > 0:
-        print(f"[PyGarment] Spike repair: {n_spike_total} cumulative verts "
-              f"smoothed in {spike_iters_run} iters "
-              f"(threshold {SPIKE_THRESHOLD_M*1000:.0f}mm 1-ring offset)")
+    # v45.3 removed the v45.2 spike-repair pass: it pulled verts with high
+    # 1-ring centroid offset back toward their centroid, but on the saved
+    # v45.1 S GLB it did NOT visually fix the spike fingers. Root cause was
+    # measuring the wrong thing — the spike geometry is elongated FACES
+    # connecting source-adjacent verts that the retarget pushed to different
+    # body regions, not lone outlier verts. Each vert sits on its own valid
+    # body+12mm position and is not an outlier vs its own 1-ring. The
+    # structural answer is the per-iter push cap in the main loop above,
+    # which prevents the divergent push from happening in the first place.
 
     # Final SDF readout for the log.
     final_closest, _, final_tri = pq.on_surface(verts)
@@ -466,8 +442,6 @@ def _retarget_garment_to_body(
         "final_min_sdf_mm": float(final_sdf.min() * 1000.0),
         "final_residual_inside": int((final_sdf < 0.0).sum()),
         "target_offset_mm": float(target_offset * 1000.0),
-        "spike_repair_verts": n_spike_total,
-        "spike_repair_iters": spike_iters_run,
     }
     if capture_frames:
         stats_out["captured_frames"] = captured_frames
@@ -2620,7 +2594,30 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-05-07/v45.2-spike-repair-pass-after-retarget "
+    "drape-handler 2026-05-07/v45.3-per-iter-push-cap-and-revert-v45.2 "
+    "(v45.3 fixes the size-S sleeve spikes that survived v45.1 and were not "
+    "fixed by v45.2's spike-repair pass. Empirical re-investigation showed "
+    "the spike geometry is elongated FACES (621 edges >20mm in S sleeves "
+    "vs 0 in source, worst 80mm vs source max 14mm) — not isolated outlier "
+    "verts. v45.2 measured 1-ring centroid offset and pulled outliers; that "
+    "did not fix it because each spike vert is at a valid body+12mm "
+    "position, not an outlier vs its own 1-ring. The face is elongated "
+    "because two source-adjacent verts (which were 8mm apart) end up on "
+    "opposite sides of the upper arm (80mm apart) when their face-normal "
+    "closest points diverge. "
+    "Structural fix: cap per-iter push distance in _retarget_garment_to_body "
+    "to MAX_PUSH_PER_ITER=15mm. Previously each pushed vert moved to "
+    "(closest + normal * target_offset) in ONE step. For tight garments, "
+    "37% of verts have sdf < 12mm and many need to move 30-50mm in one "
+    "iteration, with the existing neighbor-only smoothing unable to keep "
+    "adjacent verts coherent across that magnitude. Capping to 15mm/iter "
+    "means deep-penetration verts converge over multiple iterations with "
+    "smoothing running between each step — adjacent verts evolve gradually "
+    "together. n_iters=25 covers the worst case (sdf=-50mm reaches "
+    "target=12mm in ceil(62/15)=5 iters). Loose fits (M, L on this avatar) "
+    "are unchanged because their per-vert push is already small. "
+    "v45.2 spike repair removed (was measuring the wrong thing). "
+    "PREVIOUS v45.2 BANNER FOLLOWS: "
     "(v45.2 fixes the size-S sleeve/shoulder spikes that survived v45.1. "
     "v45.1 confirmed empirically that the spike geometry is created BY the "
     "retarget pass, not present in the source. Source bow_s.obj sleeves had "
