@@ -562,6 +562,9 @@ def _drop_small_intra_material_components(
     v_line_indices: list = []
     vt_line_indices: list = []
     vn_line_indices: list = []
+    # v45.1: also store v positions so we can run a positional-connectivity
+    # check below to avoid dropping seam-stitched trim rings.
+    v_positions: list = []
     # face_entries[i] = (line_idx, material, [(v0, vt0, vn0), ...])
     face_entries: list = []
     active_mtl = "UNASSIGNED"
@@ -569,6 +572,11 @@ def _drop_small_intra_material_components(
         s = line.strip()
         if s.startswith("v "):
             v_line_indices.append(li)
+            _vp = s.split()
+            try:
+                v_positions.append((float(_vp[1]), float(_vp[2]), float(_vp[3])))
+            except (IndexError, ValueError):
+                v_positions.append((0.0, 0.0, 0.0))
         elif s.startswith("vt "):
             vt_line_indices.append(li)
         elif s.startswith("vn "):
@@ -605,6 +613,22 @@ def _drop_small_intra_material_components(
 
     face_lines_to_drop: set = set()
     drop_summary: list = []  # (mtl, vert_count, face_count)
+    keep_summary: list = []  # (mtl, vert_count, face_count, share_frac) for stitched comps
+
+    # v45.1: KD-tree of all vertex positions for the seam-stitch connectivity
+    # check below. The check distinguishes pocket-bag-style isolated trim
+    # (drop, was the v19 fix) from seam-stitched trim that's structurally
+    # part of the shell (keep, otherwise dropping leaves open boundary edges
+    # that retarget pushes outward as visible spikes — observed on size S
+    # FABRIC_1_FRONT_2710 shoulder yoke, 31/88 verts at 0.000mm to kept).
+    _v_tree = None
+    try:
+        if v_positions:
+            import numpy as _np
+            from scipy.spatial import cKDTree as _cKDTree
+            _v_tree = _cKDTree(_np.asarray(v_positions, dtype=_np.float64))
+    except Exception as _e:
+        print(f"[PyGarment] Stitch-check KD-tree skipped: {_e}")
 
     for mtl, flist in faces_by_mtl.items():
         # v45: structural shell materials (Body_*, Sleeves_*) are exempt from
@@ -658,6 +682,35 @@ def _drop_small_intra_material_components(
                         vset.add(int(p.split("/")[0]) - 1)
                     except ValueError:
                         pass
+            # v45.1: seam-stitch connectivity check. If a candidate-drop
+            # component has many of its verts at the same position (within
+            # 1mm) as verts OUTSIDE this component, it's a stitched trim
+            # ring (shoulder yoke, hem facing, cuff binding) — keep it. If
+            # most of its verts are unique to itself, it's an isolated
+            # pocket bag — drop it. Threshold 20% chosen on size-S data:
+            # yoke trim 35.2% (keep), pocket bags 1.2-6.8% (drop). Clean
+            # gap. CLO3D seam-splits at exactly 0mm so the shared verts
+            # land at distance 0; 1mm tolerance is just defensive.
+            if _v_tree is not None and len(vset) > 0:
+                try:
+                    cand_idx = list(vset)
+                    cand_pts = [v_positions[i] for i in cand_idx]
+                    matches = _v_tree.query_ball_point(cand_pts, r=1e-3)
+                    n_with_external = 0
+                    for vi_local, neighbors in enumerate(matches):
+                        own_v = cand_idx[vi_local]
+                        for n in neighbors:
+                            if n != own_v and n not in vset:
+                                n_with_external += 1
+                                break
+                    share_frac = n_with_external / len(vset)
+                    if share_frac >= 0.20:
+                        keep_summary.append(
+                            (mtl, len(vset), len(lis), share_frac)
+                        )
+                        continue
+                except Exception as _e:
+                    print(f"[PyGarment] Stitch check failed for {mtl}: {_e}")
             face_lines_to_drop.update(lis)
             drop_summary.append((mtl, len(vset), len(lis)))
 
@@ -743,6 +796,12 @@ def _drop_small_intra_material_components(
     print(f"[PyGarment] Drop small components: kept {n_fkeep} faces + "
           f"{n_vkeep} verts, dropped {n_fdrop} faces + {n_vdrop} orphan verts "
           f"(threshold={size_ratio_threshold:.2f}x largest-in-material)")
+    if keep_summary:
+        print(f"[PyGarment] Stitch-keep: {len(keep_summary)} small components "
+              f"retained as seam-stitched (>=20% verts shared at <=1mm):")
+        for _m, _v, _f, _sf in keep_summary:
+            print(f"[PyGarment]   keep: {_m:<40s} {_v:5d} verts, "
+                  f"{_f:5d} faces, share={_sf:.1%}")
     for mtl, vc, fc in sorted(drop_summary, key=lambda x: -x[2])[:20]:
         print(f"[PyGarment]   drop: {mtl:<40s} {vc:>5} verts, {fc:>5} faces")
 
@@ -1976,98 +2035,165 @@ def _resolve_mtl_for_obj(obj_path: Path) -> "Path | None":
     return None
 
 
-def _obj_to_glb_textured(obj_path: Path, glb_path: Path) -> bool:
-    """OBJ → GLB with per-material PBR + embedded textures.
+def _obj_to_glb_textured(
+    obj_path: Path,
+    glb_path: Path,
+    asset_dir: "Path | None" = None,
+) -> bool:
+    """OBJ → GLB with per-material PBR + embedded textures (v45.1 rewrite).
 
-    Replaces the bare `_obj_to_glb_bare` as the primary GLB output for the
-    cached drape pipeline (runpod-callback uploads only this GLB to
-    Supabase Storage; the OBJ + MTL + textures fields go in the JSON
-    response but are not currently persisted). Without baked textures, the
-    cached drape rendered uniform black on the PDP — every Kd in the CLO3D
-    MTL is (0,0,0) and the print decals (RAMIN logo PNGs) are referenced
-    only via map_Kd.
+    The v45 implementation relied on trimesh.load() to split the OBJ into
+    one Trimesh per usemtl group AND to name each geometry by material.
+    Both behaviours are trimesh-version-dependent. RunPod's image (older
+    trimesh than the local 4.9) splits but names geometries by FILENAME
+    (`draped.obj`, `draped.obj_1`, ...), so the name-based MTL lookup and
+    the PT_FABRIC/FABRIC_2 displacement both no-op'd silently. Result: the
+    v45 batch shipped uniform [0.5,0.5,0.5] gray GLBs with no displacement.
 
-    Strategy:
-      1. trimesh.load(obj_path, process=False) returns a Scene with one
-         Trimesh per usemtl group — geometry names match material names.
-      2. Discover the on-disk MTL via mtllib lookup with glob fallback,
-         parse Kd / map_Kd per material.
-      3. For each geometry, build a glTF PBRMaterial:
-           - if map_Kd resolves to a PNG with alpha < 255 anywhere:
-             baseColorTexture=<image>, alphaMode='MASK', alphaCutoff=0.5,
-             baseColorFactor=(1,1,1,1) (texture is the colour).
-           - else if map_Kd resolves to an opaque image:
-             baseColorTexture=<image>, alphaMode='OPAQUE'.
-           - else: baseColorFactor=(Kd_r, Kd_g, Kd_b, 1.0), opaque.
-         doubleSided=True everywhere — CLO3D garments are open shells.
-      4. Export the Scene as GLB; trimesh embeds textures into the glb
-         binary buffer.
+    v45.1 replaces this with manual OBJ parsing. We walk v / vt / vn /
+    usemtl / f lines ourselves, group faces by usemtl, then build one
+    Trimesh per material with the right faces, UVs, and PBRMaterial. No
+    dependency on trimesh's loader naming.
 
-    Falls back to `_obj_to_glb_bare` on any error so the pipeline never
-    fails outright (bare GLB is always shippable, just textureless).
+    The MTL was also missed because it lives in the input directory
+    (garment_obj.parent), but the draped OBJ is written to a separate
+    output subdirectory. The caller now passes `asset_dir` explicitly so
+    we look in the right place; obj_path.parent is the legacy fallback.
     """
     try:
         import trimesh
+        import numpy as np
         from PIL import Image
 
-        mtl_path = _resolve_mtl_for_obj(obj_path)
-        materials_info = _parse_mtl_for_glb(mtl_path) if mtl_path else {}
-        tex_dir = mtl_path.parent if mtl_path else obj_path.parent
+        if asset_dir is None:
+            asset_dir = obj_path.parent
 
-        scene_or_mesh = trimesh.load(str(obj_path), process=False)
-        if isinstance(scene_or_mesh, trimesh.Trimesh):
-            scene = trimesh.Scene([scene_or_mesh])
-        elif isinstance(scene_or_mesh, trimesh.Scene):
-            scene = scene_or_mesh
-        else:
-            print(f"[Draping] Textured GLB: unexpected load type {type(scene_or_mesh)}")
+        # MTL discovery: alongside OBJ first (back-compat for local tests),
+        # then in asset_dir (the production layout).
+        mtl_path = _resolve_mtl_for_obj(obj_path)
+        if (mtl_path is None) or (not mtl_path.exists()):
+            for cand in asset_dir.glob("*.mtl"):
+                mtl_path = cand
+                break
+        materials_info = _parse_mtl_for_glb(mtl_path) if mtl_path else {}
+        tex_dir = asset_dir
+        if not materials_info:
+            print(f"[Draping] Textured GLB: no MTL found "
+                  f"(obj_path.parent={obj_path.parent}, asset_dir={asset_dir})")
+
+        # Manual OBJ parse: gather shared v/vt/vn arrays + per-material faces.
+        verts_list: list = []
+        uvs_list: list = []
+        normals_list: list = []
+        faces_by_mtl: dict = {}
+        cur_mtl = "DEFAULT"
+        with open(obj_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if not line:
+                    continue
+                if line[0] == "v":
+                    if line[1] == " ":
+                        p = line.split()
+                        verts_list.append((float(p[1]), float(p[2]), float(p[3])))
+                    elif line[1] == "t":
+                        p = line.split()
+                        uvs_list.append((float(p[1]), float(p[2])))
+                    elif line[1] == "n":
+                        p = line.split()
+                        normals_list.append((float(p[1]), float(p[2]), float(p[3])))
+                elif line.startswith("usemtl "):
+                    cur_mtl = line.strip().split(None, 1)[1].strip()
+                elif line.startswith("f "):
+                    refs: list = []
+                    for tok in line.strip().split()[1:]:
+                        toks = tok.split("/")
+                        try:
+                            v = int(toks[0]) - 1
+                        except ValueError:
+                            continue
+                        vt = int(toks[1]) - 1 if len(toks) > 1 and toks[1] else None
+                        refs.append((v, vt))
+                    if len(refs) >= 3:
+                        for i in range(1, len(refs) - 1):
+                            faces_by_mtl.setdefault(cur_mtl, []).append(
+                                [refs[0], refs[i], refs[i + 1]]
+                            )
+
+        if not verts_list or not faces_by_mtl:
+            print(f"[Draping] Textured GLB: empty parse "
+                  f"({len(verts_list)} verts, {len(faces_by_mtl)} mats)")
             return _obj_to_glb_bare(obj_path, glb_path)
 
-        # v45.1: physical world-space layering for the print decal. glTF has
-        # no polygonOffset; drape-test.html uses three polygonOffset values
-        # per material type to enforce PT_FABRIC > Body > FABRIC_2 ordering.
-        # The PDP widget (test-viewer.html) applies a uniform polygonOffset
-        # to ALL garment materials, which would z-fight on the coplanar
-        # post-retarget geometry of these three layers (all sit at sdf≈12mm
-        # after _retarget_garment_to_body). Pushing PT_FABRIC verts +2 mm
-        # along their normals (outward from body) and FABRIC_2 verts -1 mm
-        # encodes the same layering as physical depth, so the hardware
-        # z-buffer resolves it correctly under any downstream renderer.
-        # Magnitudes are well below visible parallax at PDP camera distance
-        # but well above z-buffer precision at typical depth ranges.
-        n_displaced_pt = 0
-        n_displaced_fab2 = 0
-        for geom_name, geom in scene.geometry.items():
-            try:
-                if geom_name.startswith("PT_FABRIC_"):
-                    geom.vertices = geom.vertices + geom.vertex_normals * 0.002
-                    n_displaced_pt += 1
-                elif geom_name.startswith("FABRIC_2_"):
-                    geom.vertices = geom.vertices - geom.vertex_normals * 0.001
-                    n_displaced_fab2 += 1
-            except Exception as _e:
-                print(f"[Draping] Layer displacement skip on {geom_name}: {_e}")
-        if n_displaced_pt or n_displaced_fab2:
-            print(f"[Draping] Layered: PT_FABRIC +2mm x {n_displaced_pt}, "
-                  f"FABRIC_2 -1mm x {n_displaced_fab2}")
+        verts = np.array(verts_list, dtype=np.float32)
+        uvs = np.array(uvs_list, dtype=np.float32) if uvs_list else None
 
+        scene = trimesh.Scene()
         n_textured = 0
         n_solid = 0
-        n_unmatched = 0
-        for geom_name, geom in scene.geometry.items():
-            info = materials_info.get(geom_name)
-            if info is None:
-                for k, v in materials_info.items():
-                    if k in geom_name or geom_name in k:
-                        info = v
-                        break
-            if info is None:
-                n_unmatched += 1
-                if n_unmatched <= 3:
-                    print(f"[Draping] No MTL match for geom '{geom_name}' "
-                          f"(known: {list(materials_info.keys())[:5]}...)")
-            kd = (info or {}).get("kd", [0.5, 0.5, 0.5])
-            map_kd = (info or {}).get("map_kd")
+        n_displaced_pt = 0
+        n_displaced_fab2 = 0
+
+        for mtl_name, tris in faces_by_mtl.items():
+            if not tris:
+                continue
+            # vert-index per corner
+            vi = np.array([[c[0] for c in tri] for tri in tris], dtype=np.int64)
+            # uv-index per corner (None → -1 sentinel)
+            vti = np.array(
+                [[(c[1] if c[1] is not None else -1) for c in tri] for tri in tris],
+                dtype=np.int64,
+            )
+
+            # Compact verts to those used by this material's faces
+            unique_v, inverse_v = np.unique(vi.reshape(-1), return_inverse=True)
+            new_faces = inverse_v.reshape(vi.shape).astype(np.int64)
+            new_verts = verts[unique_v].copy()
+
+            # Per-vertex UVs (one UV per compacted vert; first occurrence wins).
+            uv_for_verts = None
+            if uvs is not None:
+                uv_for_verts = np.zeros((len(unique_v), 2), dtype=np.float32)
+                seen: set = set()
+                for f_idx in range(len(tris)):
+                    for c_idx in range(3):
+                        nv = int(new_faces[f_idx, c_idx])
+                        if nv in seen:
+                            continue
+                        vt_idx = int(vti[f_idx, c_idx])
+                        if 0 <= vt_idx < len(uvs):
+                            uv_for_verts[nv] = uvs[vt_idx]
+                            seen.add(nv)
+
+            # Build the per-material Trimesh.
+            visual = (
+                trimesh.visual.TextureVisuals(uv=uv_for_verts)
+                if uv_for_verts is not None
+                else None
+            )
+            mesh = trimesh.Trimesh(
+                vertices=new_verts,
+                faces=new_faces,
+                process=False,
+                visual=visual,
+            )
+
+            # v45.1 physical layering — see v45 banner. This MUST run after
+            # the per-material Trimesh exists, since it uses that mesh's
+            # vertex_normals (which depend on its faces).
+            try:
+                if mtl_name.startswith("PT_FABRIC_"):
+                    mesh.vertices = mesh.vertices + mesh.vertex_normals * 0.002
+                    n_displaced_pt += 1
+                elif mtl_name.startswith("FABRIC_2_"):
+                    mesh.vertices = mesh.vertices - mesh.vertex_normals * 0.001
+                    n_displaced_fab2 += 1
+            except Exception as _e:
+                print(f"[Draping] Layer disp skip on {mtl_name}: {_e}")
+
+            # Resolve material info; build PBR.
+            info = materials_info.get(mtl_name, {})
+            kd = info.get("kd", [0.5, 0.5, 0.5])
+            map_kd = info.get("map_kd")
             base_factor = [kd[0], kd[1], kd[2], 1.0]
             alpha_mode = "OPAQUE"
             base_image = None
@@ -2078,8 +2204,7 @@ def _obj_to_glb_textured(obj_path: Path, glb_path: Path) -> bool:
                     try:
                         img = Image.open(str(tp)).convert("RGBA")
                         base_image = img
-                        alpha_band = img.getchannel("A")
-                        if alpha_band.getextrema()[0] < 255:
+                        if img.getchannel("A").getextrema()[0] < 255:
                             alpha_mode = "MASK"
                         base_factor = [1.0, 1.0, 1.0, 1.0]
                     except Exception as e:
@@ -2087,7 +2212,7 @@ def _obj_to_glb_textured(obj_path: Path, glb_path: Path) -> bool:
 
             try:
                 pbr = trimesh.visual.material.PBRMaterial(
-                    name=geom_name,
+                    name=mtl_name,
                     baseColorFactor=base_factor,
                     baseColorTexture=base_image,
                     alphaMode=alpha_mode,
@@ -2096,28 +2221,31 @@ def _obj_to_glb_textured(obj_path: Path, glb_path: Path) -> bool:
                 )
             except TypeError:
                 pbr = trimesh.visual.material.PBRMaterial(
-                    name=geom_name,
+                    name=mtl_name,
                     baseColorFactor=base_factor,
                     baseColorTexture=base_image,
                     alphaMode=alpha_mode,
                     doubleSided=True,
                 )
 
-            uv = None
-            if hasattr(geom.visual, "uv") and geom.visual.uv is not None:
-                uv = geom.visual.uv
-            if uv is not None:
-                geom.visual = trimesh.visual.TextureVisuals(uv=uv, material=pbr)
+            if uv_for_verts is not None:
+                mesh.visual = trimesh.visual.TextureVisuals(uv=uv_for_verts, material=pbr)
             else:
-                geom.visual = trimesh.visual.TextureVisuals(material=pbr)
+                mesh.visual = trimesh.visual.TextureVisuals(material=pbr)
+
+            scene.add_geometry(mesh, geom_name=mtl_name)
 
             if base_image is not None:
                 n_textured += 1
             else:
                 n_solid += 1
 
+        if n_displaced_pt or n_displaced_fab2:
+            print(f"[Draping] Layered: PT_FABRIC +2mm x {n_displaced_pt}, "
+                  f"FABRIC_2 -1mm x {n_displaced_fab2}")
+
         scene.export(str(glb_path), file_type="glb")
-        print(f"[Draping] Textured GLB: {len(scene.geometry)} mats "
+        print(f"[Draping] Textured GLB v45.1: {n_textured + n_solid} mats "
               f"({n_textured} textured, {n_solid} solid), "
               f"{glb_path.stat().st_size/1024:.1f} KB")
         return True
@@ -2397,7 +2525,7 @@ def handler(event: dict) -> dict:
         glb_path = output_dir / "draped.glb"
         glb_b64 = ""
         glb_bytes = b""
-        if _obj_to_glb_textured(draped_obj, glb_path):
+        if _obj_to_glb_textured(draped_obj, glb_path, asset_dir=garment_obj.parent):
             glb_bytes = glb_path.read_bytes()
             glb_b64 = base64.b64encode(glb_bytes).decode("utf-8")
             print(f"[Draping] GLB (direct from draped OBJ): {len(glb_bytes)/1024:.1f} KB")
@@ -2431,7 +2559,35 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-05-07/v45-textured-glb-and-body-whitelist "
+    "drape-handler 2026-05-07/v45.1-three-fixes-after-first-batch-v45 "
+    "(v45.1 ships THREE fixes after the first v45 sandbox run on RunPod "
+    "produced uniform-gray GLBs and confirmed the size-S sleeve spike "
+    "issue from v44 was structural, not cosmetic. "
+    "Fix 1: _obj_to_glb_textured was looking for the MTL in obj_path.parent "
+    "(the output subdirectory where draped.obj lives), but the MTL and "
+    "PNG textures live in the input garment dir. materials_info came back "
+    "empty in production, every material got the [0.5,0.5,0.5] default, "
+    "result was uniform gray. Fix: caller passes asset_dir=garment_obj.parent. "
+    "Fix 2: trimesh on RunPod (older than the 4.9 used in local tests) "
+    "splits the OBJ but names geometries 'draped.obj', 'draped.obj_1', "
+    "etc. instead of by usemtl name. The PT_FABRIC/FABRIC_2 displacement "
+    "and the MTL lookup both keyed on geom_name and silently no-op'd. "
+    "Fix: parse the OBJ manually (v / vt / usemtl / f), build one Trimesh "
+    "per usemtl group ourselves, no dependency on trimesh's loader naming. "
+    "Fix 3: _drop_small_intra_material_components was eating "
+    "FABRIC_1_FRONT_2710 shoulder-yoke trim on size S. The yoke trim is "
+    "only 88 verts × 2 components but 31 of those 88 verts (35.2%) sit "
+    "at exactly 0mm to verts in other materials — it's CLO3D seam-split "
+    "stitched into the body+sleeve seam. Dropping it leaves open boundary "
+    "edges that the retarget pushes outward as visible spikes at the "
+    "shoulders. Empirical comparison: pocket bags in FABRIC_1_FRONT_2743 "
+    "have 1.2-6.8% verts shared with other components (truly isolated, "
+    "drop them). Fix: KD-tree-based connectivity check before dropping. "
+    "If >=20% of a candidate component's verts are within 1mm of verts "
+    "outside the component, keep it (seam-stitched). The cutoff lands "
+    "comfortably between yoke (35%) and pockets (max 6.8%). Preserves "
+    "the v19 pocket-bag-drop fix while saving the yoke. PREVIOUS v45 "
+    "BANNER FOLLOWS: "
     "(v45: two structural fixes after the 234-job batch run on 2026-05-06 "
     "produced unusable cached drapes. Issue 1: cached GLBs were textureless "
     "because the runpod-callback only persists draped_glb_base64, and the "
