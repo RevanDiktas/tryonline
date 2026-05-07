@@ -396,6 +396,65 @@ def _retarget_garment_to_body(
         if capture_frames:
             captured_frames.append(verts.copy())
 
+    # v45.2 spike repair: the SDF-based push + neighbor-only smoothing in the
+    # main loop above leaves isolated 'spike' verts at high-curvature regions
+    # on tight garments. Adjacent verts are pushed toward different parts of
+    # the body (their face-normal closest-points diverge), so post-convergence
+    # they sit at sdf >= target but in wildly different lateral positions.
+    # Manifests visually as ragged shoulder/upper-arm/cuff geometry on size S
+    # of the Ramin tracksuit, even though residual_inside=0 and sdf_after looks
+    # clean. Loose fits (M, L on this avatar) don't trigger it because the
+    # main loop barely pushes anything.
+    #
+    # Empirical (size S, post-main-loop): 365 verts in Sleeves_FRONT_2731 had
+    # 1-ring centroid offset > 5mm, worst at 51.5mm. Source pre-retarget had
+    # only 41 such outliers worst 7.5mm. The retarget itself is the source of
+    # the spike differential.
+    #
+    # Repair pass: iteratively pull verts whose 1-ring centroid offset > 20mm
+    # back 50% toward that centroid, then run the existing inside-body clamp
+    # so we never re-penetrate. 20mm threshold preserves CLO3D wrinkles
+    # (typically 2-7mm offset) while killing visible spikes (>20mm).
+    SPIKE_THRESHOLD_M = 0.020
+    SPIKE_PULL_FACTOR = 0.5
+    SPIKE_MAX_ITERS = 8
+    n_spike_total = 0
+    spike_iters_run = 0
+    for s_iter in range(SPIKE_MAX_ITERS):
+        new_verts = verts.copy()
+        n_repaired = 0
+        for vi in range(len(verts)):
+            ns = neighbor_arrays.get(vi)
+            if ns is None or len(ns) == 0:
+                continue
+            centroid = verts[ns].mean(axis=0)
+            offset = float(np.linalg.norm(verts[vi] - centroid))
+            if offset > SPIKE_THRESHOLD_M:
+                new_verts[vi] = (
+                    verts[vi] * (1.0 - SPIKE_PULL_FACTOR)
+                    + centroid * SPIKE_PULL_FACTOR
+                )
+                n_repaired += 1
+        spike_iters_run = s_iter + 1
+        if n_repaired == 0:
+            break
+        # Body-clamp identical to the main-loop post-smooth clamp — guarantees
+        # repaired verts never end up inside the body.
+        cc, _, ct = pq.on_surface(new_verts)
+        cn = face_normals[ct]
+        csdf = np.einsum("ij,ij->i", new_verts - cc, cn)
+        inside = csdf < target_offset
+        if inside.any():
+            new_verts[inside] = cc[inside] + cn[inside] * target_offset
+        verts = new_verts
+        n_spike_total += n_repaired
+        if capture_frames:
+            captured_frames.append(verts.copy())
+    if n_spike_total > 0:
+        print(f"[PyGarment] Spike repair: {n_spike_total} cumulative verts "
+              f"smoothed in {spike_iters_run} iters "
+              f"(threshold {SPIKE_THRESHOLD_M*1000:.0f}mm 1-ring offset)")
+
     # Final SDF readout for the log.
     final_closest, _, final_tri = pq.on_surface(verts)
     final_sdf = np.einsum("ij,ij->i", verts - final_closest, face_normals[final_tri])
@@ -407,6 +466,8 @@ def _retarget_garment_to_body(
         "final_min_sdf_mm": float(final_sdf.min() * 1000.0),
         "final_residual_inside": int((final_sdf < 0.0).sum()),
         "target_offset_mm": float(target_offset * 1000.0),
+        "spike_repair_verts": n_spike_total,
+        "spike_repair_iters": spike_iters_run,
     }
     if capture_frames:
         stats_out["captured_frames"] = captured_frames
@@ -2559,7 +2620,27 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-05-07/v45.1-three-fixes-after-first-batch-v45 "
+    "drape-handler 2026-05-07/v45.2-spike-repair-pass-after-retarget "
+    "(v45.2 fixes the size-S sleeve/shoulder spikes that survived v45.1. "
+    "v45.1 confirmed empirically that the spike geometry is created BY the "
+    "retarget pass, not present in the source. Source bow_s.obj sleeves had "
+    "41 verts at >5mm 1-ring offset (worst 7.5mm). The v45.1 GLB sleeves "
+    "had 365 such outliers (worst 51.5mm) — a 9x increase from a single "
+    "retarget pass. M only went 53->84 outliers (1.6x) because the avatar "
+    "is approximately M-fit, so retarget barely pushes anything. On size S "
+    "the avatar is too big for the garment, retarget pushes ~half the verts "
+    "by 30-50mm each, and adjacent verts can land in different body regions "
+    "(armpit vs shoulder vs upper arm) producing isolated spikes. This is "
+    "structural to per-vertex SDF-based pushing on tight garments. The fix "
+    "is a final spike-repair pass that runs after the main retarget loop "
+    "converges: iteratively pull verts whose 1-ring centroid offset > 20mm "
+    "back 50% toward that centroid, then apply the existing inside-body "
+    "clamp. 20mm threshold preserves CLO3D wrinkles (typically 2-7mm offset) "
+    "while killing visible spikes. Verified on the saved v45.1 S GLB: worst "
+    "Sleeves outlier dropped 51.5mm -> 19.9mm, Body_F 65.6mm -> 20.5mm, "
+    "Body_B 87.6mm -> 19.9mm. Loose-fit sizes (M, L) trigger zero spike "
+    "repairs because the existing main-loop output is already clean. "
+    "PREVIOUS v45.1 BANNER FOLLOWS: "
     "(v45.1 ships THREE fixes after the first v45 sandbox run on RunPod "
     "produced uniform-gray GLBs and confirmed the size-S sleeve spike "
     "issue from v44 was structural, not cosmetic. "
