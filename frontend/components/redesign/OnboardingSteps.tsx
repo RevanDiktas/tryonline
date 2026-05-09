@@ -7,13 +7,13 @@ const PAL = {
   light: {
     bg: '#ffffff', surface: '#FFFFFF', sub: '#EBE8E0',
     ink: '#0A0A0A', dim: '#7A7770', faint: '#E1DDD2',
-    accent: '#0A0A0A', accentInk: '#ffffff',
+    accent: '#0040FF', accentInk: '#ffffff',
     good: '#1F6B3D', bad: '#8E1F1F',
   },
   dark: {
     bg: '#0A0A0A', surface: '#141414', sub: '#181818',
     ink: '#F2F1EC', dim: '#8A8A8A', faint: '#262626',
-    accent: '#F2F1EC', accentInk: '#0A0A0A',
+    accent: '#0040FF', accentInk: '#ffffff',
     good: '#7CFFA1', bad: '#FF7C7C',
   },
 };
@@ -135,6 +135,7 @@ function NumInput({ value, onChange, placeholder, suffix }: {
     <div style={{
       display: 'flex', minWidth: 0,
       border: `1px solid ${C.faint}`,
+      borderRadius: 12, overflow: 'hidden',
       background: C.surface,
     }}>
       <input
@@ -145,7 +146,7 @@ function NumInput({ value, onChange, placeholder, suffix }: {
         style={{
           flex: 1, minWidth: 0, width: '100%',
           background: 'transparent', border: 'none', outline: 'none',
-          padding: '9px 12px',
+          padding: '11px 14px',
           fontFamily: 'var(--display)', fontSize: 16, fontWeight: 600,
           color: C.ink, letterSpacing: '-0.005em',
         }}
@@ -210,7 +211,7 @@ function Primary({ children, disabled, onClick, type = 'button' }: {
       style={{
         width: '100%',
         background: C.accent, color: C.accentInk,
-        border: 'none', padding: '12px 14px',
+        border: 'none', borderRadius: 9999, padding: '14px 18px',
         fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700,
         letterSpacing: '-0.005em',
         cursor: disabled ? 'not-allowed' : 'pointer',
@@ -226,7 +227,7 @@ function Ghost({ children, onClick }: { children: ReactNode; onClick?: () => voi
     <button type="button" onClick={onClick} style={{
       width: '100%',
       background: 'transparent', color: C.ink,
-      border: `1px solid ${C.faint}`, padding: '12px 14px',
+      border: `1px solid ${C.faint}`, borderRadius: 9999, padding: '14px 18px',
       fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
       letterSpacing: '-0.005em', cursor: 'pointer',
     }}>{children}</button>

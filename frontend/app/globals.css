@@ -198,6 +198,32 @@ body {
 
   --display: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+  /* Redesign 2026-05-09: cobalt accent (the red thread), soft modern radii,
+     Apple-grade type scale, motion easings. Used by website + shopper
+     dashboard surfaces only. Brand dashboard keeps the existing strict-sharp
+     B/W rules. */
+  --accent: #0040FF;
+  --accent-hover: #0030CC;
+  --accent-ink: #FFFFFF;
+  --accent-soft: rgba(0, 64, 255, 0.08);
+  --accent-ring: rgba(0, 64, 255, 0.24);
+
+  --r-chip: 8px;
+  --r-input: 12px;
+  --r-card: 16px;
+  --r-hero: 32px;
+  --r-pill: 9999px;
+
+  --fs-display: clamp(72px, 10vw, 128px);
+  --fs-h1: clamp(48px, 6vw, 96px);
+  --fs-h2: clamp(32px, 4vw, 56px);
+  --fs-lead: 24px;
+  --fs-body: 17px;
+  --fs-caption: 13px;
+
+  --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-snap: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .tryon-redesign-root {
@@ -226,4 +252,157 @@ body {
 @keyframes tryon-bigtype-marquee {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Redesign 2026-05-09 utility classes. Use these on website +
+   shopper dashboard surfaces. Naming: ds- (design system).
+   ───────────────────────────────────────────────────────────── */
+.ds-hero {
+  font-family: var(--display);
+  font-weight: 900;
+  letter-spacing: -0.045em;
+  line-height: 0.88;
+  font-size: var(--fs-display);
+}
+
+.ds-h1 {
+  font-family: var(--display);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  font-size: var(--fs-h1);
+}
+
+.ds-h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  font-size: var(--fs-h2);
+}
+
+.ds-lead {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: var(--fs-lead);
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+}
+
+.ds-body {
+  font-family: var(--display);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+}
+
+.ds-caption {
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ds-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 28px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: none;
+  border-radius: var(--r-pill);
+  font-family: var(--display);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  transition: background 180ms var(--ease-snap), transform 180ms var(--ease-snap);
+}
+
+.ds-btn-primary:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.ds-btn-primary:active {
+  transform: translateY(0);
+}
+
+.ds-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 28px;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  font-family: var(--display);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 180ms var(--ease-snap), border-color 180ms var(--ease-snap);
+}
+
+.ds-btn-ghost:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ds-card {
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-card);
+}
+
+.ds-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-input);
+  font-family: var(--display);
+  font-size: var(--fs-body);
+  color: var(--ink);
+  transition: border-color 180ms var(--ease-snap), box-shadow 180ms var(--ease-snap);
+}
+
+.ds-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-ring);
+}
+
+.ds-link {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color 180ms var(--ease-snap), border-color 180ms var(--ease-snap);
+}
+
+.ds-link:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+@keyframes ds-fade-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ds-fade-up {
+  animation: ds-fade-up 0.6s var(--ease-soft) both;
+}
+
+@keyframes ds-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ds-fade-in {
+  animation: ds-fade-in 0.5s var(--ease-soft) both;
 }

@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { getCurrentUser, type User } from '@/lib/supabase-auth';
 import { useIsMobile } from './useIsMobile';
 
-/* Shared color tokens for nav. Black + white only. */
+/* Shared color tokens for nav. Black + white foundation, cobalt accent on
+   primary CTA only (the "red thread"). Both modes use cobalt for the solid
+   button so the accent reads consistently across the marketing surface. */
 type NavTheme = {
   bg: string;
   ink: string;
@@ -13,12 +15,13 @@ type NavTheme = {
   line: string;
   ctaBg: string;
   ctaInk: string;
+  accent: string;
 };
 
 function useNavTheme(dark?: boolean): NavTheme {
   return dark
-    ? { bg: '#0A0A0A', ink: '#F2F1EC', mute: '#8A8A8A', line: 'rgba(255,255,255,0.10)', ctaBg: '#F2F1EC', ctaInk: '#0A0A0A' }
-    : { bg: '#FAFAF8', ink: '#0A0A0A', mute: '#6E6E6E', line: 'rgba(10,10,10,0.10)', ctaBg: '#0A0A0A', ctaInk: '#FAFAF8' };
+    ? { bg: '#0A0A0A', ink: '#F2F1EC', mute: '#8A8A8A', line: 'rgba(255,255,255,0.10)', ctaBg: '#0040FF', ctaInk: '#FFFFFF', accent: '#0040FF' }
+    : { bg: '#FAFAF8', ink: '#0A0A0A', mute: '#6E6E6E', line: 'rgba(10,10,10,0.10)', ctaBg: '#0040FF', ctaInk: '#FFFFFF', accent: '#0040FF' };
 }
 
 /* Smart hide-on-scroll behavior, used by every nav. */
@@ -138,7 +141,7 @@ export function SharedNav({
                 color: C.ink,
                 cursor: 'pointer',
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                borderRadius: 0,
+                borderRadius: 8,
                 flexShrink: 0,
               }}
             >
@@ -264,16 +267,38 @@ export function NavCta({
     <button
       onClick={handle}
       style={{
-        padding: '9px 16px',
+        padding: '10px 20px',
         background: solid ? C.ctaBg : 'transparent',
         color: solid ? C.ctaInk : C.ink,
         border: solid ? 'none' : `1px solid ${C.ink}`,
-        borderRadius: 0,
+        borderRadius: 9999,
         fontFamily: 'var(--display)',
         fontSize: 13, fontWeight: 600,
+        letterSpacing: '-0.005em',
         cursor: 'pointer',
         display: 'inline-flex', alignItems: 'center', gap: 8,
         whiteSpace: 'nowrap',
+        transition: 'transform 180ms cubic-bezier(0.4, 0, 0.2, 1), background 180ms cubic-bezier(0.4, 0, 0.2, 1)',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'translateY(-1px)';
+        if (!solid) {
+          e.currentTarget.style.background = 'rgba(0, 64, 255, 0.08)';
+          e.currentTarget.style.borderColor = '#0040FF';
+          e.currentTarget.style.color = '#0040FF';
+        } else {
+          e.currentTarget.style.background = '#0030CC';
+        }
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'translateY(0)';
+        if (!solid) {
+          e.currentTarget.style.background = 'transparent';
+          e.currentTarget.style.borderColor = C.ink;
+          e.currentTarget.style.color = C.ink;
+        } else {
+          e.currentTarget.style.background = C.ctaBg;
+        }
       }}
     >{label}</button>
   );
@@ -300,7 +325,7 @@ export function NavIconButton({
         color: C.ink,
         cursor: 'pointer',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        borderRadius: 0,
+        borderRadius: 8,
       }}
     >{icon}</button>
   );
@@ -339,11 +364,12 @@ export function AuthAwareSignInLink({ dark, mobile }: { dark?: boolean; mobile?:
         onClick={() => router.push(href)}
         style={{
           background: C.ctaBg, color: C.ctaInk,
-          border: 'none', padding: '12px 16px',
+          border: 'none', padding: '14px 20px',
           fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
-          cursor: 'pointer', borderRadius: 0,
+          cursor: 'pointer', borderRadius: 9999,
           width: '100%', textAlign: 'left',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          letterSpacing: '-0.005em',
         }}
       >
         <span>{label}</span>

@@ -2,8 +2,34 @@
 
 import React, { createContext, useContext, useEffect, useRef, useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { useIsMobile } from './useIsMobile';
 import { SharedNav, NavLink, NavCta, AuthAwareSignInLink } from './SharedNav';
+
+// Lazy-load AvatarHero so the Three.js bundle doesn't block first paint of the
+// home page. ssr:false because the Canvas needs WebGL.
+const AvatarHero = dynamic(
+  () => import('./AvatarHero').then(m => m.AvatarHero),
+  {
+    ssr: false,
+    loading: () => (
+      <div style={{
+        width: '100%', height: '60vh',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: 'rgba(10,10,10,0.32)', fontFamily: 'var(--display)', fontSize: 13,
+      }}>Loading try-on…</div>
+    ),
+  },
+);
+
+const COBALT = '#0040FF';
+const COBALT_HOVER = '#0030CC';
+
+const PROBLEM_VIGNETTES: string[] = [
+  'A shopper bought size M, returned it, then bought L. You paid for two shipments and a return label.',
+  'She measured small once, ordered medium, swam in it, returned. Two days later, ordered small. Two parcels, one customer.',
+  '70% of fashion returns are caused by fit. Solve fit, recover the margin.',
+];
 
 const PAL = {
   light: {
@@ -87,48 +113,178 @@ const bodyStyle: React.CSSProperties = {
   lineHeight: 1.6,
 };
 
-/* ─── Hero with prominent brand/shopper tiles ─── */
+/* ─── Hero: avatar centerpiece + rotating problem vignette ─── */
 function DesktopHero() {
   const C = useC();
   const router = useRouter();
+  const [vignetteIdx, setVignetteIdx] = useState(0);
+  const [hovered, setHovered] = useState<'primary' | 'ghost' | null>(null);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setVignetteIdx((i) => (i + 1) % PROBLEM_VIGNETTES.length);
+    }, 5500);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <section style={{
       background: C.bg, color: C.ink,
-      padding: '64px 32px 56px',
+      padding: '40px 32px 56px',
+      borderBottom: `1px solid ${C.line}`,
+      minHeight: 'min(96vh, 1000px)',
+      display: 'flex', flexDirection: 'column', justifyContent: 'center',
+      position: 'relative',
+      overflow: 'hidden',
+    }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto', width: '100%' }}>
+        <div style={{
+          fontFamily: 'var(--mono)', fontSize: 12, color: C.mute,
+          letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
+          marginBottom: 28,
+        }}>
+          TryOn — Fit before you buy
+        </div>
+
+        <h1 style={{
+          fontFamily: 'var(--display)', fontWeight: 900,
+          fontSize: 'clamp(64px, 9vw, 128px)',
+          letterSpacing: '-0.045em', lineHeight: 0.88,
+          margin: '0 0 28px', maxWidth: 1180,
+        }}>
+          Try clothes on yourself. Before you buy.
+        </h1>
+
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1.05fr 1fr', gap: 48,
+          alignItems: 'center', marginTop: 12,
+        }}>
+          {/* Left: rotating vignette + CTAs */}
+          <div style={{ minWidth: 0 }}>
+            <div style={{
+              minHeight: 168,
+              display: 'flex', alignItems: 'flex-start',
+              fontFamily: 'var(--display)', fontSize: 22, lineHeight: 1.45,
+              color: C.mute, fontWeight: 400, letterSpacing: '-0.005em',
+              maxWidth: 560,
+            }}>
+              <span
+                key={vignetteIdx}
+                style={{
+                  animation: 'ds-fade-in 0.6s cubic-bezier(0.22, 0.61, 0.36, 1)',
+                  display: 'inline-block',
+                }}
+              >
+                {PROBLEM_VIGNETTES[vignetteIdx]}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
+              <button
+                onClick={() => router.push('/demo')}
+                onMouseEnter={() => setHovered('primary')}
+                onMouseLeave={() => setHovered(null)}
+                style={{
+                  background: hovered === 'primary' ? COBALT_HOVER : COBALT,
+                  color: '#FFFFFF', border: 'none',
+                  padding: '15px 28px', borderRadius: 9999,
+                  fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600,
+                  letterSpacing: '-0.005em',
+                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10,
+                  transform: hovered === 'primary' ? 'translateY(-1px)' : 'translateY(0)',
+                  transition: 'all 180ms cubic-bezier(0.4, 0, 0.2, 1)',
+                }}
+              >
+                Try the demo <span>→</span>
+              </button>
+              <button
+                onClick={() => router.push('/signup')}
+                onMouseEnter={() => setHovered('ghost')}
+                onMouseLeave={() => setHovered(null)}
+                style={{
+                  background: hovered === 'ghost' ? 'rgba(0, 64, 255, 0.08)' : 'transparent',
+                  color: hovered === 'ghost' ? COBALT : C.ink,
+                  border: `1px solid ${hovered === 'ghost' ? COBALT : C.ink}`,
+                  padding: '15px 28px', borderRadius: 9999,
+                  fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600,
+                  letterSpacing: '-0.005em',
+                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8,
+                  transition: 'all 180ms cubic-bezier(0.4, 0, 0.2, 1)',
+                }}
+              >
+                Build your passport
+              </button>
+            </div>
+            <div style={{
+              marginTop: 28,
+              display: 'flex', alignItems: 'center', gap: 10,
+              fontFamily: 'var(--mono)', fontSize: 11, color: C.mute,
+              letterSpacing: '0.08em', textTransform: 'uppercase',
+            }}>
+              {PROBLEM_VIGNETTES.map((_, i) => (
+                <span
+                  key={i}
+                  aria-hidden
+                  style={{
+                    width: i === vignetteIdx ? 22 : 6, height: 2,
+                    background: i === vignetteIdx ? COBALT : C.line,
+                    transition: 'all 400ms cubic-bezier(0.22, 0.61, 0.36, 1)',
+                    display: 'inline-block',
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Right: avatar centerpiece */}
+          <div style={{
+            position: 'relative',
+            borderRadius: 32,
+            overflow: 'hidden',
+            background: C.surface,
+            border: `1px solid ${C.line}`,
+            minHeight: 520,
+          }}>
+            <AvatarHero height="58vh" interactive={true} rotateSpeed={0.7} />
+            <div style={{
+              position: 'absolute', bottom: 16, left: 16,
+              fontFamily: 'var(--mono)', fontSize: 11, color: C.mute,
+              letterSpacing: '0.08em', textTransform: 'uppercase',
+              background: C.bg, padding: '6px 12px', borderRadius: 9999,
+              border: `1px solid ${C.line}`,
+            }}>
+              Ramin Studios — Size M
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Brand/Shopper tiles, moved out of the hero into their own section ─── */
+function DesktopBrandShopperTiles() {
+  const C = useC();
+  const router = useRouter();
+  return (
+    <section style={{
+      background: C.bg, color: C.ink,
+      padding: '88px 32px',
       borderBottom: `1px solid ${C.line}`,
     }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', marginBottom: 56 }}>
-          <h1 style={{
-            ...headingStyle('clamp(52px, 7vw, 104px)'),
-            maxWidth: 1100, margin: '0 auto 20px',
-          }}>
-            TRYON BEFORE YOU BUY.
-          </h1>
-          <p style={{
-            ...bodyStyle, fontSize: 18, color: C.mute,
-            maxWidth: 620, margin: '0 auto 32px',
-          }}>
-            One avatar. Every brand. Real cloth, real measurements, real fit.
-            Built for the 2026 EU fashion rulebook.
-          </p>
-          <button
-            onClick={() => router.push('/demo')}
-            style={{
-              background: C.ink, color: C.bg, border: 'none',
-              padding: '14px 26px',
-              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 10,
-              borderRadius: 0,
-            }}
-          >Try the demo<span>→</span></button>
-        </div>
-
-        {/* Big visible brand vs shopper tiles */}
+        <h2 style={{
+          ...headingStyle('clamp(36px, 4.5vw, 64px)'),
+          marginBottom: 14, maxWidth: 920,
+        }}>
+          Built for both sides.
+        </h2>
+        <p style={{
+          ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 40,
+        }}>
+          Brands cut returns and lift conversion. Shoppers wear every brand without ever guessing a size again.
+        </p>
         <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0,
-          border: `1px solid ${C.ink}`,
+          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20,
         }}>
           <PathTile
             tag="For brands"
@@ -137,7 +293,6 @@ function DesktopHero() {
             cta="See pricing →"
             onClick={() => router.push('/pricing')}
             C={C}
-            border="right"
           />
           <PathTile
             tag="For shoppers"
@@ -146,7 +301,6 @@ function DesktopHero() {
             cta="Sign up free →"
             onClick={() => router.push('/signup')}
             C={C}
-            border="none"
           />
         </div>
       </div>
@@ -158,43 +312,47 @@ function PathTile({
   tag, title, sub, cta, onClick, C, border,
 }: {
   tag: string; title: string; sub: string; cta: string;
-  onClick: () => void; C: Palette; border: 'right' | 'none';
+  onClick: () => void; C: Palette; border?: 'right' | 'none';
 }) {
   const [hover, setHover] = useState(false);
-  const ink = hover ? C.bg : C.ink;
-  const bg = hover ? C.ink : 'transparent';
   return (
     <button
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        background: bg,
-        border: 'none',
-        borderRight: border === 'right' ? `1px solid ${C.ink}` : 'none',
+        background: C.surface,
+        border: `1px solid ${hover ? COBALT : C.line}`,
+        borderRadius: 24,
         padding: '40px 36px',
         display: 'flex', flexDirection: 'column', gap: 16,
         textAlign: 'left',
         cursor: 'pointer',
-        color: ink,
-        transition: 'background 0.18s ease, color 0.18s ease',
-        minHeight: 200,
+        color: C.ink,
+        transition: 'border-color 220ms cubic-bezier(0.22, 0.61, 0.36, 1), transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1)',
+        transform: hover ? 'translateY(-2px)' : 'translateY(0)',
+        minHeight: 220,
       }}
     >
       <div style={{
-        fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
-        opacity: 0.7,
+        fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 500,
+        color: hover ? COBALT : C.mute,
+        letterSpacing: '0.08em', textTransform: 'uppercase',
+        transition: 'color 220ms cubic-bezier(0.22, 0.61, 0.36, 1)',
       }}>{tag}</div>
       <div style={{
         fontFamily: 'var(--display)', fontSize: 'clamp(28px, 3vw, 44px)',
         fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.05,
+        color: C.ink,
       }}>{title}</div>
       <div style={{
-        ...bodyStyle, fontSize: 15, opacity: 0.85, maxWidth: 420,
+        ...bodyStyle, fontSize: 15, color: C.mute, maxWidth: 420,
       }}>{sub}</div>
       <div style={{
         marginTop: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8,
         fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+        color: hover ? COBALT : C.ink,
+        transition: 'color 220ms cubic-bezier(0.22, 0.61, 0.36, 1)',
       }}>{cta}</div>
     </button>
   );
@@ -237,7 +395,7 @@ function DesktopComponents() {
           {items.map(it => (
             <div key={it.tag} style={{
               border: `1px solid ${C.line}`,
-              borderRadius: 0,
+              borderRadius: 16,
               background: C.bg,
               overflow: 'hidden',
               display: 'flex', flexDirection: 'column',
@@ -304,7 +462,7 @@ function DesktopEvidence() {
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div style={{
-              border: `1px solid ${C.line}`, borderRadius: 0,
+              border: `1px solid ${C.line}`, borderRadius: 16,
               background: C.surface, padding: 28,
             }}>
               <div style={{
@@ -346,7 +504,7 @@ function DesktopEvidence() {
             </div>
 
             <div style={{
-              border: `1px solid ${C.line}`, borderRadius: 0,
+              border: `1px solid ${C.line}`, borderRadius: 16,
               background: C.surface,
             }}>
               <div style={{
@@ -390,7 +548,7 @@ function DesktopEvidence() {
               fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 14,
             }}>The EU rulebook, 2026 to 2028.</div>
             <div style={{
-              border: `1px solid ${C.line}`, borderRadius: 0,
+              border: `1px solid ${C.line}`, borderRadius: 16,
               background: C.surface,
             }}>
               {rulebook.map((r, i) => (
@@ -519,7 +677,7 @@ function DesktopBrands() {
             background: C.cardBg, color: C.cardInk,
             padding: '24px 28px',
             fontFamily: 'var(--mono)', fontSize: 12.5, lineHeight: 1.6,
-            border: `1px solid ${C.cardBg}`, borderRadius: 0,
+            border: `1px solid ${C.cardBg}`, borderRadius: 16,
             margin: 0, overflowX: 'auto',
           }}>{`{% comment %} TryOn widget block {% endcomment %}
 <div id="tryon-widget"
@@ -616,9 +774,12 @@ function DesktopShoppers() {
 
             <form onSubmit={submit} style={{
               display: 'flex', alignItems: 'stretch',
-              border: `1px solid ${C.ink}`,
-              maxWidth: 480,
+              border: `1px solid ${C.line}`,
+              borderRadius: 9999,
+              overflow: 'hidden',
+              maxWidth: 520,
               background: C.surface,
+              padding: 4,
             }}>
               <input
                 type="email"
@@ -627,7 +788,7 @@ function DesktopShoppers() {
                 onChange={(e) => setEmail(e.target.value)}
                 style={{
                   background: 'transparent', border: 'none', outline: 'none',
-                  padding: '14px 18px', flex: 1,
+                  padding: '10px 18px', flex: 1,
                   fontFamily: 'var(--display)', fontSize: 15, fontWeight: 500,
                   color: C.ink,
                 }}
@@ -635,9 +796,10 @@ function DesktopShoppers() {
               <button
                 type="submit"
                 style={{
-                  background: C.ink, color: C.bg,
-                  padding: '0 22px', border: 'none',
+                  background: COBALT, color: '#FFFFFF',
+                  padding: '0 22px', border: 'none', borderRadius: 9999,
                   fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
+                  letterSpacing: '-0.005em',
                   cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
                 }}
               >Get my passport <span>→</span></button>
@@ -714,34 +876,117 @@ function DesktopFooter() {
 function MobileHero() {
   const C = useC();
   const router = useRouter();
+  const [vignetteIdx, setVignetteIdx] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setVignetteIdx((i) => (i + 1) % PROBLEM_VIGNETTES.length);
+    }, 5500);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <section style={{
       background: C.bg, color: C.ink,
-      padding: '40px 18px 28px',
+      padding: '32px 18px 36px',
       borderBottom: `1px solid ${C.line}`,
     }}>
-      <div style={{ textAlign: 'center', marginBottom: 32 }}>
-        <h1 style={{ ...headingStyle('40px'), maxWidth: 520, margin: '0 auto 14px' }}>
-          TRYON BEFORE YOU BUY.
-        </h1>
-        <p style={{ ...bodyStyle, fontSize: 14, color: C.mute, maxWidth: 360, margin: '0 auto 22px' }}>
-          One avatar. Every brand. Real cloth, real measurements, real fit.
-        </p>
+      <div style={{
+        fontFamily: 'var(--mono)', fontSize: 11, color: C.mute,
+        letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
+        marginBottom: 18,
+      }}>
+        TryOn — Fit before you buy
+      </div>
+      <h1 style={{
+        fontFamily: 'var(--display)', fontWeight: 900,
+        fontSize: 'clamp(40px, 11vw, 64px)',
+        letterSpacing: '-0.04em', lineHeight: 0.92,
+        margin: '0 0 22px',
+      }}>
+        Try clothes on yourself. Before you buy.
+      </h1>
+
+      <div style={{
+        position: 'relative',
+        borderRadius: 24, overflow: 'hidden',
+        background: C.surface, border: `1px solid ${C.line}`,
+        marginBottom: 22,
+        minHeight: 360,
+      }}>
+        <AvatarHero height="48vh" interactive={true} rotateSpeed={0.7} />
+        <div style={{
+          position: 'absolute', bottom: 12, left: 12,
+          fontFamily: 'var(--mono)', fontSize: 10, color: C.mute,
+          letterSpacing: '0.08em', textTransform: 'uppercase',
+          background: C.bg, padding: '5px 10px', borderRadius: 9999,
+          border: `1px solid ${C.line}`,
+        }}>
+          Ramin Studios — Size M
+        </div>
+      </div>
+
+      <div style={{
+        minHeight: 100,
+        fontFamily: 'var(--display)', fontSize: 16, lineHeight: 1.45,
+        color: C.mute, fontWeight: 400, letterSpacing: '-0.005em',
+        marginBottom: 22,
+      }}>
+        <span
+          key={vignetteIdx}
+          style={{
+            animation: 'ds-fade-in 0.6s cubic-bezier(0.22, 0.61, 0.36, 1)',
+            display: 'inline-block',
+          }}
+        >
+          {PROBLEM_VIGNETTES[vignetteIdx]}
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <button
           onClick={() => router.push('/demo')}
           style={{
-            background: C.ink, color: C.bg, border: 'none',
-            padding: '12px 22px',
-            fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            borderRadius: 0,
+            background: COBALT, color: '#FFFFFF', border: 'none',
+            padding: '14px 22px', borderRadius: 9999,
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+            letterSpacing: '-0.005em',
+            cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
         >Try the demo <span>→</span></button>
+        <button
+          onClick={() => router.push('/signup')}
+          style={{
+            background: 'transparent', color: C.ink,
+            border: `1px solid ${C.ink}`,
+            padding: '14px 22px', borderRadius: 9999,
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+            letterSpacing: '-0.005em',
+            cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}
+        >Build your passport</button>
       </div>
-      <div style={{
-        display: 'flex', flexDirection: 'column', gap: 0,
-        border: `1px solid ${C.ink}`,
-      }}>
+    </section>
+  );
+}
+
+function MobileBrandShopperTiles() {
+  const C = useC();
+  const router = useRouter();
+  return (
+    <section style={{
+      background: C.bg, color: C.ink, padding: '52px 18px',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      <h2 style={{ ...headingStyle('30px'), marginBottom: 14 }}>
+        Built for both sides.
+      </h2>
+      <p style={{ ...bodyStyle, fontSize: 14, color: C.mute, marginBottom: 22 }}>
+        Brands cut returns. Shoppers wear every brand without guessing a size.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <PathTile
           tag="For brands"
           title="I am a brand"
@@ -749,9 +994,7 @@ function MobileHero() {
           cta="See pricing →"
           onClick={() => router.push('/pricing')}
           C={C}
-          border="none"
         />
-        <div style={{ height: 1, background: C.ink }} />
         <PathTile
           tag="For shoppers"
           title="I am a shopper"
@@ -759,7 +1002,6 @@ function MobileHero() {
           cta="Sign up free →"
           onClick={() => router.push('/signup')}
           C={C}
-          border="none"
         />
       </div>
     </section>
@@ -785,7 +1027,7 @@ function MobileComponents() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {items.map(it => (
           <div key={it.tag} style={{
-            border: `1px solid ${C.line}`, borderRadius: 0, background: C.bg, overflow: 'hidden',
+            border: `1px solid ${C.line}`, borderRadius: 16, background: C.bg, overflow: 'hidden',
           }}>
             <div style={{
               aspectRatio: '4/5', background: '#ffffff',
@@ -834,7 +1076,7 @@ function MobileEvidence() {
       </p>
 
       <div style={{
-        border: `1px solid ${C.line}`, borderRadius: 0, background: C.surface,
+        border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface,
         padding: 22, marginBottom: 16,
       }}>
         <div style={{
@@ -851,7 +1093,7 @@ function MobileEvidence() {
         </div>
       </div>
 
-      <div style={{ border: `1px solid ${C.line}`, borderRadius: 0, background: C.surface, marginBottom: 22 }}>
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface, marginBottom: 22 }}>
         <div style={{
           padding: '12px 16px', borderBottom: `1px solid ${C.line}`,
           display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
@@ -889,7 +1131,7 @@ function MobileEvidence() {
       <div style={{
         fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 10,
       }}>EU rulebook, 2026 to 2028</div>
-      <div style={{ border: `1px solid ${C.line}`, borderRadius: 0, background: C.surface }}>
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface }}>
         {rulebook.map((r, i) => (
           <div key={r.date} style={{
             padding: '14px 16px',
@@ -957,10 +1199,11 @@ function MobileBrands() {
       <button
         onClick={() => router.push('/pricing')}
         style={{
-          background: C.ink, color: C.bg, border: 'none',
-          padding: '13px 20px', width: '100%',
-          fontFamily: 'var(--display)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer',
-          borderRadius: 0,
+          background: COBALT, color: '#FFFFFF', border: 'none',
+          padding: '14px 20px', width: '100%',
+          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+          letterSpacing: '-0.005em', cursor: 'pointer',
+          borderRadius: 9999,
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
         }}
       >See full pricing <span>→</span></button>
@@ -1000,8 +1243,11 @@ function MobileShoppers() {
 
       <form onSubmit={submit} style={{
         display: 'flex', alignItems: 'stretch',
-        border: `1px solid ${C.ink}`,
+        border: `1px solid ${C.line}`,
+        borderRadius: 9999,
+        overflow: 'hidden',
         background: C.surface,
+        padding: 4,
       }}>
         <input
           type="email"
@@ -1010,16 +1256,18 @@ function MobileShoppers() {
           onChange={(e) => setEmail(e.target.value)}
           style={{
             background: 'transparent', border: 'none', outline: 'none',
-            padding: '12px 16px', flex: 1,
+            padding: '10px 16px', flex: 1,
             fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500, color: C.ink, minWidth: 0,
           }}
         />
         <button
           type="submit"
           style={{
-            background: C.ink, color: C.bg, padding: '0 16px', border: 'none',
-            fontFamily: 'var(--display)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-            whiteSpace: 'nowrap',
+            background: COBALT, color: '#FFFFFF',
+            padding: '0 16px', border: 'none', borderRadius: 9999,
+            fontFamily: 'var(--display)', fontSize: 12.5, fontWeight: 600,
+            letterSpacing: '-0.005em',
+            cursor: 'pointer', whiteSpace: 'nowrap',
           }}
         >Get my passport</button>
       </form>
@@ -1098,6 +1346,7 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
           <>
             <MobileHero />
             <MobileComponents />
+            <MobileBrandShopperTiles />
             <MobileEvidence />
             <MobileBrands />
             <MobileShoppers />
@@ -1107,6 +1356,7 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
           <>
             <DesktopHero />
             <DesktopComponents />
+            <DesktopBrandShopperTiles />
             <DesktopEvidence />
             <DesktopBrands />
             <DesktopShoppers />

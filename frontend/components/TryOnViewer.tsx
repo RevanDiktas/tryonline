@@ -82,8 +82,10 @@ const AVATAR_Z_OFFSET = -0.010
 // ---------------------------------------------------------------------------
 // Aligned scene: loads avatar + garment, normalizes both to TARGET_HEIGHT,
 // aligns garment feet to avatar feet - identical to the PDP widget.
+// Exported so the AvatarHero on the marketing site can reuse the same logic
+// (and benefit from drei's per-URL GLB cache).
 // ---------------------------------------------------------------------------
-function AlignedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; garmentUrl: string }) {
+export function AlignedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; garmentUrl: string }) {
   const avatarGltf = useGLTF(avatarUrl)
   const garmentGltf = useGLTF(garmentUrl)
   const groupRef = useRef<THREE.Group>(null)

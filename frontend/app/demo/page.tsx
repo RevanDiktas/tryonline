@@ -64,19 +64,22 @@ function ProductPanel({ C, mobile, onTryOn }: { C: Palette; mobile: boolean; onT
       <button
         onClick={onTryOn}
         style={{
-          background: C.ink, color: C.bg,
-          padding: mobile ? '13px 18px' : '14px 22px', border: 'none', borderRadius: 0,
-          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          background: '#0040FF', color: '#FFFFFF',
+          padding: mobile ? '14px 20px' : '15px 24px', border: 'none', borderRadius: 9999,
+          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+          letterSpacing: '-0.005em', cursor: 'pointer',
           marginBottom: 10,
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+          transition: 'background 180ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >Try on <span>→</span></button>
 
       <button
         style={{
           background: 'transparent', color: C.ink,
-          padding: mobile ? '12px 18px' : '13px 22px', border: `1px solid ${C.ink}`, borderRadius: 0,
-          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500, cursor: 'pointer',
+          padding: mobile ? '13px 20px' : '14px 24px', border: `1px solid ${C.ink}`, borderRadius: 9999,
+          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500,
+          letterSpacing: '-0.005em', cursor: 'pointer',
         }}
       >Add to cart</button>
 
@@ -122,7 +125,7 @@ function Widget({ C, mobile, onClose }: { C: Palette; mobile: boolean; onClose: 
         maxHeight: mobile ? '100dvh' : '92vh',
         background: C.surface,
         border: mobile ? 'none' : `1px solid ${C.line}`,
-        borderRadius: 0,
+        borderRadius: 16,
         overflow: 'hidden',
         display: 'flex', flexDirection: 'column',
       }}>
@@ -152,7 +155,7 @@ function Widget({ C, mobile, onClose }: { C: Palette; mobile: boolean; onClose: 
               background: 'transparent', border: `1px solid ${C.line}`,
               color: C.ink, cursor: 'pointer',
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 16, borderRadius: 0, flexShrink: 0,
+              fontSize: 16, borderRadius: 16, flexShrink: 0,
             }}
           >×</button>
         </div>
@@ -234,7 +237,7 @@ function Widget({ C, mobile, onClose }: { C: Palette; mobile: boolean; onClose: 
                         background: active ? C.ink : 'transparent',
                         color: active ? C.bg : C.ink,
                         border: `1px solid ${active ? C.ink : C.line}`,
-                        borderRadius: 0,
+                        borderRadius: 16,
                         fontFamily: 'var(--display)', fontSize: mobile ? 12 : 13, fontWeight: 600,
                         cursor: 'pointer',
                       }}
@@ -265,7 +268,7 @@ function Widget({ C, mobile, onClose }: { C: Palette; mobile: boolean; onClose: 
                 style={{
                   width: '100%',
                   background: C.ink, color: C.bg, border: 'none',
-                  padding: mobile ? '12px 14px' : '12px 14px', borderRadius: 0,
+                  padding: mobile ? '12px 14px' : '12px 14px', borderRadius: 16,
                   fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 }}
               >Add to cart</button>

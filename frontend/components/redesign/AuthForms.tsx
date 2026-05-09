@@ -8,12 +8,12 @@ const PAL = {
   light: {
     bg: '#ffffff', surface: '#FFFFFF',
     ink: '#0A0A0A', dim: '#7A7770', faint: '#E1DDD2',
-    accent: '#0A0A0A', accentInk: '#ffffff',
+    accent: '#0040FF', accentInk: '#ffffff',
   },
   dark: {
     bg: '#0A0A0A', surface: '#141414',
     ink: '#F2F1EC', dim: '#8A8A8A', faint: '#262626',
-    accent: '#F2F1EC', accentInk: '#0A0A0A',
+    accent: '#0040FF', accentInk: '#ffffff',
   },
 };
 
@@ -44,10 +44,13 @@ function Field({ label, required, children, sub }: {
 const baseInput = (C: Palette, focus: boolean) => ({
   width: '100%', boxSizing: 'border-box' as const,
   background: C.surface,
-  border: `1px solid ${focus ? C.ink : C.faint}`,
-  padding: '9px 12px',
+  border: `1px solid ${focus ? C.accent : C.faint}`,
+  borderRadius: 12,
+  padding: '11px 14px',
   fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500,
   color: C.ink, outline: 'none', letterSpacing: '-0.005em',
+  boxShadow: focus ? `0 0 0 4px rgba(0, 64, 255, 0.18)` : 'none',
+  transition: 'border-color 180ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 180ms cubic-bezier(0.4, 0, 0.2, 1)',
 });
 
 function TextInput({
@@ -94,6 +97,7 @@ function PhoneInput({
         onChange={(e) => onCodeChange(e.target.value)}
         style={{
           background: C.surface, border: `1px solid ${C.faint}`,
+          borderRadius: 12,
           padding: '0 10px', appearance: 'none', WebkitAppearance: 'none',
           fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 500,
           outline: 'none',
@@ -181,12 +185,14 @@ function SSOButton({
         background: isGoogle ? C.surface : C.ink,
         color: isGoogle ? C.ink : '#F2F1EC',
         border: `1px solid ${isGoogle ? C.faint : C.ink}`,
-        padding: '10px 12px',
+        borderRadius: 9999,
+        padding: '11px 14px',
         fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
         letterSpacing: '-0.005em',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.6 : 1,
+        transition: 'transform 180ms cubic-bezier(0.4, 0, 0.2, 1)',
       }}
     >
       {isGoogle ? GoogleG : <span style={{ display: 'inline-flex', color: '#F2F1EC' }}>{AppleA}</span>}
@@ -493,7 +499,7 @@ function SignUpInner({
                 style={{
                   width: '100%',
                   background: C.accent, color: C.accentInk,
-                  border: 'none', padding: '12px 14px',
+                  border: 'none', borderRadius: 9999, padding: '14px 18px',
                   fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700,
                   letterSpacing: '-0.005em',
                   cursor: (loading || !agreed) ? 'not-allowed' : 'pointer',
@@ -700,7 +706,7 @@ function SignInInner({
               style={{
                 width: '100%',
                 background: C.accent, color: C.accentInk,
-                border: 'none', padding: '12px 14px',
+                border: 'none', borderRadius: 9999, padding: '14px 18px',
                 fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700,
                 letterSpacing: '-0.005em',
                 cursor: loading ? 'not-allowed' : 'pointer',
@@ -999,7 +1005,7 @@ function BrandSignUpInner({
                 style={{
                   width: '100%',
                   background: C.accent, color: C.accentInk,
-                  border: 'none', padding: '12px 14px',
+                  border: 'none', borderRadius: 9999, padding: '14px 18px',
                   fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700,
                   letterSpacing: '-0.005em',
                   cursor: (loading || !agreed) ? 'not-allowed' : 'pointer',

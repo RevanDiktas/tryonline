@@ -213,7 +213,7 @@ function Tiers({ C }: { C: Palette }) {
                   marginTop: 'auto',
                   background: dark ? C.cardInk : C.ink,
                   color: dark ? C.cardBg : C.bg,
-                  padding: '12px 16px', borderRadius: 0, border: 'none',
+                  padding: '12px 16px', borderRadius: 16, border: 'none',
                   fontFamily: 'var(--display)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer',
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}
@@ -392,11 +392,13 @@ function FinalCTA({ C }: { C: Palette }) {
           <button
             onClick={() => router.push('/signup?type=brand')}
             style={{
-              background: C.ink, color: C.bg, border: 'none',
-              padding: '13px 22px',
-              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              background: '#0040FF', color: '#FFFFFF', border: 'none',
+              padding: '14px 24px',
+              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+              letterSpacing: '-0.005em', cursor: 'pointer',
               display: 'inline-flex', alignItems: 'center', gap: 10,
-              borderRadius: 0,
+              borderRadius: 9999,
+              transition: 'background 180ms cubic-bezier(0.4, 0, 0.2, 1)',
             }}
           >Start free <span>→</span></button>
           <button
@@ -404,10 +406,11 @@ function FinalCTA({ C }: { C: Palette }) {
             style={{
               background: 'transparent', color: C.ink,
               border: `1px solid ${C.ink}`,
-              padding: '13px 22px',
-              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              padding: '14px 24px',
+              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+              letterSpacing: '-0.005em', cursor: 'pointer',
               display: 'inline-flex', alignItems: 'center', gap: 10,
-              borderRadius: 0,
+              borderRadius: 9999,
             }}
           >Book a call</button>
         </div>

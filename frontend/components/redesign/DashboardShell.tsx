@@ -7,13 +7,13 @@ const PAL = {
   light: {
     bg: '#ffffff', surface: '#FFFFFF',
     ink: '#0A0A0A', dim: '#7A7770', faint: '#E1DDD2',
-    accent: '#0A0A0A', accentInk: '#ffffff',
+    accent: '#0040FF', accentInk: '#ffffff',
     good: '#1F6B3D', bad: '#8E1F1F',
   },
   dark: {
     bg: '#0A0A0A', surface: '#141414',
     ink: '#F2F1EC', dim: '#8A8A8A', faint: '#262626',
-    accent: '#F2F1EC', accentInk: '#0A0A0A',
+    accent: '#0040FF', accentInk: '#ffffff',
     good: '#7CFFA1', bad: '#FF7C7C',
   },
 };
@@ -122,7 +122,7 @@ export function FloatingNav({
               border: `1px solid ${C.faint}`, background: 'transparent',
               color: C.ink, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              borderRadius: 0,
+              borderRadius: 8,
             }}
           >
             {dark ? (
@@ -140,10 +140,11 @@ export function FloatingNav({
             onClick={onSignOut}
             style={{
               background: C.ink, color: C.bg, border: 'none',
-              padding: mobile ? '8px 12px' : '9px 16px',
+              padding: mobile ? '9px 14px' : '10px 18px',
               fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
+              letterSpacing: '-0.005em',
               cursor: 'pointer', whiteSpace: 'nowrap',
-              borderRadius: 0,
+              borderRadius: 9999,
             }}
           >Sign out</button>
         </div>
@@ -165,12 +166,14 @@ export function DashCard({
     <div style={{
       border: `1px solid ${C.faint}`,
       background: C.surface,
+      borderRadius: 16,
+      overflow: 'hidden',
       display: 'flex', flexDirection: 'column',
       height: '100%',
     }}>
       {(title || right) && (
         <div style={{
-          padding: '12px 16px',
+          padding: '14px 18px',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
           borderBottom: `1px solid ${C.faint}`,
           flex: '0 0 auto',
@@ -185,7 +188,7 @@ export function DashCard({
         </div>
       )}
       <div style={{
-        padding: padded ? '16px' : 0,
+        padding: padded ? '18px' : 0,
         flex: '1 1 auto', minHeight: 0,
         display: 'flex', flexDirection: 'column',
       }}>{children}</div>
@@ -219,8 +222,10 @@ export function DashPrimaryBtn({
           padding: pad,
           fontFamily: 'var(--display)', fontSize,
           letterSpacing: '-0.005em', fontWeight: 600,
+          borderRadius: 9999,
           cursor: disabled ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.5 : 1,
+          transition: 'border-color 180ms cubic-bezier(0.4, 0, 0.2, 1), color 180ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >{children}</button>
     );
@@ -236,8 +241,10 @@ export function DashPrimaryBtn({
         padding: pad,
         fontFamily: 'var(--display)', fontSize,
         letterSpacing: '-0.005em', fontWeight: 600,
+        borderRadius: 9999,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
+        transition: 'background 180ms cubic-bezier(0.4, 0, 0.2, 1), transform 180ms cubic-bezier(0.4, 0, 0.2, 1)',
       }}
     >{children}</button>
   );
@@ -257,14 +264,16 @@ export function DashChipBtn({
       onClick={onClick}
       disabled={disabled}
       style={{
-        padding: '6px 12px',
+        padding: '7px 14px',
         background: active ? C.accent : 'transparent',
         color: active ? C.accentInk : C.dim,
         border: `1px solid ${active ? C.accent : C.faint}`,
+        borderRadius: 9999,
         fontFamily: 'var(--display)', fontSize: 12, letterSpacing: '-0.005em',
         fontWeight: active ? 700 : 500,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
+        transition: 'all 180ms cubic-bezier(0.4, 0, 0.2, 1)',
       }}
     >{children}</button>
   );
@@ -283,9 +292,10 @@ export function MeasureCellD({
   return (
     <div style={{
       background: C.bg,
-      padding: '10px 12px',
+      padding: '12px 14px',
       display: 'flex', flexDirection: 'column', gap: 4,
       border: `1px solid ${C.faint}`,
+      borderRadius: 12,
     }}>
       <span style={{
         fontFamily: 'var(--display)', fontSize: 10, letterSpacing: '0.06em',
