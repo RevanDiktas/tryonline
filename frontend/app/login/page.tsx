@@ -6,6 +6,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { login, hasAvatarFiles, signInWithSocial } from '@/lib/supabase-auth';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
+import { isShopifyMode } from '@/lib/app-mode';
 import { AuthSignIn, type SignInData } from '@/components/redesign/AuthForms';
 
 function LoginContent() {
@@ -50,6 +51,8 @@ function LoginContent() {
     else if (error) setFormError(error);
   };
 
+  const shopifyMode = isShopifyMode() || !!resolvedShop;
+
   return (
     <AuthSignIn
       dark={dark}
@@ -58,7 +61,8 @@ function LoginContent() {
       onSubmit={handleSubmit}
       onGoogle={() => handleSocial('google')}
       onApple={() => handleSocial('apple')}
-      onSignUpClick={() => router.push('/signup')}
+      onSignUpClick={() => router.push(resolvedShop ? `/signup?shop=${encodeURIComponent(resolvedShop)}` : '/signup')}
+      shopifyMode={shopifyMode}
     />
   );
 }

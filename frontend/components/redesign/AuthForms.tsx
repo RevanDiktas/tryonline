@@ -525,6 +525,8 @@ export type AuthSignInProps = {
   onGoogle?: () => void | Promise<void>;
   onApple?: () => void | Promise<void>;
   onSignUpClick?: () => void;
+  /** Brand-only embedded Shopify surface: brand copy, hide shopper SSO. */
+  shopifyMode?: boolean;
 };
 
 export function AuthSignIn({
@@ -535,6 +537,7 @@ export function AuthSignIn({
   onGoogle,
   onApple,
   onSignUpClick,
+  shopifyMode = false,
 }: AuthSignInProps) {
   const C = dark ? PAL.dark : PAL.light;
   const mobile = useIsMobile();
@@ -554,6 +557,7 @@ export function AuthSignIn({
           onApple={onApple}
           onSignUpClick={onSignUpClick}
           darkBg={dark}
+          shopifyMode={shopifyMode}
         />
       </div>
     </ThemeCtx.Provider>
@@ -561,7 +565,7 @@ export function AuthSignIn({
 }
 
 function SignInInner({
-  mobile, loading, formError, onSubmit, onGoogle, onApple, onSignUpClick, darkBg,
+  mobile, loading, formError, onSubmit, onGoogle, onApple, onSignUpClick, darkBg, shopifyMode,
 }: {
   mobile: boolean;
   loading: boolean;
@@ -571,6 +575,7 @@ function SignInInner({
   onApple?: () => void | Promise<void>;
   onSignUpClick?: () => void;
   darkBg: boolean;
+  shopifyMode: boolean;
 }) {
   const C = useC();
   const [f, setF] = useState<SignInData>({ email: '', password: '', remember: true });
@@ -597,7 +602,7 @@ function SignInInner({
             type="button"
             onClick={onSignUpClick}
             style={{ color: C.ink, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}
-          >Open a passport</button>
+          >{shopifyMode ? 'Sign up' : 'Open a passport'}</button>
         </span>
       </div>
 
@@ -615,20 +620,24 @@ function SignInInner({
             <div style={{
               fontFamily: 'var(--display)', fontSize: 12, letterSpacing: '0.04em',
               color: C.dim, textTransform: 'uppercase', marginBottom: 8,
-            }}>Enter your passport</div>
+            }}>{shopifyMode ? 'Brand sign in' : 'Enter your passport'}</div>
             <h1 style={{
               fontFamily: 'var(--display)', fontWeight: 700,
               fontSize: mobile ? 28 : 36, letterSpacing: '-0.025em', lineHeight: 1.05,
               margin: 0, color: C.ink,
-            }}>Welcome back, shopper.</h1>
+            }}>{shopifyMode ? 'Welcome back, brand.' : 'Welcome back, shopper.'}</h1>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <SSOButton kind="google" onClick={onGoogle} disabled={loading}>Google</SSOButton>
-            <SSOButton kind="apple" onClick={onApple} disabled={loading}>Apple</SSOButton>
-          </div>
+          {!shopifyMode && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <SSOButton kind="google" onClick={onGoogle} disabled={loading}>Google</SSOButton>
+                <SSOButton kind="apple" onClick={onApple} disabled={loading}>Apple</SSOButton>
+              </div>
 
-          <Divider />
+              <Divider />
+            </>
+          )}
 
           <div style={{ display: 'grid', gap: 12 }}>
             <Field label="Email" required>

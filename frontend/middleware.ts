@@ -13,6 +13,7 @@ const ALLOWED_PATH_PREFIXES = [
   '/brand',
   '/onboarding',
   '/login',
+  '/signup',
   '/api/',
   '/auth/',
 ];
