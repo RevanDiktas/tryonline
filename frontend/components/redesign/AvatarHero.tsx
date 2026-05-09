@@ -47,30 +47,30 @@ export function AvatarHero({
       aria-label="3D avatar wearing Ramin Studios garment, size M"
     >
       <Canvas
-        camera={{ position: [0, 0.35, 2.6], fov: 28 }}
+        camera={{ position: [0, 0.05, 3.6], fov: 30 }}
         shadows
         gl={{ alpha: true, antialias: true, preserveDrawingBuffer: false }}
         style={{ background: 'transparent' }}
         dpr={[1, 2]}
       >
-        <ambientLight intensity={0.45} />
+        <ambientLight intensity={0.5} />
         <directionalLight
           position={[3, 4, 3]}
-          intensity={1.2}
+          intensity={1.1}
           castShadow
           shadow-mapSize-width={1024}
           shadow-mapSize-height={1024}
         />
-        <directionalLight position={[-3, 2, -2]} intensity={0.4} />
+        <directionalLight position={[-3, 2, -2]} intensity={0.35} />
         <Environment preset="studio" />
 
         <Suspense fallback={null}>
           <AlignedScene avatarUrl={AVATAR_URL} garmentUrl={GARMENT_URL} />
           <ContactShadows
             position={[0, -0.9, 0]}
-            opacity={0.32}
-            scale={4}
-            blur={2.4}
+            opacity={0.28}
+            scale={5}
+            blur={2.6}
             far={2}
           />
         </Suspense>
