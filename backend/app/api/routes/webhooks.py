@@ -196,6 +196,20 @@ async def shopify_compliance_webhook(request: Request):
     elif topic == "shop/redact":
         # Payload: shop_id, shop_domain
         pass
+    elif topic == "app/uninstalled":
+        # Null the access token so has_shopify_session() returns false. Brand row is
+        # retained; shop/redact handles data deletion 48h later if no reinstall.
+        shop_domain = (
+            request.headers.get("X-Shopify-Shop-Domain")
+            or payload.get("myshopify_domain")
+            or payload.get("domain")
+        )
+        if shop_domain:
+            try:
+                supabase_service.clear_shopify_tokens_matching_shop_domain(shop_domain)
+                print(f"[Shopify uninstall] cleared token shop={shop_domain!r}")
+            except Exception as e:
+                print(f"[Shopify uninstall] clear token error shop={shop_domain!r}: {e}")
 
     return Response(status_code=200, content="OK", media_type="text/plain")
 

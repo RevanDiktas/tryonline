@@ -51,6 +51,20 @@ def _oauth_creds_for_shop(shop: str) -> tuple[str, str] | None:
     return None
 
 
+def _frontend_app_url_for_shop(shop: str | None) -> str:
+    """
+    Return the frontend domain to redirect to after OAuth. Pilot shops land on the
+    pilot frontend (tryon.global); all others land on the App Store submission
+    frontend (app.tryon.global). Falls back to primary if pilot override is unset.
+    """
+    s = (shop or "").strip().lower()
+    if s and s in _pilot_shop_domains():
+        pilot = (settings.frontend_app_url_pilot or "").strip()
+        if pilot:
+            return pilot.rstrip("/")
+    return settings.frontend_app_url.rstrip("/")
+
+
 def _verify_hmac(params: dict, secret: str, received_hmac: str) -> bool:
     """Verify Shopify HMAC: params (without hmac) sorted, joined, HMAC-SHA256 with secret."""
     if not secret or not received_hmac:
@@ -117,13 +131,13 @@ async def shopify_auth_callback(
     print(f"[Shopify callback] hit: shop={shop!r} code={'yes' if code else 'no'} state_cookie={'yes' if request.cookies.get(STATE_COOKIE) else 'no'}")
     if not code or not shop or not hmac or not state:
         return RedirectResponse(
-            url=f"{settings.frontend_app_url.rstrip('/')}/app?error=missing_params",
+            url=f"{_frontend_app_url_for_shop(shop)}/app?error=missing_params",
             status_code=302,
         )
     shop = shop.strip().lower()
     if not SHOP_PATTERN.match(shop):
         return RedirectResponse(
-            url=f"{settings.frontend_app_url.rstrip('/')}/app?error=invalid_shop",
+            url=f"{_frontend_app_url_for_shop(shop)}/app?error=invalid_shop",
             status_code=302,
         )
     # State cookie is set when WE redirect to OAuth (embedded app flow). When the user
@@ -133,7 +147,7 @@ async def shopify_auth_callback(
     state_cookie = request.cookies.get(STATE_COOKIE)
     if state_cookie and not secrets.compare_digest(state_cookie, state):
         return RedirectResponse(
-            url=f"{settings.frontend_app_url.rstrip('/')}/app?error=invalid_state",
+            url=f"{_frontend_app_url_for_shop(shop)}/app?error=invalid_state",
             status_code=302,
         )
     # Build param map for HMAC (all query params)
@@ -141,13 +155,13 @@ async def shopify_auth_callback(
     creds = _oauth_creds_for_shop(shop)
     if not creds:
         return RedirectResponse(
-            url=f"{settings.frontend_app_url.rstrip('/')}/app?error=oauth_not_configured",
+            url=f"{_frontend_app_url_for_shop(shop)}/app?error=oauth_not_configured",
             status_code=302,
         )
     _cid, client_secret = creds
     if not _verify_hmac(q, client_secret, hmac):
         return RedirectResponse(
-            url=f"{settings.frontend_app_url.rstrip('/')}/app?error=hmac_failed",
+            url=f"{_frontend_app_url_for_shop(shop)}/app?error=hmac_failed",
             status_code=302,
         )
     import httpx
@@ -163,31 +177,31 @@ async def shopify_auth_callback(
     except Exception as e:
         print(f"[Shopify callback] token exchange network error: {e}")
         return RedirectResponse(
-            url=f"{settings.frontend_app_url.rstrip('/')}/app?error=token_exchange",
+            url=f"{_frontend_app_url_for_shop(shop)}/app?error=token_exchange",
             status_code=302,
         )
     if r.status_code != 200:
         print(f"[Shopify callback] token exchange HTTP {r.status_code}: {r.text[:800]}")
         return RedirectResponse(
-            url=f"{settings.frontend_app_url.rstrip('/')}/app?error=token_exchange",
+            url=f"{_frontend_app_url_for_shop(shop)}/app?error=token_exchange",
             status_code=302,
         )
     data = r.json()
     access_token = data.get("access_token")
     if not access_token:
         return RedirectResponse(
-            url=f"{settings.frontend_app_url.rstrip('/')}/app?error=no_token",
+            url=f"{_frontend_app_url_for_shop(shop)}/app?error=no_token",
             status_code=302,
         )
     brand_id = supabase.upsert_brand_for_shop(shop, access_token)
     if not brand_id:
         print(f"[Shopify callback] db_failed: shop={shop!r}")
         return RedirectResponse(
-            url=f"{settings.frontend_app_url.rstrip('/')}/app?error=db_failed",
+            url=f"{_frontend_app_url_for_shop(shop)}/app?error=db_failed",
             status_code=302,
         )
     print(f"[Shopify callback] brand created: shop={shop!r} brand_id={brand_id}")
-    app_url = f"{settings.frontend_app_url.rstrip('/')}/app?shop={shop}"
+    app_url = f"{_frontend_app_url_for_shop(shop)}/app?shop={shop}"
     resp = RedirectResponse(url=app_url, status_code=302)
     resp.delete_cookie(STATE_COOKIE, samesite="none", secure=True)
     return resp

@@ -50,7 +50,8 @@ class Settings(BaseSettings):
     shopify_client_secret_pilot: str = ""
     # Comma-separated *.myshopify.com hostnames that use pilot OAuth credentials (default: Ramin Studios store)
     shopify_pilot_shops: str = "raminstudios.myshopify.com"
-    frontend_app_url: str = "https://tryon-shopify-theta.vercel.app"  # Base URL of Shopify app frontend for OAuth redirect
+    frontend_app_url: str = "https://tryon-shopify-theta.vercel.app"  # Base URL of Shopify app frontend for OAuth redirect (primary app)
+    frontend_app_url_pilot: str = ""  # Override for shopify_pilot_shops (e.g. Ramin Studios stays on tryon.global; App Store submission lives on app.tryon.global)
     backend_public_url: str = ""  # Public URL of this API (e.g. https://api.railway.app) for OAuth callback
 
     # Server (Railway/Render set PORT at runtime)
