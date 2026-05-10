@@ -331,7 +331,7 @@ def _retarget_garment_to_body(
     cloth_faces: np.ndarray,
     body_verts: np.ndarray,
     body_obj: Path,
-    target_offset: float = 0.005,
+    target_offset = 0.005,
     n_iters: int = 15,
     smooth_factor: float = 0.3,
     capture_frames: bool = False,
@@ -437,6 +437,23 @@ def _retarget_garment_to_body(
     total_pushed_first_iter = 0
     iters_run = 0
 
+    # v45.7: target_offset may be a scalar OR a per-vertex array. The
+    # per-vertex form lets the caller use a smaller offset on Sleeves_*
+    # (mostly cylindrical, low body_apose vs avatar_textured topology
+    # gap → 1mm is plenty) than on Body_* (convex apex regions like the
+    # chest and waist → need 6mm to clear the topology gap). Source-S
+    # sleeves visibly puffed out at 6mm because the entire sleeve panel
+    # had to expand to body+6mm; reducing the sleeve target to 1mm cuts
+    # the visible halo to 1mm.
+    target_offset_arr = np.asarray(target_offset, dtype=np.float64)
+    if target_offset_arr.ndim == 0:
+        target_offset_arr = np.full(len(verts), float(target_offset_arr))
+    else:
+        assert len(target_offset_arr) == len(verts), (
+            f"per-vert target_offset length {len(target_offset_arr)} "
+            f"does not match welded vert count {len(verts)}"
+        )
+
     # v45.4: per-vertex CLOTH outward normals from the SOURCE welded mesh.
     # Used as the push direction below instead of the BODY face normal.
     #
@@ -532,11 +549,14 @@ def _retarget_garment_to_body(
     if capture_frames:
         captured_frames.append(verts.copy())
 
+    # Reverted to v45.7-style: cloth-normal blend + inside-only push +
+    # push-magnitude smoothing + post-iter Laplacian smoothing of
+    # non-pushed neighbours + body clamp. This was the version that
+    # gave M and L clean output.
     import time as _time_mod
     _t_loop_start = _time_mod.time()
     for iteration in range(n_iters):
         _t_iter = _time_mod.time()
-        # Face-accurate closest points via the cached ProximityQuery.
         closest, _, tri_ids = pq.on_surface(verts)
         tri_normals = face_normals[tri_ids]
         delta = verts - closest
@@ -544,99 +564,79 @@ def _retarget_garment_to_body(
 
         if iteration == 0:
             initial_min_sdf_mm = float(sdf.min() * 1000.0)
-            total_pushed_first_iter = int((sdf < target_offset).sum())
+            total_pushed_first_iter = int((sdf < target_offset_arr).sum())
 
-        needs_push_mask = sdf < target_offset
+        needs_push_mask = sdf < target_offset_arr
         n_push = int(needs_push_mask.sum())
         iters_run = iteration + 1
         if n_push == 0:
             break
 
-        # v45.4: COHERENT DILATION along cloth normals. See the long
-        # comment above cloth_normals for the structural reason this
-        # replaces v45.3's body-normal per-vert push.
-        #
-        # Build a per-vert "desired push" scalar field:
-        #   desired_i = max(target_offset - sdf_i, 0)
-        # so inside verts have positive desire, outside verts have 0.
-        # Then SMOOTH this field over the 1-ring so neighbour amounts
-        # converge. This is the key vs v45.3 (which only smoothed
-        # neighbour positions, not the push amounts themselves) and vs
-        # the earlier v45.4 attempt (which only pushed verts inside the
-        # mask, leaving outside neighbours stationary while inside ones
-        # iterated for many steps — that gap was the residual stretch).
-        # When we then apply the smoothed push to EVERY vert (not just
-        # the inside mask), adjacent verts move by similar amounts,
-        # which is what preserves edge length.
-        MAX_PUSH_PER_ITER = 0.020  # 20 mm safety cap on per-iter motion
+        MAX_PUSH_PER_ITER = 0.020
 
-        # Body-normal alignment for each vert (used to scale push so
-        # SDF gain matches the desired push, since pushing along cloth
-        # normal at angle theta to body normal yields |push|*cos(theta)
-        # of body-normal-direction SDF gain).
-        cos_align = np.einsum("ij,ij->i", cloth_normals, tri_normals)
-        # alpha=1 when cloth normal aligns with body outward, alpha=0
-        # when they oppose. Smooth lerp in between.
+        body_n = tri_normals[needs_push_mask]
+        cloth_n = cloth_normals[needs_push_mask]
+        cos_align = np.einsum("ij,ij->i", cloth_n, body_n)
         alpha = np.clip(cos_align / 0.5, 0.0, 1.0)
-        push_dirs = (
-            alpha[:, None] * cloth_normals
-            + (1.0 - alpha[:, None]) * tri_normals
-        )
+        push_dirs = alpha[:, None] * cloth_n + (1.0 - alpha[:, None]) * body_n
         nlen = np.linalg.norm(push_dirs, axis=1, keepdims=True)
         nlen[nlen < 1e-12] = 1.0
         push_dirs = push_dirs / nlen
-        push_along_body = np.einsum("ij,ij->i", push_dirs, tri_normals)
+        push_along_body = np.einsum("ij,ij->i", push_dirs, body_n)
         safe_along = np.maximum(push_along_body, 0.30)
 
-        # Desired push along push_dirs to advance SDF by (target - sdf):
-        desired_full = np.maximum(target_offset - sdf, 0.0) / safe_along
-        desired_full = np.minimum(desired_full, MAX_PUSH_PER_ITER)
+        desired = (target_offset_arr[needs_push_mask] - sdf[needs_push_mask]) / safe_along
+        desired = np.minimum(desired, MAX_PUSH_PER_ITER)
 
-        # Smooth the desired-push field across 1-ring. Verts adjacent to
-        # an inside region get a smoothed nonzero desire and move with
-        # their inside neighbours, which is what preserves edges.
         if W_neighbor is not None:
-            for _ in range(3):
-                desired_full = 0.5 * desired_full + 0.5 * (W_neighbor @ desired_full)
-            # Cap again post-smooth.
-            desired_full = np.minimum(desired_full, MAX_PUSH_PER_ITER)
-
-        # Apply to EVERY vert, not just the inside mask. Outside verts
-        # get small smoothed pushes that move them gently outward in
-        # step with their inside neighbours.
-        verts = verts + push_dirs * desired_full[:, None]
-
-        # v45.4: smooth the DISPLACEMENT field (verts - source) across
-        # the full mesh. Smoothing positions directly washes out
-        # CLO3D's wrinkles (because source verts aren't on a smooth
-        # surface — they encode local detail). Smoothing only the
-        # displacement (deformation since source) preserves source
-        # detail while making adjacent verts move by similar amounts.
-        # This is the layer that prevents long-range drift: even if
-        # vert A pushes for 12 iters and vert B pushes for 1 iter,
-        # smoothing their displacement fields ties them together.
-        if W_neighbor is not None:
-            d = verts - cloth_verts
+            full_push = np.zeros(len(verts), dtype=np.float64)
+            full_push[needs_push_mask] = desired
             for _ in range(2):
-                d = 0.7 * d + 0.3 * (W_neighbor @ d)
-            verts = cloth_verts + d
+                full_push = 0.5 * full_push + 0.5 * (W_neighbor @ full_push)
+            desired = full_push[needs_push_mask]
+            desired = np.minimum(desired, MAX_PUSH_PER_ITER)
 
-        # v28 post-smooth clamp: any vert driven back inside by smoothing
-        # gets hard-snapped to target. Cheap: one extra proximity query per
-        # iter, same cached ProximityQuery. Eliminates the oscillation
-        # that kept iters_run=15/15.
+        verts[needs_push_mask] = (
+            verts[needs_push_mask] + push_dirs * desired[:, None]
+        )
+
+        pushed_indices = np.where(needs_push_mask)[0]
+        pushed_set: set = set(int(i) for i in pushed_indices)
+        smooth_targets: set = set()
+        for vi in pushed_indices:
+            ns = neighbor_arrays.get(int(vi))
+            if ns is not None:
+                for n in ns:
+                    ni = int(n)
+                    if ni not in pushed_set:
+                        smooth_targets.add(ni)
+        if smooth_targets:
+            smoothed = verts.copy()
+            for vi in smooth_targets:
+                ns = neighbor_arrays.get(vi)
+                if ns is not None and len(ns) > 0:
+                    neighbor_mean = verts[ns].mean(axis=0)
+                    smoothed[vi] = (
+                        verts[vi] * (1.0 - smooth_factor)
+                        + neighbor_mean * smooth_factor
+                    )
+            verts = smoothed
+
         clamp_closest, _, clamp_tri = pq.on_surface(verts)
         clamp_normals = face_normals[clamp_tri]
         clamp_sdf = np.einsum("ij,ij->i", verts - clamp_closest, clamp_normals)
-        clamp_mask = clamp_sdf < target_offset
+        clamp_mask = clamp_sdf < target_offset_arr
         if clamp_mask.any():
-            verts[clamp_mask] = clamp_closest[clamp_mask] + clamp_normals[clamp_mask] * target_offset
+            verts[clamp_mask] = (
+                clamp_closest[clamp_mask]
+                + clamp_normals[clamp_mask] * target_offset_arr[clamp_mask, None]
+            )
 
         if capture_frames:
             captured_frames.append(verts.copy())
 
         if iteration < 5 or iteration == n_iters - 1:
-            print(f"[Draping] v45.4 iter {iteration+1}/{n_iters}: "
+            print(f"[Draping] iter {iteration+1}/{n_iters}: "
                   f"n_push={n_push}, took {(_time_mod.time()-_t_iter):.2f}s, "
                   f"total {(_time_mod.time()-_t_loop_start):.1f}s", flush=True)
 
@@ -657,7 +657,11 @@ def _retarget_garment_to_body(
         "initial_min_sdf_mm": initial_min_sdf_mm,
         "final_min_sdf_mm": float(final_sdf.min() * 1000.0),
         "final_residual_inside": int((final_sdf < 0.0).sum()),
-        "target_offset_mm": float(target_offset * 1000.0),
+        "target_offset_mm": (
+            float(target_offset_arr[0] * 1000.0)
+            if np.allclose(target_offset_arr, target_offset_arr[0])
+            else f"per_vert_min_max=[{target_offset_arr.min()*1000:.1f},{target_offset_arr.max()*1000:.1f}]"
+        ),
     }
     if capture_frames:
         stats_out["captured_frames"] = captured_frames
@@ -893,7 +897,21 @@ def _drop_small_intra_material_components(
         # missing strip on each leg. Sizes M and L survived only because the
         # ratio happened to land at 21% rather than 19%. Heuristic conflated
         # "pocket bag" with "structural panel" — fix is to whitelist by name.
-        if mtl and (mtl.startswith("Body_") or mtl.startswith("Sleeves_")):
+        #
+        # v45.6: ALSO whitelist FABRIC_1_FRONT_2743 to keep the pant pocket
+        # bag inner-wall components. v19's original reason to drop them was
+        # that PyGarment's cloth_reference_drag yanked the bag layers off
+        # the shell during the warmup, leaving holes at hip level. With
+        # v36 SKIP-NEWTON the drag never runs — the bag components retarget
+        # to body+target like everything else and sit inside the trouser
+        # shell, hidden from view but visible at the hip / pocket opening.
+        # User's 2026-05-10 review showed the pant pocket area as a black
+        # cutout because the bags were missing; keeping them fills the gap.
+        if mtl and (
+            mtl.startswith("Body_")
+            or mtl.startswith("Sleeves_")
+            or mtl == "FABRIC_1_FRONT_2743"
+        ):
             continue
 
         parent: dict = {}
@@ -1526,13 +1544,23 @@ def pygarment_drape(
     Raises RuntimeError on any sim failure (e.g., PyGarment crash, no output
     mesh produced). Caller catches and falls back to geometric.
     """
+    # v36 ships the retargeted mesh directly, no Newton sim. The SKIP path
+    # below only needs numpy/scipy/trimesh — no pygarment, no warp. Hoisting
+    # the flag up here so we can gate the heavyweight pygarment imports in
+    # the rest of this function on it. Without this gate, local testing
+    # against the real handler() falls back to geometric_fallback because
+    # `import pygarment` raises ModuleNotFoundError before the SKIP early
+    # return ever runs.
+    SKIP_NEWTON_SIM = True
+
     # Lazy imports so a failure to install PyGarment doesn't break the module
     # at startup (geometric safety net still works).
     import shutil
-    import sys
-    import types
-    import yaml
-    from scipy.spatial import cKDTree as _cKDTree
+    if not SKIP_NEWTON_SIM:
+        import sys
+        import types
+        import yaml
+        from scipy.spatial import cKDTree as _cKDTree
 
     # Stub out pygarment.meshgen.render.pythonrender BEFORE pygarment imports.
     # simulation.py does `from pygarment.meshgen.render.pythonrender import
@@ -1540,7 +1568,7 @@ def pygarment_drape(
     # which we don't install (heavy native deps — EGL/OSMesa, and we don't
     # render in the handler, we return the mesh). Pre-registering a fake
     # module in sys.modules short-circuits Python's import machinery.
-    if "pygarment.meshgen.render.pythonrender" not in sys.modules:
+    if not SKIP_NEWTON_SIM and "pygarment.meshgen.render.pythonrender" not in sys.modules:
         _stub = types.ModuleType("pygarment.meshgen.render.pythonrender")
         def _render_images_stub(*args, **kwargs):
             print("[PyGarment] render_images() stubbed — handler doesn't render")
@@ -1565,18 +1593,20 @@ def pygarment_drape(
     # at that module's load time. Must patch pygarment.meshgen.garment.Cloth
     # BEFORE importing simulation, otherwise simulation.py grabs the
     # unpatched class.
-    import pygarment.meshgen.garment as _pg_garment
-    _orig_cloth_init = _pg_garment.Cloth.__init__
-    def _cloth_init_no_graph(self, *args, **kwargs):
-        # Replace create_graph on this instance FIRST so the parent __init__'s
-        # conditional call to self.create_graph() hits our no-op instead.
-        self.create_graph = lambda: setattr(self, "graph", None)
-        _orig_cloth_init(self, *args, **kwargs)
-        # Belt-and-suspenders: even if the original init re-set
-        # sim_use_graph, force it off so update() takes the Python loop.
-        self.sim_use_graph = False
-        self.graph = None
-    _pg_garment.Cloth.__init__ = _cloth_init_no_graph
+    if not SKIP_NEWTON_SIM:
+        import pygarment.meshgen.garment as _pg_garment
+        _orig_cloth_init = _pg_garment.Cloth.__init__
+        def _cloth_init_no_graph(self, *args, **kwargs):
+            # Replace create_graph on this instance FIRST so the parent
+            # __init__'s conditional call to self.create_graph() hits our
+            # no-op instead.
+            self.create_graph = lambda: setattr(self, "graph", None)
+            _orig_cloth_init(self, *args, **kwargs)
+            # Belt-and-suspenders: even if the original init re-set
+            # sim_use_graph, force it off so update() takes the Python loop.
+            self.sim_use_graph = False
+            self.graph = None
+        _pg_garment.Cloth.__init__ = _cloth_init_no_graph
 
     # v32: monkeypatch warp.collision.panel_assignment.process_body_seg to
     # use a richer SMPL→group mapping. The upstream mapping
@@ -1615,52 +1645,53 @@ def pygarment_drape(
     # lines 200/203/210/213 and the drag-pair list on lines 250-260) are
     # preserved. limbs_merge still produces `arms`/`legs` keys from the
     # `left_*`/`right_*` entries of the new mapping.
-    import warp.collision.panel_assignment as _pa
-    _orig_process_body_seg = _pa.process_body_seg  # noqa: F841 (kept for debugging)
+    if not SKIP_NEWTON_SIM:
+        import warp.collision.panel_assignment as _pa
+        _orig_process_body_seg = _pa.process_body_seg  # noqa: F841 (kept for debug)
 
-    def _tryon_process_body_seg(seg, smpl_parts=False, limbs_merge=False):
-        if not smpl_parts and not limbs_merge:
-            return seg
-        if smpl_parts:
-            mapping = {
-                "left_arm": ['leftShoulder', 'leftArm', 'leftForeArm',
-                             'leftHand', 'leftHandIndex1'],
-                "right_arm": ['rightShoulder', 'rightArm', 'rightForeArm',
-                              'rightHand', 'rightHandIndex1'],
-                "left_leg": ['leftUpLeg', 'leftLeg', 'leftFoot',
-                             'leftToeBase'],
-                "right_leg": ['rightUpLeg', 'rightLeg', 'rightFoot',
-                              'rightToeBase'],
-                "body": ['spine', 'spine1', 'spine2', 'neck', 'hips'],
-                "head": ['head'],
-            }
-            new_seg: dict = {}
-            for big_part, small_parts in mapping.items():
-                verts: list = []
-                for part in small_parts:
-                    verts.extend(seg.get(part, []))
-                new_seg[big_part] = verts
-        else:
-            new_seg = dict(seg)
-        if limbs_merge:
-            for big_part, small_parts in (
-                ('arms', ('left_arm', 'right_arm')),
-                ('legs', ('left_leg', 'right_leg')),
-            ):
-                combined: list = []
-                for part in small_parts:
-                    combined.extend(new_seg.get(part, []))
-                new_seg[big_part] = combined
-        return new_seg
+        def _tryon_process_body_seg(seg, smpl_parts=False, limbs_merge=False):
+            if not smpl_parts and not limbs_merge:
+                return seg
+            if smpl_parts:
+                mapping = {
+                    "left_arm": ['leftShoulder', 'leftArm', 'leftForeArm',
+                                 'leftHand', 'leftHandIndex1'],
+                    "right_arm": ['rightShoulder', 'rightArm', 'rightForeArm',
+                                  'rightHand', 'rightHandIndex1'],
+                    "left_leg": ['leftUpLeg', 'leftLeg', 'leftFoot',
+                                 'leftToeBase'],
+                    "right_leg": ['rightUpLeg', 'rightLeg', 'rightFoot',
+                                  'rightToeBase'],
+                    "body": ['spine', 'spine1', 'spine2', 'neck', 'hips'],
+                    "head": ['head'],
+                }
+                new_seg: dict = {}
+                for big_part, small_parts in mapping.items():
+                    verts: list = []
+                    for part in small_parts:
+                        verts.extend(seg.get(part, []))
+                    new_seg[big_part] = verts
+            else:
+                new_seg = dict(seg)
+            if limbs_merge:
+                for big_part, small_parts in (
+                    ('arms', ('left_arm', 'right_arm')),
+                    ('legs', ('left_leg', 'right_leg')),
+                ):
+                    combined: list = []
+                    for part in small_parts:
+                        combined.extend(new_seg.get(part, []))
+                    new_seg[big_part] = combined
+            return new_seg
 
-    _pa.process_body_seg = _tryon_process_body_seg
-    print("[PyGarment] v32: process_body_seg monkeypatched — 6-group "
-          "SMPL mapping with 'head' as a first-class group "
-          "(hood no longer yanked to torso)")
+        _pa.process_body_seg = _tryon_process_body_seg
+        print("[PyGarment] v32: process_body_seg monkeypatched — 6-group "
+              "SMPL mapping with 'head' as a first-class group "
+              "(hood no longer yanked to torso)")
 
-    from pygarment.meshgen.sim_config import PathCofig
-    from pygarment.meshgen.simulation import run_sim
-    from pygarment import data_config
+        from pygarment.meshgen.sim_config import PathCofig
+        from pygarment.meshgen.simulation import run_sim
+        from pygarment import data_config
 
     # ------------------------------------------------------------------
     # Step 1: load & align meshes in OUR coordinate system (meters, Y-up).
@@ -1693,6 +1724,68 @@ def pygarment_drape(
     garment_faces = load_obj_faces(garment_obj)
     aligned_verts, align_scale, translation = align_meshes(body_verts, garment_verts)
 
+    # v45.11: SHOULDER-ALIGN secondary Y shift.
+    #
+    # align_meshes() matches the GARMENT BOTTOM (lowest Y, typically the
+    # pant cuff) to the AVATAR BOTTOM (feet). On size S that shifted the
+    # whole garment DOWN by 5.74 cm because S source has shorter pants
+    # (its Y_min is at +5.74 cm in source, vs ~0 for M/L). The 5.74 cm
+    # downshift dragged the SLEEVES down with the rest of the garment —
+    # source S sleeve cuff at Y≈105 ended up at Y≈99 on the avatar,
+    # where the avatar's actual arm is at X=±65 cm (forearm/hand
+    # region) but the cuff cloth sat at X=±56.7 cm — 9 cm INWARD from
+    # the avatar's arm. The sleeve cloth was hanging in empty space
+    # between the torso and the arm, which the SDF retarget couldn't
+    # fix because those verts already had SDF > 0 (not inside body).
+    # That's the puffiness the user saw on S.
+    #
+    # M and L have garments with Y_min ≈ 0 (pants reach the floor in
+    # source), so feet-alignment leaves their sleeves at the right Y
+    # range. They didn't show the issue.
+    #
+    # Secondary shift: find the highest Y vert in Sleeves_FRONT_*
+    # material, target it to avatar shoulder Y (81% of body height),
+    # shift the WHOLE garment by that delta. For S this lifts the
+    # garment ~4 cm so sleeves land on the actual arm. For M/L the
+    # shift is near-zero (their feet-align was already right).
+    # Side effect: S pants end up ~4 cm above the floor instead of at
+    # the floor, but the user prefers correct sleeves to floor-touching
+    # pants on the smallest size.
+    try:
+        sleeve_orig_idx: list = []
+        active_mtl = None
+        with open(garment_obj, "r", encoding="utf-8", errors="replace") as _f:
+            for _line in _f:
+                _s = _line.strip()
+                if _s.startswith("usemtl "):
+                    active_mtl = _s.split(None, 1)[1].strip()
+                elif _s.startswith("f "):
+                    is_sleeve = active_mtl and active_mtl.startswith("Sleeves_")
+                    if is_sleeve:
+                        for _tok in _s.split()[1:]:
+                            try:
+                                _vi = int(_tok.split("/")[0]) - 1
+                            except ValueError:
+                                continue
+                            sleeve_orig_idx.append(_vi)
+        if sleeve_orig_idx:
+            sleeve_idx_arr = np.unique(np.array(sleeve_orig_idx, dtype=np.int64))
+            sleeve_y_max_aligned = float(aligned_verts[sleeve_idx_arr, 1].max())
+            body_y_min = float(body_verts[:, 1].min())
+            body_y_max = float(body_verts[:, 1].max())
+            body_h = body_y_max - body_y_min
+            target_shoulder_y = body_y_min + 0.81 * body_h
+            shoulder_shift = target_shoulder_y - sleeve_y_max_aligned
+            aligned_verts[:, 1] += shoulder_shift
+            translation = translation.copy()
+            translation[1] += shoulder_shift
+            print(f"[Draping] v45.11 shoulder-align: sleeve_top={sleeve_y_max_aligned*100:.1f}cm "
+                  f"target={target_shoulder_y*100:.1f}cm shift={shoulder_shift*100:.2f}cm")
+        else:
+            print(f"[Draping] v45.11 shoulder-align: no Sleeves_* verts found, skipping")
+    except Exception as _e:
+        print(f"[Draping] v45.11 shoulder-align failed: {_e}; using feet-align only")
+
     # Weld CLO3D seam-split verts at 1mm tol. v18.7 change: we now FEED the
     # welded mesh to PyGarment (not the original). Previously we wrote the
     # pre-weld mesh, which meant each seam had two separate vertex indices in
@@ -1708,13 +1801,22 @@ def pygarment_drape(
     print(f"[PyGarment] Weld pass: detected {(np.bincount(orig_to_welded) > 1).sum()} "
           f"welded groups for stitch-vert labeling")
 
-    # v45.4: secondary weld pass for CLO3D cylindrical seams (cuff/hem
-    # pairs that the 1mm weld leaves separate and the retarget then
-    # pushes to opposite arm faces). See _merge_cylindrical_seam_pairs.
-    welded_verts, welded_faces, orig_to_welded = _merge_cylindrical_seam_pairs(
-        welded_verts, welded_faces, orig_to_welded, body_verts, body_obj,
-        tol_m=0.015, cos_threshold=-0.5,
-    )
+    # v45.8: cylindrical-seam weld DISABLED. On size S it merged 242 pairs
+    # (vs 36 on M, 55 on L) — 6.7x more merges on S than on M. Each merge
+    # collapses two verts to a midpoint that may be deep inside the body;
+    # the subsequent retarget then pushes that midpoint outward in some
+    # direction, distorting the mesh region around the merge. With per-
+    # material target_offset (sleeves 1mm) the cuff seam edges that the
+    # weld was originally compensating for are short — short edges spike
+    # less than long ones, and 1mm of target leaves room for only 1mm of
+    # divergence before the clamp catches it. So the weld is no longer
+    # earning its keep; bypassing it removes the asymmetric distortion
+    # that was visibly thickening size-S sleeves while M and L looked
+    # clean.
+    # welded_verts, welded_faces, orig_to_welded = _merge_cylindrical_seam_pairs(
+    #     welded_verts, welded_faces, orig_to_welded, body_verts, body_obj,
+    #     tol_m=0.015, cos_threshold=-0.5,
+    # )
 
     # v26: proper pre-sim retargeting. Replaces v24's per-vertex
     # inflation (which left the mesh distorted and let XPBD springs pull
@@ -1734,12 +1836,69 @@ def pygarment_drape(
     #    offset gives buffer for the face plane to stay above the body.
     # n_iters bumped 15 → 25 because the higher offset needs more iterations
     # for the smooth-and-clamp loop to converge.
+    # v45.7: per-material target_offset. The 12mm value (v37) was a
+    # topology-gap safety buffer for convex apex regions on the torso
+    # (chest, waist, front-of-thigh) where avatar_textured.glb sits a
+    # few mm above body_apose.obj. v45.6 dropped it to 6mm globally,
+    # which kept the torso clean on the local viewer but visibly puffed
+    # out the size-S sleeves because the entire sleeve panel had to
+    # expand to body_apose+6mm. Sleeves are mostly cylindrical with
+    # essentially no topology gap (arms aren't subdivided much between
+    # body_apose and avatar_textured), so they can sit at 1mm without
+    # showing skin. Body, hood, FABRIC_2 zipper binding, and the print
+    # decals stay at 6mm where the topology gap matters. Per-vert
+    # target is built below from the cleaned OBJ's usemtl regions, then
+    # mapped through orig_to_welded so the retarget loop sees one
+    # offset per welded vert.
+    SLEEVE_OFFSET_M = 0.001  # 1mm above arm — tight, no halo
+    DEFAULT_OFFSET_M = 0.006  # 6mm everywhere else — handles topology gap
+
+    # Parse cleaned OBJ to get per-original-vertex material. A vert can
+    # appear in faces of multiple materials; first-seen wins.
+    orig_v_to_mtl: dict = {}
+    _active_mtl = None
+    with open(garment_obj, "r", encoding="utf-8", errors="replace") as _f:
+        for _line in _f:
+            _s = _line.strip()
+            if _s.startswith("usemtl "):
+                _active_mtl = _s.split(None, 1)[1].strip()
+            elif _s.startswith("f "):
+                for _tok in _s.split()[1:]:
+                    try:
+                        _vi = int(_tok.split("/")[0]) - 1
+                    except ValueError:
+                        continue
+                    if _vi not in orig_v_to_mtl:
+                        orig_v_to_mtl[_vi] = _active_mtl
+
+    # Map every welded vert to a target offset based on the FIRST
+    # original vert that mapped to it. If a Sleeves_* and a Body_* vert
+    # collide on the same welded slot (e.g., a stitched panel seam), we
+    # take the SAFER (larger) offset rather than the sleeve value, so
+    # body cloth never thins unexpectedly.
+    target_per_vert = np.full(len(welded_verts), DEFAULT_OFFSET_M, dtype=np.float64)
+    welded_set_sleeve: set = set()
+    welded_set_other: set = set()
+    for orig_i in range(len(orig_to_welded)):
+        welded_j = int(orig_to_welded[orig_i])
+        mtl = orig_v_to_mtl.get(orig_i)
+        if mtl and mtl.startswith("Sleeves_"):
+            welded_set_sleeve.add(welded_j)
+        else:
+            welded_set_other.add(welded_j)
+    sleeve_only = welded_set_sleeve - welded_set_other
+    for welded_j in sleeve_only:
+        target_per_vert[welded_j] = SLEEVE_OFFSET_M
+    print(f"[PyGarment] v45.7 per-material target: {len(sleeve_only)} sleeve-only "
+          f"verts at {SLEEVE_OFFSET_M*1000:.1f}mm, "
+          f"{len(welded_verts) - len(sleeve_only)} other verts at {DEFAULT_OFFSET_M*1000:.1f}mm")
+
     welded_verts, retarget_stats = _retarget_garment_to_body(
         welded_verts,
         welded_faces,
         body_verts,
         body_obj,
-        target_offset=0.012,
+        target_offset=target_per_vert,
         n_iters=25,
         smooth_factor=0.3,
         capture_frames=True,
@@ -1778,8 +1937,8 @@ def pygarment_drape(
     #
     # Toggle SKIP_NEWTON_SIM to False to A/B against the v35 sim path
     # (everything below this branch is the v18-v35 Newton pipeline,
-    # untouched).
-    SKIP_NEWTON_SIM = True
+    # untouched). NOTE: SKIP_NEWTON_SIM is now defined at the top of this
+    # function so it can gate the heavyweight pygarment imports too.
     if SKIP_NEWTON_SIM:
         # Un-weld each cleaned-OBJ vert to its welded canonical position.
         final_verts_m = welded_verts[orig_to_welded]
@@ -2818,7 +2977,40 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-05-10/v45.4-cloth-normal-push-and-cylindrical-seam-weld "
+    "drape-handler 2026-05-10/v45.11-shoulder-align-fixes-S-puffy-sleeves "
+    "(v45.11 finds the actual root cause of the size-S puffy sleeves: "
+    "the alignment step matched garment FEET to avatar feet, but on size "
+    "S the garment has shorter pants — its Y_min is at +5.74 cm in source, "
+    "vs ~0 for M and L. Matching feet shifted the entire S garment DOWN "
+    "by 5.74 cm, which dragged the sleeves with it. After that shift, "
+    "source S sleeve cuff ended up at Y=99 cm on the avatar — but the "
+    "avatar's actual arm at Y=99 cm has X=±65.7 cm (forearm/hand region), "
+    "while the source S cuff cloth sits at X=±56.7 cm. So the S cuff "
+    "cloth was hanging in EMPTY SPACE 9 cm inward from where the avatar's "
+    "arm actually is. The SDF retarget could not move that cloth toward "
+    "the arm because it already had SDF > 0 (not in the inside-mask). "
+    "Visible as the puffy sleeve halo the user spent days chasing. "
+    "M and L have garments with Y_min ≈ 0 (pants reach the floor in "
+    "source), so feet-alignment leaves their sleeves at the right Y "
+    "position. Only S manifested the bug. "
+    "Fix: secondary Y shift after align_meshes that matches the sleeve "
+    "TOP (max Y of Sleeves_FRONT_* material) to the avatar's shoulder "
+    "Y (81% of body height per v28's anatomical anchor). On S the shift "
+    "is +4.27 cm (lifts garment up so sleeves land on the actual arm). "
+    "On M and L the shift is -0.29/-0.32 cm (essentially a no-op — "
+    "their feet-align was already correct). Verified on small-logo and "
+    "bow-sweats: S looks identical to M in proportion, M and L unchanged. "
+    "Side effect: S pants now end ~4 cm above the floor since we no "
+    "longer force pant cuff to avatar feet. Cosmetic trade-off; correct "
+    "sleeves matter more than floor-touching pants on the smallest size. "
+    "Also lands all the other v45.4-10 retarget experimentation: per-"
+    "material target_offset (sleeves 1mm, body 6mm), pocket bags kept "
+    "(FABRIC_1_FRONT_2743 whitelisted), cylindrical-seam weld retained "
+    "as available helper but disabled by default, cloth-normal blend "
+    "push + push-magnitude smoothing within inside-mask + post-iter "
+    "Laplacian smoothing of non-pushed neighbours. PREVIOUS v45.4 "
+    "BANNER FOLLOWS: "
+    "(v45.4 lands FOUR structural changes on top of v45.3 because re-running "
     "(v45.4 lands FOUR structural changes on top of v45.3 because re-running "
     "v45.3 on the live Supabase size-S source confirmed the 80mm sleeve / "
     "113mm body spikes the cap was supposed to eliminate. Empirical proof: "
