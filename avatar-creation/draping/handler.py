@@ -148,6 +148,128 @@ def _weld_duplicate_vertices(verts: np.ndarray, faces: np.ndarray, tol: float = 
     return welded_verts, welded_faces, welded_idx.astype(np.int64)
 
 
+def _merge_cylindrical_seam_pairs(
+    welded_verts: np.ndarray,
+    welded_faces: np.ndarray,
+    orig_to_welded: np.ndarray,
+    body_verts: np.ndarray,
+    body_obj: Path,
+    tol_m: float = 0.015,
+    cos_threshold: float = -0.5,
+) -> tuple:
+    """v45.4: secondary weld pass that merges CLO3D-seam-split pairs that
+    sit on OPPOSITE sides of a body cylinder (arm, leg).
+
+    Why this exists. CLO3D exports a closed cuff/hem with a small seam
+    allowance — the front and back panels of the cuff meet at indices
+    that are mesh-adjacent (share a triangle) but separated by ~7-10 mm
+    in 3D, with their closest body faces pointing in opposite directions
+    (cos ≈ -1, e.g., front-of-arm vs back-of-arm). The 1 mm weld in
+    `_weld_duplicate_vertices` leaves them as separate vertices. The SDF
+    retarget then pushes them outward along their respective body
+    normals — front-of-arm vert moves +Z, back-of-arm vert moves -Z —
+    and the cuff edge between them stretches from 10 mm in source to
+    70 mm post-retarget. Empirically this is the entire residual cuff
+    spike on size S Sleeves after v45.4's directional + push-magnitude
+    smoothing fixes Body_F (113→32 mm).
+
+    Detection rule. An edge (u, v) in the welded-mesh face graph is a
+    cylindrical-seam pair iff:
+      - distance(u, v) <= tol_m (default 15 mm; CLO3D's seam allowance
+        is ~10 mm, threshold has 50% headroom)
+      - dot(body_normal_at_u, body_normal_at_v) < cos_threshold
+        (default -0.5; opposite-arm-face geometry has cos ≈ -1, while
+        regular curvature within a panel keeps cos > 0).
+
+    Action. Merge each detected pair via union-find, average their
+    positions, drop degenerate faces (a==b after merge). Returns the
+    new welded mesh + an updated orig_to_welded mapping so the
+    retarget output still un-welds correctly to the cleaned OBJ's
+    vertex layout.
+    """
+    import trimesh
+    from trimesh.proximity import ProximityQuery
+
+    body_faces_list = []
+    with open(body_obj, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if line.startswith("f "):
+                parts = line.strip().split()[1:]
+                idxs = [int(p.split("/")[0]) - 1 for p in parts]
+                if len(idxs) >= 3:
+                    body_faces_list.append(idxs[:3])
+    body_faces = np.array(body_faces_list, dtype=np.int32)
+    body_mesh = trimesh.Trimesh(vertices=body_verts, faces=body_faces, process=False)
+    pq = ProximityQuery(body_mesh)
+    bf_normals = body_mesh.face_normals
+
+    _closest, _, tri_ids = pq.on_surface(welded_verts)
+    body_n_per_vert = bf_normals[tri_ids]
+
+    edges_set: set = set()
+    for tri in welded_faces:
+        a, b, c = int(tri[0]), int(tri[1]), int(tri[2])
+        edges_set.add((min(a, b), max(a, b)))
+        edges_set.add((min(b, c), max(b, c)))
+        edges_set.add((min(a, c), max(a, c)))
+
+    parent = np.arange(len(welded_verts), dtype=np.int64)
+
+    def _find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = int(parent[i])
+        return int(i)
+
+    n_merged = 0
+    n_inspected = 0
+    for u, v in edges_set:
+        d = float(np.linalg.norm(welded_verts[u] - welded_verts[v]))
+        if d > tol_m:
+            continue
+        cos = float(np.dot(body_n_per_vert[u], body_n_per_vert[v]))
+        n_inspected += 1
+        if cos > cos_threshold:
+            continue
+        ru, rv = _find(u), _find(v)
+        if ru != rv:
+            parent[ru] = rv
+            n_merged += 1
+
+    if n_merged == 0:
+        print(f"[Draping] v45.4 cylindrical-seam weld: 0 of {n_inspected} "
+              f"close-edge pairs needed merge (tol={tol_m*1000:.1f}mm, "
+              f"cos<{cos_threshold})")
+        return welded_verts, welded_faces, orig_to_welded
+
+    roots = np.array([_find(i) for i in range(len(welded_verts))], dtype=np.int64)
+    unique_roots, new_idx = np.unique(roots, return_inverse=True)
+
+    n_old = len(welded_verts)
+    n_new = len(unique_roots)
+    new_verts = np.zeros((n_new, 3), dtype=welded_verts.dtype)
+    counts = np.zeros(n_new, dtype=np.int64)
+    np.add.at(new_verts, new_idx, welded_verts)
+    np.add.at(counts, new_idx, 1)
+    new_verts = new_verts / counts[:, None]
+
+    new_faces = new_idx[welded_faces]
+    new_orig_to_welded = new_idx[orig_to_welded]
+
+    valid = (
+        (new_faces[:, 0] != new_faces[:, 1])
+        & (new_faces[:, 1] != new_faces[:, 2])
+        & (new_faces[:, 0] != new_faces[:, 2])
+    )
+    n_dropped = int((~valid).sum())
+    new_faces = new_faces[valid]
+
+    print(f"[Draping] v45.4 cylindrical-seam weld: merged {n_merged} edges, "
+          f"{n_old} -> {n_new} verts ({n_old - n_new} pairs collapsed), "
+          f"{n_dropped} degenerate faces dropped")
+    return new_verts, new_faces.astype(np.int32), new_orig_to_welded.astype(np.int64)
+
+
 def load_obj_vertices(obj_path: Path) -> np.ndarray:
     """Parse OBJ file and return vertex positions as (N,3) array."""
     verts = []
@@ -315,6 +437,93 @@ def _retarget_garment_to_body(
     total_pushed_first_iter = 0
     iters_run = 0
 
+    # v45.4: per-vertex CLOTH outward normals from the SOURCE welded mesh.
+    # Used as the push direction below instead of the BODY face normal.
+    #
+    # The structural reason. v45.3 pushed each penetrating vert along the
+    # outward normal of its closest BODY face. On a tight fit (size S of
+    # the Ramin tracksuit on an M-fit avatar), 40% of cloth verts start
+    # below target_offset. Adjacent cloth verts often have their closest
+    # body face on opposite sides of an arm — front-of-arm and back-of-
+    # arm body normals point in OPPOSITE directions. Pushing both verts
+    # along their own body normal sends them apart by ~2 cap-units per
+    # iteration. After 25 iters at the 15 mm cap, source 8 mm edges
+    # stretch to 80–113 mm. The 15 mm cap paces the divergence; it does
+    # not prevent it.
+    #
+    # The cloth normal is shared across faces of the same panel, so
+    # adjacent cloth verts have nearly identical cloth normals. Pushing
+    # along cloth normal moves neighbours in the same direction → edge
+    # length is preserved. The body face normal is then used only to
+    # decide HOW FAR to push (so SDF reaches target), not WHICH WAY.
+    #
+    # We compute cloth normals once from the SOURCE welded mesh state.
+    # Recomputing them per-iter is undesirable: it would couple push
+    # direction to the deformed mesh, defeating the goal of moving
+    # neighbouring verts along the same direction.
+    def _per_vert_normals(vs: np.ndarray, fs: np.ndarray) -> np.ndarray:
+        nrm = np.zeros_like(vs)
+        tri = vs[fs]
+        fn = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])  # area-weighted
+        np.add.at(nrm, fs[:, 0], fn)
+        np.add.at(nrm, fs[:, 1], fn)
+        np.add.at(nrm, fs[:, 2], fn)
+        nlen = np.linalg.norm(nrm, axis=1, keepdims=True)
+        nlen[nlen < 1e-12] = 1.0
+        return nrm / nlen
+
+    cloth_normals = _per_vert_normals(verts, cloth_faces)
+
+    # Orient each cloth normal so it points AWAY from the body. CLO3D's
+    # face winding is per-panel and not always globally consistent — some
+    # panels' winding has the cloth normal pointing INTO the body, in
+    # which case pushing along it would drive cloth deeper. Flip those
+    # before the loop runs by checking against the body face normal at
+    # the source position. Then for the remainder of the retarget the
+    # cloth normal stays in the source frame.
+    src_closest, _, src_tri = pq.on_surface(verts)
+    src_body_n = face_normals[src_tri]
+    flip_mask = np.einsum("ij,ij->i", cloth_normals, src_body_n) < 0.0
+    if flip_mask.any():
+        cloth_normals[flip_mask] = -cloth_normals[flip_mask]
+        print(f"[Draping] v45.4: flipped {int(flip_mask.sum())}/{len(verts)} "
+              f"cloth normals to outward")
+
+    # v45.4: build a sparse 1-ring averaging matrix W so we can smooth
+    # the per-vertex push MAGNITUDE field cheaply each iteration. Used to
+    # tie adjacent verts' push amounts together.
+    #
+    # The second structural reason. Even when adjacent verts share a
+    # cloth normal, they can be at very different SDF depths — one vert
+    # at -58 mm, the next at -5 mm. Per-iter push is `target - sdf`,
+    # capped. Each iter, the deep vert pushes (cap) and the shallow vert
+    # pushes (5 mm), so the edge between them stretches by ~10 mm/iter.
+    # Over 25 iters, ~250 mm stretch potential. The cloth-normal direction
+    # alone does not fix this — adjacent magnitudes still differ.
+    #
+    # Smoothing the push-distance field across the 1-ring before applying
+    # makes neighbours push by similar amounts. The deep vert pushes a
+    # bit less per iter, the shallow vert a bit more — the total push
+    # converges to the same SDF target over more iters but with edge
+    # length preserved between adjacent verts.
+    try:
+        import scipy.sparse as sp
+        rows, cols, vals = [], [], []
+        for i in range(len(verts)):
+            ns = neighbor_arrays.get(i)
+            if ns is None or len(ns) == 0:
+                continue
+            w = 1.0 / float(len(ns))
+            for j in ns:
+                rows.append(i)
+                cols.append(int(j))
+                vals.append(w)
+        W_neighbor = sp.csr_matrix((vals, (rows, cols)), shape=(len(verts), len(verts)))
+    except Exception as _e:
+        print(f"[Draping] v45.4: sparse W build failed ({_e}); "
+              f"push-field smoothing disabled")
+        W_neighbor = None
+
     # v44: optionally capture per-iteration vertex states for streamed
     # animation playback in the frontend. Frame 0 is the pre-retarget
     # state (cloth deeply inside the body, dramatic starting pose).
@@ -323,7 +532,10 @@ def _retarget_garment_to_body(
     if capture_frames:
         captured_frames.append(verts.copy())
 
+    import time as _time_mod
+    _t_loop_start = _time_mod.time()
     for iteration in range(n_iters):
+        _t_iter = _time_mod.time()
         # Face-accurate closest points via the cached ProximityQuery.
         closest, _, tri_ids = pq.on_surface(verts)
         tri_normals = face_normals[tri_ids]
@@ -340,72 +552,74 @@ def _retarget_garment_to_body(
         if n_push == 0:
             break
 
-        # v45.3: cap per-iter push distance. Previously this moved each
-        # penetrating vert to (closest + outward_normal * target_offset) in a
-        # single step. For tight garments (size S of the Ramin tracksuit on
-        # an M-fit avatar), 37% of verts have sdf < target and many need to
-        # move 30-50mm to reach target. When adjacent verts have closest
-        # points on different parts of the body (e.g., one closest to back
-        # of upper arm, the next closest to front of upper arm), they get
-        # pushed in dramatically different directions in ONE step. Result:
-        # ragged "spike fingers" radiating outward from the shoulders/upper
-        # arms — empirically 365 verts in S-Sleeves had >5mm 1-ring offset
-        # post-retarget vs 41 in source, with edges stretching from 8mm to
-        # 80mm in a single iteration.
+        # v45.4: COHERENT DILATION along cloth normals. See the long
+        # comment above cloth_normals for the structural reason this
+        # replaces v45.3's body-normal per-vert push.
         #
-        # Capping the per-iter move to MAX_PUSH_PER_ITER means deep-
-        # penetration verts converge over multiple iterations with the
-        # existing Laplacian smoothing running between each step. Adjacent
-        # verts evolve gradually together. Loose fits (M, L on this avatar)
-        # are unaffected because their per-vert push is already small.
-        # Existing n_iters=25 is plenty: worst case sdf=-50mm reaches
-        # target=12mm in ceil(62/15)=5 iters.
-        MAX_PUSH_PER_ITER = 0.015  # 15mm
-        push_dists = target_offset - sdf[needs_push_mask]
-        push_dists = np.minimum(push_dists, MAX_PUSH_PER_ITER)
-        new_pos = (
-            verts[needs_push_mask]
-            + tri_normals[needs_push_mask] * push_dists[:, None]
+        # Build a per-vert "desired push" scalar field:
+        #   desired_i = max(target_offset - sdf_i, 0)
+        # so inside verts have positive desire, outside verts have 0.
+        # Then SMOOTH this field over the 1-ring so neighbour amounts
+        # converge. This is the key vs v45.3 (which only smoothed
+        # neighbour positions, not the push amounts themselves) and vs
+        # the earlier v45.4 attempt (which only pushed verts inside the
+        # mask, leaving outside neighbours stationary while inside ones
+        # iterated for many steps — that gap was the residual stretch).
+        # When we then apply the smoothed push to EVERY vert (not just
+        # the inside mask), adjacent verts move by similar amounts,
+        # which is what preserves edge length.
+        MAX_PUSH_PER_ITER = 0.020  # 20 mm safety cap on per-iter motion
+
+        # Body-normal alignment for each vert (used to scale push so
+        # SDF gain matches the desired push, since pushing along cloth
+        # normal at angle theta to body normal yields |push|*cos(theta)
+        # of body-normal-direction SDF gain).
+        cos_align = np.einsum("ij,ij->i", cloth_normals, tri_normals)
+        # alpha=1 when cloth normal aligns with body outward, alpha=0
+        # when they oppose. Smooth lerp in between.
+        alpha = np.clip(cos_align / 0.5, 0.0, 1.0)
+        push_dirs = (
+            alpha[:, None] * cloth_normals
+            + (1.0 - alpha[:, None]) * tri_normals
         )
-        verts[needs_push_mask] = new_pos
+        nlen = np.linalg.norm(push_dirs, axis=1, keepdims=True)
+        nlen[nlen < 1e-12] = 1.0
+        push_dirs = push_dirs / nlen
+        push_along_body = np.einsum("ij,ij->i", push_dirs, tri_normals)
+        safe_along = np.maximum(push_along_body, 0.30)
 
-        # Laplacian smooth the 1-ring AROUND pushed verts. v27 added a
-        # per-iter Dirichlet BC (pushed-this-iter verts exempt from
-        # smoothing), but production still ran 15/15 at sdf_after=+2.4mm.
-        # Root cause: a vert pushed on iter N is NOT in `pushed_set` on
-        # iter N+1 (it's already at target, sdf >= target), so it becomes
-        # a smoothing candidate when a new neighbor is pushed on iter N+1.
-        # Its neighbor mean — which still contains inside-body verts on
-        # early iters — pulls it back toward the body. Next iter re-pushes
-        # it, cycle repeats. The synthetic test didn't expose this because
-        # every vert is pushed in a single iter on a flat plane vs sphere;
-        # on a real garment with graded penetration depth, different verts
-        # need pushing on different iters and the drift compounds.
-        #
-        # v28 fix: after smoothing, run a final SDF check this iter and
-        # snap any vert that smoothing drove below target back to
-        # (closest + normal * target). No smoothing on the clamp — just a
-        # hard projection. This guarantees the iter ends with ALL verts
-        # at sdf >= target, so the next iter sees a cleanly-satisfied
-        # starting state and can actually reach n_push == 0.
-        pushed_indices = np.where(needs_push_mask)[0]
-        pushed_set: set = set(int(i) for i in pushed_indices)
-        smooth_targets: set = set()
-        for vi in pushed_indices:
-            ns = neighbor_arrays.get(int(vi))
-            if ns is not None:
-                for n in ns:
-                    ni = int(n)
-                    if ni not in pushed_set:
-                        smooth_targets.add(ni)
+        # Desired push along push_dirs to advance SDF by (target - sdf):
+        desired_full = np.maximum(target_offset - sdf, 0.0) / safe_along
+        desired_full = np.minimum(desired_full, MAX_PUSH_PER_ITER)
 
-        smoothed = verts.copy()
-        for vi in smooth_targets:
-            ns = neighbor_arrays.get(vi)
-            if ns is not None and len(ns) > 0:
-                neighbor_mean = verts[ns].mean(axis=0)
-                smoothed[vi] = verts[vi] * (1.0 - smooth_factor) + neighbor_mean * smooth_factor
-        verts = smoothed
+        # Smooth the desired-push field across 1-ring. Verts adjacent to
+        # an inside region get a smoothed nonzero desire and move with
+        # their inside neighbours, which is what preserves edges.
+        if W_neighbor is not None:
+            for _ in range(3):
+                desired_full = 0.5 * desired_full + 0.5 * (W_neighbor @ desired_full)
+            # Cap again post-smooth.
+            desired_full = np.minimum(desired_full, MAX_PUSH_PER_ITER)
+
+        # Apply to EVERY vert, not just the inside mask. Outside verts
+        # get small smoothed pushes that move them gently outward in
+        # step with their inside neighbours.
+        verts = verts + push_dirs * desired_full[:, None]
+
+        # v45.4: smooth the DISPLACEMENT field (verts - source) across
+        # the full mesh. Smoothing positions directly washes out
+        # CLO3D's wrinkles (because source verts aren't on a smooth
+        # surface — they encode local detail). Smoothing only the
+        # displacement (deformation since source) preserves source
+        # detail while making adjacent verts move by similar amounts.
+        # This is the layer that prevents long-range drift: even if
+        # vert A pushes for 12 iters and vert B pushes for 1 iter,
+        # smoothing their displacement fields ties them together.
+        if W_neighbor is not None:
+            d = verts - cloth_verts
+            for _ in range(2):
+                d = 0.7 * d + 0.3 * (W_neighbor @ d)
+            verts = cloth_verts + d
 
         # v28 post-smooth clamp: any vert driven back inside by smoothing
         # gets hard-snapped to target. Cheap: one extra proximity query per
@@ -421,15 +635,17 @@ def _retarget_garment_to_body(
         if capture_frames:
             captured_frames.append(verts.copy())
 
-    # v45.3 removed the v45.2 spike-repair pass: it pulled verts with high
-    # 1-ring centroid offset back toward their centroid, but on the saved
-    # v45.1 S GLB it did NOT visually fix the spike fingers. Root cause was
-    # measuring the wrong thing — the spike geometry is elongated FACES
-    # connecting source-adjacent verts that the retarget pushed to different
-    # body regions, not lone outlier verts. Each vert sits on its own valid
-    # body+12mm position and is not an outlier vs its own 1-ring. The
-    # structural answer is the per-iter push cap in the main loop above,
-    # which prevents the divergent push from happening in the first place.
+        if iteration < 5 or iteration == n_iters - 1:
+            print(f"[Draping] v45.4 iter {iteration+1}/{n_iters}: "
+                  f"n_push={n_push}, took {(_time_mod.time()-_t_iter):.2f}s, "
+                  f"total {(_time_mod.time()-_t_loop_start):.1f}s", flush=True)
+
+    # v45.4: edge-relax pass removed — was unstable when many constraints
+    # accumulated on the same vert via np.add.at then the body clamp re-snapped
+    # the over-corrected vert outward, cascading worse. The cloth-normal
+    # direction + push-field smoothing in the main loop is the structural
+    # part. Spike residuals from heterogeneous SDF depths between adjacent
+    # verts are the remaining open item.
 
     # Final SDF readout for the log.
     final_closest, _, final_tri = pq.on_surface(verts)
@@ -1491,6 +1707,14 @@ def pygarment_drape(
     )
     print(f"[PyGarment] Weld pass: detected {(np.bincount(orig_to_welded) > 1).sum()} "
           f"welded groups for stitch-vert labeling")
+
+    # v45.4: secondary weld pass for CLO3D cylindrical seams (cuff/hem
+    # pairs that the 1mm weld leaves separate and the retarget then
+    # pushes to opposite arm faces). See _merge_cylindrical_seam_pairs.
+    welded_verts, welded_faces, orig_to_welded = _merge_cylindrical_seam_pairs(
+        welded_verts, welded_faces, orig_to_welded, body_verts, body_obj,
+        tol_m=0.015, cos_threshold=-0.5,
+    )
 
     # v26: proper pre-sim retargeting. Replaces v24's per-vertex
     # inflation (which left the mesh distorted and let XPBD springs pull
@@ -2594,7 +2818,70 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-05-07/v45.3-per-iter-push-cap-and-revert-v45.2 "
+    "drape-handler 2026-05-10/v45.4-cloth-normal-push-and-cylindrical-seam-weld "
+    "(v45.4 lands FOUR structural changes on top of v45.3 because re-running "
+    "v45.3 on the live Supabase size-S source confirmed the 80mm sleeve / "
+    "113mm body spikes the cap was supposed to eliminate. Empirical proof: "
+    "ran the handler's own retarget locally on body_apose.obj + small-logo s.obj "
+    "and dumped the body face normals at iter 0 for the worst stretched edges "
+    "in Body_F_FRONT_2717 — cosine alignment was -0.40 to -0.51 on every "
+    "single top-10 stretched edge. Adjacent cloth verts had their closest "
+    "body face on opposite sides of an arm, body-normal push sent them in "
+    "opposite directions, the 15mm cap only paced the divergence. "
+    "Fix 1: PUSH ALONG CLOTH NORMAL, not body face normal. Cloth normals "
+    "are smooth across each panel surface, so adjacent cloth verts share "
+    "push direction → edge length preserved. Body normal is now used only "
+    "to (a) flip cloth normals at startup if the panel winding makes them "
+    "point INTO the body, and (b) scale the per-iter push so SDF actually "
+    "advances when push and body normal are not parallel. Cloth-normal vs "
+    "body-normal blend uses alpha = clip(cos_align/0.5, 0, 1): pure cloth "
+    "normal at cos>=0.5 (best edge preservation), pure body normal at "
+    "cos<=0 (cloth normal points wrong way), smooth lerp in between. "
+    "Fix 2: SMOOTH THE PUSH-DISTANCE FIELD across the 1-ring per iter. "
+    "Adjacent verts at very different SDF depths (e.g., one at -50mm, one "
+    "at -5mm) used to push by very different amounts each iter, stretching "
+    "the edge between them. After smoothing, the per-vert push amount is "
+    "the local average → adjacent verts move by similar magnitudes → edge "
+    "preserved. Implemented as `for _ in range(3): full_push = 0.5*old + "
+    "0.5*W_neighbor@old` with W_neighbor a sparse 1-ring averaging matrix "
+    "built once per call. "
+    "Fix 3: APPLY PUSH TO EVERY VERT, not just inside-mask. The smoothed "
+    "push field bleeds onto outside neighbours of inside verts, giving "
+    "them a small coherent push too. Without this, inside verts pushed "
+    "for ~10 iters while their just-outside neighbours stayed put — the "
+    "cumulative drift between them was the residual stretch even after "
+    "fix 1 + 2. Outside verts at sdf >> target see desired=0 from "
+    "max(target-sdf, 0) so they only move when smoothed-non-zero, which "
+    "decays to zero away from the inside region — bounded bleed. "
+    "Fix 4: CYLINDRICAL-SEAM WELD as a secondary pass after the existing "
+    "1mm `_weld_duplicate_vertices`. CLO3D exports closed cuffs/hems with "
+    "a ~10mm seam allowance — verts on opposite sides of the same arm "
+    "cylinder are mesh-adjacent (share a triangle) but separated by 7-10mm "
+    "in source. The 1mm weld leaves them as separate verts and the SDF "
+    "retarget pushes them to opposite arm faces (front vs back), stretching "
+    "the cuff edge from ~10mm in source to 70mm post-retarget. Detection "
+    "rule: edge (u,v) in welded face graph with distance <= 15mm AND "
+    "body-normal cos(u,v) < -0.5. Action: union-find merge, average "
+    "positions, drop degenerate faces. On size S this merges 242 edges "
+    "(22929 -> 22687 verts); on size M only 36 edges, confirming the "
+    "issue is tight-fit-specific. "
+    "Also: replaced the existing per-iter Laplacian POSITION smoothing "
+    "with per-iter DISPLACEMENT smoothing (current minus source). The old "
+    "smoothing washed out CLO3D wrinkles because source positions encode "
+    "local detail; smoothing only the displacement field preserves the "
+    "wrinkle detail while still tying neighbour displacements together. "
+    "Two passes of `d = 0.7*d + 0.3*W@d` per iter. "
+    "Empirical results on Supabase size-S source vs v45.3: Body_F max "
+    "edge 113.6 -> 32.8mm (-71%), FABRIC_1_FRONT_2710 max 100.9 -> 47.7mm "
+    "(-53%), Body_B 108 -> 70mm (now ≈ source which has 67mm CLO3D "
+    "outliers), Sleeves 80 -> 75mm (only -8% — residual is the shoulder/"
+    "sleeve transition mode where adjacent verts genuinely sit on "
+    "different body parts; needs real cloth stiffness simulation, "
+    "structurally distinct from the cuff-cylinder mode this version "
+    "addresses). Size M unchanged — Body_F max 16.4mm (source 14.6), "
+    "Sleeves max 19.3mm (source 14.3), as expected for loose fit. "
+    "PREVIOUS v45.3 BANNER FOLLOWS: "
+    "(v45.3 fixes the size-S sleeve spikes that survived v45.1 and were not "
     "(v45.3 fixes the size-S sleeve spikes that survived v45.1 and were not "
     "fixed by v45.2's spike-repair pass. Empirical re-investigation showed "
     "the spike geometry is elongated FACES (621 edges >20mm in S sleeves "
