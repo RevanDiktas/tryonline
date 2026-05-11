@@ -90,6 +90,8 @@ avatar-creation/4D-Humans-clean/data/checkpoints/
 *.webp
 !frontend/public/**/*.png
 !frontend/public/**/*.jpg
+!frontend/app/icon.png
+!frontend/app/apple-icon.png
 !docs/**/*.png
 
 # 3D model outputs

@@ -390,8 +390,12 @@ export function NavThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: ()
     </svg>
   );
   const moon = (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M11 8.5A4.5 4.5 0 016.5 4 4 4 0 109 11.5 4.5 4.5 0 0111 8.5z" stroke={C.ink} strokeWidth="1.4" />
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden style={{ display: 'block' }}>
+      <mask id="tryon-shared-moon-mask">
+        <rect width="24" height="24" fill="white" />
+        <circle cx="16" cy="8" r="9" fill="black" />
+      </mask>
+      <circle cx="12" cy="12" r="9" fill={C.ink} mask="url(#tryon-shared-moon-mask)" />
     </svg>
   );
   return <NavIconButton onClick={onToggle} icon={dark ? sun : moon} label="Toggle theme" dark={dark} />;
