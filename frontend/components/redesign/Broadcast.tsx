@@ -241,7 +241,7 @@ function DesktopHero() {
           height: '100%', minHeight: 560,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <AvatarHero height="100%" interactive={true} rotateSpeed={0.6} />
+          <AvatarHero height="100%" interactive={false} rotateSpeed={0.6} />
           <div
             aria-hidden
             style={{
@@ -911,7 +911,7 @@ function MobileHero() {
         marginBottom: 18,
         minHeight: 380,
       }}>
-        <AvatarHero height="56vh" interactive={true} rotateSpeed={0.7} />
+        <AvatarHero height="56vh" interactive={false} rotateSpeed={0.7} />
         <div
           aria-hidden
           style={{

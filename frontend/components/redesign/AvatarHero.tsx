@@ -6,38 +6,34 @@ import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
 import { AlignedScene } from '@/components/TryOnViewer';
 
 /**
- * Canonical TryOn avatar + Ramin small-logo M garment GLBs (public Supabase).
- * Same URLs the drape pipeline tests against, so we know they render correctly.
+ * Canonical TryOn avatar + Ramin bow-sweats M garment GLBs, served from
+ * frontend/public/redesign. These are the cleaner v45.12.1 drape outputs.
  */
-const AVATAR_URL =
-  'https://cykwthsbrylonconqlfz.supabase.co/storage/v1/object/public/avatars/ca5808a9-99bd-45a2-86ec-f3f0f90db831/avatar_textured.glb';
-const GARMENT_URL =
-  'https://cykwthsbrylonconqlfz.supabase.co/storage/v1/object/public/garments/27ca6be1-55f6-4e94-b13f-49de33ac959a/small-logo/m.glb';
+const AVATAR_URL = '/redesign/avatar_textured.glb';
+const GARMENT_URL = '/redesign/bow-sweats_m.glb';
 
 interface AvatarHeroProps {
   /** CSS height for the canvas container. Default 70vh. */
   height?: string;
   className?: string;
-  /** Allow user to drag-rotate the avatar. Default true. */
+  /** Allow user to drag-rotate the avatar. Default false (auto-rotate only). */
   interactive?: boolean;
   /** Auto-rotate speed (drei units, ~0.6 to 1.2 reads as slow). Default 0.8. */
   rotateSpeed?: number;
 }
 
 /**
- * Full-bleed 3D scene of the canonical TryOn avatar wearing the Ramin small-logo
- * M garment. Slow auto-rotate, neutral studio lighting, transparent background.
+ * Full-bleed 3D scene of the canonical TryOn avatar wearing the Ramin bow-sweats
+ * M garment. Slow auto-rotate only. Drag, pan, and zoom are disabled so the
+ * hero reads as a moving brand visual, not an interactive widget.
  *
  * Reuses AlignedScene from TryOnViewer so the hero scene matches what shoppers
  * see during a real try-on (same scaling, same alignment, same cache).
- *
- * Cobalt accent stays out of the scene; lighting is neutral so the garment
- * colors read true and the brand-side visuals don't compete with the page CTA.
  */
 export function AvatarHero({
   height = '70vh',
   className = '',
-  interactive = true,
+  interactive = false,
   rotateSpeed = 0.8,
 }: AvatarHeroProps) {
   return (

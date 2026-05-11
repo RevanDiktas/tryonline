@@ -98,6 +98,7 @@ avatar-creation/4D-Humans-clean/data/checkpoints/
 *.glb
 *.gltf
 !frontend/public/models/*.glb
+!frontend/public/redesign/*.glb
 
 # Jupyter
 .ipynb_checkpoints/
