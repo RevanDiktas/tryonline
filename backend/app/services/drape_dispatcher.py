@@ -91,6 +91,11 @@ def _build_runpod_payload(job: dict) -> Optional[dict]:
             "drape_job_id": str(job["id"]),
             "garment_version_hash": job["garment_version_hash"],
             "body_hash": job["body_hash"],
+            # v45.12: hand the service key to the handler so it can upload
+            # draped artifacts directly to the `draped-artifacts` bucket and
+            # return short URLs in the /run response, dodging RunPod's ~20MB
+            # output cap.
+            "supabase_service_key": settings.supabase_service_key,
         }
     }
 

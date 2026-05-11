@@ -66,6 +66,40 @@ except ImportError:
 CONFIGS_DIR = Path("/workspace/configs")
 RUNPOD_VOLUME = Path("/runpod-volume")
 
+DRAPED_BUCKET = "draped-artifacts"
+
+
+def _extract_supabase_base(url: str) -> str | None:
+    """Pull `https://{project}.supabase.co` out of any public storage URL.
+    The handler always receives public URLs of the form
+    `{base}/storage/v1/object/public/{bucket}/{path}`."""
+    if not url or "/storage/v1/" not in url:
+        return None
+    return url.split("/storage/v1/", 1)[0]
+
+
+def _upload_to_supabase(
+    supabase_base: str,
+    service_key: str,
+    local_path: Path,
+    storage_path: str,
+    content_type: str,
+) -> str:
+    """Upload one file to the `draped-artifacts` bucket via Supabase Storage REST
+    API. Returns the public URL. Raises on failure so the caller can fall back
+    to inline base64."""
+    url = f"{supabase_base}/storage/v1/object/{DRAPED_BUCKET}/{storage_path}"
+    headers = {
+        "Authorization": f"Bearer {service_key}",
+        "Content-Type": content_type,
+        "x-upsert": "true",
+    }
+    data = local_path.read_bytes()
+    r = httpx.post(url, content=data, headers=headers, timeout=120.0)
+    if r.status_code not in (200, 201):
+        raise RuntimeError(f"upload {storage_path} failed: HTTP {r.status_code} {r.text[:200]}")
+    return f"{supabase_base}/storage/v1/object/public/{DRAPED_BUCKET}/{storage_path}"
+
 # --- NvidiaWarp-GarmentCode / PyGarment cloth simulation ---
 # This is our ONLY GPU path as of v18. Newton Style3D was ripped out after 16
 # versions of NaN fights — the stability features it lacked (particle velocity
@@ -2953,11 +2987,78 @@ def handler(event: dict) -> dict:
 
         print(f"[Draping] Complete in {processing_time:.1f}s via {simulation_method}")
 
-        return {
-            "draped_obj_base64": obj_b64,
-            "draped_mtl_base64": mtl_b64,
-            "draped_textures_base64": textures_b64,
-            "draped_glb_base64": glb_b64,
+        # v45.12: iteration_frames_base64 ships only when explicitly requested.
+        # It is ~12MB for a 30k-vert mesh and pushed bow-sweats L's response past
+        # RunPod's ~20MB output cap, returning `output: null` with no error. The
+        # base64-inline flow has no way around that ceiling, so production should
+        # always run with include_iteration_frames=False.
+        include_iter_frames = bool(job_input.get("include_iteration_frames"))
+        sim_stats_out = dict(sim_stats)
+        iter_b64_raw = sim_stats_out.pop("iteration_frames_base64", "")
+
+        # v45.12: if a service key was passed, upload artifacts to the
+        # draped-artifacts Supabase bucket and return URLs. Otherwise fall back
+        # to base64 inline (legacy path; still capped by RunPod's response size).
+        service_key = job_input.get("supabase_service_key") or os.environ.get("SUPABASE_SERVICE_KEY")
+        supabase_base = _extract_supabase_base(garment_obj_url) or _extract_supabase_base(body_obj_url)
+        upload_ok = False
+        upload_urls = {}
+        if service_key and supabase_base:
+            try:
+                ts = int(time.time())
+                token = f"{garment_id}/{user_id}_{size}_{ts}"
+
+                # OBJ
+                upload_urls["draped_obj_url"] = _upload_to_supabase(
+                    supabase_base, service_key, draped_obj,
+                    f"{token}/draped.obj", "model/obj",
+                )
+                # GLB
+                if glb_b64:
+                    upload_urls["draped_glb_url"] = _upload_to_supabase(
+                        supabase_base, service_key, glb_path,
+                        f"{token}/draped.glb", "model/gltf-binary",
+                    )
+                # MTL (on disk under garment_obj.parent)
+                if mtl_name:
+                    mtl_path_local = garment_obj.parent / mtl_name
+                    if mtl_path_local.exists():
+                        upload_urls["draped_mtl_url"] = _upload_to_supabase(
+                            supabase_base, service_key, mtl_path_local,
+                            f"{token}/{mtl_name}", "text/plain",
+                        )
+                        upload_urls["draped_mtl_name"] = mtl_name
+                # Textures
+                tex_urls: dict[str, str] = {}
+                for tex_name in textures_b64.keys():
+                    tex_local = garment_obj.parent / tex_name
+                    if tex_local.exists():
+                        ct = "image/png" if tex_name.lower().endswith(".png") else "image/jpeg"
+                        tex_urls[tex_name] = _upload_to_supabase(
+                            supabase_base, service_key, tex_local,
+                            f"{token}/textures/{tex_name}", ct,
+                        )
+                if tex_urls:
+                    upload_urls["draped_textures_urls"] = tex_urls
+                # Iteration frames (opt-in only)
+                if include_iter_frames and iter_b64_raw:
+                    iter_local = draped_obj.parent / "iteration_frames.bin"
+                    iter_local.write_bytes(base64.b64decode(iter_b64_raw))
+                    upload_urls["iteration_frames_url"] = _upload_to_supabase(
+                        supabase_base, service_key, iter_local,
+                        f"{token}/iteration_frames.bin", "application/octet-stream",
+                    )
+                upload_ok = True
+                print(f"[Draping] Uploaded {len(upload_urls)} artifact field(s) to "
+                      f"{DRAPED_BUCKET}/{token}/")
+            except Exception as _ue:
+                print(f"[Draping] Supabase upload failed, falling back to base64 inline: {_ue}")
+                import traceback
+                traceback.print_exc()
+                upload_ok = False
+                upload_urls = {}
+
+        response: dict = {
             "processing_time_seconds": round(processing_time, 1),
             "simulation_method": simulation_method,
             "vertex_count": vertex_count,
@@ -2966,9 +3067,20 @@ def handler(event: dict) -> dict:
             "garment_id": garment_id,
             "size": size,
             "user_id": user_id,
-            "sim_stats": sim_stats,
+            "sim_stats": sim_stats_out,
             "success": True,
         }
+        if upload_ok:
+            response.update(upload_urls)
+        else:
+            response["draped_obj_base64"] = obj_b64
+            response["draped_mtl_base64"] = mtl_b64
+            response["draped_textures_base64"] = textures_b64
+            response["draped_glb_base64"] = glb_b64
+            if include_iter_frames and iter_b64_raw:
+                response["sim_stats"]["iteration_frames_base64"] = iter_b64_raw
+
+        return response
 
 
 def runpod_handler(event):
@@ -2977,6 +3089,24 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
+    "drape-handler 2026-05-11/v45.12-upload-artifacts-to-supabase-bucket "
+    "(today's first attempt at the v45.11 small-batch test surfaced a "
+    "second structural bug: the bow-sweats L response is ~21.7MB total "
+    "(7.5MB obj + 1.7MB glb + 12.5MB iteration_frames base64), which "
+    "exceeds RunPod's ~20MB serverless output cap. RunPod silently drops "
+    "those responses — `status: COMPLETED, error: null, output: null` — "
+    "with no signal to retry. small-logo L just squeaks under at 20.9MB "
+    "but any heavier garment from here would hit the same wall. "
+    "Fix: handler now uploads draped.obj/glb/mtl/textures to the new "
+    "Supabase `draped-artifacts` bucket and returns short URLs in the "
+    "/run response. Service key is passed via job input (dispatcher "
+    "side; Railway already has it). Falls back to base64 inline if the "
+    "key is absent (backward-compat for one release). iteration_frames "
+    "is now opt-in via `include_iteration_frames: true` in the request "
+    "— production batches don't need it; only the debug viewer does. "
+    "Even on the legacy base64 path, iter_frames is stripped by default "
+    "so any future >20MB-from-iter-frames-alone garment still ships. "
+    "PREVIOUS v45.11 BANNER FOLLOWS: "
     "drape-handler 2026-05-10/v45.11-shoulder-align-fixes-S-puffy-sleeves "
     "(v45.11 finds the actual root cause of the size-S puffy sleeves: "
     "the alignment step matched garment FEET to avatar feet, but on size "

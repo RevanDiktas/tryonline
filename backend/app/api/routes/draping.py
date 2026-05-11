@@ -546,29 +546,37 @@ def _check_callback_token(token: Optional[str]) -> None:
 def _persist_drape_result(job: dict, output: dict) -> None:
     """Upload GLB, upsert draped_meshes, mark drape_jobs completed.
     Idempotent: re-running with the same job/output is a no-op (storage upsert,
-    DB upsert)."""
-    glb_b64 = output.get("draped_glb_base64") or ""
-    if not glb_b64:
-        raise ValueError("No draped_glb_base64 in RunPod output")
+    DB upsert).
 
-    glb_bytes = base64.b64decode(glb_b64)
+    v45.12: handler now uploads artifacts to the `draped-artifacts` bucket
+    itself and returns a `draped_glb_url` directly, so we just record it. If
+    the response carries `draped_glb_base64` (legacy / fallback) we still
+    decode and upload into the garments bucket like before.
+    """
     garment_id = job["garment_id"]
     size = job["size"]
     body_hash = job["body_hash"]
     version = job["garment_version_hash"]
-    storage_path = f"draped/{garment_id}/{version}/{size}/{body_hash}.glb"
 
-    supabase.ensure_garments_bucket()
-    bucket = supabase.client.storage.from_(settings.garments_bucket)
-    try:
-        bucket.upload(
-            storage_path, glb_bytes,
-            {"content-type": "model/gltf-binary", "x-upsert": "true"},
-        )
-    except Exception:
-        bucket.update(storage_path, glb_bytes, {"content-type": "model/gltf-binary"})
-
-    draped_url = bucket.get_public_url(storage_path)
+    direct_url = output.get("draped_glb_url") or ""
+    if direct_url:
+        draped_url = direct_url
+    else:
+        glb_b64 = output.get("draped_glb_base64") or ""
+        if not glb_b64:
+            raise ValueError("No draped_glb_url or draped_glb_base64 in RunPod output")
+        glb_bytes = base64.b64decode(glb_b64)
+        storage_path = f"draped/{garment_id}/{version}/{size}/{body_hash}.glb"
+        supabase.ensure_garments_bucket()
+        bucket = supabase.client.storage.from_(settings.garments_bucket)
+        try:
+            bucket.upload(
+                storage_path, glb_bytes,
+                {"content-type": "model/gltf-binary", "x-upsert": "true"},
+            )
+        except Exception:
+            bucket.update(storage_path, glb_bytes, {"content-type": "model/gltf-binary"})
+        draped_url = bucket.get_public_url(storage_path)
 
     mesh_row = supabase.client.table("draped_meshes").upsert({
         "garment_id": garment_id,
