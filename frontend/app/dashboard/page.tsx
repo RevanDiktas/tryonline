@@ -585,9 +585,9 @@ function DashboardPage() {
       {/* Profile tab - always mounted, hidden via display so the Three.js canvas survives switches */}
       <div style={{
         display: activeTab === 'profile' ? 'block' : 'none',
-        padding: mobile ? '16px 14px 24px' : '20px 24px 28px',
+        padding: mobile ? '12px 14px 20px' : '14px 24px 22px',
       }}>
-        <div style={{ display: 'grid', gap: mobile ? 12 : 16 }}>
+        <div style={{ display: 'grid', gap: mobile ? 10 : 10 }}>
           <PageHeading
             title={`Welcome back, ${(user.name || 'shopper').split(' ')[0]}.`}
             sub="Your Fit Passport is ready. Try on clothes from any brand."
@@ -596,8 +596,8 @@ function DashboardPage() {
 
           <div style={{
             display: 'grid',
-            gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1.6fr) minmax(320px, 1fr)',
-            gap: mobile ? 12 : 20,
+            gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1.05fr) minmax(340px, 1fr)',
+            gap: mobile ? 10 : 14,
             alignItems: 'stretch',
           }}>
             <DashCard title="Your Avatar" padded={false}>
