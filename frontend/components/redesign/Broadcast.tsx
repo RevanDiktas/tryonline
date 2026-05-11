@@ -160,7 +160,7 @@ function DesktopHero() {
             letterSpacing: '-0.04em', lineHeight: 0.94,
             margin: '0 0 24px',
           }}>
-            Try clothes on yourself. Before you buy.
+            Tryon before you buy.
           </h1>
 
           <div style={{
@@ -903,7 +903,7 @@ function MobileHero() {
         letterSpacing: '-0.04em', lineHeight: 0.92,
         margin: '0 0 22px',
       }}>
-        Try clothes on yourself. Before you buy.
+        Tryon before you buy.
       </h1>
 
       <div style={{

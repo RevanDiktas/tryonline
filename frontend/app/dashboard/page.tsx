@@ -284,9 +284,38 @@ function DashboardPage() {
     let animationId: number;
     let rotation = 0;
     let renderer: WebGLRenderer | null = null;
+    let camera: import('three').PerspectiveCamera | null = null;
+    let resizeObs: ResizeObserver | null = null;
     let disposed = false;
 
     const canvas = canvasRef.current;
+
+    // Normalized avatar fits inside y=[0, AVATAR_HEIGHT] centered on x=0, z=0.
+    // The camera is auto-distanced every resize so the full body is visible
+    // regardless of the card's aspect ratio (was previously hard-coded for 4:5
+    // and clipped head + feet whenever the container changed).
+    const AVATAR_HEIGHT = 1.8;
+    const FOV_DEG = 30;
+    const FOV_RAD = (FOV_DEG * Math.PI) / 180;
+    const FRAME_MARGIN = 1.08;
+
+    const frameCamera = () => {
+      if (!renderer || !camera) return;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      if (!w || !h) return;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      const halfH = (AVATAR_HEIGHT / 2) * FRAME_MARGIN;
+      const halfW = (AVATAR_HEIGHT * 0.45) * FRAME_MARGIN;
+      const distH = halfH / Math.tan(FOV_RAD / 2);
+      const distW = halfW / Math.tan(FOV_RAD / 2) / camera.aspect;
+      const distance = Math.max(distH, distW);
+      const centerY = AVATAR_HEIGHT / 2;
+      camera.position.set(0, centerY, distance);
+      camera.lookAt(0, centerY, 0);
+      camera.updateProjectionMatrix();
+    };
 
     const initThreeJS = async () => {
       if (disposed || !canvasRef.current) return;
@@ -310,16 +339,14 @@ function DashboardPage() {
         setBackground: (hex: number) => { scene.background = new THREE.Color(hex); },
       };
 
-      const camera = new THREE.PerspectiveCamera(35, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
-      camera.position.set(0, 1.0, 3.5);
-      camera.lookAt(0, 0.9, 0);
+      camera = new THREE.PerspectiveCamera(FOV_DEG, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
 
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-      renderer.setSize(canvas.clientWidth, canvas.clientHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.3;
+      frameCamera();
 
       scene.add(new THREE.AmbientLight(0xffffff, 1.4));
       const frontLight = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -328,6 +355,10 @@ function DashboardPage() {
       backLight.position.set(-2, 2, -3); scene.add(backLight);
       const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
       fillLight.position.set(0, 2, 2); scene.add(fillLight);
+
+      if (resizeObs) resizeObs.disconnect();
+      resizeObs = new ResizeObserver(() => frameCamera());
+      resizeObs.observe(canvas);
 
       const loader = new GLTFLoader();
       const avatarUrl = passport?.avatarUrl;
@@ -340,7 +371,9 @@ function DashboardPage() {
             rotation += 0.008;
             model.rotation.y = rotation;
           }
-          if (renderer && !renderer.getContext().isContextLost()) renderer.render(scene, camera);
+          if (renderer && camera && !renderer.getContext().isContextLost()) {
+            renderer.render(scene, camera);
+          }
         };
         animate();
       };
@@ -362,13 +395,13 @@ function DashboardPage() {
           const box = new THREE.Box3().setFromObject(model);
           const center = box.getCenter(new THREE.Vector3());
           const size = box.getSize(new THREE.Vector3());
-          const maxDim = Math.max(size.x, size.y, size.z);
-          const scale = 1.8 / maxDim;
+          const scale = size.y > 1e-6 ? AVATAR_HEIGHT / size.y : 1;
           model.scale.setScalar(scale);
           model.position.x = -center.x * scale;
-          model.position.y = -center.y * scale + 0.9;
+          model.position.y = -box.min.y * scale;
           model.position.z = -center.z * scale;
           scene.add(model);
+          frameCamera();
           renderLoop(model);
         },
         undefined,
@@ -399,10 +432,15 @@ function DashboardPage() {
       canvas.removeEventListener('webglcontextlost', handleContextLost);
       canvas.removeEventListener('webglcontextrestored', handleContextRestored);
       cancelAnimationFrame(animationId);
+      if (resizeObs) {
+        resizeObs.disconnect();
+        resizeObs = null;
+      }
       if (renderer) {
         renderer.dispose();
         renderer = null;
       }
+      camera = null;
     };
   }, [passport]);
 
@@ -558,13 +596,15 @@ function DashboardPage() {
 
           <div style={{
             display: 'grid',
-            gridTemplateColumns: mobile ? '1fr' : '1fr 1.2fr',
-            gap: mobile ? 12 : 16,
+            gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1.6fr) minmax(320px, 1fr)',
+            gap: mobile ? 12 : 20,
+            alignItems: 'stretch',
           }}>
             <DashCard title="Your Avatar" padded={false}>
               <div style={{
                 background: BG, position: 'relative',
-                aspectRatio: '4/5', minHeight: 240,
+                height: mobile ? '70vh' : 'calc(100vh - 220px)',
+                minHeight: mobile ? 420 : 560,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
                 <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
