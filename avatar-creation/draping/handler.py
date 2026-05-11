@@ -87,9 +87,16 @@ def _upload_to_supabase(
 ) -> str:
     """Upload one file to the `draped-artifacts` bucket via Supabase Storage REST
     API. Returns the public URL. Raises on failure so the caller can fall back
-    to inline base64."""
+    to inline base64.
+
+    Auth: Supabase's new `sb_secret_*` API keys (rolled out 2025) are not JWTs.
+    Sending them as `Authorization: Bearer` triggers a 403 with `Invalid Compact
+    JWS`. The Storage service accepts them only via the `apikey` header. We
+    send both headers so legacy JWT-format service keys still work too.
+    """
     url = f"{supabase_base}/storage/v1/object/{DRAPED_BUCKET}/{storage_path}"
     headers = {
+        "apikey": service_key,
         "Authorization": f"Bearer {service_key}",
         "Content-Type": content_type,
         "x-upsert": "true",
@@ -3089,6 +3096,15 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
+    "drape-handler 2026-05-11/v45.12.1-fix-supabase-auth-for-sb_secret-keys "
+    "(v45.12 deployed and bow-sweats L completed, but the Supabase upload "
+    "silently fell back to base64 every time because Supabase's new "
+    "`sb_secret_*` API keys are not JWTs. Sending them as `Authorization: "
+    "Bearer` returns 403 `Invalid Compact JWS`. The Storage service accepts "
+    "them only via the `apikey` header. v45.12.1 sends both headers so "
+    "legacy JWT-style service keys still work. Verified with a smoke "
+    "upload before pushing.) "
+    "PREVIOUS v45.12 BANNER FOLLOWS: "
     "drape-handler 2026-05-11/v45.12-upload-artifacts-to-supabase-bucket "
     "(today's first attempt at the v45.11 small-batch test surfaced a "
     "second structural bug: the bow-sweats L response is ~21.7MB total "
