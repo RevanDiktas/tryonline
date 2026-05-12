@@ -368,6 +368,12 @@
   }
   .why-cell:nth-child(odd) { padding-right: 64px; border-right: 1px solid var(--hairline-dark); }
   .why-cell:nth-child(even) { padding-left: 64px; }
+  /* 5th cell spans both columns as a wide row */
+  .why-cell.span-2 {
+    grid-column: 1 / -1;
+    padding: 36px 0;
+    border-right: none;
+  }
   .why-cell .idx { font-family: var(--mono); font-size: 13px; letter-spacing: 0.16em; color: rgba(255,255,255,0.45); font-weight: 500; margin-bottom: 16px; }
   .why-cell .title { font-size: 34px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.05; margin-bottom: 14px; text-transform: uppercase; }
   .why-cell .meta { font-family: var(--mono); font-size: 13px; letter-spacing: 0.12em; color: var(--accent); margin-bottom: 14px; font-weight: 500; }
@@ -559,6 +565,94 @@
   .bar-row.accent .lbl { color: #fff; font-weight: 700; }
   .bar-row .val { font-family: var(--mono); font-size: 14px; letter-spacing: 0.1em; text-align: right; color: rgba(255,255,255,0.7); font-weight: 500; }
 
+  /* ========== TECH CARDS (slide 06) ========== */
+  .tech-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    flex: 1;
+    margin-top: 36px;
+    min-height: 0;
+  }
+  .tech-card {
+    border: 1px solid var(--hairline);
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .tech-card .img {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+  }
+  .tech-card .img img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+  .tech-card .meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ash);
+    padding: 16px 22px 6px;
+    font-weight: 500;
+    border-top: 1px solid var(--hairline);
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .tech-card .title {
+    font-family: var(--display);
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    text-transform: uppercase;
+    color: var(--ink);
+    padding: 0 22px 22px;
+    line-height: 1;
+  }
+  .passport-bar {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 22px 28px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-top: 18px;
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 28px;
+    letter-spacing: -0.015em;
+    text-transform: uppercase;
+  }
+  .passport-bar .arrow {
+    display: inline-block;
+    width: 36px;
+    height: 1px;
+    background: currentColor;
+    position: relative;
+  }
+  .passport-bar .arrow::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: -4px;
+    width: 9px;
+    height: 9px;
+    border-top: 1px solid currentColor;
+    border-right: 1px solid currentColor;
+    transform: rotate(45deg);
+  }
+
   /* ========== PRODUCT GALLERY (3-up) ========== */
   .gallery3 {
     display: grid;
@@ -671,20 +765,20 @@
 
       <div class="chrome-bot">
         <div class="mono">PITCH DECK / TRYON.GLOBAL</div>
-        <div class="mono">01 / 14</div>
+        <div class="mono">01 / 17</div>
       </div>
     </div></div></div></div>
 
   <!-- ========== 02 · THE PROBLEM ========== -->
   <div class="hslide" data-label="The Problem"><div class="stage-wrap"><div class="canvas"><div class="slide">
       <div class="chrome-top">
-        <div class="mono">02 / 14 · THE PROBLEM</div>
+        <div class="mono">02 / 17 · THE PROBLEM</div>
         <div class="mono">RETURNS</div>
       </div>
 
       <div style="margin-top: 180px;">
         <div class="mono" style="margin-bottom: 40px;">GLOBAL FASHION E-COMMERCE RETURNS / 2024</div>
-        <div class="bignum accent countup" data-countup="218" data-prefix="$" data-suffix="B">$0B</div>
+        <div class="bignum accent countup" data-countup="195" data-prefix="$" data-suffix="B">$0B</div>
         <div class="sub" style="margin-top: 48px; font-size: 40px; font-weight: 500; letter-spacing: -0.02em; max-width: 1300px;">
           Lost every year to fashion returns.<br>
           The majority are a fit problem, solvable before purchase.
@@ -692,15 +786,15 @@
       </div>
 
       <div class="chrome-bot">
-        <div class="mono">SOURCE / RADIAL · INDUSTRY BENCHMARKS · 2024</div>
-        <div class="mono">ONLINE FASHION RETURN RATE ≈ 30%</div>
+        <div class="mono">SOURCE / CAPITAL ONE SHOPPING RESEARCH · 2025</div>
+        <div class="mono">ONLINE FASHION RETURN RATE = 30%</div>
       </div>
     </div></div></div></div>
 
   <!-- ========== 03 · THE HIDDEN COST (CO₂) ========== -->
   <div class="hslide" data-label="The Hidden Cost"><div class="stage-wrap"><div class="canvas"><div class="slide dark">
       <div class="chrome-top">
-        <div class="mono">03 / 14 · THE HIDDEN COST</div>
+        <div class="mono">03 / 17 · THE HIDDEN COST</div>
         <div class="mono">CARBON · WASTE · OVERPRODUCTION</div>
       </div>
 
@@ -721,14 +815,14 @@
           </div>
           <div style="border-top: 1px solid var(--hairline-dark); border-bottom: 1px solid var(--hairline-dark); padding: 36px 0;">
             <div class="mono" style="color: rgba(255,255,255,0.5); margin-bottom: 16px;">[03] OVERPRODUCTION · UNSOLD INVENTORY</div>
-            <div style="font-size: 88px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">30 – 40%</div>
+            <div style="font-size: 88px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">30% to 40%</div>
             <div style="font-size: 18px; font-weight: 400; line-height: 1.4; color: rgba(255,255,255,0.72); margin-top: 14px; max-width: 480px;">Of produced fashion inventory never sells at full price.</div>
           </div>
         </div>
       </div>
 
       <div class="chrome-bot">
-        <div class="mono">SOURCES / OPTORO 2022 · MCKINSEY STATE OF FASHION 2024</div>
+        <div class="mono">SOURCES / OPTORO 2022 · MCKINSEY STATE OF FASHION 2024 · BOF</div>
         <div class="mono">[SYS / RETURNS → EMISSIONS]</div>
       </div>
     </div></div></div></div>
@@ -736,7 +830,7 @@
   <!-- ========== 04 · WHY FIT BREAKS ========== -->
   <div class="hslide" data-label="Why Fit Breaks"><div class="stage-wrap"><div class="canvas"><div class="slide dark">
       <div class="chrome-top">
-        <div class="mono">04 / 14 · ROOT CAUSE</div>
+        <div class="mono">04 / 17 · ROOT CAUSE</div>
         <div class="mono">FIT IS THE FAULT LINE</div>
       </div>
 
@@ -767,13 +861,13 @@
         </div>
         <div class="reason-row" style="padding: 26px 0;">
           <div class="idx">04</div>
-          <div class="label" style="font-size: 38px;">Ordered multiple sizes ("bracketing")</div>
+          <div class="label" style="font-size: 38px;">Ordered multiple sizes</div>
           <div class="pct" style="font-size: 46px;">11%</div>
         </div>
       </div>
 
       <div class="chrome-bot">
-        <div class="mono">SOURCE / NARVAR · SHOPIFY · 2025 MERCHANT SURVEYS</div>
+        <div class="mono">SOURCE / NARVAR CONSUMER REPORT 2024 · SHOPIFY MERCHANT SURVEY 2025</div>
         <div class="mono">[FIG. 04 / REASON BREAKDOWN]</div>
       </div>
     </div></div></div></div>
@@ -781,43 +875,49 @@
   <!-- ========== 05 · WHY NOW ========== -->
   <div class="hslide" data-label="Why Now"><div class="stage-wrap"><div class="canvas"><div class="slide dark">
       <div class="chrome-top">
-        <div class="mono">05 / 14 · WHY NOW</div>
-        <div class="mono">REGULATORY + MARKET PRESSURE</div>
+        <div class="mono">05 / 17 · WHY NOW</div>
+        <div class="mono">REGULATORY · MARKET PRESSURE</div>
       </div>
 
-      <div style="margin-top: 60px;">
-        <div class="hero" style="font-size: 120px;">THE WINDOW<br>IS OPEN<span style="color: var(--accent);">.</span></div>
+      <div style="margin-top: 40px;">
+        <div class="hero" style="font-size: 104px;">THE WINDOW<br>IS OPEN<span style="color: var(--accent);">.</span></div>
       </div>
 
-      <div class="why-grid">
-        <div class="why-cell">
-          <div class="idx">[01]</div>
-          <div class="meta">EU · 2027 – 2030</div>
+      <div class="why-grid" style="margin-top: 36px;">
+        <div class="why-cell" style="padding-top: 32px; padding-bottom: 32px;">
+          <div class="idx">[REG]</div>
+          <div class="meta">EU · 2027 to 2030</div>
           <div class="title">Digital Product Passport</div>
           <div class="desc">Every garment sold in the EU will carry a digital record. Fit + sizing data is the missing UX layer.</div>
         </div>
-        <div class="why-cell">
-          <div class="idx">[02]</div>
-          <div class="meta">EU · 2024 ENACTED</div>
-          <div class="title">ESPR & Waste Directive</div>
-          <div class="desc">Destruction of unsold textiles banned. Return volume is now a direct P&amp;L and compliance risk.</div>
+        <div class="why-cell" style="padding-top: 32px; padding-bottom: 32px;">
+          <div class="idx">[REG]</div>
+          <div class="meta">EU · 2024 ADOPTED · IN FORCE JULY 2026</div>
+          <div class="title">ESPR &amp; Waste Directive</div>
+          <div class="desc">Destruction of unsold textiles banned for medium and large brands (micro and small exempt until 2030). Return volume is now a direct P&amp;L and compliance risk.</div>
         </div>
-        <div class="why-cell">
-          <div class="idx">[03]</div>
-          <div class="meta">RETAILER POLICY · 2023 – 25</div>
+        <div class="why-cell" style="padding-top: 32px; padding-bottom: 32px;">
+          <div class="idx">[BIZ]</div>
+          <div class="meta">RETAILER POLICY · 2023 to 2026</div>
           <div class="title">"Free returns" ends</div>
           <div class="desc">Zara, H&amp;M, Uniqlo, Asos now charge for returns. Shoppers demand accuracy before purchase.</div>
         </div>
-        <div class="why-cell">
-          <div class="idx">[04]</div>
-          <div class="meta">TECH · 2024 – 2026</div>
+        <div class="why-cell" style="padding-top: 32px; padding-bottom: 32px;">
+          <div class="idx">[TECH]</div>
+          <div class="meta">TECH · 2024 to 2026</div>
           <div class="title">3D body + cloth sim, cheap</div>
-          <div class="desc">SMPL avatars and GPU-accelerated drape simulation finally fit in a browser session under $0.02.</div>
+          <div class="desc">SMPL‑X avatars and browser‑native drape simulation are finally cheap enough to ship at e‑commerce scale.</div>
+        </div>
+        <div class="why-cell span-2">
+          <div class="idx">[BIZ]</div>
+          <div class="meta">FINANCE · 2025 to 2026</div>
+          <div class="title">Agentic commerce rails go live</div>
+          <div class="desc" style="max-width: 1500px;">Visa Intelligent Commerce launched April 2025. Mastercard Agent Pay completed the first live EU payment in March 2026 (Santander pilot, controlled environment). Stripe ACP is shipping. Every rail is missing the fit verification layer.</div>
         </div>
       </div>
 
       <div class="chrome-bot">
-        <div class="mono">SOURCES / EUR-LEX · EC JRC · IHL 2024</div>
+        <div class="mono">SOURCES / EU 2024 · VISA INTELLIGENT COMMERCE APR 2025 · MASTERCARD AGENT PAY MAR 2026</div>
         <div class="mono">[SYS / REGULATORY PRESSURE]</div>
       </div>
     </div></div></div></div>
@@ -825,52 +925,61 @@
   <!-- ========== 06 · WHAT WE BUILT ========== -->
   <div class="hslide" data-label="What We Built"><div class="stage-wrap"><div class="canvas"><div class="slide">
       <div class="chrome-top">
-        <div class="mono">06 / 14 · SOLUTION</div>
+        <div class="mono">06 / 17 · SOLUTION</div>
         <div class="mono">WHAT WE BUILT</div>
       </div>
 
-      <div style="margin-top: 120px;">
-        <div class="hero" style="font-size: 160px;">
-          FIT,<br>BEFORE<br>PURCHASE<span style="color: var(--accent);">.</span>
+      <div style="margin-top: 90px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 80px; align-items: end;">
+        <div class="hero" style="font-size: 96px; line-height: 0.92;">
+          FIT, BEFORE<br>PURCHASE<span style="color: var(--accent);">.</span>
         </div>
-        <div class="sub" style="margin-top: 48px; font-size: 28px; max-width: 1100px;">
-          A browser widget that drops into any store. A pre‑made avatar, built once in 90 seconds. A 3D try‑on
-          with real garment physics. One fit passport, reusable across every brand.
-        </div>
-
-        <div style="margin-top: 80px; display: grid; grid-template-columns: 1fr 28px 1fr 28px 1fr 28px 1fr; align-items: center; max-width: 1600px;">
-          <div style="border: 1px solid var(--hairline); padding: 22px 24px; min-height: 72px; display: flex; flex-direction: column; justify-content: center;">
-            <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ash); font-weight: 500; margin-bottom: 10px;">[01]</div>
-            <div style="font-family: var(--display); font-size: 16px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink);">Widget Loads</div>
-          </div>
-          <div style="display: flex; align-items: center; justify-content: center; color: var(--ink);"><svg width="28" height="10" viewBox="0 0 28 10" fill="none"><path d="M0 5 H26 M22 1 L26 5 L22 9" stroke="currentColor" stroke-width="1" fill="none"/></svg></div>
-          <div style="border: 1px solid var(--hairline); padding: 22px 24px; min-height: 72px; display: flex; flex-direction: column; justify-content: center;">
-            <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ash); font-weight: 500; margin-bottom: 10px;">[02]</div>
-            <div style="font-family: var(--display); font-size: 16px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink);">Avatar · 90s</div>
-          </div>
-          <div style="display: flex; align-items: center; justify-content: center; color: var(--ink);"><svg width="28" height="10" viewBox="0 0 28 10" fill="none"><path d="M0 5 H26 M22 1 L26 5 L22 9" stroke="currentColor" stroke-width="1" fill="none"/></svg></div>
-          <div style="border: 1px solid var(--hairline); padding: 22px 24px; min-height: 72px; display: flex; flex-direction: column; justify-content: center;">
-            <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ash); font-weight: 500; margin-bottom: 10px;">[03]</div>
-            <div style="font-family: var(--display); font-size: 16px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink);">3D Try-On</div>
-          </div>
-          <div style="display: flex; align-items: center; justify-content: center; color: var(--ink);"><svg width="28" height="10" viewBox="0 0 28 10" fill="none"><path d="M0 5 H26 M22 1 L26 5 L22 9" stroke="currentColor" stroke-width="1" fill="none"/></svg></div>
-          <div style="border: 1px solid var(--ink); background: var(--ink); color: var(--paper); padding: 22px 24px; min-height: 72px; display: flex; flex-direction: column; justify-content: center;">
-            <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(255,255,255,0.55); font-weight: 500; margin-bottom: 10px;">[04]</div>
-            <div style="font-family: var(--display); font-size: 16px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--paper);">Fit Passport</div>
-          </div>
+        <div class="sub" style="font-size: 22px; max-width: 640px; color: #444; padding-bottom: 8px;">
+          A browser widget that drops into any store. Pre‑made avatar, 3D try‑on, one fit passport reusable across every brand.
         </div>
       </div>
 
+      <div class="tech-cards">
+        <div class="tech-card">
+          <div class="img"><img src="/pitch-deck/01_digital-twin.jpg" alt="Digital twin garment, draped on body" /></div>
+          <div class="meta">
+            <span>[001 GARMENT]</span>
+            <span>CLOTH / NEWTON SIM</span>
+          </div>
+          <div class="title">Digital Twin</div>
+        </div>
+        <div class="tech-card">
+          <div class="img"><img src="/pitch-deck/02_smplx-avatar.jpg" alt="SMPL-X body avatar in T-pose" /></div>
+          <div class="meta">
+            <span>[002 BODY]</span>
+            <span>SMPL‑X · M MODEL</span>
+          </div>
+          <div class="title">SMPL‑X Avatar</div>
+        </div>
+        <div class="tech-card">
+          <div class="img"><img src="/pitch-deck/03_measurements.jpg" alt="16 body measurement landmarks" /></div>
+          <div class="meta">
+            <span>[003 MEASUREMENTS]</span>
+            <span>16‑PARAM</span>
+          </div>
+          <div class="title">16 Dimensions</div>
+        </div>
+      </div>
+
+      <div class="passport-bar">
+        <span class="arrow"></span>
+        <span>Fit Passport</span>
+      </div>
+
       <div class="chrome-bot">
-        <div class="mono">PRODUCT / TRYON WIDGET V2.1</div>
-        <div class="mono">[FIG. 06 / THE SYSTEM]</div>
+        <div class="mono">PRODUCT / TRYON.MARKET V2.0</div>
+        <div class="mono">[CFG. 06 / THE SYSTEM]</div>
       </div>
     </div></div></div></div>
 
   <!-- ========== 07 · THE TRY-ON (product hero) ========== -->
   <div class="hslide" data-label="The Try-On"><div class="stage-wrap"><div class="canvas"><div class="slide">
       <div class="chrome-top">
-        <div class="mono">07 / 14 · LIVE TRY‑ON</div>
+        <div class="mono">07 / 17 · LIVE TRY‑ON</div>
         <div class="mono">ON THE PRODUCT PAGE</div>
       </div>
 
@@ -905,7 +1014,7 @@
   <!-- ========== 08 · THE FIT PASSPORT ========== -->
   <div class="hslide" data-label="The Fit Passport"><div class="stage-wrap"><div class="canvas"><div class="slide">
       <div class="chrome-top">
-        <div class="mono">08 / 14 · THE FIT PASSPORT</div>
+        <div class="mono">08 / 17 · THE FIT PASSPORT</div>
         <div class="mono">ONE PROFILE · EVERY BRAND</div>
       </div>
 
@@ -915,7 +1024,7 @@
             ONE AVATAR.<br>EVERY STORE<span style="color: var(--accent);">.</span>
           </div>
           <div class="sub" style="margin-top: 36px; font-size: 24px; max-width: 640px;">
-            Shoppers build their avatar once: height, chest, waist, hip, preferred fit.
+            Shoppers build their avatar once: ten body measurements plus preferred fit.
             Every TRYON‑enabled store reads the passport, recommends the right size, and learns from the result.
           </div>
 
@@ -958,7 +1067,7 @@
   <!-- ========== 09 · THE BRAND CONSOLE ========== -->
   <div class="hslide" data-label="The Brand Console"><div class="stage-wrap"><div class="canvas"><div class="slide">
       <div class="chrome-top">
-        <div class="mono">09 / 14 · THE BRAND CONSOLE</div>
+        <div class="mono">09 / 17 · THE BRAND CONSOLE</div>
         <div class="mono">ROI · ATTRIBUTION · FUNNEL</div>
       </div>
 
@@ -970,6 +1079,9 @@
           <div class="sub" style="margin-top: 36px; font-size: 24px; max-width: 560px;">
             Try‑on → size → cart → purchase. Every step is attributed, every drop‑off
             is traceable to a SKU, a fit, a body type.
+          </div>
+          <div class="sub" style="margin-top: 16px; font-size: 22px; max-width: 560px; color: #444;">
+            Purchase flow opens June 2026.
           </div>
 
           <div class="readout" style="margin-top: 40px;">
@@ -1006,7 +1118,7 @@
   <!-- ========== 10 · FIT INTELLIGENCE ========== -->
   <div class="hslide" data-label="Fit Intelligence"><div class="stage-wrap"><div class="canvas"><div class="slide">
       <div class="chrome-top">
-        <div class="mono">10 / 14 · FIT INTELLIGENCE</div>
+        <div class="mono">10 / 17 · FIT INTELLIGENCE</div>
         <div class="mono">BEYOND THE FUNNEL</div>
       </div>
 
@@ -1040,7 +1152,7 @@
   <!-- ========== 11 · THE FIT GRAPH ========== -->
   <div class="hslide" data-label="The Fit Graph"><div class="stage-wrap"><div class="canvas"><div class="slide dark">
       <div class="chrome-top">
-        <div class="mono">11 / 14 · THE MOAT</div>
+        <div class="mono">11 / 17 · THE MOAT</div>
         <div class="mono orange">[THE FIT GRAPH]</div>
       </div>
 
@@ -1071,7 +1183,7 @@
         </div>
         <div class="bar-row accent">
           <div class="lbl">[04] RETURN LAYER · OUTCOMES + ACCEPT / REJECT</div>
-          <div class="bar"><div class="fill" style="width: 100%;"></div></div>
+          <div class="bar"><div class="fill" style="width: 20%;"></div></div>
           <div class="val">CLOSED LOOP</div>
         </div>
       </div>
@@ -1088,10 +1200,277 @@
       </div>
     </div></div></div></div>
 
-  <!-- ========== 12 · TRACTION / LIVE ========== -->
+  <!-- ========== 12 · THE FUTURE LAYER (AGENTIC) ========== -->
+  <div class="hslide" data-label="The Future Layer"><div class="stage-wrap"><div class="canvas"><div class="slide">
+      <div class="chrome-top">
+        <div class="mono">12 / 17 · THE FUTURE LAYER</div>
+        <div class="mono">AGENTIC COMMERCE</div>
+      </div>
+
+      <div style="margin-top: 100px; display: grid; grid-template-columns: 1.05fr 1fr; gap: 64px; flex: 1; min-height: 0; padding-bottom: 40px;">
+
+        <div style="display: flex; flex-direction: column;">
+          <div class="hero" style="font-size: 92px; line-height: 0.94;">
+            EVERY AI AGENT<br>NEEDS TO KNOW<br>ONE THING.<br><span style="color: var(--accent);">WILL IT FIT?</span>
+          </div>
+          <div class="sub" style="margin-top: 32px; font-size: 22px; max-width: 720px; color: #333;">
+            AI agents are taking over fashion purchasing. They browse, decide, and pay on the shopper's behalf. Every agent‑initiated fashion purchase is a return without verified fit data. No one has built the layer agents call before they buy.
+          </div>
+
+          <div style="margin-top: auto; padding-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 28px 48px;">
+            <div>
+              <div style="font-size: 64px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">$3 to $5T</div>
+              <div class="mono" style="margin-top: 12px; font-size: 11px;">AGENT‑ORCHESTRATED RETAIL · 2030</div>
+              <div class="mono" style="font-size: 10px; color: rgba(0,0,0,0.45); margin-top: 4px;">MCKINSEY QUANTUMBLACK · OCT 2025</div>
+            </div>
+            <div>
+              <div style="font-size: 64px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">$385B</div>
+              <div class="mono" style="margin-top: 12px; font-size: 11px;">US AT AGENT‑INITIATED CART · 2030</div>
+              <div class="mono" style="font-size: 10px; color: rgba(0,0,0,0.45); margin-top: 4px;">MORGAN STANLEY · DEC 2025</div>
+            </div>
+            <div>
+              <div style="font-size: 64px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">4,700%</div>
+              <div class="mono" style="margin-top: 12px; font-size: 11px;">AI SHOPPING‑SEARCH GROWTH · 24‑25</div>
+              <div class="mono" style="font-size: 10px; color: rgba(0,0,0,0.45); margin-top: 4px;">SIMILARWEB · ADOBE · STATE OF FASHION 2026</div>
+            </div>
+            <div>
+              <div style="font-size: 64px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">18%</div>
+              <div class="mono" style="margin-top: 12px; font-size: 11px;">US AI‑COMM AGENT‑INITIATED · 2025</div>
+              <div class="mono" style="font-size: 10px; color: rgba(0,0,0,0.45); margin-top: 4px;">SALESFORCE · 2025</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--ink); color: var(--paper); padding: 36px 36px; display: flex; flex-direction: column; min-height: 0;">
+          <div class="mono" style="color: rgba(255,255,255,0.55); margin-bottom: 28px;">[FIG. 12 / THE GAP]</div>
+          <div class="hero" style="font-size: 48px; line-height: 0.98; color: #fff;">
+            NO ONE HAS BUILT<br>THE FIT VERIFICATION<br>LAYER<span style="color: var(--accent);">.</span>
+          </div>
+
+          <div style="margin-top: 36px; display: flex; flex-direction: column; gap: 0;">
+            <div style="display: grid; grid-template-columns: 1fr 1.1fr; gap: 24px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.18);">
+              <div class="mono" style="color: rgba(255,255,255,0.45); font-size: 11px;">PLAYER</div>
+              <div class="mono" style="color: rgba(255,255,255,0.45); font-size: 11px;">MISSING</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1.1fr; gap: 24px; padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.12);">
+              <div style="font-size: 18px; font-weight: 600; letter-spacing: -0.01em;">Visa / Mastercard</div>
+              <div style="font-size: 18px; font-weight: 400; color: rgba(255,255,255,0.78);">Fit verification</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1.1fr; gap: 24px; padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.12);">
+              <div style="font-size: 18px; font-weight: 600; letter-spacing: -0.01em;">OpenAI / GPT</div>
+              <div style="font-size: 18px; font-weight: 400; color: rgba(255,255,255,0.78);">Body data</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1.1fr; gap: 24px; padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.12);">
+              <div style="font-size: 18px; font-weight: 600; letter-spacing: -0.01em;">True Fit</div>
+              <div style="font-size: 18px; font-weight: 400; color: rgba(255,255,255,0.78);">Physics simulation</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1.1fr; gap: 24px; padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.12);">
+              <div style="font-size: 18px; font-weight: 600; letter-spacing: -0.01em;">3DLOOK</div>
+              <div style="font-size: 18px; font-weight: 400; color: rgba(255,255,255,0.78);">Garment twins</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1.1fr; gap: 24px; padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.12);">
+              <div style="font-size: 18px; font-weight: 600; letter-spacing: -0.01em;">Aura Consortium</div>
+              <div style="font-size: 18px; font-weight: 400; color: rgba(255,255,255,0.78);">Fit data per shopper</div>
+            </div>
+          </div>
+
+          <div style="margin-top: auto; padding-top: 28px; display: grid; grid-template-columns: 1fr 1.1fr; gap: 24px; align-items: baseline;">
+            <div style="font-size: 24px; font-weight: 900; letter-spacing: -0.025em;">TRYON</div>
+            <div class="mono" style="color: var(--accent); font-size: 13px;">THE FIT PASSPORT API</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">SYSTEM / FIT VERIFICATION FOR AGENTS</div>
+        <div class="mono">[FIG. 12 / AGENTIC FIT LAYER]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 13 · THE ASSET LAYER (TOKENIZED TWINS) ========== -->
+  <div class="hslide" data-label="The Asset Layer"><div class="stage-wrap"><div class="canvas"><div class="slide dark">
+      <div class="chrome-top">
+        <div class="mono">13 / 17 · THE ASSET LAYER</div>
+        <div class="mono">TOKENIZED GARMENT TWINS</div>
+      </div>
+
+      <div style="margin-top: 80px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 80px; flex: 1; min-height: 0; padding-bottom: 24px;">
+
+        <div style="display: flex; flex-direction: column;">
+          <div class="hero" style="font-size: 78px; line-height: 0.96;">
+            EVERY GARMENT<br>IS BECOMING A<br>FINANCIAL ASSET<span style="color: var(--accent);">.</span>
+          </div>
+          <div class="sub" style="margin-top: 28px; font-size: 20px; max-width: 720px; color: rgba(255,255,255,0.78);">
+            Luxury brands, blockchain consortia, and DeFi platforms are racing to tokenize physical garments. Every single one is missing the same thing: a physics‑accurate 3D digital twin with verified fit data that makes the token financially meaningful.
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0; justify-content: center;">
+          <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: baseline; padding: 18px 0; border-top: 1px solid var(--hairline-dark);">
+            <div>
+              <div class="mono" style="color: rgba(255,255,255,0.5); font-size: 11px;">ASSET TOKENIZATION MARKET</div>
+              <div class="mono" style="color: rgba(255,255,255,0.35); font-size: 10px; margin-top: 4px;">INDUSTRY ANALYSTS · 2024</div>
+            </div>
+            <div style="font-size: 38px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; white-space: nowrap;">$2.67T → $16.1T</div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: baseline; padding: 18px 0; border-top: 1px solid var(--hairline-dark);">
+            <div>
+              <div class="mono" style="color: rgba(255,255,255,0.5); font-size: 11px;">FASHION NFT MARKET BY 2030</div>
+              <div class="mono" style="color: rgba(255,255,255,0.35); font-size: 10px; margin-top: 4px;">MORDOR INTELLIGENCE · 2025</div>
+            </div>
+            <div style="font-size: 38px; font-weight: 900; letter-spacing: -0.03em; line-height: 1;">$25B</div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: baseline; padding: 18px 0; border-top: 1px solid var(--hairline-dark);">
+            <div>
+              <div class="mono" style="color: rgba(255,255,255,0.5); font-size: 11px;">LUXURY PRODUCTS ON BLOCKCHAIN (AURA)</div>
+              <div class="mono" style="color: rgba(255,255,255,0.35); font-size: 10px; margin-top: 4px;">LVMH · PRADA · CARTIER · 2024</div>
+            </div>
+            <div style="font-size: 38px; font-weight: 900; letter-spacing: -0.03em; line-height: 1;">50M</div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: baseline; padding: 18px 0; border-top: 1px solid var(--hairline-dark);">
+            <div>
+              <div class="mono" style="color: rgba(255,255,255,0.5); font-size: 11px;">COUNTERFEIT FASHION MARKET / YR</div>
+              <div class="mono" style="color: rgba(255,255,255,0.35); font-size: 10px; margin-top: 4px;">GLOBAL TRADE DATA · 2024</div>
+            </div>
+            <div style="font-size: 38px; font-weight: 900; letter-spacing: -0.03em; line-height: 1;">$590B</div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: baseline; padding: 18px 0; border-top: 1px solid var(--hairline-dark); border-bottom: 1px solid var(--hairline-dark);">
+            <div>
+              <div class="mono" style="color: rgba(255,255,255,0.5); font-size: 11px;">EU DPP MANDATORY FOR TEXTILES</div>
+              <div class="mono" style="color: rgba(255,255,255,0.35); font-size: 10px; margin-top: 4px;">EUR‑LEX · ESPR WORKING PLAN 2025</div>
+            </div>
+            <div style="font-size: 38px; font-weight: 900; letter-spacing: -0.03em; line-height: 1;">2027</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; padding: 20px 0 24px; border-top: 1px solid var(--hairline-dark);">
+        <div>
+          <div class="mono" style="color: var(--accent); font-size: 11px; margin-bottom: 10px;">[01] DPP COMPLIANCE</div>
+          <div style="font-size: 14px; line-height: 1.45; color: rgba(255,255,255,0.78);">Brands use TRYON's twin as their EU Digital Product Passport asset. Mandatory by 2027.</div>
+        </div>
+        <div>
+          <div class="mono" style="color: var(--accent); font-size: 11px; margin-bottom: 10px;">[02] RESALE FIT</div>
+          <div style="font-size: 14px; line-height: 1.45; color: rgba(255,255,255,0.78);">Vinted, Vestiaire buyers try on secondhand using the original brand's twin. First fit layer for the $227B resale market.</div>
+        </div>
+        <div>
+          <div class="mono" style="color: var(--accent); font-size: 11px; margin-bottom: 10px;">[03] INVENTORY FINANCE</div>
+          <div style="font-size: 14px; line-height: 1.45; color: rgba(255,255,255,0.78);">Production orders backed by TRYON body‑shape data are demand‑certain. Banks offer better loan terms.</div>
+        </div>
+        <div>
+          <div class="mono" style="color: var(--accent); font-size: 11px; margin-bottom: 10px;">[04] DEFI COLLATERAL</div>
+          <div style="font-size: 14px; line-height: 1.45; color: rgba(255,255,255,0.78);">Tokenized garment twins with fit data become verifiable collateral for fashion working‑capital lending.</div>
+        </div>
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">SYSTEM / DIGITAL TWIN AS FINANCIAL ASSET</div>
+        <div class="mono">[FIG. 13 / TOKENIZED GARMENT TWIN]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 14 · THE FINTECH LAYER (FIT INTELLIGENCE SCORE) ========== -->
+  <div class="hslide" data-label="The Fintech Layer"><div class="stage-wrap"><div class="canvas"><div class="slide">
+      <div class="chrome-top">
+        <div class="mono">14 / 17 · THE FINTECH LAYER</div>
+        <div class="mono">FIT INTELLIGENCE CREDIT SCORE</div>
+      </div>
+
+      <div style="margin-top: 80px; display: grid; grid-template-columns: 1.05fr 1fr; gap: 64px; flex: 1; min-height: 0; padding-bottom: 32px;">
+
+        <div style="display: flex; flex-direction: column;">
+          <div class="hero" style="font-size: 92px; line-height: 0.94;">
+            THE DATA<br>BANKS<br>CANNOT SEE<span style="color: var(--accent);">.</span>
+          </div>
+          <div class="sub" style="margin-top: 28px; font-size: 20px; max-width: 720px; color: #333;">
+            Every alternative lender underwriting a fashion brand (Wayflyer, Clearco, NewlO) is blind to the single most important variable: whether the brand's product actually fits its customers. A brand with 40% returns driven by chronic fit problems looks identical in a lending model to one with 15% returns and high fit confidence. They are not the same risk.
+          </div>
+
+          <div style="margin-top: auto; padding-top: 32px; display: flex; flex-direction: column; gap: 18px;">
+            <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: baseline; padding: 14px 0; border-top: 1px solid var(--hairline);">
+              <div>
+                <div class="mono" style="font-size: 11px;">ONLINE FASHION BRANDS · NL</div>
+                <div class="mono" style="color: var(--ash); font-size: 10px; margin-top: 4px;">TRUSTBONUS.ORG · 2024</div>
+              </div>
+              <div style="font-size: 48px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">21,000+</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: baseline; padding: 14px 0; border-top: 1px solid var(--hairline);">
+              <div>
+                <div class="mono" style="font-size: 11px;">SME FINANCING GROWTH NL · 2024</div>
+                <div class="mono" style="color: var(--ash); font-size: 10px; margin-top: 4px;">DNB FINANCIAL STABILITY REPORT · BASEL III‑F · SMES 6.4X</div>
+              </div>
+              <div style="font-size: 48px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">27%</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: baseline; padding: 14px 0; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline);">
+              <div>
+                <div class="mono" style="font-size: 11px;">DUTCH BRANDS · MAJOR PRODUCTION DELAYS</div>
+                <div class="mono" style="color: var(--ash); font-size: 10px; margin-top: 4px;">FASHION UNITED · 2024</div>
+              </div>
+              <div style="font-size: 48px; font-weight: 900; letter-spacing: -0.04em; line-height: 1;">60%+</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--ink); color: var(--paper); padding: 36px; display: flex; flex-direction: column; min-height: 0;">
+          <div class="mono" style="color: rgba(255,255,255,0.55); margin-bottom: 24px;">[FIG. 14 / FIT INTELLIGENCE SCORE]</div>
+          <div class="hero" style="font-size: 56px; line-height: 0.98; color: #fff;">
+            FIT INTELLIGENCE<br>SCORE<span style="color: var(--accent);">.</span>
+          </div>
+          <div class="mono" style="color: rgba(255,255,255,0.55); margin-top: 16px;">0 TO 100 · PER BRAND · UPDATED MONTHLY</div>
+
+          <div style="margin-top: 28px; display: flex; flex-direction: column;">
+            <div style="display: grid; grid-template-columns: 60px 1fr; gap: 16px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.12);">
+              <div class="mono" style="color: rgba(255,255,255,0.45); font-size: 11px;">[01]</div>
+              <div style="font-size: 15px; font-weight: 500; letter-spacing: -0.005em;">SKU fit‑confidence average</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 60px 1fr; gap: 16px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.12);">
+              <div class="mono" style="color: rgba(255,255,255,0.45); font-size: 11px;">[02]</div>
+              <div style="font-size: 15px; font-weight: 500; letter-spacing: -0.005em;">Size‑signal accuracy · recommendation vs selection</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 60px 1fr; gap: 16px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.12);">
+              <div class="mono" style="color: rgba(255,255,255,0.45); font-size: 11px;">[03]</div>
+              <div style="font-size: 15px; font-weight: 500; letter-spacing: -0.005em;">Return‑rate correlation · low confidence = high returns</div>
+            </div>
+            <div style="display: grid; grid-template-columns: 60px 1fr; gap: 16px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.12);">
+              <div class="mono" style="color: rgba(255,255,255,0.45); font-size: 11px;">[04]</div>
+              <div style="font-size: 15px; font-weight: 500; letter-spacing: -0.005em;">Body‑shape distribution coverage</div>
+            </div>
+          </div>
+
+          <div style="margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div style="background: rgba(255,255,255,0.06); padding: 20px;">
+              <div class="mono" style="color: rgba(255,255,255,0.5); font-size: 10px;">BRAND A</div>
+              <div style="font-size: 72px; font-weight: 900; letter-spacing: -0.04em; line-height: 1; margin-top: 8px;">31</div>
+              <div class="mono" style="color: var(--accent); font-size: 10px; margin-top: 8px;">HIDDEN RETURN RISK</div>
+            </div>
+            <div style="background: rgba(255,255,255,0.06); padding: 20px;">
+              <div class="mono" style="color: rgba(255,255,255,0.5); font-size: 10px;">BRAND B</div>
+              <div style="font-size: 72px; font-weight: 900; letter-spacing: -0.04em; line-height: 1; margin-top: 8px;">82</div>
+              <div class="mono" style="color: rgba(255,255,255,0.85); font-size: 10px; margin-top: 8px;">STRUCTURALLY SOUND</div>
+            </div>
+          </div>
+
+          <div class="mono" style="margin-top: auto; padding-top: 24px; color: rgba(255,255,255,0.55); font-size: 10px; line-height: 1.6;">
+            OUT: A SINGLE SCORE, LICENSED TO LENDERS VIA B2B DATA API.<br>
+            €50 / ASSESSMENT · 5,000 / YR · €250K FROM ONE BANK.<br>
+            EU TOP 10 BANKS = €2.5M EUR / YR.
+          </div>
+        </div>
+
+      </div>
+
+      <div class="chrome-bot">
+        <div class="mono">DATA / FIT INTELLIGENCE FOR LENDERS</div>
+        <div class="mono">[FIG. 14 / CREDIT SCORE]</div>
+      </div>
+    </div></div></div></div>
+
+  <!-- ========== 15 · TRACTION / LIVE ========== -->
   <div class="hslide" data-label="Traction"><div class="stage-wrap"><div class="canvas"><div class="slide">
       <div class="chrome-top">
-        <div class="mono">12 / 14 · TRACTION</div>
+        <div class="mono">15 / 17 · TRACTION</div>
         <div class="mono">LIVE IN MARKET</div>
       </div>
 
@@ -1130,7 +1509,7 @@
 
         <div style="background: var(--offwhite); overflow: hidden; position: relative; display: flex; align-items: stretch; justify-content: stretch; border: 1px solid var(--hairline);">
           <img src="/redesign/tryon-zoom.jpg" alt="Live fit intelligence, Ramin Studios, size distribution and acceptance" style="width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; background: #fff; filter: grayscale(1) contrast(1.05);" />
-          <div style="position: absolute; top: 16px; left: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; background: var(--ink); padding: 8px 12px; font-weight: 500;">FIG. 12 / RAMIN · FIT INTELLIGENCE · LIVE</div>
+          <div style="position: absolute; top: 16px; left: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; background: var(--ink); padding: 8px 12px; font-weight: 500;">FIG. 15 / RAMIN · FIT INTELLIGENCE · LIVE</div>
           <div style="position: absolute; bottom: 16px; right: 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); background: #fff; padding: 8px 12px; font-weight: 500; border: 1px solid var(--hairline);">SIZE‑UP 35% · SIZE‑DOWN 15% · 94 SESS</div>
         </div>
       </div>
@@ -1144,7 +1523,7 @@
   <!-- ========== 13 · IMPACT + BUSINESS ========== -->
   <div class="hslide" data-label="Impact & Model"><div class="stage-wrap"><div class="canvas"><div class="slide">
       <div class="chrome-top">
-        <div class="mono">13 / 14 · IMPACT · BUSINESS</div>
+        <div class="mono">16 / 17 · IMPACT · BUSINESS</div>
         <div class="mono">UNIT ECONOMICS OF PREVENTION</div>
       </div>
 
@@ -1177,15 +1556,15 @@
 
       <div class="chrome-bot" style="margin-top: 32px;">
         <div class="mono">MODEL / B2B SAAS</div>
-        <div class="mono">[FIG. 13 / UNIT ECONOMICS]</div>
+        <div class="mono">[FIG. 16 / UNIT ECONOMICS]</div>
       </div>
     </div></div></div></div>
 
   <!-- ========== 14 · THE ASK ========== -->
   <div class="hslide" data-label="The Ask"><div class="stage-wrap"><div class="canvas"><div class="slide dark">
       <div class="chrome-top">
-        <div class="mono">14 / 14 · THE ASK</div>
-        <div class="mono orange">PITCH · 2026</div>
+        <div class="mono">17 / 17 · THE ASK</div>
+        <div class="mono">INVESTOR & BRAND PARTNERSHIPS</div>
       </div>
 
       <div style="margin-top: 40px; display: flex; align-items: center; gap: 48px;">
@@ -1204,11 +1583,11 @@
       <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px; margin-top: auto; padding-top: 40px; border-top: 1px solid var(--hairline-dark);">
         <div>
           <div class="mono" style="color: var(--accent); margin-bottom: 14px;">[01] THE ASK</div>
-          <div style="font-size: 22px; font-weight: 500; line-height: 1.35;">Pilot partnerships with 3 fashion brands. Investor + advisor introductions.</div>
+          <div style="font-size: 22px; font-weight: 500; line-height: 1.35;">Pilot partnerships with three fashion brands. Investor and advisor introductions across fit, fintech, and fashion infrastructure.</div>
         </div>
         <div>
           <div class="mono" style="color: var(--accent); margin-bottom: 14px;">[02] TARGET IMPACT · 24 MONTHS</div>
-          <div style="font-size: 22px; font-weight: 500; line-height: 1.35;">Target: 1M try‑ons · 100k returns prevented · 500t CO₂e avoided.</div>
+          <div style="font-size: 22px; font-weight: 500; line-height: 1.35;">1M live try‑ons. 100k returns prevented. 500t CO₂e avoided. Fit Passport adopted across the EU pilot cohort.</div>
         </div>
         <div>
           <div class="mono" style="color: var(--accent); margin-bottom: 14px;">[03] CONTACT</div>
@@ -1223,14 +1602,14 @@
 
       <div class="chrome-bot">
         <div class="mono">PITCH DECK / TRYON.GLOBAL</div>
-        <div class="mono">END · 14 / 14</div>
+        <div class="mono">END · 17 / 17</div>
       </div>
     </div></div></div></div>
 
 </div>
 
 <div class="deck-progress" aria-hidden="true"><div class="fill" id="progFill"></div></div>
-<div class="deck-counter" id="deckCounter"><span id="curIdx">01</span> / 14<span class="label" id="curLabel">Title</span></div>
+<div class="deck-counter" id="deckCounter"><span id="curIdx">01</span> / 17<span class="label" id="curLabel">Title</span></div>
 <div class="deck-hint" id="deckHint"><span>Scroll</span><span class="arrow"></span></div>
 
 <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
