@@ -840,60 +840,10 @@
       return box;
     }
 
-    /**
-     * Bind bbox Y from GLB is in arbitrary units. Avatar pipelines often use meters (~1.8) or millimeters (~1800);
-     * garment GLBs may be authored body-sized in meters (Ramin: ~1.8m bbox) or as the real garment in mm
-     * (e.g. a t-shirt at ~665mm). Per-root scaling assumes both meshes are body-sized in matching units —
-     * a real-size garment in mm gets scaled to body height (1.87m), dwarfing the avatar.
-     * Convert each bind height to meters first; downstream scale formula then anchors garment to its real size
-     * relative to the avatar's world height. (Restored from commit db24965, layered over per-root scaling.)
-     */
-    function normalizeBindHeightToMeters(raw) {
-      const h = Number(raw);
-      if (!isFinite(h) || h <= 0) return 0;
-      if (h >= 0.25 && h <= 6)  return h;        // already meters
-      if (h >= 40  && h <= 260) return h / 100;  // cm → m
-      if (h >= 800)             return h / 1000; // mm → m
-      if (h > 6    && h < 800)  return h / 1000; // assume mm
-      return h;
-    }
-
     function detachFromParent(obj) {
       if (!obj) return;
       if (typeof obj.removeFromParent === 'function') obj.removeFromParent();
       else if (obj.parent) obj.parent.remove(obj);
-    }
-
-    /** CLO/glTF often stacks transforms; after reparenting, world scale can collapse (~0) while bind-pose bbox stays fine. */
-    function resetSkinnedBindPose(root) {
-      root.traverse((o) => {
-        if (o.isSkinnedMesh && o.skeleton && typeof o.skeleton.pose === 'function') {
-          o.skeleton.pose();
-        }
-      });
-    }
-
-    /**
-     * Reset local scale on non-bone nodes whose world scale is degenerate (breaks bbox + can zero-out skinned draws).
-     * Never modifies Bone objects (would break rigs).
-     */
-    function fixDegenerateNodeScales(root) {
-      const pos = new THREE.Vector3();
-      const quat = new THREE.Quaternion();
-      const scl = new THREE.Vector3();
-      root.updateMatrixWorld(true);
-      root.traverse((o) => {
-        if (o.isBone) return;
-        o.matrixAutoUpdate = true;
-        o.matrixWorld.decompose(pos, quat, scl);
-        const m = Math.max(Math.abs(scl.x), Math.abs(scl.y), Math.abs(scl.z));
-        if (m < 1e-6) {
-          console.warn('[TryOn] Fix degenerate world scale on', o.name || o.type, scl.toArray());
-          o.scale.set(1, 1, 1);
-          o.updateMatrix();
-        }
-      });
-      root.updateMatrixWorld(true);
     }
 
     // DOM Elements
@@ -1241,21 +1191,6 @@
     const modelCache = {};
     let avatarCache = null;
     const garmentCache = {};
-    /**
-     * Shared 1.8/refY scale: prefer M’s bind height so sleeve/cuff alignment matches how the garment was graded;
-     * min-ref was tighter overall and read as misaligned cuffs/hood with the avatar.
-     */
-    function garmentRefBindHeightY() {
-      const prefer = ['m', 's', 'l', 'xs', 'xl'];
-      for (let i = 0; i < prefer.length; i++) {
-        const g = garmentCache[prefer[i]];
-        const y = g && Number(g.userData.tryonBindHeight);
-        if (y > 0) return y;
-      }
-      return 0;
-    }
-    /** Uniform garment scale on top of 1.8/refY; small bump clears shell vs avatar without huge puff. */
-    const TRYON_GARMENT_CLEARANCE = 1.038;
     let viewerSceneReady = false;
     let viewerPreloadComplete = false;
     let currentSize = 'm';
@@ -2173,32 +2108,17 @@
         if (stackAvatar) {
           detachFromParent(avatarCache);
           avatarCache.position.set(0, 0, 0);
+          avatarCache.scale.set(1, 1, 1);
           refreshSkinnedMeshes(avatarCache);
           group.add(avatarCache);
         }
         const garmentRoot = garmentCache[key];
         detachFromParent(garmentRoot);
         garmentRoot.position.set(0, 0, 0);
-        resetSkinnedBindPose(garmentRoot);
-        refreshSkinnedMeshes(garmentRoot);
-        fixDegenerateNodeScales(garmentRoot);
+        garmentRoot.scale.set(1, 1, 1);
         refreshSkinnedMeshes(garmentRoot);
         prepareGarment(garmentRoot);
         group.add(garmentRoot);
-        group.updateMatrixWorld(true);
-        refreshSkinnedMeshes(group);
-        const rawG = Number(garmentRoot.userData.tryonBindHeight) || 0;
-        const rawA = stackAvatar ? (Number(avatarCache.userData.tryonBindHeight) || 0) : 0;
-        const rawRef = garmentRefBindHeightY() || rawG;
-        const hRefM = normalizeBindHeightToMeters(rawRef);
-        const hAM = normalizeBindHeightToMeters(rawA) || 1.8;
-        group.scale.set(1, 1, 1);
-        const sA = rawA > 1e-9 ? 1.8 / rawA : 1;
-        const sG = (rawRef > 1e-9 && hRefM > 0)
-          ? ((hRefM / hAM) * 1.8 / rawRef) * TRYON_GARMENT_CLEARANCE
-          : TRYON_GARMENT_CLEARANCE;
-        garmentRoot.scale.setScalar(sG);
-        if (stackAvatar) avatarCache.scale.setScalar(sA);
         group.updateMatrixWorld(true);
       } else if (modelCache[key]) {
         group = modelCache[key];
@@ -2226,21 +2146,7 @@
         track('size_recommended', { size: size });
       }
 
-      let meshCount = 0;
-      currentModel.traverse((c) => { if (c.isMesh) meshCount++; });
-      let garmentBbox = '';
-      if (modelType === 'garment_only' && garmentCache[key] && currentModel.children.length) {
-        const garmentRoot = currentModel.children.length > 1 ? currentModel.children[1] : currentModel.children[0];
-        resetSkinnedBindPose(garmentRoot);
-        fixDegenerateNodeScales(garmentRoot);
-        refreshSkinnedMeshes(garmentRoot);
-        const gbObj = new THREE.Box3().setFromObject(garmentRoot);
-        const gsObj = gbObj.getSize(new THREE.Vector3());
-        const gbGeo = geometryWorldBounds(garmentRoot);
-        const gsGeo = gbGeo.getSize(new THREE.Vector3());
-        garmentBbox = ` | captured bind Y: ${Number(garmentRoot.userData.tryonBindHeight).toFixed(3)} | live Object3D: ${gsObj.x.toFixed(3)}×${gsObj.y.toFixed(3)}×${gsObj.z.toFixed(3)} | live geometry: ${gsGeo.x.toFixed(3)}×${gsGeo.y.toFixed(3)}×${gsGeo.z.toFixed(3)}`;
-      }
-      console.log(`✓ Showing ${size.toUpperCase()} | bbox: ${modelSize.x.toFixed(2)}×${modelSize.y.toFixed(2)}×${modelSize.z.toFixed(2)} | meshes: ${meshCount}${garmentBbox}`);
+      console.log(`✓ Showing ${size.toUpperCase()} | bbox: ${modelSize.x.toFixed(2)}×${modelSize.y.toFixed(2)}×${modelSize.z.toFixed(2)}`);
     }
 
     function animate() {
