@@ -807,6 +807,7 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
     import { clone as cloneSkinnedScene } from 'three/addons/utils/SkeletonUtils.js';
 
     function cloneGltfRoot(root) {
@@ -822,6 +823,14 @@
       root.traverse((o) => {
         if (o.isSkinnedMesh && o.skeleton) o.skeleton.update();
       });
+    }
+
+    /** Avatar pipeline exports mm (~1800), drape pipeline exports m (~1.8). Unit-detect by Y extent. */
+    function metersScaleFor(root) {
+      const box = geometryWorldBounds(root);
+      if (box.isEmpty()) return 1;
+      const size = box.getSize(new THREE.Vector3());
+      return size.y > 100 ? 0.001 : 1;
     }
 
     /** Bind-pose bounds (works when SkinnedMesh world AABB from three.js is ~0). */
@@ -840,60 +849,10 @@
       return box;
     }
 
-    /**
-     * Bind bbox Y from GLB is in arbitrary units. Avatar pipelines often use meters (~1.8) or millimeters (~1800);
-     * garment GLBs may be authored body-sized in meters (Ramin: ~1.8m bbox) or as the real garment in mm
-     * (e.g. a t-shirt at ~665mm). Per-root scaling assumes both meshes are body-sized in matching units —
-     * a real-size garment in mm gets scaled to body height (1.87m), dwarfing the avatar.
-     * Convert each bind height to meters first; downstream scale formula then anchors garment to its real size
-     * relative to the avatar's world height. (Restored from commit db24965, layered over per-root scaling.)
-     */
-    function normalizeBindHeightToMeters(raw) {
-      const h = Number(raw);
-      if (!isFinite(h) || h <= 0) return 0;
-      if (h >= 0.25 && h <= 6)  return h;        // already meters
-      if (h >= 40  && h <= 260) return h / 100;  // cm → m
-      if (h >= 800)             return h / 1000; // mm → m
-      if (h > 6    && h < 800)  return h / 1000; // assume mm
-      return h;
-    }
-
     function detachFromParent(obj) {
       if (!obj) return;
       if (typeof obj.removeFromParent === 'function') obj.removeFromParent();
       else if (obj.parent) obj.parent.remove(obj);
-    }
-
-    /** CLO/glTF often stacks transforms; after reparenting, world scale can collapse (~0) while bind-pose bbox stays fine. */
-    function resetSkinnedBindPose(root) {
-      root.traverse((o) => {
-        if (o.isSkinnedMesh && o.skeleton && typeof o.skeleton.pose === 'function') {
-          o.skeleton.pose();
-        }
-      });
-    }
-
-    /**
-     * Reset local scale on non-bone nodes whose world scale is degenerate (breaks bbox + can zero-out skinned draws).
-     * Never modifies Bone objects (would break rigs).
-     */
-    function fixDegenerateNodeScales(root) {
-      const pos = new THREE.Vector3();
-      const quat = new THREE.Quaternion();
-      const scl = new THREE.Vector3();
-      root.updateMatrixWorld(true);
-      root.traverse((o) => {
-        if (o.isBone) return;
-        o.matrixAutoUpdate = true;
-        o.matrixWorld.decompose(pos, quat, scl);
-        const m = Math.max(Math.abs(scl.x), Math.abs(scl.y), Math.abs(scl.z));
-        if (m < 1e-6) {
-          console.warn('[TryOn] Fix degenerate world scale on', o.name || o.type, scl.toArray());
-          o.scale.set(1, 1, 1);
-          o.updateMatrix();
-        }
-      });
-      root.updateMatrixWorld(true);
     }
 
     // DOM Elements
@@ -1241,21 +1200,9 @@
     const modelCache = {};
     let avatarCache = null;
     const garmentCache = {};
-    /**
-     * Shared 1.8/refY scale: prefer M’s bind height so sleeve/cuff alignment matches how the garment was graded;
-     * min-ref was tighter overall and read as misaligned cuffs/hood with the avatar.
-     */
-    function garmentRefBindHeightY() {
-      const prefer = ['m', 's', 'l', 'xs', 'xl'];
-      for (let i = 0; i < prefer.length; i++) {
-        const g = garmentCache[prefer[i]];
-        const y = g && Number(g.userData.tryonBindHeight);
-        if (y > 0) return y;
-      }
-      return 0;
-    }
-    /** Uniform garment scale on top of 1.8/refY; small bump clears shell vs avatar without huge puff. */
-    const TRYON_GARMENT_CLEARANCE = 1.038;
+    /** Mirrors AvatarHero: combined avatar+garment fit to 1.8m, feet at FLOOR_Y so camera framing is consistent. */
+    const TRYON_TARGET_HEIGHT = 1.8;
+    const TRYON_FLOOR_Y = -0.9;
     let viewerSceneReady = false;
     let viewerPreloadComplete = false;
     let currentSize = 'm';
@@ -2059,11 +2006,11 @@
 
       const aspect = w / h;
       const isMobileView = window.innerWidth <= 768;
-      const fov = isMobileView ? 38 : 28;
+      const fov = isMobileView ? 36 : 30;
       camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 100);
-      camera.position.set(0, 1.0, isMobileView ? 5.8 : 4.5);
+      camera.position.set(0, 0.05, isMobileView ? 4.6 : 3.6);
 
-      renderer = new THREE.WebGLRenderer({ 
+      renderer = new THREE.WebGLRenderer({
         antialias: true,
         alpha: true,
         premultipliedAlpha: false
@@ -2074,8 +2021,11 @@
       if (THREE.ColorManagement) THREE.ColorManagement.enabled = true;
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1;
+      renderer.toneMappingExposure = 1.25;
       container.appendChild(renderer.domElement);
+
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
       // WebGL resilience: if the GPU drops the context (driver hiccup, OS swap, tab backgrounding,
       // or context-cap exhaustion in long testing sessions), reload the iframe document so the
@@ -2107,19 +2057,18 @@
       controls.maxDistance = 10;
       controls.minPolarAngle = 0;
       controls.maxPolarAngle = Math.PI;
-      controls.target.set(0, 0.9, 0);
+      controls.target.set(0, 0, 0);
       controls.enableDamping = true;
       controls.dampingFactor = 0.08;
       controls.update();
 
-      scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+      scene.add(new THREE.AmbientLight(0xffffff, 0.45));
       const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
-      keyLight.position.set(2, 4, 3);
+      keyLight.position.set(5, 5, 5);
       scene.add(keyLight);
-      const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      fillLight.position.set(-3, 2, 2);
+      const fillLight = new THREE.DirectionalLight(0xffffff, 0.7);
+      fillLight.position.set(-3, 3, -3);
       scene.add(fillLight);
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 0.8));
 
       animate();
       window.addEventListener('resize', onResize);
@@ -2173,32 +2122,19 @@
         if (stackAvatar) {
           detachFromParent(avatarCache);
           avatarCache.position.set(0, 0, 0);
+          avatarCache.rotation.set(0, 0, 0);
+          avatarCache.scale.setScalar(metersScaleFor(avatarCache));
           refreshSkinnedMeshes(avatarCache);
           group.add(avatarCache);
         }
         const garmentRoot = garmentCache[key];
         detachFromParent(garmentRoot);
         garmentRoot.position.set(0, 0, 0);
-        resetSkinnedBindPose(garmentRoot);
-        refreshSkinnedMeshes(garmentRoot);
-        fixDegenerateNodeScales(garmentRoot);
+        garmentRoot.rotation.set(0, 0, 0);
+        garmentRoot.scale.setScalar(metersScaleFor(garmentRoot));
         refreshSkinnedMeshes(garmentRoot);
         prepareGarment(garmentRoot);
         group.add(garmentRoot);
-        group.updateMatrixWorld(true);
-        refreshSkinnedMeshes(group);
-        const rawG = Number(garmentRoot.userData.tryonBindHeight) || 0;
-        const rawA = stackAvatar ? (Number(avatarCache.userData.tryonBindHeight) || 0) : 0;
-        const rawRef = garmentRefBindHeightY() || rawG;
-        const hRefM = normalizeBindHeightToMeters(rawRef);
-        const hAM = normalizeBindHeightToMeters(rawA) || 1.8;
-        group.scale.set(1, 1, 1);
-        const sA = rawA > 1e-9 ? 1.8 / rawA : 1;
-        const sG = (rawRef > 1e-9 && hRefM > 0)
-          ? ((hRefM / hAM) * 1.8 / rawRef) * TRYON_GARMENT_CLEARANCE
-          : TRYON_GARMENT_CLEARANCE;
-        garmentRoot.scale.setScalar(sG);
-        if (stackAvatar) avatarCache.scale.setScalar(sA);
         group.updateMatrixWorld(true);
       } else if (modelCache[key]) {
         group = modelCache[key];
@@ -2211,13 +2147,25 @@
       }
 
       currentModel = group;
+      currentModel.scale.setScalar(1);
+      currentModel.position.set(0, 0, 0);
       currentModel.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(currentModel);
-      const modelSize = box.getSize(new THREE.Vector3());
+      const combined = geometryWorldBounds(currentModel);
+      if (!combined.isEmpty()) {
+        const size = combined.getSize(new THREE.Vector3());
+        const center = combined.getCenter(new THREE.Vector3());
+        const scale = size.y > 1e-9 ? TRYON_TARGET_HEIGHT / size.y : 1;
+        currentModel.scale.setScalar(scale);
+        currentModel.position.set(
+          -center.x * scale,
+          TRYON_FLOOR_Y - combined.min.y * scale,
+          -center.z * scale,
+        );
+      }
 
       scene.add(currentModel);
       currentModel.updateMatrixWorld(true);
-      controls.target.set(0, modelSize.y / 2, 0);
+      controls.target.set(0, 0, 0);
       controls.update();
 
       if (!hasTrackedTryonStarted) {
@@ -2226,21 +2174,7 @@
         track('size_recommended', { size: size });
       }
 
-      let meshCount = 0;
-      currentModel.traverse((c) => { if (c.isMesh) meshCount++; });
-      let garmentBbox = '';
-      if (modelType === 'garment_only' && garmentCache[key] && currentModel.children.length) {
-        const garmentRoot = currentModel.children.length > 1 ? currentModel.children[1] : currentModel.children[0];
-        resetSkinnedBindPose(garmentRoot);
-        fixDegenerateNodeScales(garmentRoot);
-        refreshSkinnedMeshes(garmentRoot);
-        const gbObj = new THREE.Box3().setFromObject(garmentRoot);
-        const gsObj = gbObj.getSize(new THREE.Vector3());
-        const gbGeo = geometryWorldBounds(garmentRoot);
-        const gsGeo = gbGeo.getSize(new THREE.Vector3());
-        garmentBbox = ` | captured bind Y: ${Number(garmentRoot.userData.tryonBindHeight).toFixed(3)} | live Object3D: ${gsObj.x.toFixed(3)}×${gsObj.y.toFixed(3)}×${gsObj.z.toFixed(3)} | live geometry: ${gsGeo.x.toFixed(3)}×${gsGeo.y.toFixed(3)}×${gsGeo.z.toFixed(3)}`;
-      }
-      console.log(`✓ Showing ${size.toUpperCase()} | bbox: ${modelSize.x.toFixed(2)}×${modelSize.y.toFixed(2)}×${modelSize.z.toFixed(2)} | meshes: ${meshCount}${garmentBbox}`);
+      console.log(`✓ Showing ${size.toUpperCase()}`);
     }
 
     function animate() {
