@@ -2112,11 +2112,14 @@
       controls.dampingFactor = 0.08;
       controls.update();
 
-      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-      const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+      scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
       keyLight.position.set(2, 4, 3);
       scene.add(keyLight);
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.5));
+      const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      fillLight.position.set(-3, 2, 2);
+      scene.add(fillLight);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 0.8));
 
       animate();
       window.addEventListener('resize', onResize);
