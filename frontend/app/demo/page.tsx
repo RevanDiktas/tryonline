@@ -226,7 +226,7 @@ function Widget({ C, mobile, onClose }: { C: Palette; mobile: boolean; onClose: 
                 color: C.mute, fontWeight: 600, marginBottom: 6,
               }}>Size</div>
               <div style={{ display: 'flex', gap: mobile ? 5 : 6 }}>
-                {['xs', 's', 'm', 'l', 'xl'].map(size => {
+                {['s', 'm', 'l'].map(size => {
                   const active = currentSize === size;
                   return (
                     <button

@@ -29,83 +29,138 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
-    // DOM
+    /**
+     * Demo viewer: test@gmail.com avatar + Blanc Ramin zipup draped onto that body.
+     * Mirrors the iframe test-viewer render path: PMREM env, FLOOR_Y anchor,
+     * CLO defense guards. Size selection via URL hash (#s, #m, #l).
+     */
+    const AVATAR_URL = 'https://cykwthsbrylonconqlfz.supabase.co/storage/v1/object/public/avatars/aa6d2670-4e41-4de7-9450-07d487825644/avatar_textured.glb';
+    const DRAPE_BASE = 'https://cykwthsbrylonconqlfz.supabase.co/storage/v1/object/public/garments/draped/769981ba-37bc-429b-89c8-068d19503f83/c06b18d9337a44dc:v45.3:v45.12';
+    const BODY_HASH = '6301199c3bb5bdc8';
+
+    const garmentUrls = {
+      s: `${DRAPE_BASE}/s/${BODY_HASH}.glb`,
+      m: `${DRAPE_BASE}/m/${BODY_HASH}.glb`,
+      l: `${DRAPE_BASE}/l/${BODY_HASH}.glb`,
+    };
+
+    const TARGET_HEIGHT = 1.8;
+    const FLOOR_Y = -0.9;
+
     const container = document.getElementById('canvas-container');
     const loading = document.getElementById('loading');
 
-    // GLB paths - same as test-viewer
-    const modelPaths = {
-      xs: 'models/avatar_with_tshirt_xs.glb',
-      s: 'models/avatar_with_tshirt_s.glb',
-      m: 'models/avatar_with_tshirt_m.glb',
-      l: 'models/avatar_with_tshirt_l.glb',
-      xl: 'models/avatar_with_tshirt_xl.glb',
-    };
+    function geometryWorldBounds(root) {
+      const box = new THREE.Box3();
+      root.updateMatrixWorld(true);
+      root.traverse((c) => {
+        if (!c.isMesh || !c.geometry) return;
+        const g = c.geometry;
+        if (!g.boundingBox) g.computeBoundingBox();
+        if (!g.boundingBox || g.boundingBox.isEmpty()) return;
+        const b = g.boundingBox.clone();
+        b.applyMatrix4(c.matrixWorld);
+        box.union(b);
+      });
+      return box;
+    }
 
-    // Get size from URL hash
-    const getSize = () => {
-      const hash = window.location.hash.slice(1);
-      return ['xs', 's', 'm', 'l', 'xl'].includes(hash) ? hash : 'm';
-    };
+    function metersScaleFor(root) {
+      const box = geometryWorldBounds(root);
+      if (box.isEmpty()) return 1;
+      const size = box.getSize(new THREE.Vector3());
+      return size.y > 100 ? 0.001 : 1;
+    }
 
-    // State
-    const modelCache = {};
-    let currentSize = getSize();
-    let currentModel = null;
-    let scene, camera, renderer, controls;
-    const gltfLoader = new GLTFLoader();
+    function refreshSkinnedMeshes(root) {
+      root.updateMatrixWorld(true);
+      root.traverse((o) => {
+        if (o.isSkinnedMesh && o.skeleton) o.skeleton.update();
+      });
+    }
 
-    // ============================================
-    // PRELOAD ALL MODELS
-    // ============================================
-    function preloadAllModels() {
-      Object.entries(modelPaths).forEach(([size, path]) => {
-        gltfLoader.load(path, (gltf) => {
-          modelCache[size] = gltf.scene.clone();
-          modelCache[size].traverse((child) => {
-            if (child.isMesh) {
-              child.castShadow = false;
-              child.receiveShadow = false;
-              if (child.material) {
-                child.material = child.material.clone();
-                child.material.needsUpdate = true;
-              }
-            }
-          });
-          // Show initial model when it's ready
-          if (size === currentSize && !currentModel) {
-            displayModel(size);
-            loading.classList.add('hidden');
-          }
+    function resetSkinnedBindPose(root) {
+      root.traverse((o) => {
+        if (o.isSkinnedMesh && o.skeleton && typeof o.skeleton.pose === 'function') {
+          o.skeleton.pose();
+        }
+      });
+    }
+
+    function fixDegenerateNodeScales(root) {
+      const pos = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scl = new THREE.Vector3();
+      root.updateMatrixWorld(true);
+      root.traverse((o) => {
+        if (o.isBone) return;
+        o.matrixAutoUpdate = true;
+        o.matrixWorld.decompose(pos, quat, scl);
+        const m = Math.max(Math.abs(scl.x), Math.abs(scl.y), Math.abs(scl.z));
+        if (m < 1e-6) {
+          o.scale.set(1, 1, 1);
+          o.updateMatrix();
+        }
+      });
+      root.updateMatrixWorld(true);
+    }
+
+    function detachFromParent(obj) {
+      if (!obj) return;
+      if (typeof obj.removeFromParent === 'function') obj.removeFromParent();
+      else if (obj.parent) obj.parent.remove(obj);
+    }
+
+    function prepareGarment(scene) {
+      scene.traverse((child) => {
+        if (!child.isMesh) return;
+        child.visible = true;
+        child.frustumCulled = false;
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        mats.forEach((m) => {
+          if (!m) return;
+          m.side = THREE.DoubleSide;
+          if (typeof m.opacity === 'number' && m.opacity < 0.01) m.opacity = 1;
         });
       });
     }
 
-    // ============================================
-    // INIT SCENE - exact copy from test-viewer
-    // ============================================
+    const getSize = () => {
+      const hash = window.location.hash.slice(1).toLowerCase();
+      return ['s', 'm', 'l'].includes(hash) ? hash : 'm';
+    };
+
+    const gltfLoader = new GLTFLoader();
+    const garmentCache = {};
+    let avatarCache = null;
+    let currentSize = getSize();
+    let currentModel = null;
+    let scene, camera, renderer, controls;
+
     function initScene() {
       scene = new THREE.Scene();
 
       const aspect = container.clientWidth / container.clientHeight;
-      camera = new THREE.PerspectiveCamera(28, aspect, 0.1, 100);
-      camera.position.set(0, 1.0, 4.5);
+      const isMobileView = window.innerWidth <= 768;
+      const fov = isMobileView ? 36 : 30;
+      camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 100);
+      camera.position.set(0, 0.05, isMobileView ? 4.6 : 3.6);
 
-      renderer = new THREE.WebGLRenderer({ 
-        antialias: true,
-        alpha: true,
-        premultipliedAlpha: false
-      });
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: false });
       renderer.setClearColor(0x000000, 0);
       renderer.setSize(container.clientWidth, container.clientHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.8;
+      if (THREE.ColorManagement) THREE.ColorManagement.enabled = true;
       renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.25;
       container.appendChild(renderer.domElement);
 
-      // Controls - exact copy
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
       controls = new OrbitControls(camera, renderer.domElement);
       controls.enablePan = true;
       controls.enableZoom = true;
@@ -115,81 +170,99 @@
       controls.zoomSpeed = 2.0;
       controls.minDistance = 1.5;
       controls.maxDistance = 10;
-      controls.minPolarAngle = 0;
-      controls.maxPolarAngle = Math.PI;
-      controls.target.set(0, 0.9, 0);
+      controls.target.set(0, 0, 0);
       controls.enableDamping = true;
       controls.dampingFactor = 0.08;
       controls.update();
 
-      // Lighting - exact copy
-      scene.add(new THREE.AmbientLight(0xffffff, 2.0));
-
-      const frontLight = new THREE.DirectionalLight(0xffffff, 1.5);
-      frontLight.position.set(0, 2, 5);
-      scene.add(frontLight);
-
-      const backLight = new THREE.DirectionalLight(0xffffff, 1.5);
-      backLight.position.set(0, 2, -5);
-      scene.add(backLight);
-
-      const leftLight = new THREE.DirectionalLight(0xffffff, 1.2);
-      leftLight.position.set(-5, 2, 0);
-      scene.add(leftLight);
-
-      const rightLight = new THREE.DirectionalLight(0xffffff, 1.2);
-      rightLight.position.set(5, 2, 0);
-      scene.add(rightLight);
-
-      const topLight = new THREE.DirectionalLight(0xffffff, 1.0);
-      topLight.position.set(0, 6, 0);
-      scene.add(topLight);
-
-      const bottomLight = new THREE.DirectionalLight(0xffffff, 0.6);
-      bottomLight.position.set(0, -3, 0);
-      scene.add(bottomLight);
-
-      scene.add(new THREE.HemisphereLight(0xffffff, 0xffffff, 0.8));
+      scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+      keyLight.position.set(5, 5, 5);
+      scene.add(keyLight);
+      const fillLight = new THREE.DirectionalLight(0xffffff, 0.7);
+      fillLight.position.set(-3, 3, -3);
+      scene.add(fillLight);
     }
 
-    // ============================================
-    // SHOW MODEL - exact copy from test-viewer
-    // ============================================
-    function showModel(size) {
-      if (!modelCache[size]) {
-        loading.classList.remove('hidden');
-        gltfLoader.load(modelPaths[size], (gltf) => {
-          modelCache[size] = gltf.scene.clone();
-          displayModel(size);
-          loading.classList.add('hidden');
+    function loadAvatar() {
+      return new Promise((resolve) => {
+        gltfLoader.load(AVATAR_URL, (gltf) => { avatarCache = gltf.scene; resolve(); },
+          undefined, (err) => { console.error('[embed-viewer] Avatar load failed:', err); resolve(); });
+      });
+    }
+
+    function preloadGarments() {
+      const entries = Object.entries(garmentUrls);
+      entries.forEach(([size, url]) => {
+        gltfLoader.load(url, (gltf) => {
+          garmentCache[size] = gltf.scene;
+          if (size === currentSize) showModel(currentSize);
+        }, undefined, (err) => {
+          console.error('[embed-viewer] Garment load failed:', size, err);
         });
+      });
+    }
+
+    function showModel(size) {
+      const key = size.toLowerCase();
+      if (!avatarCache || !garmentCache[key]) {
+        loading.classList.remove('hidden');
         return;
       }
-      displayModel(size);
+      loading.classList.add('hidden');
+      displayModel(key);
     }
 
-    // ============================================
-    // DISPLAY MODEL - exact copy from test-viewer
-    // ============================================
-    function displayModel(size) {
+    function displayModel(key) {
       if (currentModel) {
         scene.remove(currentModel);
+        currentModel = null;
+      }
+      const group = new THREE.Group();
+
+      detachFromParent(avatarCache);
+      avatarCache.position.set(0, 0, 0);
+      avatarCache.rotation.set(0, 0, 0);
+      avatarCache.scale.set(1, 1, 1);
+      refreshSkinnedMeshes(avatarCache);
+      avatarCache.scale.setScalar(metersScaleFor(avatarCache));
+      refreshSkinnedMeshes(avatarCache);
+      group.add(avatarCache);
+
+      const garmentRoot = garmentCache[key];
+      detachFromParent(garmentRoot);
+      garmentRoot.position.set(0, 0, 0);
+      garmentRoot.rotation.set(0, 0, 0);
+      garmentRoot.scale.set(1, 1, 1);
+      resetSkinnedBindPose(garmentRoot);
+      refreshSkinnedMeshes(garmentRoot);
+      fixDegenerateNodeScales(garmentRoot);
+      garmentRoot.scale.setScalar(metersScaleFor(garmentRoot));
+      refreshSkinnedMeshes(garmentRoot);
+      prepareGarment(garmentRoot);
+      group.add(garmentRoot);
+      group.updateMatrixWorld(true);
+
+      currentModel = group;
+      currentModel.scale.setScalar(1);
+      currentModel.position.set(0, 0, 0);
+      currentModel.updateMatrixWorld(true);
+      const combined = geometryWorldBounds(currentModel);
+      if (!combined.isEmpty()) {
+        const size = combined.getSize(new THREE.Vector3());
+        const center = combined.getCenter(new THREE.Vector3());
+        const scale = size.y > 1e-9 ? TARGET_HEIGHT / size.y : 1;
+        currentModel.scale.setScalar(scale);
+        currentModel.position.set(
+          -center.x * scale,
+          FLOOR_Y - combined.min.y * scale,
+          -center.z * scale,
+        );
       }
 
-      currentModel = modelCache[size].clone();
-
-      // Center model - exact copy
-      const box = new THREE.Box3().setFromObject(currentModel);
-      const center = box.getCenter(new THREE.Vector3());
-      const modelSize = box.getSize(new THREE.Vector3());
-      
-      currentModel.position.x = -center.x;
-      currentModel.position.y = -center.y + modelSize.y / 2;
-      currentModel.position.z = -center.z;
-
       scene.add(currentModel);
-      
-      controls.target.set(0, modelSize.y / 2, 0);
+      currentModel.updateMatrixWorld(true);
+      controls.target.set(0, 0, 0);
       controls.update();
     }
 
@@ -206,18 +279,17 @@
       renderer.setSize(container.clientWidth, container.clientHeight);
     }
 
-    // Listen for size changes via hash
     window.addEventListener('hashchange', () => {
       currentSize = getSize();
       showModel(currentSize);
     });
-
     window.addEventListener('resize', onResize);
 
-    // START
     initScene();
-    preloadAllModels();
     animate();
+    loadAvatar().then(() => {
+      preloadGarments();
+    });
   </script>
 </body>
 </html>
