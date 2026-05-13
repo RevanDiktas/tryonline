@@ -55,7 +55,7 @@ function ProductPanel({ C, mobile, onTryOn }: { C: Palette; mobile: boolean; onT
         fontFamily: 'var(--display)', fontSize: mobile ? 24 : 26, fontWeight: 700,
         letterSpacing: '-0.02em', lineHeight: 1.15, margin: '0 0 10px',
         color: C.ink,
-      }}>Black T-shirt</h1>
+      }}>Zipup</h1>
       <div style={{
         fontFamily: 'var(--display)', fontSize: mobile ? 18 : 20, fontWeight: 500,
         color: C.ink, marginBottom: mobile ? 20 : 28,
@@ -145,7 +145,7 @@ function Widget({ C, mobile, onClose }: { C: Palette; mobile: boolean; onClose: 
             <div style={{
               fontFamily: 'var(--display)', fontSize: mobile ? 11 : 12, color: C.mute, fontWeight: 500,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>Originals · Black T-shirt</div>
+            }}>Originals · Zipup</div>
           </div>
           <button
             onClick={onClose}
@@ -329,8 +329,8 @@ export default function DemoPage() {
         }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/redesign/originals-black-tshirt.png"
-            alt="Originals Black T-shirt"
+            src="/redesign/zipup_demo.webp"
+            alt="Originals Zipup"
             style={{
               maxWidth: mobile ? '60%' : 360,
               maxHeight: mobile ? 280 : 480,
