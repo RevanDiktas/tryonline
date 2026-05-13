@@ -855,6 +855,34 @@
       else if (obj.parent) obj.parent.remove(obj);
     }
 
+    /** CLO-exported GLBs sometimes stack transforms; after reparenting, a node's world scale can collapse to ~0 and the mesh renders invisible. Resets degenerate non-bone scales to 1. */
+    function fixDegenerateNodeScales(root) {
+      const pos = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scl = new THREE.Vector3();
+      root.updateMatrixWorld(true);
+      root.traverse((o) => {
+        if (o.isBone) return;
+        o.matrixAutoUpdate = true;
+        o.matrixWorld.decompose(pos, quat, scl);
+        const m = Math.max(Math.abs(scl.x), Math.abs(scl.y), Math.abs(scl.z));
+        if (m < 1e-6) {
+          console.warn('[TryOn] Fix degenerate world scale on', o.name || o.type, scl.toArray());
+          o.scale.set(1, 1, 1);
+          o.updateMatrix();
+        }
+      });
+      root.updateMatrixWorld(true);
+    }
+
+    function resetSkinnedBindPose(root) {
+      root.traverse((o) => {
+        if (o.isSkinnedMesh && o.skeleton && typeof o.skeleton.pose === 'function') {
+          o.skeleton.pose();
+        }
+      });
+    }
+
     // DOM Elements
     const overlay = document.getElementById('overlay');
     const openBtn = document.getElementById('open-tryon');
@@ -1325,6 +1353,7 @@
       scene.traverse((child) => {
         if (!child.isMesh) return;
         child.visible = true;
+        child.frustumCulled = false;
         const mats = Array.isArray(child.material) ? child.material : [child.material];
         mats.forEach((m) => {
           if (!m) return;
@@ -2123,6 +2152,8 @@
           detachFromParent(avatarCache);
           avatarCache.position.set(0, 0, 0);
           avatarCache.rotation.set(0, 0, 0);
+          avatarCache.scale.set(1, 1, 1);
+          refreshSkinnedMeshes(avatarCache);
           avatarCache.scale.setScalar(metersScaleFor(avatarCache));
           refreshSkinnedMeshes(avatarCache);
           group.add(avatarCache);
@@ -2131,11 +2162,20 @@
         detachFromParent(garmentRoot);
         garmentRoot.position.set(0, 0, 0);
         garmentRoot.rotation.set(0, 0, 0);
+        garmentRoot.scale.set(1, 1, 1);
+        resetSkinnedBindPose(garmentRoot);
+        refreshSkinnedMeshes(garmentRoot);
+        fixDegenerateNodeScales(garmentRoot);
         garmentRoot.scale.setScalar(metersScaleFor(garmentRoot));
         refreshSkinnedMeshes(garmentRoot);
         prepareGarment(garmentRoot);
         group.add(garmentRoot);
         group.updateMatrixWorld(true);
+        const gBox = geometryWorldBounds(garmentRoot);
+        const gSize = gBox.getSize(new THREE.Vector3());
+        let gMeshCount = 0;
+        garmentRoot.traverse((c) => { if (c.isMesh) gMeshCount++; });
+        console.log(`[TryOn] Garment ${key} live bbox: ${gSize.x.toFixed(3)}×${gSize.y.toFixed(3)}×${gSize.z.toFixed(3)} | meshes: ${gMeshCount}`);
       } else if (modelCache[key]) {
         group = modelCache[key];
         detachFromParent(group);
