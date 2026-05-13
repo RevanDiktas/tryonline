@@ -858,98 +858,6 @@
       return h;
     }
 
-    /** Negative Z tucks garment slightly “into” the rig (away from typical front camera); meters in stack group space. */
-    const TRYON_GARMENT_Z_PUSHBACK = -0.012;
-
-    /**
-     * Two GLB authoring conventions exist in the wild:
-     *   1) Body-sized: bbox is full-body height (~1.8m), with the actual cloth geometry placed
-     *      anatomically inside it (Ramin's tshirt). Aligning bottoms to avatar's feet lands the cloth
-     *      at the chest naturally.
-     *   2) Real-size: bbox is just the cloth (~25-80% of avatar height — a t-shirt is ~0.66m).
-     *      Aligning bottoms puts the hem at the avatar's feet, which is wrong.
-     *
-     * Detect by height ratio. Real-size garments anchor by category-specific anatomical landmark:
-     * tops/dresses/outerwear → garment top sits at neck-base (~0.86 of avatar height);
-     * bottoms → garment top sits at waist (~0.58).
-     * X stays 0 and Z stays pushback constant in both branches.
-     */
-    function alignStackedGarmentToAvatar(group, avatarRoot, garmentRoot) {
-      if (!avatarRoot || !garmentRoot) return;
-      group.updateMatrixWorld(true);
-      const boxA = geometryWorldBounds(avatarRoot);
-      const boxG = geometryWorldBounds(garmentRoot);
-      if (boxA.isEmpty() || boxG.isEmpty()) return;
-
-      const avatarHeight = boxA.max.y - boxA.min.y;
-      const garmentHeight = boxG.max.y - boxG.min.y;
-
-      if (avatarHeight > 1e-6 && garmentHeight < avatarHeight * 0.8) {
-        // Real-size garment — anchor garment top to category landmark.
-        const cat = (typeof garmentCategory === 'string' ? garmentCategory : 'tops').toLowerCase();
-        const topRatio = cat === 'bottoms' ? 0.58 : 0.86;
-        const targetTopY = boxA.min.y + avatarHeight * topRatio;
-        garmentRoot.position.set(0, targetTopY - boxG.max.y, TRYON_GARMENT_Z_PUSHBACK);
-      } else {
-        // Body-sized garment — legacy bottom-align (Ramin behavior preserved).
-        garmentRoot.position.set(0, boxA.min.y - boxG.min.y, TRYON_GARMENT_Z_PUSHBACK);
-      }
-
-      group.updateMatrixWorld(true);
-    }
-
-    /**
-     * Torso/limbs: depthWrite off so garment (drawn after) wins from the back → less skin bleed.
-     * Head must keep depthWrite or the hood overwrites every head pixel (empty hood, “missing” face).
-     */
-    function prepareStackedAvatarNoBodyDepthWrite(avatarRoot) {
-      if (!avatarRoot) return;
-      avatarRoot.updateMatrixWorld(true);
-      const full = geometryWorldBounds(avatarRoot);
-      if (full.isEmpty()) return;
-      const floorY = full.min.y;
-      const H = full.max.y - full.min.y;
-      if (H < 0.05) return;
-      let meshCount = 0;
-      avatarRoot.traverse((x) => { if (x.isMesh) meshCount++; });
-      if (meshCount <= 1) return;
-      const headReachY = floorY + H * 0.86;
-      const headFloorY = floorY + H * 0.68;
-      avatarRoot.traverse((c) => {
-        if (!c.isMesh || !c.geometry) return;
-        const g = c.geometry;
-        if (!g.boundingBox) g.computeBoundingBox();
-        if (!g.boundingBox || g.boundingBox.isEmpty()) return;
-        const b = g.boundingBox.clone().applyMatrix4(c.matrixWorld);
-        const name = (c.name || '') + ' ' + (g.name || '');
-        const nameHeadish = /head|face|skull|brow|jaw|ear|nose|mouth|hair|scalp|teeth|eye/i.test(name);
-        const boxHeadish = b.max.y >= headReachY && b.min.y >= headFloorY;
-        const keepDepthWrite = nameHeadish || boxHeadish;
-        const mats = Array.isArray(c.material) ? c.material : [c.material];
-        mats.forEach((m) => {
-          if (!m) return;
-          if (keepDepthWrite) return;
-          if (m.userData._tryonSavedDepthWrite === undefined) {
-            m.userData._tryonSavedDepthWrite = m.depthWrite !== false;
-          }
-          m.depthWrite = false;
-        });
-      });
-    }
-
-    function restoreAvatarDepthWriteFromTryon(avatarRoot) {
-      if (!avatarRoot) return;
-      avatarRoot.traverse((c) => {
-        if (!c.isMesh) return;
-        const mats = Array.isArray(c.material) ? c.material : [c.material];
-        mats.forEach((m) => {
-          if (!m || m.userData._tryonSavedDepthWrite === undefined) return;
-          m.depthWrite = m.userData._tryonSavedDepthWrite;
-          delete m.userData._tryonSavedDepthWrite;
-        });
-      });
-    }
-
     function detachFromParent(obj) {
       if (!obj) return;
       if (typeof obj.removeFromParent === 'function') obj.removeFromParent();
@@ -1346,11 +1254,8 @@
       }
       return 0;
     }
-    /** Extra uniform scale for a slightly roomier drape (hood, torso); too high skews cuffs vs wrists. */
     /** Uniform garment scale on top of 1.8/refY; small bump clears shell vs avatar without huge puff. */
     const TRYON_GARMENT_CLEARANCE = 1.038;
-    /** Extra +Y on garment after foot/XZ align (m); shorter graded sizes often read cuffs low. */
-    const TRYON_GARMENT_Y_NUDGE_BY_SIZE = { xs: 0.016, s: 0.016, m: 0, l: 0, xl: 0 };
     let viewerSceneReady = false;
     let viewerPreloadComplete = false;
     let currentSize = 'm';
@@ -1469,44 +1374,15 @@
       }, undefined, onError);
     }
 
-    /**
-     * Garment materials: normal depth (no depthTest:false — that broke arms/occlusion on the tee).
-     * When drawing a separate garment GLB over the body, CLO meshes often sit inside the avatar
-     * shell; without polygon offset every fragment fails depth test → “loaded but invisible.”
-     */
-    function prepareGarment(scene, opts) {
-      const overAvatar = !!(opts && opts.overAvatar);
+    function prepareGarment(scene) {
       scene.traverse((child) => {
         if (!child.isMesh) return;
         child.visible = true;
-        child.frustumCulled = false;
-        child.renderOrder = overAvatar ? 1 : 0;
         const mats = Array.isArray(child.material) ? child.material : [child.material];
         mats.forEach((m) => {
           if (!m) return;
           m.side = THREE.DoubleSide;
-          m.depthTest = true;
-          m.depthWrite = true;
-          if (overAvatar) {
-            m.polygonOffset = true;
-            m.polygonOffsetFactor = -17;
-            m.polygonOffsetUnits = -17;
-          } else {
-            m.polygonOffset = false;
-          }
           if (typeof m.opacity === 'number' && m.opacity < 0.01) m.opacity = 1;
-          /*
-           * Narrow opaque-flip: if the material has no alpha contribution at all (no alphaMap,
-           * full opacity, no alphaTest threshold) but transparent=true was set by the GLB import,
-           * the alpha pass + depthWrite handling lets body pixels bleed through as visible "skin".
-           * Force opaque only in this guarded case — preserves logo'd garments that legitimately
-           * use BLEND or MASK (which need transparent=true to discard alpha pixels).
-           */
-          var hasAlphaContribution = !!m.alphaMap || (typeof m.opacity === 'number' && m.opacity < 0.99) || (m.alphaTest && m.alphaTest > 0);
-          if (m.transparent && !hasAlphaContribution) {
-            m.transparent = false;
-            m.needsUpdate = true;
-          }
         });
       });
     }
@@ -1977,7 +1853,6 @@
     // ============================================
 
     function closeViewer() {
-      if (avatarCache) restoreAvatarDepthWriteFromTryon(avatarCache);
       track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
       overlay.classList.remove('active');
       // Make the entire page invisible + click-through so the iframe is a ghost
@@ -2237,34 +2112,11 @@
       controls.dampingFactor = 0.08;
       controls.update();
 
-      // Lighting - BRIGHT
-      scene.add(new THREE.AmbientLight(0xffffff, 2.0));
-
-      const frontLight = new THREE.DirectionalLight(0xffffff, 1.5);
-      frontLight.position.set(0, 2, 5);
-      scene.add(frontLight);
-
-      const backLight = new THREE.DirectionalLight(0xffffff, 1.5);
-      backLight.position.set(0, 2, -5);
-      scene.add(backLight);
-
-      const leftLight = new THREE.DirectionalLight(0xffffff, 1.2);
-      leftLight.position.set(-5, 2, 0);
-      scene.add(leftLight);
-
-      const rightLight = new THREE.DirectionalLight(0xffffff, 1.2);
-      rightLight.position.set(5, 2, 0);
-      scene.add(rightLight);
-
-      const topLight = new THREE.DirectionalLight(0xffffff, 1.0);
-      topLight.position.set(0, 6, 0);
-      scene.add(topLight);
-
-      const bottomLight = new THREE.DirectionalLight(0xffffff, 0.6);
-      bottomLight.position.set(0, -3, 0);
-      scene.add(bottomLight);
-
-      scene.add(new THREE.HemisphereLight(0xffffff, 0xffffff, 0.8));
+      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+      keyLight.position.set(2, 4, 3);
+      scene.add(keyLight);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.5));
 
       animate();
       window.addEventListener('resize', onResize);
@@ -2315,19 +2167,11 @@
       if (modelType === 'garment_only' && garmentCache[key]) {
         group = new THREE.Group();
         const stackAvatar = avatarCache && !config.tryGarmentOnly;
-        if (avatarCache) restoreAvatarDepthWriteFromTryon(avatarCache);
-        /*
-         * Stacked models: Box3.setFromObject(group) can mis-report skinned AABB. Bind Y is captured at load.
-         * Avatar may be in mm (~1800) and garment in m (~1.8): one parent scale = 1.8/max(rawY) always
-         * wrong for one subtree. Scale each root as 1.8 / its own raw bind Y so both land ~1.8m world.
-         */
         if (stackAvatar) {
           detachFromParent(avatarCache);
           avatarCache.position.set(0, 0, 0);
-          avatarCache.traverse((c) => { if (c.isMesh) c.renderOrder = 0; });
           refreshSkinnedMeshes(avatarCache);
           group.add(avatarCache);
-          prepareStackedAvatarNoBodyDepthWrite(avatarCache);
         }
         const garmentRoot = garmentCache[key];
         detachFromParent(garmentRoot);
@@ -2336,8 +2180,7 @@
         refreshSkinnedMeshes(garmentRoot);
         fixDegenerateNodeScales(garmentRoot);
         refreshSkinnedMeshes(garmentRoot);
-        prepareGarment(garmentRoot, { overAvatar: stackAvatar });
-        garmentRoot.traverse((c) => { if (c.isMesh) c.renderOrder = stackAvatar ? 1 : 0; });
+        prepareGarment(garmentRoot);
         group.add(garmentRoot);
         group.updateMatrixWorld(true);
         refreshSkinnedMeshes(group);
@@ -2348,31 +2191,17 @@
         const hAM = normalizeBindHeightToMeters(rawA) || 1.8;
         group.scale.set(1, 1, 1);
         const sA = rawA > 1e-9 ? 1.8 / rawA : 1;
-        // Garment world size = its real-meter height relative to avatar's world (1.8m).
-        // (hRefM / hAM) preserves real garment-to-body proportion; *(1.8/rawRef) converts raw units to world.
         const sG = (rawRef > 1e-9 && hRefM > 0)
           ? ((hRefM / hAM) * 1.8 / rawRef) * TRYON_GARMENT_CLEARANCE
           : TRYON_GARMENT_CLEARANCE;
         garmentRoot.scale.setScalar(sG);
         if (stackAvatar) avatarCache.scale.setScalar(sA);
-        if (stackAvatar) alignStackedGarmentToAvatar(group, avatarCache, garmentRoot);
-        garmentRoot.position.y += TRYON_GARMENT_Y_NUDGE_BY_SIZE[key] || 0;
         group.updateMatrixWorld(true);
-        console.log('[TryOn] Per-root scale (unit-normalized):', {
-          rawThisGarmentY: rawG,
-          rawRefGarmentY: rawRef,
-          rawAvatarY: stackAvatar ? rawA : null,
-          hRefMeters: Number(hRefM.toFixed(4)),
-          hAvatarMeters: stackAvatar ? Number(hAM.toFixed(4)) : null,
-          clearance: TRYON_GARMENT_CLEARANCE,
-          scaleGarment: Number(sG.toFixed(6)),
-          scaleAvatar: stackAvatar ? Number(sA.toFixed(6)) : null,
-        });
       } else if (modelCache[key]) {
         group = modelCache[key];
         detachFromParent(group);
         refreshSkinnedMeshes(group);
-        prepareGarment(group, { overAvatar: false });
+        prepareGarment(group);
       } else {
         console.warn('[TryOn] No model in cache for size:', key);
         return;
@@ -2380,34 +2209,12 @@
 
       currentModel = group;
       currentModel.updateMatrixWorld(true);
-      let box = new THREE.Box3().setFromObject(currentModel);
-      let center = box.getCenter(new THREE.Vector3());
-      let modelSize = box.getSize(new THREE.Vector3());
-
-      // CLO3D/OBJ/GLB units vary (cm, m, mm) — normalize to ~1.8m height
-      const targetHeight = 1.8;
-      if (modelSize.y > 0.001 && (modelSize.y < 0.5 || modelSize.y > 50)) {
-        const s = targetHeight / modelSize.y;
-        currentModel.scale.setScalar(s);
-        box.setFromObject(currentModel);
-        center = box.getCenter(new THREE.Vector3());
-        modelSize = box.getSize(new THREE.Vector3());
-      }
-
-      currentModel.position.x = -center.x;
-      currentModel.position.y = -center.y + modelSize.y / 2;
-      currentModel.position.z = -center.z;
-
-      if (window.innerWidth <= 768) {
-        currentModel.scale.multiplyScalar(1.6);
-        // Position avatar so feet sit at bottom: move model down (negative y in world space)
-        currentModel.position.y = -modelSize.y * 0.12;
-      }
+      const box = new THREE.Box3().setFromObject(currentModel);
+      const modelSize = box.getSize(new THREE.Vector3());
 
       scene.add(currentModel);
       currentModel.updateMatrixWorld(true);
-      var targetY = modelSize.y / 2;
-      controls.target.set(0, targetY, 0);
+      controls.target.set(0, modelSize.y / 2, 0);
       controls.update();
 
       if (!hasTrackedTryonStarted) {
