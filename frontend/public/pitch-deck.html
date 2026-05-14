@@ -1641,8 +1641,8 @@
         }
         sl.style.removeProperty('--tile-w');
       } else {
-        // desktop: scale by height, side-by-side
-        const s = vh / DESIGN_H;
+        // desktop: scale to fit both axes — slide must not exceed viewport width or height
+        const s = Math.min(vh / DESIGN_H, vw / DESIGN_W);
         sl.style.setProperty('--scale', s);
         sl.style.setProperty('--tile-w', (DESIGN_W * s) + 'px');
         const wrap = sl.querySelector('.stage-wrap');
