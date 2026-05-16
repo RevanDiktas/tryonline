@@ -21,6 +21,7 @@ FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-devel
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         wget \
+        aria2 \
         curl \
         ca-certificates \
         ffmpeg \
@@ -70,7 +71,11 @@ ENV FORCE_CUDA=1
 RUN pip install --no-cache-dir -U xformers==0.0.26.post1 \
         --index-url https://download.pytorch.org/whl/cu121
 
-RUN pip install --no-cache-dir rembg
+# rembg's PyPI package no longer bundles onnxruntime; it must be requested via
+# extras. We use the GPU variant since this whole image targets CUDA workers.
+# Without this, `import rembg` crashes with `ModuleNotFoundError: onnxruntime`
+# at the smoke-test step (and on every runtime invocation).
+RUN pip install --no-cache-dir "rembg[gpu]"
 
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -104,11 +109,19 @@ RUN python -c "from huggingface_hub import snapshot_download; \
     snapshot_download(repo_id='3DAIGC/LHM-MINI', \
         cache_dir='./pretrained_models/huggingface')"
 
-RUN wget -q https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/LHM_prior_model.tar \
+# Prior model + motion video are hosted on Aliyun OSS (oss-cn-hangzhou). A
+# single-stream wget from the RunPod build farm gets ~4 MB/s, which puts the
+# combined download at ~40 min and blows past RunPod's 30-min build cap.
+# aria2c with 16 parallel connections per file saturates the link and brings
+# the combined download to ~5-10 min. Aliyun OSS supports HTTP Range, which
+# is what aria2c needs to split the file across connections.
+RUN aria2c -x 16 -s 16 --max-tries=5 --retry-wait=10 --console-log-level=warn \
+        https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/LHM_prior_model.tar \
     && tar -xf LHM_prior_model.tar \
     && rm LHM_prior_model.tar
 
-RUN wget -q https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/motion_video.tar \
+RUN aria2c -x 16 -s 16 --max-tries=5 --retry-wait=10 --console-log-level=warn \
+        https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/motion_video.tar \
     && tar -xf motion_video.tar \
     && rm motion_video.tar
 
