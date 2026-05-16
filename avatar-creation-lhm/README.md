@@ -25,8 +25,9 @@ per avatar, Apache 2.0, same SMPL-X + 3D Gaussian Splat output. See
 1. Push this directory on a new branch.
 2. RunPod console → Serverless → New Endpoint → "Import from GitHub".
 3. Point at this repo + branch, Dockerfile path
-   `avatar-creation-lhm/Dockerfile.runpod`, build context
-   `avatar-creation-lhm/`.
+   `avatar-creation-lhm/Dockerfile.runpod`. Build context: **repo root**
+   (the default). The COPY in the Dockerfile is qualified with the subdir
+   so this works regardless of what you set.
 4. GPU: any 24 GB+ (RTX 4090 / L40S / A5000). For `LHM-MINI` 16 GB is
    enough but stick with 24 GB to test the bigger variants too.
 5. Env vars on the endpoint:

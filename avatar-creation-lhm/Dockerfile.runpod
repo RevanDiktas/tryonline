@@ -93,8 +93,13 @@ RUN wget -q https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/
 # ----------------------------------------------------------------------------
 # Copy our serverless handler last so we can iterate on it without rebuilding
 # the (slow) pip+model layers above.
+#
+# Path is qualified because RunPod's GitHub auto-build uses the repo root as
+# the build context regardless of the "Build context" field in the endpoint
+# config. Keeping it relative to repo root works for both repo-root and
+# subdir build contexts.
 # ----------------------------------------------------------------------------
-COPY handler.py /workspace/LHM/handler.py
+COPY avatar-creation-lhm/handler.py /workspace/LHM/handler.py
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/workspace/LHM
