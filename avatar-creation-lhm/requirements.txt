@@ -1,0 +1,7 @@
+# Handler-side Python deps. LHM's own deps are pip-installed inside the
+# Dockerfile via /workspace/LHM/requirements.txt and the install_cu121.sh
+# command list. These here are JUST what handler.py imports.
+runpod>=1.6.0
+httpx>=0.27.0
+Pillow>=10.0.0
+huggingface_hub>=0.24.0

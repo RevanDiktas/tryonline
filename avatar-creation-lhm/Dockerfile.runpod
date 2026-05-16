@@ -1,0 +1,107 @@
+# LHM serverless image for RunPod
+# ================================
+# Phase 0 build: clone aigc3d/LHM, install all Python deps via install_cu121.sh
+# equivalent commands, bake in LHM-MINI + prior model + motion video. Larger
+# model variants (LHM-500M-HF, LHM-1B-HF) are downloaded on demand by handler.
+#
+# Base: official PyTorch 2.3.0 + CUDA 12.1 image. LHM's install_cu121.sh pins
+# torch==2.3.0 + xformers==0.0.26.post1 against the cu121 PyTorch index, so
+# starting from a matching base avoids the pip torch reinstall step.
+#
+# Build time estimate: 25-35 min (most of it CUDA-extension compiles for
+# pytorch3d, diff-gaussian-rasterization, simple-knn, sam2). Image size ~12 GB
+# with LHM-MINI baked in. RunPod auto-build from GitHub push should fit inside
+# its 60-min build budget.
+
+FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-devel
+
+# ----------------------------------------------------------------------------
+# System packages
+# ----------------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        wget \
+        curl \
+        ca-certificates \
+        ffmpeg \
+        build-essential \
+        ninja-build \
+        libgl1-mesa-glx \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# ----------------------------------------------------------------------------
+# Workdir + clone LHM (pin to a commit later once we're stable)
+# ----------------------------------------------------------------------------
+WORKDIR /workspace
+RUN git clone --depth 1 https://github.com/aigc3d/LHM.git /workspace/LHM
+WORKDIR /workspace/LHM
+
+# ----------------------------------------------------------------------------
+# Python deps (mirror of install_cu121.sh, with torch reinstall skipped because
+# the base image already has torch 2.3.0 + cu121)
+# ----------------------------------------------------------------------------
+RUN pip install --no-cache-dir -U xformers==0.0.26.post1 \
+        --index-url https://download.pytorch.org/whl/cu121
+
+RUN pip install --no-cache-dir rembg
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+# basicsr conflicts with torchvision; rebuild from source
+RUN pip uninstall basicsr -y \
+    && pip install --no-cache-dir git+https://github.com/XPixelGroup/BasicSR
+
+# Heavy CUDA-extension compiles. Each takes 3-8 min. Use --no-build-isolation
+# only if pip starts pulling in conflicting build deps; default is fine.
+RUN pip install --no-cache-dir "git+https://github.com/facebookresearch/pytorch3d.git"
+RUN pip install --no-cache-dir git+https://github.com/hitsz-zuoqi/sam2/
+RUN pip install --no-cache-dir git+https://github.com/ashawkey/diff-gaussian-rasterization/
+RUN pip install --no-cache-dir git+https://github.com/camenduru/simple-knn/
+
+# ----------------------------------------------------------------------------
+# RunPod + handler deps
+# ----------------------------------------------------------------------------
+RUN pip install --no-cache-dir \
+        runpod \
+        httpx \
+        Pillow \
+        huggingface_hub
+
+# ----------------------------------------------------------------------------
+# Bake LHM-MINI checkpoint + prior model + motion video into the image so the
+# container is ready to run inference on first job. LHM-MINI is the smallest
+# variant and runs on 16 GB GPUs; 500M-HF / 1B-HF can be downloaded at runtime
+# via the handler's "download_model" command.
+# ----------------------------------------------------------------------------
+RUN python -c "from huggingface_hub import snapshot_download; \
+    snapshot_download(repo_id='3DAIGC/LHM-MINI', \
+        cache_dir='./pretrained_models/huggingface')"
+
+RUN wget -q https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/LHM_prior_model.tar \
+    && tar -xf LHM_prior_model.tar \
+    && rm LHM_prior_model.tar
+
+RUN wget -q https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/motion_video.tar \
+    && tar -xf motion_video.tar \
+    && rm motion_video.tar
+
+# ----------------------------------------------------------------------------
+# Copy our serverless handler last so we can iterate on it without rebuilding
+# the (slow) pip+model layers above.
+# ----------------------------------------------------------------------------
+COPY handler.py /workspace/LHM/handler.py
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/workspace/LHM
+ENV PYOPENGL_PLATFORM=egl
+# Increase RunPod init timeout; default ~7 min can fall short on cold pulls of
+# a 12 GB image to a fresh worker.
+ENV RUNPOD_INIT_TIMEOUT=600
+
+WORKDIR /workspace/LHM
+CMD ["python", "-u", "/workspace/LHM/handler.py"]
