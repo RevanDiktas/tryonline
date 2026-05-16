@@ -42,6 +42,28 @@ RUN git clone --depth 1 https://github.com/aigc3d/LHM.git /workspace/LHM
 WORKDIR /workspace/LHM
 
 # ----------------------------------------------------------------------------
+# CUDA arch list for extension builds.
+#
+# Why this is required: RunPod's image-build farm runs on CPU-only hosts. When
+# PyTorch's setup helpers try to auto-detect which compute capabilities to
+# compile for, they enumerate the visible GPUs, find zero, and the resulting
+# empty list crashes in cpp_extension.py:1987 with
+#   `arch_list[-1] += '+PTX'`  -> IndexError: list index out of range
+# Setting TORCH_CUDA_ARCH_LIST explicitly bypasses the auto-detect path.
+# FORCE_CUDA=1 makes setup scripts that gate on torch.cuda.is_available() (which
+# is False at build time) still build their CUDA kernels.
+#
+# Arch coverage:
+#   8.0  = A100
+#   8.6  = A6000, RTX 3090, RTX 3080
+#   8.9  = RTX 4090, RTX 4080, L40, L40S
+#   +PTX = JIT-compile fallback for any newer arch (H100/Blackwell)
+# Add 7.5 if we ever need to run on T4. Each extra arch increases compile time.
+# ----------------------------------------------------------------------------
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9+PTX"
+ENV FORCE_CUDA=1
+
+# ----------------------------------------------------------------------------
 # Python deps (mirror of install_cu121.sh, with torch reinstall skipped because
 # the base image already has torch 2.3.0 + cu121)
 # ----------------------------------------------------------------------------
@@ -91,6 +113,36 @@ RUN wget -q https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/
     && rm motion_video.tar
 
 # ----------------------------------------------------------------------------
+# Build-time smoke test. Fails the build if any of the CUDA-extension wheels
+# compiled but can't actually be imported, OR if the LHM repo is missing files
+# the handler relies on. This catches silent breakage that would otherwise
+# only surface on the first inference job (and waste a 10-min worker spin-up).
+#
+# Note: torch.cuda.is_available() is False here because the build host has no
+# GPU. We import the modules to verify the shared libraries loaded correctly;
+# actual kernel launches are deferred to runtime on the worker.
+# ----------------------------------------------------------------------------
+RUN python -c "import sys; \
+import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda); \
+import diff_gaussian_rasterization; print('diff_gaussian_rasterization OK'); \
+import simple_knn; print('simple_knn OK'); \
+import sam2; print('sam2 OK'); \
+import pytorch3d; print('pytorch3d', pytorch3d.__version__); \
+import xformers; print('xformers', xformers.__version__); \
+import rembg; print('rembg OK'); \
+import runpod; print('runpod', runpod.__version__); \
+import huggingface_hub; print('huggingface_hub', huggingface_hub.__version__); \
+print('CUDA EXTENSIONS + DEPS SMOKE TEST PASSED')"
+
+# Verify the LHM repo + baked artifacts are present where the handler expects.
+RUN test -f /workspace/LHM/inference.sh \
+    && test -f /workspace/LHM/inference_mesh.sh \
+    && test -d /workspace/LHM/train_data/example_imgs \
+    && test -d /workspace/LHM/train_data/motion_video \
+    && test -d /workspace/LHM/pretrained_models/huggingface \
+    && echo "LHM REPO + BAKED ARTIFACTS SMOKE TEST PASSED"
+
+# ----------------------------------------------------------------------------
 # Copy our serverless handler last so we can iterate on it without rebuilding
 # the (slow) pip+model layers above.
 #
@@ -100,6 +152,9 @@ RUN wget -q https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/
 # subdir build contexts.
 # ----------------------------------------------------------------------------
 COPY avatar-creation-lhm/handler.py /workspace/LHM/handler.py
+
+# Final sanity: handler.py parses as valid Python.
+RUN python -c "import ast; ast.parse(open('/workspace/LHM/handler.py').read()); print('handler.py syntax OK')"
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/workspace/LHM
