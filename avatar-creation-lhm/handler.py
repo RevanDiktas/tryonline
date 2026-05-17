@@ -9,11 +9,17 @@ rebuilding the Docker image for every change.
 Input shape:
 {
   "input": {
-    "command":   "info" | "ls" | "cat" | "download_model"
+    "command":   "info" | "ls" | "cat" | "init" | "download_model"
                | "inference" | "inference_mesh" | "shell",
     ...command-specific args...
   }
 }
+
+The "init" command pre-downloads + extracts the LHM data tarballs
+(LHM_prior_model.tar, motion_video.tar) that are NOT baked into the image
+because of RunPod's 30-min build-export budget. Run it once per fresh worker
+after deploy to avoid paying the ~5-min cost on the first inference request.
+Inference commands also call this lazily, so it is optional.
 
 Output shape (all commands):
 {
@@ -57,6 +63,16 @@ LHM_ROOT = Path("/workspace/LHM")
 MODELS_DIR = LHM_ROOT / "pretrained_models" / "huggingface"
 MOTION_DEFAULT = LHM_ROOT / "train_data" / "motion_video" / "mimo1" / "smplx_params"
 INLINE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Lazy-downloaded Aliyun tarballs. See Dockerfile.runpod for why they're not
+# baked into the image. Each tarball extracts into LHM_ROOT; we don't rely on
+# knowing the internal layout and instead use a marker file in LHM_ROOT to
+# record successful extraction.
+ALIYUN_BASE = "https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM"
+DATA_FILES = [
+    {"name": "LHM_prior_model.tar", "url": f"{ALIYUN_BASE}/LHM_prior_model.tar"},
+    {"name": "motion_video.tar",    "url": f"{ALIYUN_BASE}/motion_video.tar"},
+]
 
 DEFAULT_MODEL = os.environ.get("LHM_DEFAULT_MODEL", "LHM-MINI")
 ALLOW_SHELL = os.environ.get("LHM_ALLOW_SHELL", "0") == "1"
@@ -171,6 +187,69 @@ def _collect_artifact(local_path: Path, remote_subdir: str) -> dict:
         return {"name": name, "size_bytes": size, "upload_error": str(e)}
 
 
+def _ensure_lhm_data(log: list[str] | None = None) -> None:
+    """Download + extract Aliyun-hosted LHM data tarballs if not already present.
+
+    Idempotent. Safe to call from every inference. First call on a fresh worker
+    pays ~5 min (aria2c parallel download + tar extract). Subsequent calls are
+    a few-microsecond marker-file check.
+
+    Marker pattern: after a tarball is successfully extracted, we touch
+    `<LHM_ROOT>/.<tarname>.extracted`. We don't rely on knowing the internal
+    layout of the tarball.
+
+    Raises RuntimeError on download/extract failure.
+    """
+    for item in DATA_FILES:
+        name = item["name"]
+        marker = LHM_ROOT / f".{name}.extracted"
+        if marker.exists():
+            if log is not None:
+                log.append(f"{name}: already present (marker found)")
+            continue
+
+        if log is not None:
+            log.append(f"{name}: downloading from {item['url']}")
+        tar_path = LHM_ROOT / name
+        # aria2c is installed in the image; the same -x 16 -s 16 flags that
+        # cut Aliyun download time from ~31min to ~5min at build time work
+        # the same way at runtime.
+        dl = subprocess.run(
+            ["aria2c", "-x", "16", "-s", "16",
+             "--max-tries=5", "--retry-wait=10",
+             "--console-log-level=warn",
+             "--allow-overwrite=true",
+             "-d", str(LHM_ROOT),
+             "-o", name,
+             item["url"]],
+            capture_output=True, text=True, timeout=1800,
+        )
+        if dl.returncode != 0:
+            raise RuntimeError(
+                f"aria2c failed for {name} (rc={dl.returncode}): "
+                f"{dl.stderr[-1000:] or dl.stdout[-1000:]}"
+            )
+
+        if log is not None:
+            log.append(f"{name}: extracting")
+        ex = subprocess.run(
+            ["tar", "-xf", str(tar_path)],
+            cwd=str(LHM_ROOT), capture_output=True, text=True, timeout=600,
+        )
+        if ex.returncode != 0:
+            raise RuntimeError(
+                f"tar -xf failed for {name} (rc={ex.returncode}): "
+                f"{ex.stderr[-1000:]}"
+            )
+        try:
+            tar_path.unlink()
+        except OSError:
+            pass
+        marker.touch()
+        if log is not None:
+            log.append(f"{name}: done")
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -217,6 +296,12 @@ def cmd_info(_inp: dict, started: float) -> dict:
         for repo_dir in MODELS_DIR.iterdir():
             if repo_dir.is_dir():
                 info["models_present"].append(repo_dir.name)
+
+    # Lazy-downloaded data files (see _ensure_lhm_data).
+    info["data_files"] = {
+        d["name"]: (LHM_ROOT / f".{d['name']}.extracted").exists()
+        for d in DATA_FILES
+    }
 
     # Repo files at LHM_ROOT (top level only)
     if LHM_ROOT.exists():
@@ -319,6 +404,12 @@ def _common_inference(
     motion_seqs_dir = inp.get("motion_seqs_dir") or str(MOTION_DEFAULT)
     extra_args = inp.get("extra_args") or []
 
+    # First-call-on-this-worker bootstrap. No-op if already done.
+    try:
+        _ensure_lhm_data()
+    except Exception as e:
+        return _err(command, f"LHM data bootstrap failed: {e}", started)
+
     with tempfile.TemporaryDirectory(prefix="lhm_input_") as tmp:
         tmp_path = Path(tmp)
         # Download input image. LHM accepts an image OR a folder; we always
@@ -387,6 +478,17 @@ def cmd_inference_mesh(inp: dict, started: float) -> dict:
                              export_video=False, export_mesh=True)
 
 
+def cmd_init(_inp: dict, started: float) -> dict:
+    """Pre-download + extract LHM data tarballs. Call once per worker after
+    deploy to avoid paying the ~5-min cost on the first inference request."""
+    log: list[str] = []
+    try:
+        _ensure_lhm_data(log=log)
+    except Exception as e:
+        return _err("init", str(e), started, extra={"log": log})
+    return _ok("init", {"log": log, "data_files": [d["name"] for d in DATA_FILES]}, started)
+
+
 def cmd_shell(inp: dict, started: float) -> dict:
     """Run arbitrary bash. DEV ONLY. Gated by LHM_ALLOW_SHELL=1 env."""
     if not ALLOW_SHELL:
@@ -417,6 +519,7 @@ COMMANDS = {
     "info": cmd_info,
     "ls": cmd_ls,
     "cat": cmd_cat,
+    "init": cmd_init,
     "download_model": cmd_download_model,
     "inference": cmd_inference,
     "inference_mesh": cmd_inference_mesh,

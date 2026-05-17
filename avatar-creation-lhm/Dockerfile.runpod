@@ -109,21 +109,17 @@ RUN python -c "from huggingface_hub import snapshot_download; \
     snapshot_download(repo_id='3DAIGC/LHM-MINI', \
         cache_dir='./pretrained_models/huggingface')"
 
-# Prior model + motion video are hosted on Aliyun OSS (oss-cn-hangzhou). A
-# single-stream wget from the RunPod build farm gets ~4 MB/s, which puts the
-# combined download at ~40 min and blows past RunPod's 30-min build cap.
-# aria2c with 16 parallel connections per file saturates the link and brings
-# the combined download to ~5-10 min. Aliyun OSS supports HTTP Range, which
-# is what aria2c needs to split the file across connections.
-RUN aria2c -x 16 -s 16 --max-tries=5 --retry-wait=10 --console-log-level=warn \
-        https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/LHM_prior_model.tar \
-    && tar -xf LHM_prior_model.tar \
-    && rm LHM_prior_model.tar
-
-RUN aria2c -x 16 -s 16 --max-tries=5 --retry-wait=10 --console-log-level=warn \
-        https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/motion_video.tar \
-    && tar -xf motion_video.tar \
-    && rm motion_video.tar
+# LHM_prior_model.tar (~4 GB) and motion_video.tar (~1 GB) used to be baked in
+# here, but doing so pushed the final image past the size that RunPod's build
+# farm can export inside the 30-min build cap (the actual aria2c downloads
+# finished in 5 min; image-layer write + cache export took 20+ min on top).
+# These artifacts are now downloaded lazily by handler.py on worker init, so
+# the image stays small and the build finishes well under the cap. First
+# invocation on a fresh worker pays a ~5-min download cost; subsequent ones
+# on the same worker are instant.
+#
+# aria2 stays in the apt install because handler.py shells out to aria2c for
+# the same multi-connection benefit at runtime.
 
 # ----------------------------------------------------------------------------
 # Build-time smoke test. Fails the build if any of the CUDA-extension wheels
@@ -148,10 +144,11 @@ import huggingface_hub; print('huggingface_hub', huggingface_hub.__version__); \
 print('CUDA EXTENSIONS + DEPS SMOKE TEST PASSED')"
 
 # Verify the LHM repo + baked artifacts are present where the handler expects.
+# Note: train_data/motion_video is NOT checked here because it's now downloaded
+# at runtime by handler.py (see the comment above the removed aria2c step).
 RUN test -f /workspace/LHM/inference.sh \
     && test -f /workspace/LHM/inference_mesh.sh \
     && test -d /workspace/LHM/train_data/example_imgs \
-    && test -d /workspace/LHM/train_data/motion_video \
     && test -d /workspace/LHM/pretrained_models/huggingface \
     && echo "LHM REPO + BAKED ARTIFACTS SMOKE TEST PASSED"
 
