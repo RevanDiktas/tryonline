@@ -601,6 +601,374 @@ def cmd_shell(inp: dict, started: float) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# SMPL-X avatar command (Phase 0 contract)
+# ---------------------------------------------------------------------------
+# Builds the 5-artifact avatar bundle from a single photo:
+#   body_apose.obj        - SMPL-X 10,475 verts, A-pose, mm
+#   smplx_params.npz      - betas, pose, expr (canonical inputs)
+#   avatar_textured.glb   - SMPL-X mesh with per-vertex face-median skin color
+#   skin_texture.png      - 4x4 PNG of the face-median RGB
+#   splats.ply            - LHM's 20K Gaussian splats (bonus rendering)
+#
+# Architecture per project memory:
+# - 4DHumans pipeline stays untouched. This endpoint produces ONLY photoreal
+#   avatar artifacts. No measurements; drape keeps using 4DHumans SMPL.
+# - We instantiate HumanLRMInferrer once per worker (cached) to reuse its
+#   pose_estimator + LHM model loader for the splat output. Setting sys.argv
+#   before construction satisfies LHM's parse_configs() argparse.
+# - SMPL-X mesh is built directly via the `smplx` package (NOT via LHM's
+#   get_neutral_pose_human, which returns the Chinese "大 pose" / star pose).
+#   A-pose is built by rotating each shoulder ~45 deg around Z.
+# - Per-vertex color (not UV+texture) for skin. UVs are deferred to Phase 1
+#   when we add region-specific texturing (face vs torso vs limbs).
+APOSE_SHOULDER_RAD = 45.0 * 3.141592653589793 / 180.0  # 45 deg in radians
+
+# Cached singleton inferrer; built on first cmd_avatar call. Survives across
+# invocations on the same worker, dies when the worker shuts down.
+_INFERRER = None
+
+
+def _get_inferrer(model_name: str):
+    """Lazy-construct + cache the LHM HumanLRMInferrer.
+
+    Hacks sys.argv to satisfy LHM's parse_configs(). This is the documented
+    way to call `python -m LHM.launch infer.human_lrm model_name=... \
+    image_input=... ...` as a Python call instead of subprocess.
+
+    Returns the inferrer. Raises on construction failure.
+    """
+    global _INFERRER
+    if _INFERRER is not None and getattr(_INFERRER, "_cached_model_name", None) == model_name:
+        return _INFERRER
+
+    sys.path.insert(0, str(LHM_ROOT))
+    # HumanLRMInferrer.__init__ loads FaceDetector / PoseEstimator with paths
+    # relative to CWD (`./pretrained_models/...`). The CLI sets cwd=LHM_ROOT;
+    # we must mirror that or instantiation fails. Stay in LHM_ROOT for the
+    # rest of the worker lifetime so subsequent infer_mesh calls also work.
+    os.chdir(str(LHM_ROOT))
+
+    # parse_configs() reads sys.argv for the runner name + model_name. Set them
+    # so HumanLRMInferrer.__init__ -> parse_configs() picks up the right model.
+    # image_input is needed as a valid arg even though we don't use the CLI
+    # infer() entry point; we call methods directly.
+    placeholder_image_dir = str(LHM_ROOT / "train_data" / "example_imgs")
+    saved_argv = sys.argv[:]
+    sys.argv = [
+        "launch.py", "infer.human_lrm",
+        f"model_name={model_name}",
+        f"image_input={placeholder_image_dir}",
+        "export_video=False",
+        "export_mesh=True",
+        f"motion_seqs_dir={MOTION_DEFAULT}",
+        "motion_img_dir=None",
+        "vis_motion=true",
+        "motion_img_need_mask=true",
+        "render_fps=30",
+        "motion_video_read_fps=30",
+    ]
+    try:
+        from LHM.runners.infer.human_lrm import HumanLRMInferrer
+        inferrer = HumanLRMInferrer()
+    finally:
+        sys.argv = saved_argv
+
+    inferrer._cached_model_name = model_name
+    _INFERRER = inferrer
+    return inferrer
+
+
+def _build_apose_body_pose(device, dtype):
+    """Build the SMPL-X body_pose tensor for canonical A-pose.
+
+    SMPL-X body_pose shape: [1, 21, 3] axis-angle. After the pelvis (joint 0),
+    body joints are indexed 1..21:
+      1=L_Hip 2=R_Hip 3=Spine1 4=L_Knee 5=R_Knee 6=Spine2 7=L_Ankle 8=R_Ankle
+      9=Spine3 10=L_Foot 11=R_Foot 12=Neck 13=L_Collar 14=R_Collar 15=Head
+      16=L_Shoulder 17=R_Shoulder 18=L_Elbow 19=R_Elbow 20=L_Wrist 21=R_Wrist
+    In body_pose [0..20], shoulder indices are 15 (L_Shoulder) and 16 (R_Shoulder).
+    A-pose rotation: bring arms down to ~45 deg from horizontal. We rotate
+    around Z (forward axis) so the arms sweep down in the coronal plane.
+    L_Shoulder rotates +45, R_Shoulder rotates -45.
+    """
+    import torch
+    body_pose = torch.zeros((1, 21, 3), dtype=dtype, device=device)
+    body_pose[0, 15, 2] = +APOSE_SHOULDER_RAD  # L_Shoulder rot Z
+    body_pose[0, 16, 2] = -APOSE_SHOULDER_RAD  # R_Shoulder rot Z
+    return body_pose
+
+
+def _build_smplx_apose_mesh(beta_np, gender: str, device):
+    """Forward-pass the SMPL-X layer with given β + A-pose.
+
+    Returns (verts_mm, faces, smplx_params_dict). verts_mm is [10475, 3] in mm.
+    """
+    import torch
+    import numpy as np
+    import smplx
+
+    smplx_dir = str(LHM_ROOT / "pretrained_models" / "human_model_files")
+    layer = smplx.create(
+        smplx_dir,
+        model_type="smplx",
+        gender=gender,
+        use_pca=False,
+        flat_hand_mean=True,
+        num_betas=beta_np.shape[-1],
+    ).to(device).eval()
+
+    dtype = torch.float32
+    betas = torch.from_numpy(np.asarray(beta_np)).reshape(1, -1).to(device=device, dtype=dtype)
+    body_pose = _build_apose_body_pose(device=device, dtype=dtype)
+
+    with torch.no_grad():
+        out = layer(
+            betas=betas,
+            body_pose=body_pose,
+            return_verts=True,
+        )
+
+    verts_m = out.vertices[0].detach().cpu().numpy()  # SMPL-X is in meters
+    verts_mm = verts_m * 1000.0
+    faces = layer.faces.astype("int32")  # [F, 3]
+
+    smplx_params = {
+        "betas": betas.cpu().numpy()[0],
+        "body_pose": body_pose.cpu().numpy()[0],  # [21, 3]
+        "global_orient": np.zeros(3, dtype="float32"),
+        "jaw_pose": np.zeros(3, dtype="float32"),
+        "leye_pose": np.zeros(3, dtype="float32"),
+        "reye_pose": np.zeros(3, dtype="float32"),
+        "left_hand_pose": np.zeros((15, 3), dtype="float32"),
+        "right_hand_pose": np.zeros((15, 3), dtype="float32"),
+        "expression": np.zeros(10, dtype="float32"),
+        "gender": gender,
+        "pose_convention": f"a_pose_shoulder_z_{APOSE_SHOULDER_RAD:.4f}rad",
+        "units": "mm",
+    }
+    return verts_mm, faces, smplx_params
+
+
+def _sample_face_median_color(inferrer, image_path: str) -> tuple:
+    """Crop the face region from the photo, return median RGB as (r, g, b) ints.
+
+    Falls back to a neutral tan if face detection fails so the artifact set
+    is always complete.
+    """
+    import numpy as np
+    try:
+        rgb_face = inferrer.crop_face_image(image_path)  # HxWx3 uint8
+        if rgb_face is None or rgb_face.size == 0:
+            raise ValueError("empty face crop")
+        # Drop hair / background pixels: use the central 50% of the crop
+        h, w = rgb_face.shape[:2]
+        cy0, cy1 = h // 4, 3 * h // 4
+        cx0, cx1 = w // 4, 3 * w // 4
+        central = rgb_face[cy0:cy1, cx0:cx1].reshape(-1, 3)
+        if central.shape[0] == 0:
+            central = rgb_face.reshape(-1, 3)
+        med = np.median(central, axis=0).astype(np.uint8)
+        return int(med[0]), int(med[1]), int(med[2])
+    except Exception:
+        return (210, 175, 145)  # neutral tan fallback
+
+
+def _write_textured_glb(verts_mm, faces, rgb, glb_path):
+    """Write a GLB with per-vertex color = rgb. SMPL-X has 10,475 verts."""
+    import numpy as np
+    import trimesh
+    verts_m = (verts_mm / 1000.0).astype(np.float32)
+    n = verts_m.shape[0]
+    vertex_colors = np.tile(np.array([rgb[0], rgb[1], rgb[2], 255], dtype=np.uint8), (n, 1))
+    mesh = trimesh.Trimesh(
+        vertices=verts_m,
+        faces=faces,
+        vertex_colors=vertex_colors,
+        process=False,
+    )
+    mesh.export(glb_path, file_type="glb")
+
+
+def _write_obj_no_mtl(verts_mm, faces, obj_path):
+    """Write a plain SMPL-X OBJ in mm with no MTL. Geometry only."""
+    with open(obj_path, "w") as f:
+        f.write("# SMPL-X A-pose, mm\n")
+        for v in verts_mm:
+            f.write(f"v {v[0]:.4f} {v[1]:.4f} {v[2]:.4f}\n")
+        for tri in faces:
+            f.write(f"f {tri[0]+1} {tri[1]+1} {tri[2]+1}\n")
+
+
+def _write_skin_texture_png(rgb, png_path, size: int = 4):
+    """Write a tiny PNG of the skin color for future region-texturing pipelines."""
+    import numpy as np
+    from PIL import Image
+    arr = np.tile(np.array([rgb[0], rgb[1], rgb[2]], dtype=np.uint8), (size, size, 1))
+    Image.fromarray(arr).save(png_path)
+
+
+def cmd_avatar(inp: dict, started: float) -> dict:
+    """Build the Phase 0 SMPL-X avatar bundle from a single photo.
+
+    Input:
+      image_url:   required, photo to reconstruct
+      gender:      "neutral" (default), "male", or "female"
+      model_name:  LHM checkpoint to use for the splat pass (default LHM-MINI)
+      include_splats: bool (default true). Set false to skip the LHM splat
+                      pass and only return geometry-only artifacts (~10s
+                      faster).
+
+    Returns the 5-artifact bundle (see module header).
+    """
+    started_inner = _now()
+    image_url = inp.get("image_url")
+    if not image_url:
+        return _err("avatar", "missing 'image_url'", started)
+    gender = inp.get("gender", "neutral")
+    if gender not in ("neutral", "male", "female"):
+        return _err("avatar", f"invalid gender '{gender}'", started)
+    model_name = inp.get("model_name", DEFAULT_MODEL)
+    include_splats = bool(inp.get("include_splats", True))
+
+    # Ensure prior_model + motion data are present. On a Network Volume worker
+    # this is a no-op after first call.
+    try:
+        _ensure_lhm_data()
+    except Exception as e:
+        return _err("avatar", f"LHM data bootstrap failed: {e}", started)
+
+    with tempfile.TemporaryDirectory(prefix="lhm_avatar_") as tmp:
+        tmp_path = Path(tmp)
+        img_path = tmp_path / "input.png"
+        try:
+            _download_to(img_path, image_url)
+        except Exception as e:
+            return _err("avatar", f"failed to download image: {e}", started)
+
+        # 1) Build / fetch the cached HumanLRMInferrer
+        t_load_start = _now()
+        try:
+            inferrer = _get_inferrer(model_name)
+        except Exception as e:
+            return _err(
+                "avatar", f"failed to instantiate LHM inferrer: {e}", started,
+                extra={"traceback": traceback.format_exc()[-3000:]},
+            )
+        t_load = round(_now() - t_load_start, 2)
+
+        # 2) Pose estimation -> SMPL-X β
+        t_pose_start = _now()
+        try:
+            shape_pose = inferrer.pose_estimator(str(img_path))
+        except Exception as e:
+            return _err(
+                "avatar", f"pose estimation crashed: {e}", started,
+                extra={"traceback": traceback.format_exc()[-3000:]},
+            )
+        if shape_pose.beta is None:
+            return _err("avatar", f"pose estimator returned no human: {shape_pose.msg}",
+                        started, extra={"is_full_body": shape_pose.is_full_body})
+        beta_np = shape_pose.beta
+        t_pose = round(_now() - t_pose_start, 2)
+
+        # 3) Build SMPL-X A-pose mesh (10,475 verts, mm)
+        t_mesh_start = _now()
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            verts_mm, faces, smplx_params = _build_smplx_apose_mesh(
+                beta_np=beta_np, gender=gender, device=device,
+            )
+        except Exception as e:
+            return _err(
+                "avatar", f"SMPL-X forward pass failed: {e}", started,
+                extra={"traceback": traceback.format_exc()[-3000:]},
+            )
+        t_mesh = round(_now() - t_mesh_start, 2)
+
+        # 4) Sample skin color from face crop
+        skin_rgb = _sample_face_median_color(inferrer, str(img_path))
+
+        # 5) Write geometry artifacts to tmp
+        obj_path = tmp_path / "body_apose.obj"
+        glb_path = tmp_path / "avatar_textured.glb"
+        png_path = tmp_path / "skin_texture.png"
+        npz_path = tmp_path / "smplx_params.npz"
+
+        _write_obj_no_mtl(verts_mm, faces, obj_path)
+        _write_textured_glb(verts_mm, faces, skin_rgb, glb_path)
+        _write_skin_texture_png(skin_rgb, png_path)
+        import numpy as np
+        np.savez(npz_path, **{k: v for k, v in smplx_params.items() if k != "gender"})
+
+        # 6) Optional splat PLY via LHM's infer_mesh()
+        ply_path = None
+        t_splat = None
+        if include_splats:
+            t_splat_start = _now()
+            try:
+                dump_tmp = tmp_path / "lhm_dump_tmp"
+                dump_mesh = tmp_path / "lhm_dump_mesh"
+                dump_tmp.mkdir(exist_ok=True)
+                dump_mesh.mkdir(exist_ok=True)
+                inferrer.infer_mesh(
+                    image_path=str(img_path),
+                    dump_tmp_dir=str(dump_tmp),
+                    dump_mesh_dir=str(dump_mesh),
+                    shape_param=beta_np,
+                )
+                # infer_mesh writes <stem>.ply into dump_mesh_dir
+                splat_candidates = list(dump_mesh.rglob("*.ply"))
+                if splat_candidates:
+                    ply_path = splat_candidates[0]
+            except Exception as e:
+                # Splats are optional; log but don't fail the request.
+                t_splat = round(_now() - t_splat_start, 2)
+                ply_path = None
+                splat_error = f"{e}"
+            else:
+                t_splat = round(_now() - t_splat_start, 2)
+                splat_error = None
+        else:
+            splat_error = None
+
+        # 7) Upload all artifacts
+        remote_subdir = f"avatars/{int(started)}"
+        artifacts = [
+            _collect_artifact(obj_path, remote_subdir),
+            _collect_artifact(npz_path, remote_subdir),
+            _collect_artifact(glb_path, remote_subdir),
+            _collect_artifact(png_path, remote_subdir),
+        ]
+        if ply_path is not None and ply_path.exists():
+            artifacts.append(_collect_artifact(ply_path, remote_subdir))
+
+        result = {
+            "image_url": image_url,
+            "gender": gender,
+            "model_name": model_name,
+            "beta_shape": list(beta_np.shape),
+            "is_full_body": bool(shape_pose.is_full_body),
+            "body_ratio": float(getattr(shape_pose, "ratio", 0.0)),
+            "skin_rgb": list(skin_rgb),
+            "pose_convention": smplx_params["pose_convention"],
+            "smplx_vertex_count": int(verts_mm.shape[0]),
+            "smplx_face_count": int(faces.shape[0]),
+            "artifacts": artifacts,
+            "timings": {
+                "inferrer_load_s": t_load,
+                "pose_estimation_s": t_pose,
+                "smplx_mesh_s": t_mesh,
+                "splat_pass_s": t_splat,
+                "total_inner_s": round(_now() - started_inner, 2),
+            },
+        }
+        if splat_error:
+            result["splat_error"] = splat_error
+        return _ok("avatar", result, started)
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 COMMANDS = {
@@ -611,6 +979,7 @@ COMMANDS = {
     "download_model": cmd_download_model,
     "inference": cmd_inference,
     "inference_mesh": cmd_inference_mesh,
+    "avatar": cmd_avatar,
     "shell": cmd_shell,
 }
 
