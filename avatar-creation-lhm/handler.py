@@ -853,7 +853,8 @@ def _classify_smplx_vert_regions(verts_tpose_m):
 
 
 def _vertex_colors_region_aware(verts_tpose_m, splat_pos, splat_rgb,
-                                face_median_rgb, k: int = 5):
+                                face_median_rgb, k: int = 5,
+                                splat_skin_mask=None, splat_hair_mask=None):
     """Per-region color sampling:
     - body  verts <- K nearest SKIN-class splats (clean skin tone)
     - scalp verts <- K nearest HAIR-class splats (preserves hair color)
@@ -863,21 +864,27 @@ def _vertex_colors_region_aware(verts_tpose_m, splat_pos, splat_rgb,
     Falls back to all splats for a region if its dedicated pool is empty
     (e.g. bald subject -> no hair splats, scalp verts use all splats).
 
-    Returns (vertex_colors [N, 3] uint8, diag_median_rgb, classification_stats).
+    splat_skin_mask / splat_hair_mask: optional precomputed classification.
+    If not provided, classifies internally (preserves backwards compat).
+
+    Returns (vertex_colors [N, 3] uint8, diag_median_rgb, classification_stats,
+             hair_splat_mask).
     """
     import numpy as np
     from scipy.spatial import cKDTree
 
     scalp_v, face_v, body_v = _classify_smplx_vert_regions(verts_tpose_m)
-    # SMPL-X scalp top in canonical Y (for splat hair classification)
     scalp_y_top = float(verts_tpose_m[:, 1].max())
 
-    skin_splat_mask, hair_splat_mask = _classify_splats(
-        splat_pos=splat_pos,
-        splat_rgb=splat_rgb,
-        face_median_rgb=face_median_rgb,
-        scalp_y=scalp_y_top,
-    )
+    if splat_skin_mask is None or splat_hair_mask is None:
+        splat_skin_mask, splat_hair_mask = _classify_splats(
+            splat_pos=splat_pos,
+            splat_rgb=splat_rgb,
+            face_median_rgb=face_median_rgb,
+            scalp_y=scalp_y_top,
+        )
+    skin_splat_mask = splat_skin_mask
+    hair_splat_mask = splat_hair_mask
 
     def _pool(pos_mask):
         if pos_mask.any():
@@ -928,6 +935,219 @@ def _vertex_colors_region_aware(verts_tpose_m, splat_pos, splat_rgb,
         stats,
         hair_splat_mask,  # passed back so cmd_avatar can write hair.ply
     )
+
+
+def _load_smplx_uv_obj(obj_path):
+    """Parse SMPL-X UV layout OBJ. Returns
+    (vt [N_uv, 2], faces_v [F, 3], faces_vt [F, 3]).
+
+    Expected file structure (Blender-exported smplx_uv.obj from LHM tarball):
+      - 10,475 'v' lines (canonical SMPL-X 3D positions, ignored, we use our
+        beta-deformed verts instead),
+      - 11,313 'vt' lines (UV coords in [0, 1], more than 10475 due to seam
+        duplication on the UV unwrap),
+      - 20,908 'f' lines in 'v_idx/vt_idx' format.
+    """
+    import numpy as np
+    vt_list = []
+    fv_list = []
+    fvt_list = []
+    with open(obj_path) as fh:
+        for line in fh:
+            line = line.strip()
+            if line.startswith("vt "):
+                parts = line.split()
+                vt_list.append([float(parts[1]), float(parts[2])])
+            elif line.startswith("f "):
+                parts = line.split()[1:]
+                if len(parts) != 3:
+                    continue
+                v_idx, vt_idx = [], []
+                for p in parts:
+                    sub = p.split("/")
+                    v_idx.append(int(sub[0]) - 1)
+                    if len(sub) > 1 and sub[1]:
+                        vt_idx.append(int(sub[1]) - 1)
+                if len(v_idx) == 3 and len(vt_idx) == 3:
+                    fv_list.append(v_idx)
+                    fvt_list.append(vt_idx)
+    return (
+        np.array(vt_list, dtype=np.float32),
+        np.array(fv_list, dtype=np.int32),
+        np.array(fvt_list, dtype=np.int32),
+    )
+
+
+def _bake_uv_diffuse_texture(
+    verts_tpose_m,
+    faces_v,
+    vt,
+    faces_vt,
+    splat_pos,
+    splat_rgb,
+    splat_skin_mask,
+    splat_hair_mask,
+    texture_size=1024,
+    k=5,
+):
+    """Tier 3a: bake a 1024x1024 diffuse PBR texture by per-texel splat sampling.
+
+    Pipeline:
+      1. Rasterize the SMPL-X UV layout via pytorch3d's MeshRasterizer using
+         an orthographic top-down camera. Output: per-pixel (face_id,
+         barycentric).
+      2. For each valid texel, interpolate the 3D position using the
+         corresponding 3D V-indices (NOT the VT-indices; the seam-duplicated
+         UV verts share a single 3D position per V-vert).
+      3. Classify the interpolated 3D point into scalp / face / body region
+         using the same heuristic as _classify_smplx_vert_regions.
+      4. Sample from the appropriate splat pool (skin for body, hair for
+         scalp, all-splats for face) via KD-tree (K=5 inverse-distance).
+      5. Write to texture, flip Y (pytorch3d render Y-up vs image Y-down).
+
+    Returns (texture_rgb [H, W, 3] uint8, valid_mask [H, W] bool, coverage_pct).
+    """
+    import numpy as np
+    import torch
+    from pytorch3d.renderer import (
+        MeshRasterizer, RasterizationSettings, FoVOrthographicCameras,
+    )
+    from pytorch3d.structures import Meshes
+    from scipy.spatial import cKDTree
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # UV in [0,1] -> NDC [-1,1]. Embed in 3D at z=0.
+    vt_ndc = np.zeros((vt.shape[0], 3), dtype=np.float32)
+    vt_ndc[:, 0] = vt[:, 0] * 2.0 - 1.0
+    vt_ndc[:, 1] = vt[:, 1] * 2.0 - 1.0
+
+    mesh = Meshes(
+        verts=[torch.from_numpy(vt_ndc).to(device)],
+        faces=[torch.from_numpy(faces_vt).long().to(device)],
+    )
+
+    cameras = FoVOrthographicCameras(
+        device=device,
+        znear=0.01,
+        zfar=10.0,
+        min_x=-1.0, max_x=1.0, min_y=-1.0, max_y=1.0,
+        R=torch.eye(3, device=device)[None],
+        T=torch.tensor([[0.0, 0.0, 2.0]], device=device),
+    )
+
+    raster_settings = RasterizationSettings(
+        image_size=texture_size,
+        blur_radius=0.0,
+        faces_per_pixel=1,
+        perspective_correct=False,
+        cull_backfaces=False,
+    )
+    rasterizer = MeshRasterizer(cameras=cameras, raster_settings=raster_settings)
+
+    with torch.no_grad():
+        fragments = rasterizer(mesh)
+    pix_to_face = fragments.pix_to_face[0, ..., 0].cpu().numpy()
+    bary = fragments.bary_coords[0, ..., 0, :].cpu().numpy()
+
+    H = W = texture_size
+    texture = np.zeros((H, W, 3), dtype=np.uint8)
+    valid_mask = (pix_to_face >= 0)
+    ys, xs = np.where(valid_mask)
+    if ys.size == 0:
+        return texture, valid_mask, 0.0
+
+    tri_ids = pix_to_face[ys, xs]
+    bary_pix = bary[ys, xs]
+
+    # Interpolate 3D position via V-indices
+    tri_v = faces_v[tri_ids]                   # [M, 3]
+    tri_verts = verts_tpose_m[tri_v]           # [M, 3, 3]
+    pixels_3d = (tri_verts * bary_pix[..., None]).sum(axis=1)  # [M, 3]
+
+    # Region classification per pixel (matches _classify_smplx_vert_regions)
+    y_max = float(verts_tpose_m[:, 1].max())
+    pix_y = pixels_3d[:, 1]
+    pix_z = pixels_3d[:, 2]
+    pix_scalp = pix_y > (y_max - 0.035)
+    pix_face = (
+        (pix_y <= (y_max - 0.035))
+        & (pix_y > (y_max - 0.16))
+        & (pix_z > 0.04)
+    )
+    pix_body = ~(pix_scalp | pix_face)
+
+    # Sampling pools
+    def _pool(mask):
+        if mask.any():
+            return splat_pos[mask], splat_rgb[mask]
+        return splat_pos, splat_rgb
+
+    skin_p, skin_c = _pool(splat_skin_mask)
+    hair_p, hair_c = _pool(splat_hair_mask)
+    all_p, all_c = splat_pos, splat_rgb
+
+    def _knn_blend(tree, rgb_pool, pts, k):
+        if pts.shape[0] == 0:
+            return np.zeros((0, 3), dtype=np.uint8)
+        k_eff = min(k, rgb_pool.shape[0])
+        d, idx = tree.query(pts, k=k_eff)
+        if k_eff == 1:
+            d = d[:, None]; idx = idx[:, None]
+        w = 1.0 / (d + 1e-6)
+        w = w / w.sum(axis=1, keepdims=True)
+        s = rgb_pool[idx].astype(np.float32)
+        return np.clip((s * w[..., None]).sum(axis=1), 0, 255).astype(np.uint8)
+
+    skin_tree = cKDTree(skin_p)
+    hair_tree = cKDTree(hair_p)
+    all_tree = cKDTree(all_p)
+
+    colors_out = np.zeros((ys.shape[0], 3), dtype=np.uint8)
+    colors_out[pix_body] = _knn_blend(skin_tree, skin_c, pixels_3d[pix_body], k)
+    colors_out[pix_scalp] = _knn_blend(hair_tree, hair_c, pixels_3d[pix_scalp], k)
+    colors_out[pix_face] = _knn_blend(all_tree, all_c, pixels_3d[pix_face], k)
+
+    texture[ys, xs] = colors_out
+    # Y-flip so the GLB renders right-side-up (pytorch3d Y-up, image Y-down)
+    texture = np.flipud(texture).copy()
+
+    coverage = float(valid_mask.sum()) / float(H * W) * 100.0
+    return texture, valid_mask, coverage
+
+
+def _write_glb_with_uv_texture(verts_3d_m, faces_v, vt, faces_vt,
+                               texture_rgb, out_path):
+    """Write a textured GLB. SMPL-X has 10,475 V verts but 11,313 VT verts
+    due to seam duplication. trimesh's TextureVisuals needs verts and UVs
+    of the same length, so we expand to a "seamed" mesh: one expanded vert
+    per UV vert, each positioned at the 3D location of its corresponding
+    V vert.
+
+    Note: image V axis is already flipped by the texture baker so trimesh's
+    default V-flip cancels out and the texture maps right side up.
+    """
+    import numpy as np
+    import trimesh
+    from PIL import Image
+
+    n_uv = vt.shape[0]
+    vt_to_v = np.full(n_uv, -1, dtype=np.int32)
+    for f_v, f_vt in zip(faces_v, faces_vt):
+        vt_to_v[f_vt[0]] = f_v[0]
+        vt_to_v[f_vt[1]] = f_v[1]
+        vt_to_v[f_vt[2]] = f_v[2]
+    expanded_verts = verts_3d_m[vt_to_v].astype(np.float32)
+
+    image_pil = Image.fromarray(texture_rgb).convert("RGB")
+    visual = trimesh.visual.TextureVisuals(uv=vt.astype(np.float32), image=image_pil)
+    mesh = trimesh.Trimesh(
+        vertices=expanded_verts,
+        faces=faces_vt.astype(np.int32),
+        visual=visual,
+        process=False,
+    )
+    mesh.export(out_path, file_type="glb")
 
 
 def _write_hair_splats_ply(src_ply_path, dst_ply_path, hair_mask):
@@ -1170,9 +1390,23 @@ def cmd_avatar(inp: dict, started: float) -> dict:
         color_source = "face_median_fallback"
         face_median_rgb = _sample_face_median_color(inferrer, str(img_path))
 
+        # Holders for splat data so the UV texture baker (below) can reuse
+        # what the per-vertex sampler loaded + classified.
+        splat_pos_arr = None
+        splat_rgb_arr = None
+        splat_skin_mask = None
         if ply_path is not None and ply_path.exists():
             try:
-                splat_pos, splat_rgb = _load_splat_colors(ply_path)
+                splat_pos_arr, splat_rgb_arr = _load_splat_colors(ply_path)
+                # Classify once up front so per-vert sampling and UV baking
+                # share the result.
+                scalp_y_top_m = float(verts_tpose_m[:, 1].max())
+                splat_skin_mask, hair_splat_mask = _classify_splats(
+                    splat_pos=splat_pos_arr,
+                    splat_rgb=splat_rgb_arr,
+                    face_median_rgb=face_median_rgb,
+                    scalp_y=scalp_y_top_m,
+                )
                 (
                     vertex_colors,
                     skin_rgb_diag,
@@ -1180,12 +1414,14 @@ def cmd_avatar(inp: dict, started: float) -> dict:
                     hair_splat_mask,
                 ) = _vertex_colors_region_aware(
                     verts_tpose_m=verts_tpose_m,
-                    splat_pos=splat_pos,
-                    splat_rgb=splat_rgb,
+                    splat_pos=splat_pos_arr,
+                    splat_rgb=splat_rgb_arr,
                     face_median_rgb=face_median_rgb,
                     k=5,
+                    splat_skin_mask=splat_skin_mask,
+                    splat_hair_mask=hair_splat_mask,
                 )
-                color_source = f"splats_region_aware_n{splat_pos.shape[0]}"
+                color_source = f"splats_region_aware_n{splat_pos_arr.shape[0]}"
             except Exception as e:
                 splat_error = (splat_error or "") + f" | color sample failed: {e}"
                 vertex_colors = None
@@ -1207,8 +1443,63 @@ def cmd_avatar(inp: dict, started: float) -> dict:
         npz_path = tmp_path / "smplx_params.npz"
 
         _write_obj_no_mtl(verts_apose_mm, faces, obj_path)
-        _write_textured_glb(verts_apose_mm, faces, vertex_colors, glb_path)
-        _write_skin_texture_png(skin_rgb_diag, png_path)
+
+        # Tier 3a: try to bake a UV-mapped diffuse texture. Falls back to
+        # per-vertex color if SMPL-X UV layout is unavailable or baking fails.
+        uv_obj_path = (
+            LHM_ROOT / "pretrained_models" / "human_model_files"
+            / "smplx" / "smplx_uv" / "smplx_uv.obj"
+        )
+        uv_baked = False
+        uv_coverage_pct = None
+        uv_texture_size = 1024
+        if (
+            uv_obj_path.exists()
+            and splat_pos_arr is not None
+            and splat_skin_mask is not None
+        ):
+            t_uv_start = _now()
+            try:
+                vt, faces_v_obj, faces_vt_obj = _load_smplx_uv_obj(str(uv_obj_path))
+                texture_rgb, _, uv_coverage_pct = _bake_uv_diffuse_texture(
+                    verts_tpose_m=verts_tpose_m,
+                    faces_v=faces_v_obj,
+                    vt=vt,
+                    faces_vt=faces_vt_obj,
+                    splat_pos=splat_pos_arr,
+                    splat_rgb=splat_rgb_arr,
+                    splat_skin_mask=splat_skin_mask,
+                    splat_hair_mask=hair_splat_mask,
+                    texture_size=uv_texture_size,
+                    k=5,
+                )
+                _write_glb_with_uv_texture(
+                    verts_3d_m=verts_apose_m,
+                    faces_v=faces_v_obj,
+                    vt=vt,
+                    faces_vt=faces_vt_obj,
+                    texture_rgb=texture_rgb,
+                    out_path=glb_path,
+                )
+                from PIL import Image as _PIL_Image
+                _PIL_Image.fromarray(texture_rgb).save(png_path)
+                uv_baked = True
+                color_source = (
+                    f"uv_texture_{uv_texture_size}_"
+                    f"cov{uv_coverage_pct:.1f}pct_"
+                    f"{color_source}"
+                )
+                t_uv_bake = round(_now() - t_uv_start, 2)
+            except Exception as e:
+                splat_error = (splat_error or "") + f" | uv bake failed: {e}"
+                t_uv_bake = round(_now() - t_uv_start, 2)
+        else:
+            t_uv_bake = 0.0
+
+        if not uv_baked:
+            _write_textured_glb(verts_apose_mm, faces, vertex_colors, glb_path)
+            _write_skin_texture_png(skin_rgb_diag, png_path)
+
         import numpy as np
         np.savez(npz_path, **{k: v for k, v in smplx_params.items() if k != "gender"})
 
@@ -1259,6 +1550,9 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             "color_source": color_source,
             "color_stats": color_stats,
             "hair_splat_count": hair_count,
+            "uv_baked": uv_baked,
+            "uv_coverage_pct": uv_coverage_pct,
+            "uv_texture_size": uv_texture_size if uv_baked else None,
             "pose_convention": smplx_params["pose_convention"],
             "smplx_vertex_count": int(verts_apose_mm.shape[0]),
             "smplx_face_count": int(faces.shape[0]),
@@ -1269,6 +1563,7 @@ def cmd_avatar(inp: dict, started: float) -> dict:
                 "smplx_mesh_s": t_mesh,
                 "splat_pass_s": t_splat,
                 "color_sample_s": t_color,
+                "uv_bake_s": t_uv_bake,
                 "total_inner_s": round(_now() - started_inner, 2),
             },
         }
