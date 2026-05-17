@@ -807,35 +807,180 @@ def _load_splat_colors(ply_path):
     return positions, rgb_u8
 
 
-def _vertex_colors_from_splats(verts_tpose_m, splat_pos, splat_rgb, k: int = 5):
-    """For each SMPL-X T-pose vert, sample color from the K nearest splats
-    with inverse-distance weighting. Returns [N, 3] uint8 + median dominant
-    color (for diagnostics / skin_texture.png).
+def _classify_splats(splat_pos, splat_rgb, face_median_rgb, scalp_y,
+                     skin_rgb_threshold: float = 45.0):
+    """Classify each splat as skin / hair / other based on color + position.
 
-    Splat positions and SMPL-X verts must be in the same coordinate frame
-    (both meters, canonical body pose).
+    skin: RGB euclidean distance to face-crop median color < threshold.
+    hair: above the SMPL-X scalp top in Y AND not skin-classified.
+    other: clothing, shadows, background residue.
+
+    Returns (skin_mask, hair_mask) boolean arrays of length N_splats.
+    """
+    import numpy as np
+    face = np.asarray(face_median_rgb, dtype=np.float32)
+    color_dist = np.linalg.norm(splat_rgb.astype(np.float32) - face, axis=1)
+    skin_mask = color_dist < skin_rgb_threshold
+    # Hair: above the SMPL-X scalp top (so we exclude splats embedded INSIDE
+    # the scalp itself; only ones that extend ABOVE the bald skull are hair).
+    # A small (~2cm) margin below the scalp top catches hair attached to it.
+    hair_mask = (splat_pos[:, 1] > (scalp_y - 0.02)) & (~skin_mask)
+    return skin_mask, hair_mask
+
+
+def _classify_smplx_vert_regions(verts_tpose_m):
+    """Region-classify SMPL-X T-pose verts by position. Returns 3 boolean masks
+    summing to all verts: scalp, face, body.
+
+    scalp: top ~3.5cm of head Y range (where hair would be).
+    face:  next ~12cm below scalp, with z > 0 (front of head, i.e. facial).
+    body:  everything else (neck, torso, arms, legs, hands, feet, back of head).
+
+    Position-based heuristic. Coarse but works for canonical SMPL-X topology.
+    """
+    import numpy as np
+    y = verts_tpose_m[:, 1]
+    z = verts_tpose_m[:, 2]
+    y_max = float(y.max())
+    scalp_mask = y > (y_max - 0.035)  # top 3.5cm
+    face_mask = (
+        (y <= (y_max - 0.035)) &
+        (y > (y_max - 0.16)) &  # face roughly 12cm tall
+        (z > 0.04)              # front-of-head (Z>0 is forward in SMPL-X)
+    )
+    body_mask = ~(scalp_mask | face_mask)
+    return scalp_mask, face_mask, body_mask
+
+
+def _vertex_colors_region_aware(verts_tpose_m, splat_pos, splat_rgb,
+                                face_median_rgb, k: int = 5):
+    """Per-region color sampling:
+    - body  verts <- K nearest SKIN-class splats (clean skin tone)
+    - scalp verts <- K nearest HAIR-class splats (preserves hair color)
+    - face  verts <- K nearest of ALL splats (preserves eye / lip / beard
+                     features)
+
+    Falls back to all splats for a region if its dedicated pool is empty
+    (e.g. bald subject -> no hair splats, scalp verts use all splats).
+
+    Returns (vertex_colors [N, 3] uint8, diag_median_rgb, classification_stats).
     """
     import numpy as np
     from scipy.spatial import cKDTree
 
-    tree = cKDTree(splat_pos)
-    dists, idxs = tree.query(verts_tpose_m, k=k)
-    if k == 1:
-        dists = dists[:, None]
-        idxs = idxs[:, None]
+    scalp_v, face_v, body_v = _classify_smplx_vert_regions(verts_tpose_m)
+    # SMPL-X scalp top in canonical Y (for splat hair classification)
+    scalp_y_top = float(verts_tpose_m[:, 1].max())
 
-    # Inverse-distance weighting with a small epsilon to avoid div-by-zero
-    eps = 1e-6
-    weights = 1.0 / (dists + eps)
-    weights = weights / weights.sum(axis=1, keepdims=True)  # [N, k]
+    skin_splat_mask, hair_splat_mask = _classify_splats(
+        splat_pos=splat_pos,
+        splat_rgb=splat_rgb,
+        face_median_rgb=face_median_rgb,
+        scalp_y=scalp_y_top,
+    )
 
-    sampled_rgb = splat_rgb[idxs].astype("float32")  # [N, k, 3]
-    blended = (sampled_rgb * weights[..., None]).sum(axis=1)  # [N, 3]
-    vertex_colors = np.clip(blended, 0, 255).astype("uint8")
+    def _pool(pos_mask):
+        if pos_mask.any():
+            return splat_pos[pos_mask], splat_rgb[pos_mask]
+        return splat_pos, splat_rgb  # fall back to all
 
-    # Diagnostic: median color across all verts (proxy for "average skin tone")
-    median_rgb = np.median(vertex_colors, axis=0).astype("uint8")
-    return vertex_colors, (int(median_rgb[0]), int(median_rgb[1]), int(median_rgb[2]))
+    skin_pos, skin_rgb_pool = _pool(skin_splat_mask)
+    hair_pos, hair_rgb_pool = _pool(hair_splat_mask)
+    all_pos, all_rgb_pool = splat_pos, splat_rgb
+
+    N = verts_tpose_m.shape[0]
+    vertex_colors = np.zeros((N, 3), dtype=np.uint8)
+
+    for vert_mask, pool_pos, pool_rgb in [
+        (body_v, skin_pos, skin_rgb_pool),
+        (scalp_v, hair_pos, hair_rgb_pool),
+        (face_v, all_pos, all_rgb_pool),
+    ]:
+        if not vert_mask.any():
+            continue
+        tree = cKDTree(pool_pos)
+        k_eff = min(k, pool_pos.shape[0])
+        queries = verts_tpose_m[vert_mask]
+        dists, idxs = tree.query(queries, k=k_eff)
+        if k_eff == 1:
+            dists = dists[:, None]
+            idxs = idxs[:, None]
+        eps = 1e-6
+        weights = 1.0 / (dists + eps)
+        weights = weights / weights.sum(axis=1, keepdims=True)
+        sampled = pool_rgb[idxs].astype(np.float32)
+        blended = (sampled * weights[..., None]).sum(axis=1)
+        vertex_colors[vert_mask] = np.clip(blended, 0, 255).astype(np.uint8)
+
+    median_rgb = np.median(vertex_colors, axis=0).astype(np.uint8)
+    stats = {
+        "splats_total": int(splat_pos.shape[0]),
+        "splats_skin": int(skin_splat_mask.sum()),
+        "splats_hair": int(hair_splat_mask.sum()),
+        "verts_scalp": int(scalp_v.sum()),
+        "verts_face":  int(face_v.sum()),
+        "verts_body":  int(body_v.sum()),
+        "scalp_y_top_m": round(scalp_y_top, 4),
+    }
+    return (
+        vertex_colors,
+        (int(median_rgb[0]), int(median_rgb[1]), int(median_rgb[2])),
+        stats,
+        hair_splat_mask,  # passed back so cmd_avatar can write hair.ply
+    )
+
+
+def _write_hair_splats_ply(src_ply_path, dst_ply_path, hair_mask):
+    """Copy just the hair-class splats to a new PLY, preserving LHM's full
+    Gaussian splat format (positions + normals + DC SH + opacity + scale +
+    rotation) so any 3DGS WebGL viewer can render them as photoreal hair.
+
+    Returns the number of splats written.
+    """
+    import numpy as np
+    with open(src_ply_path, "rb") as f:
+        header_lines = []
+        while True:
+            line = f.readline()
+            if not line:
+                raise RuntimeError(f"PLY EOF in header: {src_ply_path}")
+            header_lines.append(line)
+            if line.strip() == b"end_header":
+                break
+        properties = []
+        n_verts = 0
+        for line in header_lines:
+            s = line.decode("ascii", errors="replace").strip()
+            if s.startswith("element vertex"):
+                n_verts = int(s.split()[-1])
+            elif s.startswith("property "):
+                parts = s.split()
+                if len(parts) >= 3 and parts[1] in ("float", "float32"):
+                    properties.append(parts[2])
+        rec_count = len(properties)
+        raw = np.frombuffer(f.read(n_verts * rec_count * 4), dtype="<f4")
+        arr = raw.reshape(n_verts, rec_count)
+
+    if hair_mask.shape[0] != n_verts:
+        raise RuntimeError(
+            f"hair_mask shape {hair_mask.shape} != n_verts {n_verts}"
+        )
+    arr_hair = arr[hair_mask]
+    n_hair = arr_hair.shape[0]
+
+    new_header = []
+    for line in header_lines:
+        s = line.decode("ascii", errors="replace")
+        if s.startswith("element vertex"):
+            new_header.append(f"element vertex {n_hair}\n".encode())
+        else:
+            new_header.append(line)
+
+    with open(dst_ply_path, "wb") as f:
+        for line in new_header:
+            f.write(line)
+        f.write(arr_hair.astype("<f4").tobytes())
+    return n_hair
 
 
 def _sample_face_median_color(inferrer, image_path: str) -> tuple:
@@ -1015,27 +1160,39 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             splat_error = f"{e}"
         t_splat = round(_now() - t_splat_start, 2)
 
-        # 5) Per-vertex color from splats (or face-median fallback)
+        # 5) Per-vertex color from splats (region-aware skin segmentation)
+        #    + extract hair splats for the optional hair.ply overlay artifact.
         t_color_start = _now()
         vertex_colors = None
         skin_rgb_diag = None
+        color_stats = None
+        hair_splat_mask = None
         color_source = "face_median_fallback"
+        face_median_rgb = _sample_face_median_color(inferrer, str(img_path))
+
         if ply_path is not None and ply_path.exists():
             try:
                 splat_pos, splat_rgb = _load_splat_colors(ply_path)
-                vertex_colors, skin_rgb_diag = _vertex_colors_from_splats(
+                (
+                    vertex_colors,
+                    skin_rgb_diag,
+                    color_stats,
+                    hair_splat_mask,
+                ) = _vertex_colors_region_aware(
                     verts_tpose_m=verts_tpose_m,
                     splat_pos=splat_pos,
                     splat_rgb=splat_rgb,
+                    face_median_rgb=face_median_rgb,
                     k=5,
                 )
-                color_source = f"splats_knn5_n{splat_pos.shape[0]}"
+                color_source = f"splats_region_aware_n{splat_pos.shape[0]}"
             except Exception as e:
                 splat_error = (splat_error or "") + f" | color sample failed: {e}"
                 vertex_colors = None
+
         if vertex_colors is None:
-            # Fallback: uniform face-median color
-            skin_rgb_diag = _sample_face_median_color(inferrer, str(img_path))
+            # Fallback: uniform face-median color across all verts
+            skin_rgb_diag = face_median_rgb
             import numpy as np
             vertex_colors = np.tile(
                 np.array([skin_rgb_diag[0], skin_rgb_diag[1], skin_rgb_diag[2]], dtype=np.uint8),
@@ -1072,6 +1229,25 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             except Exception:
                 artifacts.append(_collect_artifact(ply_path, remote_subdir))
 
+        # Tier 2: hair.ply (subset of LHM splats classified as hair). Same
+        # format as splats.ply so the viewer can render with the same loader.
+        # Only attempt if classification produced any hair splats; otherwise
+        # the subject is bald or hair classification failed silently.
+        hair_count = 0
+        if (
+            hair_splat_mask is not None
+            and ply_path is not None
+            and ply_path.exists()
+            and hair_splat_mask.any()
+        ):
+            try:
+                hair_path = tmp_path / "hair.ply"
+                hair_count = _write_hair_splats_ply(ply_path, hair_path, hair_splat_mask)
+                if hair_count > 0:
+                    artifacts.append(_collect_artifact(hair_path, remote_subdir))
+            except Exception as e:
+                splat_error = (splat_error or "") + f" | hair extract failed: {e}"
+
         result = {
             "image_url": image_url,
             "gender": gender,
@@ -1081,6 +1257,8 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             "body_ratio": float(getattr(shape_pose, "ratio", 0.0)),
             "skin_rgb": list(skin_rgb_diag),
             "color_source": color_source,
+            "color_stats": color_stats,
+            "hair_splat_count": hair_count,
             "pose_convention": smplx_params["pose_convention"],
             "smplx_vertex_count": int(verts_apose_mm.shape[0]),
             "smplx_face_count": int(faces.shape[0]),
