@@ -36,7 +36,7 @@ FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-devel
 # Standing rule: bump this timestamp on every push, even for empty commits.
 # Build is fully clean as a side effect, which gives us unambiguous logs.
 # ----------------------------------------------------------------------------
-ARG CACHEBUST=2026-05-17T16:51-smplx-avatar
+ARG CACHEBUST=2026-05-17T17:40:05-retry-avatar-cmd
 RUN echo "$CACHEBUST" > /tmp/.cachebust
 
 # ----------------------------------------------------------------------------
