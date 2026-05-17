@@ -65,14 +65,35 @@ MOTION_DEFAULT = LHM_ROOT / "train_data" / "motion_video" / "mimo1" / "smplx_par
 INLINE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # Lazy-downloaded Aliyun tarballs. See Dockerfile.runpod for why they're not
-# baked into the image. Each tarball extracts into LHM_ROOT; we don't rely on
-# knowing the internal layout and instead use a marker file in LHM_ROOT to
+# baked into the image. Each tarball extracts into DATA_DIR; we don't rely on
+# knowing the internal layout and instead use a marker file in DATA_DIR to
 # record successful extraction.
+#
+# DATA_DIR resolution:
+#   1. /runpod-volume/lhm-data  (if a RunPod Network Volume is mounted and
+#      writable — the production path; shared across all workers, one-shot
+#      download for the lifetime of the volume)
+#   2. /workspace/LHM           (fallback for local testing / pre-volume
+#      setups; pays the 5-min Aliyun download per cold worker)
 ALIYUN_BASE = "https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM"
 DATA_FILES = [
     {"name": "LHM_prior_model.tar", "url": f"{ALIYUN_BASE}/LHM_prior_model.tar"},
     {"name": "motion_video.tar",    "url": f"{ALIYUN_BASE}/motion_video.tar"},
 ]
+
+
+def _resolve_data_dir() -> Path:
+    """Pick the runtime data dir. See comment block above DATA_FILES."""
+    volume = Path("/runpod-volume")
+    if volume.is_dir() and os.access(volume, os.W_OK):
+        d = volume / "lhm-data"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    return LHM_ROOT
+
+
+DATA_DIR = _resolve_data_dir()
+USING_VOLUME = DATA_DIR != LHM_ROOT
 
 DEFAULT_MODEL = os.environ.get("LHM_DEFAULT_MODEL", "LHM-MINI")
 ALLOW_SHELL = os.environ.get("LHM_ALLOW_SHELL", "0") == "1"
@@ -190,36 +211,41 @@ def _collect_artifact(local_path: Path, remote_subdir: str) -> dict:
 def _ensure_lhm_data(log: list[str] | None = None) -> None:
     """Download + extract Aliyun-hosted LHM data tarballs if not already present.
 
-    Idempotent. Safe to call from every inference. First call on a fresh worker
-    pays ~5 min (aria2c parallel download + tar extract). Subsequent calls are
-    a few-microsecond marker-file check.
+    Idempotent. Safe to call from every inference. On a Network-Volume-backed
+    deployment the download is amortized across every worker that ever attaches
+    to the volume; on a fallback (LHM_ROOT) deployment, every fresh worker pays
+    the ~5-min cost.
 
     Marker pattern: after a tarball is successfully extracted, we touch
-    `<LHM_ROOT>/.<tarname>.extracted`. We don't rely on knowing the internal
+    `<DATA_DIR>/.<tarname>.extracted`. We don't rely on knowing the internal
     layout of the tarball.
+
+    When DATA_DIR is the volume (i.e. NOT LHM_ROOT), we also stitch the
+    extracted content into LHM_ROOT via symlinks so LHM's CLI finds files at
+    the paths its scripts expect.
 
     Raises RuntimeError on download/extract failure.
     """
     for item in DATA_FILES:
         name = item["name"]
-        marker = LHM_ROOT / f".{name}.extracted"
+        marker = DATA_DIR / f".{name}.extracted"
         if marker.exists():
             if log is not None:
-                log.append(f"{name}: already present (marker found)")
+                log.append(f"{name}: already present at {DATA_DIR} (marker found)")
             continue
 
         if log is not None:
-            log.append(f"{name}: downloading from {item['url']}")
-        tar_path = LHM_ROOT / name
+            log.append(f"{name}: downloading to {DATA_DIR}")
+        tar_path = DATA_DIR / name
         # aria2c is installed in the image; the same -x 16 -s 16 flags that
         # cut Aliyun download time from ~31min to ~5min at build time work
-        # the same way at runtime.
+        # the same way at runtime (152 MiB/s observed from a CA worker).
         dl = subprocess.run(
             ["aria2c", "-x", "16", "-s", "16",
              "--max-tries=5", "--retry-wait=10",
              "--console-log-level=warn",
              "--allow-overwrite=true",
-             "-d", str(LHM_ROOT),
+             "-d", str(DATA_DIR),
              "-o", name,
              item["url"]],
             capture_output=True, text=True, timeout=1800,
@@ -231,12 +257,17 @@ def _ensure_lhm_data(log: list[str] | None = None) -> None:
             )
 
         if log is not None:
-            log.append(f"{name}: extracting")
+            log.append(f"{name}: extracting in {DATA_DIR}")
         ex = subprocess.run(
             ["tar", "-xf", str(tar_path)],
-            cwd=str(LHM_ROOT), capture_output=True, text=True, timeout=600,
+            cwd=str(DATA_DIR), capture_output=True, text=True, timeout=600,
         )
         if ex.returncode != 0:
+            # don't leave the half-extracted tar on disk to bloat the volume
+            try:
+                tar_path.unlink()
+            except OSError:
+                pass
             raise RuntimeError(
                 f"tar -xf failed for {name} (rc={ex.returncode}): "
                 f"{ex.stderr[-1000:]}"
@@ -248,6 +279,53 @@ def _ensure_lhm_data(log: list[str] | None = None) -> None:
         marker.touch()
         if log is not None:
             log.append(f"{name}: done")
+
+    # On a fresh worker that mounts a previously-populated volume, the
+    # tarball check above skips download/extract, but the worker's LHM_ROOT
+    # has no symlinks to the volume contents yet. So always (re)stitch.
+    if USING_VOLUME:
+        _stitch_volume_into_lhm_root(log=log)
+
+
+def _stitch_volume_into_lhm_root(log: list[str] | None = None) -> None:
+    """Make /workspace/LHM/<x> point to /runpod-volume/lhm-data/<x>.
+
+    Top-level entries that already exist as real directories in LHM_ROOT
+    (e.g. `pretrained_models/` with its `huggingface/` child from the image
+    build) get merged one level deep: we walk the volume's subentries and
+    symlink each one that doesn't already exist in LHM_ROOT.
+
+    Entries that don't exist in LHM_ROOT at all get symlinked whole.
+
+    Existing symlinks are left alone (idempotent across worker restarts).
+    """
+    for entry in DATA_DIR.iterdir():
+        if entry.name.startswith("."):
+            continue  # marker files
+        target = LHM_ROOT / entry.name
+        if target.is_symlink():
+            continue  # already stitched
+        if entry.is_dir() and target.exists() and target.is_dir():
+            # merge: link grandchildren that don't exist in the image dir
+            for sub in entry.iterdir():
+                sub_target = target / sub.name
+                if sub_target.exists() or sub_target.is_symlink():
+                    continue
+                try:
+                    sub_target.symlink_to(sub)
+                    if log is not None:
+                        log.append(f"linked {sub_target} -> {sub}")
+                except OSError as e:
+                    if log is not None:
+                        log.append(f"symlink failed {sub_target} -> {sub}: {e}")
+        elif not target.exists():
+            try:
+                target.symlink_to(entry)
+                if log is not None:
+                    log.append(f"linked {target} -> {entry}")
+            except OSError as e:
+                if log is not None:
+                    log.append(f"symlink failed {target} -> {entry}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -298,10 +376,20 @@ def cmd_info(_inp: dict, started: float) -> dict:
                 info["models_present"].append(repo_dir.name)
 
     # Lazy-downloaded data files (see _ensure_lhm_data).
+    info["data_dir"] = str(DATA_DIR)
+    info["using_volume"] = USING_VOLUME
     info["data_files"] = {
-        d["name"]: (LHM_ROOT / f".{d['name']}.extracted").exists()
+        d["name"]: (DATA_DIR / f".{d['name']}.extracted").exists()
         for d in DATA_FILES
     }
+    # Quick volume sanity if mounted.
+    if USING_VOLUME:
+        try:
+            v_usage = shutil.disk_usage("/runpod-volume")
+            info["volume_total_gb"] = round(v_usage.total / 1024**3, 2)
+            info["volume_free_gb"] = round(v_usage.free / 1024**3, 2)
+        except Exception:
+            pass
 
     # Repo files at LHM_ROOT (top level only)
     if LHM_ROOT.exists():

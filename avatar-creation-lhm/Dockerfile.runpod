@@ -36,7 +36,7 @@ FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-devel
 # Standing rule: bump this timestamp on every push, even for empty commits.
 # Build is fully clean as a side effect, which gives us unambiguous logs.
 # ----------------------------------------------------------------------------
-ARG CACHEBUST=2026-05-17T15:30
+ARG CACHEBUST=2026-05-17T16:00
 RUN echo "$CACHEBUST" > /tmp/.cachebust
 
 # ----------------------------------------------------------------------------
@@ -133,39 +133,30 @@ RUN python -c "from huggingface_hub import snapshot_download; \
     snapshot_download(repo_id='3DAIGC/LHM-MINI', \
         cache_dir='./pretrained_models/huggingface')"
 
-# Bake LHM_prior_model.tar + motion_video.tar into the image so every fresh
-# worker is ready-to-go without a ~5 min per-cold-start Aliyun download.
+# LHM_prior_model.tar + motion_video.tar are NOT baked into the image. Three
+# build attempts proved this isn't viable inside RunPod's 30-min build cap:
 #
-# Earlier history (don't repeat the mistakes):
-# - Build #3 (single-stream wget) pushed step 22 to 31 min on its own and
-#   blew the 30-min cap. Fixed by aria2c -x 16.
-# - Build #5 (aria2c baked-in) finished RUN steps in 18 min but image-layer
-#   write + cache export was 20+ min on a ~25 GB image. Total ~38 min, over
-#   the cap. That's why we moved to lazy-download in build #6 (commit e302049).
-# - Build #6+ (lazy-download) builds fine but every fresh worker pays a 5 min
-#   bootstrap. With the CACHEBUST mechanism now in place, registry corruption
-#   should stay out of the loop, so we're trying baked-in again. If the build
-#   blows the cap, fall back to a RunPod Network Volume mounted at
-#   /runpod-volume and point handler._ensure_lhm_data() at it.
+# - Build #5 (aria2c baked, no CACHEBUST): image ~25 GB, export 20+ min, cap
+#   exceeded, plus cache poisoning.
+# - Build #7 (aria2c baked, with CACHEBUST): RUN steps clean in 17 min, but
+#   image-layer write was 648s = 10.8 min on its own and cache export then
+#   I/O-errored before the 30-min cap. Image was ~30 GB.
 #
-# Marker files (`.<tarname>.extracted`) are touched here so handler.py's
-# defensive `_ensure_lhm_data()` treats the image as pre-warmed and does
-# zero work on first inference.
+# Image export time scales roughly linearly with image size, so anything past
+# ~20 GB total is at risk of the cap. The architecture going forward is:
 #
-# aria2c flags: -x 16 -s 16 = 16 parallel connections + 16-way file split
-# against Aliyun OSS, which supports HTTP Range. This shaved the combined
-# download from ~40 min single-stream to ~5 min.
-RUN aria2c -x 16 -s 16 --max-tries=5 --retry-wait=10 --console-log-level=warn \
-        https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/LHM_prior_model.tar \
-    && tar -xf LHM_prior_model.tar \
-    && rm LHM_prior_model.tar \
-    && touch /workspace/LHM/.LHM_prior_model.tar.extracted
-
-RUN aria2c -x 16 -s 16 --max-tries=5 --retry-wait=10 --console-log-level=warn \
-        https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/motion_video.tar \
-    && tar -xf motion_video.tar \
-    && rm motion_video.tar \
-    && touch /workspace/LHM/.motion_video.tar.extracted
+# - Image stays small (~16 GB): just LHM repo + LHM-MINI + pip deps.
+# - The two Aliyun tarballs live on a RunPod Network Volume mounted at
+#   /runpod-volume, populated once via the `init` command, shared by every
+#   worker thereafter.
+# - handler.py's `_ensure_lhm_data()` writes to the volume if mounted, with
+#   symlinks from /workspace/LHM/<subdir> back into the volume so LHM finds
+#   files at the paths its scripts expect. Falls back to /workspace/LHM if
+#   no volume (useful for local testing, costly for serverless cold starts).
+#
+# aria2 stays in the apt install because handler.py shells out to aria2c
+# at runtime for the same multi-connection benefit (152 MiB/s observed
+# against Aliyun OSS on a CA worker).
 
 # ----------------------------------------------------------------------------
 # Build-time smoke test. Fails the build if any of the CUDA-extension wheels
@@ -190,13 +181,13 @@ import huggingface_hub; print('huggingface_hub', huggingface_hub.__version__); \
 print('CUDA EXTENSIONS + DEPS SMOKE TEST PASSED')"
 
 # Verify the LHM repo + baked artifacts are present where the handler expects.
+# train_data/motion_video and pretrained_models/{sam2,sapiens,human_model_files,...}
+# are NOT checked here because they live on the Network Volume; handler.py
+# verifies them at runtime via marker files.
 RUN test -f /workspace/LHM/inference.sh \
     && test -f /workspace/LHM/inference_mesh.sh \
     && test -d /workspace/LHM/train_data/example_imgs \
-    && test -d /workspace/LHM/train_data/motion_video \
     && test -d /workspace/LHM/pretrained_models/huggingface \
-    && test -f /workspace/LHM/.LHM_prior_model.tar.extracted \
-    && test -f /workspace/LHM/.motion_video.tar.extracted \
     && echo "LHM REPO + BAKED ARTIFACTS SMOKE TEST PASSED"
 
 # ----------------------------------------------------------------------------
