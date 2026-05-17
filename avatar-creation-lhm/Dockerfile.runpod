@@ -16,6 +16,30 @@
 FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-devel
 
 # ----------------------------------------------------------------------------
+# Cache-bust. BUMP THIS VALUE ON EVERY PUSH to feature/lhm.
+#
+# Why this exists: RunPod's BuildKit content-addressed registry caches an
+# entry per layer-digest. If a build is killed mid-export (e.g. by the 30-min
+# build cap), the partial upload leaves a metadata entry that promises the
+# layer's digest but never finishes committing the blob. Subsequent clean
+# rebuilds deterministically re-derive the same digest from the same
+# instructions, try to upload to the same poisoned ref, and get rejected with
+# `FailedPrecondition: unexpected commit digest`.
+#
+# Putting the CACHEBUST ARG immediately after FROM forces every layer
+# downstream to have a different parent in its hash, so we cannot collide
+# with any pre-existing poisoned ref name. The RUN line that writes the
+# value to disk is what actually mutates the layer content; ARG alone is
+# not enough because BuildKit doesn't fold default ARG values into the
+# downstream layer hash unless they are observed by a RUN.
+#
+# Standing rule: bump this timestamp on every push, even for empty commits.
+# Build is fully clean as a side effect, which gives us unambiguous logs.
+# ----------------------------------------------------------------------------
+ARG CACHEBUST=2026-05-17T14:15
+RUN echo "$CACHEBUST" > /tmp/.cachebust
+
+# ----------------------------------------------------------------------------
 # System packages
 # ----------------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
