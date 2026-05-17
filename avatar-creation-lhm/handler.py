@@ -681,27 +681,35 @@ def _get_inferrer(model_name: str):
 def _build_apose_body_pose(device, dtype):
     """Build the SMPL-X body_pose tensor for canonical A-pose.
 
-    SMPL-X body_pose shape: [1, 21, 3] axis-angle. After the pelvis (joint 0),
-    body joints are indexed 1..21:
-      1=L_Hip 2=R_Hip 3=Spine1 4=L_Knee 5=R_Knee 6=Spine2 7=L_Ankle 8=R_Ankle
-      9=Spine3 10=L_Foot 11=R_Foot 12=Neck 13=L_Collar 14=R_Collar 15=Head
-      16=L_Shoulder 17=R_Shoulder 18=L_Elbow 19=R_Elbow 20=L_Wrist 21=R_Wrist
-    In body_pose [0..20], shoulder indices are 15 (L_Shoulder) and 16 (R_Shoulder).
-    A-pose rotation: bring arms down to ~45 deg from horizontal. We rotate
-    around Z (forward axis) so the arms sweep down in the coronal plane.
-    L_Shoulder rotates +45, R_Shoulder rotates -45.
+    SMPL-X body_pose shape: [1, 21, 3] axis-angle. body_pose [0..20] = joints 1..21.
+    Shoulders: body_pose[15] = L_Shoulder, body_pose[16] = R_Shoulder.
+
+    SMPL-X T-pose convention:
+      L arm points in +X (model's left, viewer's right when facing model)
+      R arm points in -X (model's right, viewer's left)
+
+    Rotation around Z (right-hand rule, thumb in +Z = out of model's chest):
+      L_Shoulder NEGATIVE Z: +X rotates toward -Y. Arm goes DOWN. ✓
+      R_Shoulder POSITIVE Z: -X rotates toward -Y. Arm goes DOWN. ✓
+
+    Previously had signs reversed which produced a Y-pose (arms up).
     """
     import torch
     body_pose = torch.zeros((1, 21, 3), dtype=dtype, device=device)
-    body_pose[0, 15, 2] = +APOSE_SHOULDER_RAD  # L_Shoulder rot Z
-    body_pose[0, 16, 2] = -APOSE_SHOULDER_RAD  # R_Shoulder rot Z
+    body_pose[0, 15, 2] = -APOSE_SHOULDER_RAD  # L_Shoulder rot Z: arm down
+    body_pose[0, 16, 2] = +APOSE_SHOULDER_RAD  # R_Shoulder rot Z: arm down
     return body_pose
 
 
-def _build_smplx_apose_mesh(beta_np, gender: str, device):
-    """Forward-pass the SMPL-X layer with given β + A-pose.
+def _build_smplx_mesh_pair(beta_np, gender: str, device):
+    """Forward-pass the SMPL-X layer for both T-pose and A-pose.
 
-    Returns (verts_mm, faces, smplx_params_dict). verts_mm is [10475, 3] in mm.
+    T-pose verts match the coordinate frame LHM emits its splats in (zero
+    body pose), so we sample splat colors against the T-pose mesh. The
+    A-pose verts use the same betas but with A-pose shoulders, used for
+    the final GLB / OBJ artifacts (drape-friendly canonical pose).
+
+    Returns (verts_apose_m, verts_tpose_m, faces, smplx_params).
     """
     import torch
     import numpy as np
@@ -719,22 +727,20 @@ def _build_smplx_apose_mesh(beta_np, gender: str, device):
 
     dtype = torch.float32
     betas = torch.from_numpy(np.asarray(beta_np)).reshape(1, -1).to(device=device, dtype=dtype)
-    body_pose = _build_apose_body_pose(device=device, dtype=dtype)
+    body_pose_apose = _build_apose_body_pose(device=device, dtype=dtype)
+    body_pose_tpose = torch.zeros((1, 21, 3), dtype=dtype, device=device)
 
     with torch.no_grad():
-        out = layer(
-            betas=betas,
-            body_pose=body_pose,
-            return_verts=True,
-        )
+        out_a = layer(betas=betas, body_pose=body_pose_apose, return_verts=True)
+        out_t = layer(betas=betas, body_pose=body_pose_tpose, return_verts=True)
 
-    verts_m = out.vertices[0].detach().cpu().numpy()  # SMPL-X is in meters
-    verts_mm = verts_m * 1000.0
-    faces = layer.faces.astype("int32")  # [F, 3]
+    verts_apose_m = out_a.vertices[0].detach().cpu().numpy()  # meters
+    verts_tpose_m = out_t.vertices[0].detach().cpu().numpy()  # meters
+    faces = layer.faces.astype("int32")
 
     smplx_params = {
         "betas": betas.cpu().numpy()[0],
-        "body_pose": body_pose.cpu().numpy()[0],  # [21, 3]
+        "body_pose": body_pose_apose.cpu().numpy()[0],
         "global_orient": np.zeros(3, dtype="float32"),
         "jaw_pose": np.zeros(3, dtype="float32"),
         "leye_pose": np.zeros(3, dtype="float32"),
@@ -746,7 +752,90 @@ def _build_smplx_apose_mesh(beta_np, gender: str, device):
         "pose_convention": f"a_pose_shoulder_z_{APOSE_SHOULDER_RAD:.4f}rad",
         "units": "mm",
     }
-    return verts_mm, faces, smplx_params
+    return verts_apose_m, verts_tpose_m, faces, smplx_params
+
+
+def _load_splat_colors(ply_path):
+    """Read a 3D Gaussian Splat PLY file, return (positions [N,3] float32,
+    rgb [N,3] uint8). LHM emits DC-only spherical harmonics (f_dc_0/1/2),
+    converted to sRGB via the standard SH_C0 = 1/(2*sqrt(pi)) factor:
+        rgb = clamp(0.5 + 0.28209479 * f_dc, 0, 1)
+    """
+    import numpy as np
+
+    with open(ply_path, "rb") as f:
+        # Read header line-by-line
+        properties = []
+        n_verts = 0
+        line = b""
+        while True:
+            line = f.readline()
+            if not line:
+                raise RuntimeError(f"premature EOF in PLY header: {ply_path}")
+            ls = line.decode("ascii", errors="replace").strip()
+            if ls.startswith("element vertex"):
+                n_verts = int(ls.split()[-1])
+            elif ls.startswith("property "):
+                # property float NAME
+                parts = ls.split()
+                if len(parts) >= 3 and parts[1] in ("float", "float32"):
+                    properties.append(parts[2])
+            elif ls == "end_header":
+                break
+
+        # Read binary payload
+        rec_count = len(properties)
+        raw = np.frombuffer(f.read(n_verts * rec_count * 4), dtype="<f4")
+        if raw.size != n_verts * rec_count:
+            raise RuntimeError(
+                f"PLY payload size mismatch: got {raw.size} floats, expected "
+                f"{n_verts}*{rec_count}={n_verts*rec_count}"
+            )
+        arr = raw.reshape(n_verts, rec_count)
+
+    idx_x = properties.index("x")
+    idx_y = properties.index("y")
+    idx_z = properties.index("z")
+    idx_r = properties.index("f_dc_0")
+    idx_g = properties.index("f_dc_1")
+    idx_b = properties.index("f_dc_2")
+
+    positions = arr[:, [idx_x, idx_y, idx_z]].astype("float32")
+    SH_C0 = 0.28209479177387814  # 1 / (2 * sqrt(pi))
+    rgb_f = np.clip(0.5 + SH_C0 * arr[:, [idx_r, idx_g, idx_b]], 0.0, 1.0)
+    rgb_u8 = (rgb_f * 255.0).astype("uint8")
+    return positions, rgb_u8
+
+
+def _vertex_colors_from_splats(verts_tpose_m, splat_pos, splat_rgb, k: int = 5):
+    """For each SMPL-X T-pose vert, sample color from the K nearest splats
+    with inverse-distance weighting. Returns [N, 3] uint8 + median dominant
+    color (for diagnostics / skin_texture.png).
+
+    Splat positions and SMPL-X verts must be in the same coordinate frame
+    (both meters, canonical body pose).
+    """
+    import numpy as np
+    from scipy.spatial import cKDTree
+
+    tree = cKDTree(splat_pos)
+    dists, idxs = tree.query(verts_tpose_m, k=k)
+    if k == 1:
+        dists = dists[:, None]
+        idxs = idxs[:, None]
+
+    # Inverse-distance weighting with a small epsilon to avoid div-by-zero
+    eps = 1e-6
+    weights = 1.0 / (dists + eps)
+    weights = weights / weights.sum(axis=1, keepdims=True)  # [N, k]
+
+    sampled_rgb = splat_rgb[idxs].astype("float32")  # [N, k, 3]
+    blended = (sampled_rgb * weights[..., None]).sum(axis=1)  # [N, 3]
+    vertex_colors = np.clip(blended, 0, 255).astype("uint8")
+
+    # Diagnostic: median color across all verts (proxy for "average skin tone")
+    median_rgb = np.median(vertex_colors, axis=0).astype("uint8")
+    return vertex_colors, (int(median_rgb[0]), int(median_rgb[1]), int(median_rgb[2]))
 
 
 def _sample_face_median_color(inferrer, image_path: str) -> tuple:
@@ -773,17 +862,27 @@ def _sample_face_median_color(inferrer, image_path: str) -> tuple:
         return (210, 175, 145)  # neutral tan fallback
 
 
-def _write_textured_glb(verts_mm, faces, rgb, glb_path):
-    """Write a GLB with per-vertex color = rgb. SMPL-X has 10,475 verts."""
+def _write_textured_glb(verts_mm, faces, vertex_colors_rgb, glb_path):
+    """Write a GLB with per-vertex color. SMPL-X has 10,475 verts.
+
+    vertex_colors_rgb: either an [N, 3] uint8 array (per-vertex colors)
+    OR a 3-tuple/list for a single uniform color applied to every vert.
+    """
     import numpy as np
     import trimesh
     verts_m = (verts_mm / 1000.0).astype(np.float32)
     n = verts_m.shape[0]
-    vertex_colors = np.tile(np.array([rgb[0], rgb[1], rgb[2], 255], dtype=np.uint8), (n, 1))
+    arr = np.asarray(vertex_colors_rgb)
+    if arr.ndim == 1:
+        # Uniform color across all verts
+        rgba = np.tile(np.array([arr[0], arr[1], arr[2], 255], dtype=np.uint8), (n, 1))
+    else:
+        # Per-vertex colors, [N, 3] -> [N, 4] with alpha 255
+        rgba = np.concatenate([arr.astype(np.uint8), np.full((n, 1), 255, dtype=np.uint8)], axis=1)
     mesh = trimesh.Trimesh(
         vertices=verts_m,
         faces=faces,
-        vertex_colors=vertex_colors,
+        vertex_colors=rgba,
         process=False,
     )
     mesh.export(glb_path, file_type="glb")
@@ -871,14 +970,17 @@ def cmd_avatar(inp: dict, started: float) -> dict:
         beta_np = shape_pose.beta
         t_pose = round(_now() - t_pose_start, 2)
 
-        # 3) Build SMPL-X A-pose mesh (10,475 verts, mm)
+        # 3) Build SMPL-X mesh pair: A-pose (drape-friendly) + T-pose (matches
+        #    splat coordinate frame for color sampling)
         t_mesh_start = _now()
         try:
             import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            verts_mm, faces, smplx_params = _build_smplx_apose_mesh(
+            verts_apose_m, verts_tpose_m, faces, smplx_params = _build_smplx_mesh_pair(
                 beta_np=beta_np, gender=gender, device=device,
             )
+            import numpy as np
+            verts_apose_mm = (verts_apose_m * 1000.0).astype(np.float32)
         except Exception as e:
             return _err(
                 "avatar", f"SMPL-X forward pass failed: {e}", started,
@@ -886,53 +988,75 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             )
         t_mesh = round(_now() - t_mesh_start, 2)
 
-        # 4) Sample skin color from face crop
-        skin_rgb = _sample_face_median_color(inferrer, str(img_path))
+        # 4) Run the LHM splat pass. We need the splats whether or not the
+        #    caller asked to keep them as an artifact, because per-vertex
+        #    color sampling depends on them. If splats fail, fall back to
+        #    a uniform face-median color so the GLB is still produced.
+        ply_path = None
+        t_splat = None
+        splat_error = None
+        t_splat_start = _now()
+        try:
+            dump_tmp = tmp_path / "lhm_dump_tmp"
+            dump_mesh = tmp_path / "lhm_dump_mesh"
+            dump_tmp.mkdir(exist_ok=True)
+            dump_mesh.mkdir(exist_ok=True)
+            inferrer.infer_mesh(
+                image_path=str(img_path),
+                dump_tmp_dir=str(dump_tmp),
+                dump_mesh_dir=str(dump_mesh),
+                shape_param=beta_np,
+            )
+            splat_candidates = list(dump_mesh.rglob("*.ply"))
+            if splat_candidates:
+                ply_path = splat_candidates[0]
+        except Exception as e:
+            ply_path = None
+            splat_error = f"{e}"
+        t_splat = round(_now() - t_splat_start, 2)
 
-        # 5) Write geometry artifacts to tmp
+        # 5) Per-vertex color from splats (or face-median fallback)
+        t_color_start = _now()
+        vertex_colors = None
+        skin_rgb_diag = None
+        color_source = "face_median_fallback"
+        if ply_path is not None and ply_path.exists():
+            try:
+                splat_pos, splat_rgb = _load_splat_colors(ply_path)
+                vertex_colors, skin_rgb_diag = _vertex_colors_from_splats(
+                    verts_tpose_m=verts_tpose_m,
+                    splat_pos=splat_pos,
+                    splat_rgb=splat_rgb,
+                    k=5,
+                )
+                color_source = f"splats_knn5_n{splat_pos.shape[0]}"
+            except Exception as e:
+                splat_error = (splat_error or "") + f" | color sample failed: {e}"
+                vertex_colors = None
+        if vertex_colors is None:
+            # Fallback: uniform face-median color
+            skin_rgb_diag = _sample_face_median_color(inferrer, str(img_path))
+            import numpy as np
+            vertex_colors = np.tile(
+                np.array([skin_rgb_diag[0], skin_rgb_diag[1], skin_rgb_diag[2]], dtype=np.uint8),
+                (verts_apose_mm.shape[0], 1),
+            )
+        t_color = round(_now() - t_color_start, 2)
+
+        # 6) Write geometry artifacts to tmp
         obj_path = tmp_path / "body_apose.obj"
         glb_path = tmp_path / "avatar_textured.glb"
         png_path = tmp_path / "skin_texture.png"
         npz_path = tmp_path / "smplx_params.npz"
 
-        _write_obj_no_mtl(verts_mm, faces, obj_path)
-        _write_textured_glb(verts_mm, faces, skin_rgb, glb_path)
-        _write_skin_texture_png(skin_rgb, png_path)
+        _write_obj_no_mtl(verts_apose_mm, faces, obj_path)
+        _write_textured_glb(verts_apose_mm, faces, vertex_colors, glb_path)
+        _write_skin_texture_png(skin_rgb_diag, png_path)
         import numpy as np
         np.savez(npz_path, **{k: v for k, v in smplx_params.items() if k != "gender"})
 
-        # 6) Optional splat PLY via LHM's infer_mesh()
-        ply_path = None
-        t_splat = None
-        if include_splats:
-            t_splat_start = _now()
-            try:
-                dump_tmp = tmp_path / "lhm_dump_tmp"
-                dump_mesh = tmp_path / "lhm_dump_mesh"
-                dump_tmp.mkdir(exist_ok=True)
-                dump_mesh.mkdir(exist_ok=True)
-                inferrer.infer_mesh(
-                    image_path=str(img_path),
-                    dump_tmp_dir=str(dump_tmp),
-                    dump_mesh_dir=str(dump_mesh),
-                    shape_param=beta_np,
-                )
-                # infer_mesh writes <stem>.ply into dump_mesh_dir
-                splat_candidates = list(dump_mesh.rglob("*.ply"))
-                if splat_candidates:
-                    ply_path = splat_candidates[0]
-            except Exception as e:
-                # Splats are optional; log but don't fail the request.
-                t_splat = round(_now() - t_splat_start, 2)
-                ply_path = None
-                splat_error = f"{e}"
-            else:
-                t_splat = round(_now() - t_splat_start, 2)
-                splat_error = None
-        else:
-            splat_error = None
-
-        # 7) Upload all artifacts
+        # 7) Upload all artifacts. Rename the splat PLY to splats.ply for
+        #    the contract; LHM internally names it after the input stem.
         remote_subdir = f"avatars/{int(started)}"
         artifacts = [
             _collect_artifact(obj_path, remote_subdir),
@@ -940,8 +1064,13 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             _collect_artifact(glb_path, remote_subdir),
             _collect_artifact(png_path, remote_subdir),
         ]
-        if ply_path is not None and ply_path.exists():
-            artifacts.append(_collect_artifact(ply_path, remote_subdir))
+        if include_splats and ply_path is not None and ply_path.exists():
+            splats_renamed = tmp_path / "splats.ply"
+            try:
+                shutil.copy(ply_path, splats_renamed)
+                artifacts.append(_collect_artifact(splats_renamed, remote_subdir))
+            except Exception:
+                artifacts.append(_collect_artifact(ply_path, remote_subdir))
 
         result = {
             "image_url": image_url,
@@ -950,9 +1079,10 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             "beta_shape": list(beta_np.shape),
             "is_full_body": bool(shape_pose.is_full_body),
             "body_ratio": float(getattr(shape_pose, "ratio", 0.0)),
-            "skin_rgb": list(skin_rgb),
+            "skin_rgb": list(skin_rgb_diag),
+            "color_source": color_source,
             "pose_convention": smplx_params["pose_convention"],
-            "smplx_vertex_count": int(verts_mm.shape[0]),
+            "smplx_vertex_count": int(verts_apose_mm.shape[0]),
             "smplx_face_count": int(faces.shape[0]),
             "artifacts": artifacts,
             "timings": {
@@ -960,6 +1090,7 @@ def cmd_avatar(inp: dict, started: float) -> dict:
                 "pose_estimation_s": t_pose,
                 "smplx_mesh_s": t_mesh,
                 "splat_pass_s": t_splat,
+                "color_sample_s": t_color,
                 "total_inner_s": round(_now() - started_inner, 2),
             },
         }
