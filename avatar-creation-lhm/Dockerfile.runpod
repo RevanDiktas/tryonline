@@ -36,7 +36,7 @@ FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-devel
 # Standing rule: bump this timestamp on every push, even for empty commits.
 # Build is fully clean as a side effect, which gives us unambiguous logs.
 # ----------------------------------------------------------------------------
-ARG CACHEBUST=2026-05-17T20:51:30-tier3a-uv-baked-diffuse-1024
+ARG CACHEBUST=2026-05-19T09:30:00-deca-plus-anthropometry
 RUN echo "$CACHEBUST" > /tmp/.cachebust
 
 # ----------------------------------------------------------------------------
@@ -60,10 +60,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean
 
 # ----------------------------------------------------------------------------
-# Workdir + clone LHM (pin to a commit later once we're stable)
+# Workdir + clone LHM. Pinned SHA: upstream `--depth 1 main` is non-deterministic
+# and has shipped at least one breaking change (SMPLXOutput __init__ missing
+# 'ratio' in the pose_estimator fallback path) under our nose. Pin to the
+# 2026-03-17 "release new features" commit, which is what tryonline-lhm has
+# been building against since 2026-05-17.
 # ----------------------------------------------------------------------------
+ARG LHM_SHA=4f88aaeb3629249fbbddb4d0784a06962d9e1338
 WORKDIR /workspace
-RUN git clone --depth 1 https://github.com/aigc3d/LHM.git /workspace/LHM
+RUN git clone https://github.com/aigc3d/LHM.git /workspace/LHM \
+    && cd /workspace/LHM \
+    && git checkout "$LHM_SHA" \
+    && git log -1 --oneline
 WORKDIR /workspace/LHM
 
 # ----------------------------------------------------------------------------
@@ -124,6 +132,125 @@ RUN pip install --no-cache-dir \
         huggingface_hub
 
 # ----------------------------------------------------------------------------
+# DECA + Javisda/smplx-deca stack for selfie -> SMPL-X face mapping.
+#
+# We vendor the smplx-deca repo at /workspace/smplx-deca for two reasons:
+#   1. It bundles DECA + smplx + the UV_mixing_resources / Neck_masks binary
+#      assets we need at runtime (handler reads them via filesystem paths).
+#   2. Its source uses np.float / np.int (removed in numpy 1.24+); we patch
+#      those at import time in handler.py via shim aliases, but we still need
+#      the source on disk.
+#
+# DECA model assets are pulled from the camenduru/show HuggingFace mirror.
+# generic_model.pkl is FLAME 2020 (registration-gated upstream); the
+# camenduru mirror is the standard workaround across the DECA ecosystem.
+# FLAME_albedo_from_BFM.npz is only needed if useTex=True; we run with
+# extractTex=True / useTex=False so we skip it.
+# ----------------------------------------------------------------------------
+# chumpy's source uses removed numpy aliases (np.float/int/bool); pip install
+# itself succeeds, but `import chumpy` crashes on numpy>=1.24 until the shim
+# in handler.py runs. We pin to a version that still has matching SMPL/SMPL-X
+# pickle compatibility.
+RUN pip install --no-cache-dir chumpy==0.70
+
+# cv2 / PyYAML come from LHM's own requirements.txt installed earlier.
+RUN pip install --no-cache-dir \
+        face-alignment \
+        kornia \
+        yacs==0.1.8 \
+        fvcore \
+        scikit-image
+
+# tensorboard is imported (transitively) by smplx-deca utils;
+# handler patches SummaryWriter to a no-op but the bare import must succeed.
+RUN pip install --no-cache-dir tensorboard
+
+# open3d is imported at module top of smplx-deca/Demos/utils.py.
+# We never visualize on RunPod (headless), but the import must not crash.
+# open3d-cpu skips the GPU codepaths + saves ~150 MB.
+RUN pip install --no-cache-dir open3d-cpu
+
+# Clone smplx-deca and remove its bundled DECA `data/` so we can fill it
+# from the camenduru mirror without conflicts (the bundled folder is empty
+# anyway in the upstream repo, but we be explicit).
+RUN git clone --depth 1 https://github.com/Javisda/smplx-deca.git /workspace/smplx-deca
+
+# DECA model + FLAME assets from camenduru/show. Total ~510 MB.
+# Path target: smplx_deca_main/deca/data/ (matches DECA's hardcoded loader).
+RUN mkdir -p /workspace/smplx-deca/smplx_deca_main/deca/data \
+    && cd /workspace/smplx-deca/smplx_deca_main/deca/data \
+    && for f in \
+         deca_model.tar \
+         generic_model.pkl \
+         fixed_displacement_256.npy \
+         head_template.obj \
+         landmark_embedding.npy \
+         mean_texture.jpg \
+         texture_data_256.npy \
+         uv_face_eye_mask.png \
+         uv_face_mask.png; do \
+         wget -q --show-progress \
+           "https://huggingface.co/camenduru/show/resolve/main/models/models_deca/data/$f?download=true" \
+           -O "$f" \
+         && echo "downloaded $f"; \
+       done
+
+# SMPL-X to FLAME vertex correspondence file (5023 -> SMPL-X vertex ids).
+# Already included in the smplx-deca repo at
+#   smplx_deca_main/smplx/correspondences/SMPL-X__FLAME_vertex_ids.npy
+# but we re-download to /workspace as a stable, well-known path for handler.
+RUN wget -q \
+      "https://huggingface.co/camenduru/SMPLer-X/resolve/main/SMPL-X__FLAME_vertex_ids.npy" \
+      -O /workspace/SMPL-X__FLAME_vertex_ids.npy \
+    && ls -lh /workspace/SMPL-X__FLAME_vertex_ids.npy
+
+# Lightweight build-time check: confirm the smplx_deca_main namespace is on
+# the sys.path AND chumpy imports under the numpy.bool/int/float shim.
+# Heavy DECA() construction would compile the standard_rasterize CUDA
+# extension, which needs a GPU; deferred to handler boot on the first worker
+# with selfie_url input.
+RUN python -c "import numpy as np; \
+np.float = getattr(np, 'float', float); \
+np.int = getattr(np, 'int', int); \
+np.bool = getattr(np, 'bool', bool); \
+import sys; sys.path.insert(0, '/workspace/smplx-deca'); \
+import smplx_deca_main; print('smplx_deca_main package OK'); \
+import chumpy; print('chumpy import OK under numpy shim, version', chumpy.__version__)"
+
+# ----------------------------------------------------------------------------
+# SMPL-Anthropometry (DavidBoja/SMPL-Anthropometry). Same package the
+# 4DHumans pipeline uses to extract ~40 anthropometric measurements (chest /
+# waist / hips / inseam / arm length etc.) from an SMPL-X mesh. We vendor
+# the local copy (already in the repo at avatar-creation-measurements/) so
+# we ship the exact code path 4DHumans has been validated against.
+#
+# Two patches:
+#   1. The upstream class hardcodes ext="pkl" but LHM only bakes .npz models.
+#      sed-swap to ext="npz".
+#   2. The class loads `data/smplx/SMPLX_<GENDER>.npz` relative to its own
+#      cwd; handler symlinks LHM's baked smplx dir in at runtime (idempotent
+#      across worker restarts).
+# ----------------------------------------------------------------------------
+COPY avatar-creation-measurements /workspace/anthropometry
+RUN sed -i 's/ext="pkl"/ext="npz"/g; s/ext='\''pkl'\''/ext='\''npz'\''/g' \
+        /workspace/anthropometry/measure.py \
+        /workspace/anthropometry/joint_definitions.py \
+    && echo "patched SMPL-Anthropometry source to ext=npz"
+
+# Smoke: confirm the package imports under the numpy.bool/int shim. We do
+# NOT construct MeasureSMPLX() here because that needs SMPLX_NEUTRAL.npz
+# which lives next to LHM-MINI (downloaded a few layers earlier in the
+# next RUN block) — handler symlinks it at first call.
+RUN python -c "import numpy as np; \
+np.float = getattr(np, 'float', float); \
+np.int = getattr(np, 'int', int); \
+np.bool = getattr(np, 'bool', bool); \
+import sys; sys.path.insert(0, '/workspace/anthropometry'); \
+import measure as _m; import joint_definitions as _j; import landmark_definitions as _l; import measurement_definitions as _md; \
+print('SMPL-Anthropometry package OK, possible measurements:', \
+      len(_md.SMPLXMeasurementDefinitions().possible_measurements))"
+
+# ----------------------------------------------------------------------------
 # Bake LHM-MINI checkpoint + prior model + motion video into the image so the
 # container is ready to run inference on first job. LHM-MINI is the smallest
 # variant and runs on 16 GB GPUs; 500M-HF / 1B-HF can be downloaded at runtime
@@ -178,7 +305,37 @@ import xformers; print('xformers', xformers.__version__); \
 import rembg; print('rembg OK'); \
 import runpod; print('runpod', runpod.__version__); \
 import huggingface_hub; print('huggingface_hub', huggingface_hub.__version__); \
+import face_alignment; print('face_alignment', face_alignment.__version__); \
+import kornia; print('kornia', kornia.__version__); \
+import chumpy; print('chumpy', chumpy.__version__); \
+import yacs; print('yacs OK'); \
+import skimage; print('skimage', skimage.__version__); \
+import cv2; print('cv2', cv2.__version__); \
 print('CUDA EXTENSIONS + DEPS SMOKE TEST PASSED')"
+
+# Smoke test the DECA + smplx-deca stack: vendored repo present, asset files
+# downloaded, DECA module imports under the np.float/int shim. We do NOT
+# construct DECA() here because the standard rasterizer extension compiles
+# on first construction and needs CUDA — handler triggers that on first
+# `avatar` call with a selfie_url. If the asset count or DECA module import
+# regresses we want to catch it BEFORE a 30-min worker spin.
+RUN test -f /workspace/smplx-deca/Demos/utils.py \
+    && test -f /workspace/smplx-deca/Demos/uv_mixing_utils.py \
+    && test -f /workspace/smplx-deca/Demos/UV_mixing_resources/smplx-addon.obj \
+    && test -f /workspace/smplx-deca/Demos/UV_mixing_resources/head_template.obj \
+    && test -f /workspace/smplx-deca/Demos/UV_mixing_resources/smplx_texture_m_alb.png \
+    && test -f /workspace/smplx-deca/Demos/Neck_masks/smoothing_mask_1 \
+    && test -f /workspace/smplx-deca/smplx_deca_main/deca/data/deca_model.tar \
+    && test -f /workspace/smplx-deca/smplx_deca_main/deca/data/generic_model.pkl \
+    && test -f /workspace/smplx-deca/smplx_deca_main/deca/data/head_template.obj \
+    && test -f /workspace/smplx-deca/smplx_deca_main/deca/data/landmark_embedding.npy \
+    && test -f /workspace/smplx-deca/smplx_deca_main/deca/data/uv_face_mask.png \
+    && test -f /workspace/smplx-deca/smplx_deca_main/deca/data/uv_face_eye_mask.png \
+    && test -f /workspace/smplx-deca/smplx_deca_main/deca/data/fixed_displacement_256.npy \
+    && test -f /workspace/smplx-deca/smplx_deca_main/deca/data/texture_data_256.npy \
+    && test -f /workspace/smplx-deca/smplx_deca_main/deca/data/mean_texture.jpg \
+    && test -f /workspace/SMPL-X__FLAME_vertex_ids.npy \
+    && echo "DECA + SMPLX-DECA ASSETS SMOKE TEST PASSED"
 
 # Verify the LHM repo + baked artifacts are present where the handler expects.
 # train_data/motion_video and pretrained_models/{sam2,sapiens,human_model_files,...}
