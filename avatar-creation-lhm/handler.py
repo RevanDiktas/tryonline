@@ -1502,7 +1502,98 @@ SMPLX_ADDON_OBJ = SMPLX_DECA_DEMOS / "UV_mixing_resources" / "smplx-addon.obj"
 FLAME_HEAD_TEMPLATE_OBJ = SMPLX_DECA_DEMOS / "UV_mixing_resources" / "head_template.obj"
 NECK_SMOOTHING_MASK = SMPLX_DECA_DEMOS / "Neck_masks" / "smoothing_mask_1"
 
+# DECA model assets are downloaded lazily on first selfie_url call. Total
+# ~510 MB; baking them into the image pushed build #79336fb past RunPod's
+# 30-min cap during cache export. Same pattern as _ensure_lhm_data: marker
+# file gates the (re-)download.
+DECA_ASSETS_BASE_URL = (
+    "https://huggingface.co/camenduru/show/resolve/main/models/models_deca/data"
+)
+DECA_ASSET_FILES = [
+    ("deca_model.tar", 434),          # MB (approximate sanity sizes)
+    ("generic_model.pkl", 53),
+    ("fixed_displacement_256.npy", 1),
+    ("head_template.obj", 1),
+    ("landmark_embedding.npy", 1),
+    ("mean_texture.jpg", 1),
+    ("texture_data_256.npy", 7),
+    ("uv_face_eye_mask.png", 1),
+    ("uv_face_mask.png", 1),
+]
+
 _DECA = None  # cached singleton built on first cmd_avatar w/ selfie_url
+
+
+def _ensure_deca_data(log: list[str] | None = None) -> None:
+    """Download DECA model assets (~510 MB) to the path DECA's hardcoded
+    config (cfg.deca_dir + '/data/') expects. Idempotent via marker file.
+
+    Raises RuntimeError on any download failure so the caller can surface
+    `measurements_error` / `deca_error` in the avatar response cleanly.
+    """
+    DECA_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    marker = DECA_DATA_DIR / ".deca_assets.downloaded"
+    if marker.exists():
+        if log is not None:
+            log.append(f"deca assets: marker present at {marker}")
+        return
+
+    # Per-file check: existing non-stub files are kept (allows operator to
+    # pre-stage by hand or via a network volume mount).
+    pending = []
+    for name, _ in DECA_ASSET_FILES:
+        dst = DECA_DATA_DIR / name
+        if dst.exists() and dst.stat().st_size > 4096:
+            continue
+        pending.append(name)
+
+    if not pending:
+        marker.touch()
+        if log is not None:
+            log.append("deca assets: all files already present, marker set")
+        return
+
+    if log is not None:
+        log.append(f"deca assets: downloading {len(pending)} files to {DECA_DATA_DIR}")
+    for name in pending:
+        url = f"{DECA_ASSETS_BASE_URL}/{name}?download=true"
+        dst = DECA_DATA_DIR / name
+        # Try aria2c first (apt-installed for the LHM tarball path); fall
+        # back to httpx on any error. aria2c with -x 8 -s 8 saturates HF's
+        # CDN at ~100 MB/s, so a 510 MB cold-start adds ~10 s on a warm
+        # worker, ~30 s on a cold one with TLS handshake overhead.
+        try:
+            dl = subprocess.run(
+                ["aria2c", "-x", "8", "-s", "8",
+                 "--max-tries=5", "--retry-wait=5",
+                 "--console-log-level=warn",
+                 "--allow-overwrite=true",
+                 "-d", str(DECA_DATA_DIR),
+                 "-o", name,
+                 url],
+                capture_output=True, text=True, timeout=900,
+            )
+            if dl.returncode != 0:
+                raise RuntimeError(
+                    f"aria2c rc={dl.returncode}: "
+                    f"{dl.stderr[-800:] or dl.stdout[-800:]}"
+                )
+        except (FileNotFoundError, RuntimeError) as e:
+            if log is not None:
+                log.append(f"{name}: aria2c path failed ({e}); falling back to httpx")
+            if not HAVE_HTTPX:
+                raise RuntimeError(
+                    f"DECA asset {name} download failed and httpx unavailable"
+                ) from e
+            with httpx.Client(timeout=900.0, follow_redirects=True) as c:
+                r = c.get(url)
+                r.raise_for_status()
+                dst.write_bytes(r.content)
+        if log is not None:
+            log.append(f"deca asset {name}: {dst.stat().st_size} bytes")
+    marker.touch()
+    if log is not None:
+        log.append("deca assets: marker set")
 
 
 def _deca_numpy_shim():
@@ -1537,13 +1628,19 @@ def _silence_tensorboard():
 def _get_deca():
     """Lazy DECA singleton. Constructed once per worker; survives across
     invocations. First construction compiles the standard_rasterize CUDA
-    extension via torch.utils.cpp_extension.load (~30 s on a cold worker)."""
+    extension via torch.utils.cpp_extension.load (~30 s on a cold worker)
+    AND lazy-downloads ~510 MB of DECA model assets (~10-30 s on HF)."""
     global _DECA
     if _DECA is not None:
         return _DECA
 
     _deca_numpy_shim()
     _silence_tensorboard()
+
+    # Download DECA model assets to the path cfg.deca_dir + '/data/' resolves
+    # to. Raises RuntimeError on download failure; caller wraps in try/except
+    # and surfaces `deca_error` in the avatar response.
+    _ensure_deca_data()
 
     import sys
     if str(SMPLX_DECA_ROOT) not in sys.path:
