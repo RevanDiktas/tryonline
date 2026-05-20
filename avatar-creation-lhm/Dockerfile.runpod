@@ -36,7 +36,7 @@ FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-devel
 # Standing rule: bump this timestamp on every push, even for empty commits.
 # Build is fully clean as a side effect, which gives us unambiguous logs.
 # ----------------------------------------------------------------------------
-ARG CACHEBUST=2026-05-19T22:55:00-deca-runtime-download
+ARG CACHEBUST=2026-05-20T23:30:00-strip-deca-and-splat
 RUN echo "$CACHEBUST" > /tmp/.cachebust
 
 # ----------------------------------------------------------------------------
@@ -115,12 +115,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip uninstall basicsr -y \
     && pip install --no-cache-dir git+https://github.com/XPixelGroup/BasicSR
 
-# Heavy CUDA-extension compiles. Each takes 3-8 min. Use --no-build-isolation
-# only if pip starts pulling in conflicting build deps; default is fine.
+# Heavy CUDA-extension compiles. pytorch3d is still needed for Multi-HMR's
+# SMPL-X ops + DINOv2 attention paths used by PoseEstimator.
+#
+# sam2 / diff-gaussian / simple-knn were dropped 2026-05-20: they are only
+# imported by LHM's splat decoder (HumanLRMInferrer + ModelHumanLRM +
+# gs_renderer), which we no longer use. We now import PoseEstimator and
+# FaceDetector standalone from engine.pose_estimation / LHM.utils, both of
+# which only need torch + torchvision + einops + roma. Saves ~10-13 min
+# of build time and keeps every fresh build inside RunPod's 30-min cap.
 RUN pip install --no-cache-dir "git+https://github.com/facebookresearch/pytorch3d.git"
-RUN pip install --no-cache-dir git+https://github.com/hitsz-zuoqi/sam2/
-RUN pip install --no-cache-dir git+https://github.com/ashawkey/diff-gaussian-rasterization/
-RUN pip install --no-cache-dir git+https://github.com/camenduru/simple-knn/
 
 # ----------------------------------------------------------------------------
 # RunPod + handler deps
@@ -132,72 +136,15 @@ RUN pip install --no-cache-dir \
         huggingface_hub
 
 # ----------------------------------------------------------------------------
-# DECA + Javisda/smplx-deca stack for selfie -> SMPL-X face mapping.
-#
-# We vendor the smplx-deca repo at /workspace/smplx-deca for two reasons:
-#   1. It bundles DECA + smplx + the UV_mixing_resources / Neck_masks binary
-#      assets we need at runtime (handler reads them via filesystem paths).
-#   2. Its source uses np.float / np.int (removed in numpy 1.24+); we patch
-#      those at import time in handler.py via shim aliases, but we still need
-#      the source on disk.
-#
-# DECA model assets are pulled from the camenduru/show HuggingFace mirror.
-# generic_model.pkl is FLAME 2020 (registration-gated upstream); the
-# camenduru mirror is the standard workaround across the DECA ecosystem.
-# FLAME_albedo_from_BFM.npz is only needed if useTex=True; we run with
-# extractTex=True / useTex=False so we skip it.
+# DECA stack DROPPED 2026-05-20. Realistic-face mapping via DECA was parked.
+# Old layers (chumpy, face-alignment, kornia, yacs, fvcore, scikit-image,
+# smplx-deca clone, SMPL-X<->FLAME correspondence wget) added ~8 min to the
+# build and were only used by _deca_face_pass / _get_deca. Their build-time
+# cost broke the 30-min cap (see build c84b884 killed at 1800s exact).
+# Handler now produces the 4DHumans-equivalent SMPL-X bundle without DECA:
+# body_apose.obj + body_tpose.obj + avatar_textured.glb (face-median skin) +
+# skin_texture.png + measurements.json + smplx_params.npz.
 # ----------------------------------------------------------------------------
-# chumpy's source uses removed numpy aliases (np.float/int/bool); pip install
-# itself succeeds, but `import chumpy` crashes on numpy>=1.24 until the shim
-# in handler.py runs. We pin to a version that still has matching SMPL/SMPL-X
-# pickle compatibility.
-RUN pip install --no-cache-dir chumpy==0.70
-
-# cv2 / PyYAML come from LHM's own requirements.txt installed earlier.
-RUN pip install --no-cache-dir \
-        face-alignment \
-        kornia \
-        yacs==0.1.8 \
-        fvcore \
-        scikit-image
-
-# tensorboard / open3d: NOT installed. Handler's _silence_tensorboard wraps
-# the import in try/except (no-op if missing). We vendored the smplx-deca
-# utility functions inline in handler.py rather than importing them from
-# Demos/utils.py (which imports open3d at module top), so neither dep is
-# reachable at runtime. Saves ~250 MB image size + ~2 min build time.
-
-# Clone smplx-deca for its decalib + smplx vendored sources + binary assets
-# (UV_mixing_resources/, Neck_masks/, smplx_body_parts_2_faces.json).
-RUN git clone --depth 1 https://github.com/Javisda/smplx-deca.git /workspace/smplx-deca
-
-# DECA model assets are NOT baked into the image — the 510 MB push the build
-# past RunPod's 30-min cap (build #79336fb died in cache export with all
-# RUN steps green). handler._ensure_deca_data() downloads them on the first
-# avatar call with selfie_url (~10-30 s on a 100 MB/s HF link, marker-file
-# gated so subsequent calls on the same worker are no-ops).
-
-# SMPL-X to FLAME vertex correspondence file (5023 -> SMPL-X vertex ids).
-# Already included in the smplx-deca repo at
-#   smplx_deca_main/smplx/correspondences/SMPL-X__FLAME_vertex_ids.npy
-# but we re-download to /workspace as a stable, well-known path for handler.
-RUN wget -q \
-      "https://huggingface.co/camenduru/SMPLer-X/resolve/main/SMPL-X__FLAME_vertex_ids.npy" \
-      -O /workspace/SMPL-X__FLAME_vertex_ids.npy \
-    && ls -lh /workspace/SMPL-X__FLAME_vertex_ids.npy
-
-# Lightweight build-time check: confirm the smplx_deca_main namespace is on
-# the sys.path AND chumpy imports under the numpy.bool/int/float shim.
-# Heavy DECA() construction would compile the standard_rasterize CUDA
-# extension, which needs a GPU; deferred to handler boot on the first worker
-# with selfie_url input.
-RUN python -c "import numpy as np; \
-np.float = getattr(np, 'float', float); \
-np.int = getattr(np, 'int', int); \
-np.bool = getattr(np, 'bool', bool); \
-import sys; sys.path.insert(0, '/workspace/smplx-deca'); \
-import smplx_deca_main; print('smplx_deca_main package OK'); \
-import chumpy; print('chumpy import OK under numpy shim, version', chumpy.__version__)"
 
 # ----------------------------------------------------------------------------
 # SMPL-Anthropometry (DavidBoja/SMPL-Anthropometry). Same package the
@@ -279,35 +226,13 @@ RUN python -c "from huggingface_hub import snapshot_download; \
 # ----------------------------------------------------------------------------
 RUN python -c "import sys; \
 import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda); \
-import diff_gaussian_rasterization; print('diff_gaussian_rasterization OK'); \
-import simple_knn; print('simple_knn OK'); \
-import sam2; print('sam2 OK'); \
 import pytorch3d; print('pytorch3d', pytorch3d.__version__); \
 import xformers; print('xformers', xformers.__version__); \
 import rembg; print('rembg OK'); \
 import runpod; print('runpod', runpod.__version__); \
 import huggingface_hub; print('huggingface_hub', huggingface_hub.__version__); \
-import face_alignment; print('face_alignment', face_alignment.__version__); \
-import kornia; print('kornia', kornia.__version__); \
-import chumpy; print('chumpy', chumpy.__version__); \
-import yacs; print('yacs OK'); \
-import skimage; print('skimage', skimage.__version__); \
 import cv2; print('cv2', cv2.__version__); \
-print('CUDA EXTENSIONS + DEPS SMOKE TEST PASSED')"
-
-# Smoke: verify the smplx-deca repo binary assets are in place. DECA model
-# asset files (data/deca_model.tar etc.) are NOT baked into the image — see
-# the comment above _ensure_deca_data in handler.py. Only check what's
-# actually shipped at build time.
-RUN test -f /workspace/smplx-deca/Demos/utils.py \
-    && test -f /workspace/smplx-deca/Demos/uv_mixing_utils.py \
-    && test -f /workspace/smplx-deca/Demos/UV_mixing_resources/smplx-addon.obj \
-    && test -f /workspace/smplx-deca/Demos/UV_mixing_resources/head_template.obj \
-    && test -f /workspace/smplx-deca/Demos/UV_mixing_resources/smplx_texture_m_alb.png \
-    && test -f /workspace/smplx-deca/Demos/Neck_masks/smoothing_mask_1 \
-    && test -d /workspace/smplx-deca/smplx_deca_main/deca/decalib \
-    && test -f /workspace/SMPL-X__FLAME_vertex_ids.npy \
-    && echo "SMPLX-DECA REPO ASSETS SMOKE TEST PASSED (DECA models downloaded at runtime)"
+print('DEPS SMOKE TEST PASSED')"
 
 # Verify the LHM repo + baked artifacts are present where the handler expects.
 # train_data/motion_video and pretrained_models/{sam2,sapiens,human_model_files,...}

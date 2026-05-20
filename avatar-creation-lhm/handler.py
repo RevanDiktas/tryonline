@@ -623,59 +623,60 @@ def cmd_shell(inp: dict, started: float) -> dict:
 #   when we add region-specific texturing (face vs torso vs limbs).
 APOSE_SHOULDER_RAD = 45.0 * 3.141592653589793 / 180.0  # 45 deg in radians
 
-# Cached singleton inferrer; built on first cmd_avatar call. Survives across
-# invocations on the same worker, dies when the worker shuts down.
-_INFERRER = None
+# Cached singletons; built lazily on first cmd_avatar call. Survive across
+# invocations on the same worker, die when the worker shuts down.
+#
+# 2026-05-20 pivot: we no longer instantiate the full HumanLRMInferrer because
+# it transitively imports gs_renderer.py which hard-imports diff_gaussian_-
+# rasterization at module load. We strip that dep from the image to fit the
+# 30-min build cap. PoseEstimator and FaceDetector are usable standalone with
+# only torch + torchvision + einops + roma. Same model weights, same outputs,
+# fraction of the import graph.
+_POSE_ESTIMATOR = None
+_FACE_DETECTOR = None
 
 
-def _get_inferrer(model_name: str):
-    """Lazy-construct + cache the LHM HumanLRMInferrer.
+def _get_pose_estimator():
+    """Lazy PoseEstimator singleton. Loads multiHMR_896_L.pt via
+    engine.pose_estimation.pose_estimator.PoseEstimator. Returns the
+    estimator. Raises on construction failure.
 
-    Hacks sys.argv to satisfy LHM's parse_configs(). This is the documented
-    way to call `python -m LHM.launch infer.human_lrm model_name=... \
-    image_input=... ...` as a Python call instead of subprocess.
-
-    Returns the inferrer. Raises on construction failure.
+    Paths inside PoseEstimator are relative to cwd; we chdir into LHM_ROOT
+    once and stay there for the worker's lifetime (matches the LHM CLI's
+    cwd assumption).
     """
-    global _INFERRER
-    if _INFERRER is not None and getattr(_INFERRER, "_cached_model_name", None) == model_name:
-        return _INFERRER
-
+    global _POSE_ESTIMATOR
+    if _POSE_ESTIMATOR is not None:
+        return _POSE_ESTIMATOR
     sys.path.insert(0, str(LHM_ROOT))
-    # HumanLRMInferrer.__init__ loads FaceDetector / PoseEstimator with paths
-    # relative to CWD (`./pretrained_models/...`). The CLI sets cwd=LHM_ROOT;
-    # we must mirror that or instantiation fails. Stay in LHM_ROOT for the
-    # rest of the worker lifetime so subsequent infer_mesh calls also work.
     os.chdir(str(LHM_ROOT))
+    from engine.pose_estimation.pose_estimator import PoseEstimator
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    _POSE_ESTIMATOR = PoseEstimator(
+        "./pretrained_models/human_model_files/", device=device,
+    )
+    return _POSE_ESTIMATOR
 
-    # parse_configs() reads sys.argv for the runner name + model_name. Set them
-    # so HumanLRMInferrer.__init__ -> parse_configs() picks up the right model.
-    # image_input is needed as a valid arg even though we don't use the CLI
-    # infer() entry point; we call methods directly.
-    placeholder_image_dir = str(LHM_ROOT / "train_data" / "example_imgs")
-    saved_argv = sys.argv[:]
-    sys.argv = [
-        "launch.py", "infer.human_lrm",
-        f"model_name={model_name}",
-        f"image_input={placeholder_image_dir}",
-        "export_video=False",
-        "export_mesh=True",
-        f"motion_seqs_dir={MOTION_DEFAULT}",
-        "motion_img_dir=None",
-        "vis_motion=true",
-        "motion_img_need_mask=true",
-        "render_fps=30",
-        "motion_video_read_fps=30",
-    ]
-    try:
-        from LHM.runners.infer.human_lrm import HumanLRMInferrer
-        inferrer = HumanLRMInferrer()
-    finally:
-        sys.argv = saved_argv
 
-    inferrer._cached_model_name = model_name
-    _INFERRER = inferrer
-    return inferrer
+def _get_face_detector():
+    """Lazy FaceDetector singleton. Loads vgg_heads_l.trcd for head bbox
+    detection. Used to crop the face region for skin-color sampling.
+    Returns the detector. Raises on construction failure.
+    """
+    global _FACE_DETECTOR
+    if _FACE_DETECTOR is not None:
+        return _FACE_DETECTOR
+    sys.path.insert(0, str(LHM_ROOT))
+    os.chdir(str(LHM_ROOT))
+    from LHM.utils.face_detector import FaceDetector
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    _FACE_DETECTOR = FaceDetector(
+        model_path="./pretrained_models/gagatracker/vgghead/vgg_heads_l.trcd",
+        device=device,
+    )
+    return _FACE_DETECTOR
 
 
 def _build_apose_body_pose(device, dtype):
@@ -1204,17 +1205,15 @@ def _write_hair_splats_ply(src_ply_path, dst_ply_path, hair_mask):
 
 
 def _sample_face_median_color(inferrer, image_path: str) -> tuple:
-    """Crop the face region from the photo, return median RGB as (r, g, b) ints.
-
-    Falls back to a neutral tan if face detection fails so the artifact set
-    is always complete.
+    """LEGACY: depended on HumanLRMInferrer.crop_face_image. Unused in the
+    post-2026-05-20 path. Kept for reference. Use
+    _sample_face_median_color_v2(face_detector, ...) instead.
     """
     import numpy as np
     try:
-        rgb_face = inferrer.crop_face_image(image_path)  # HxWx3 uint8
+        rgb_face = inferrer.crop_face_image(image_path)
         if rgb_face is None or rgb_face.size == 0:
             raise ValueError("empty face crop")
-        # Drop hair / background pixels: use the central 50% of the crop
         h, w = rgb_face.shape[:2]
         cy0, cy1 = h // 4, 3 * h // 4
         cx0, cx1 = w // 4, 3 * w // 4
@@ -1224,7 +1223,56 @@ def _sample_face_median_color(inferrer, image_path: str) -> tuple:
         med = np.median(central, axis=0).astype(np.uint8)
         return int(med[0]), int(med[1]), int(med[2])
     except Exception:
-        return (210, 175, 145)  # neutral tan fallback
+        return (210, 175, 145)
+
+
+def _sample_face_median_color_v2(face_detector, image_path: str,
+                                  out_crop_path: Path | None = None) -> tuple:
+    """Detect the face in the body photo with LHM's standalone FaceDetector,
+    crop it, and return the median skin RGB as (r, g, b) ints.
+
+    Writes the cropped face to `out_crop_path` (PNG) when provided so the
+    client can ship a `face_crop.png` artifact mirroring the 4DHumans bundle.
+
+    Skin sampling is on the CENTRAL 50% of the face crop (so we skip hair
+    above the brow + background at the edges of the bbox).
+
+    Falls back to a neutral tan (210, 175, 145) on any failure so the
+    avatar GLB still ships a complete artifact set.
+    """
+    import numpy as np
+    try:
+        if face_detector is None:
+            raise RuntimeError("face detector not loaded")
+        from PIL import Image
+        import torch
+        rgb = np.array(Image.open(image_path).convert("RGB"))
+        rgb_t = torch.from_numpy(rgb).permute(2, 0, 1)
+        bbox = face_detector(rgb_t)
+        if bbox is None or len(bbox) < 4:
+            raise ValueError("face detector returned no bbox")
+        x0, y0, x1, y1 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+        H, W = rgb.shape[:2]
+        x0 = max(0, min(W - 1, x0))
+        x1 = max(x0 + 1, min(W, x1))
+        y0 = max(0, min(H - 1, y0))
+        y1 = max(y0 + 1, min(H, y1))
+        face_rgb = rgb[y0:y1, x0:x1]
+        if face_rgb.size == 0:
+            raise ValueError("empty face crop")
+        if out_crop_path is not None:
+            Image.fromarray(face_rgb).save(out_crop_path)
+        h, w = face_rgb.shape[:2]
+        cy0, cy1 = h // 4, 3 * h // 4
+        cx0, cx1 = w // 4, 3 * w // 4
+        central = face_rgb[cy0:cy1, cx0:cx1].reshape(-1, 3)
+        if central.shape[0] == 0:
+            central = face_rgb.reshape(-1, 3)
+        med = np.median(central, axis=0).astype(np.uint8)
+        return int(med[0]), int(med[1]), int(med[2])
+    except Exception as e:
+        print(f"[face_median_v2] fallback to neutral tan: {type(e).__name__}: {e}")
+        return (210, 175, 145)
 
 
 def _write_textured_glb(verts_mm, faces, vertex_colors_rgb, glb_path):
@@ -2117,45 +2165,41 @@ def _deca_face_pass(
 
 
 def cmd_avatar(inp: dict, started: float) -> dict:
-    """Build the Phase 0 SMPL-X avatar bundle from a single photo.
+    """Build the 4DHumans-equivalent SMPL-X avatar bundle from a single photo.
+
+    2026-05-20 scope: realistic-face mapping (DECA, HairStep) is parked. This
+    command produces the same artifact set as production 4DHumans, but on
+    SMPL-X geometry via LHM's pose estimator (Multi-HMR) for β prediction.
 
     Input:
-      image_url:   required, body photo for SMPL-X betas + LHM splats
-      selfie_url:  optional. When provided, runs DECA on the selfie and warps
-                   the FLAME face onto the SMPL-X head region via Javisda/
-                   smplx-deca. Output GLB carries an identity-preserving face
-                   on a body whose static albedo is tinted to match the
-                   LHM-derived skin tone. Falls back to the existing Tier 3a
-                   UV bake (splat-only) when selfie_url is absent or DECA
-                   fails.
-      height_cm:   optional float, used to height-normalize SMPL-Anthropometry
-                   measurements. When omitted, raw intrinsic-beta-scale values
-                   are returned (LHM doesn't know real-world scale from a photo
-                   alone). Required for size-recommendation v2 downstream;
-                   matches the production 4DHumans contract.
-      weight_kg:   optional float. Captured in response but does NOT influence
-                   measurements (matches production behaviour). Use for
-                   downstream BMI calibration if needed.
+      image_url:   required, body photo URL
+      height_cm:   optional float, height-normalizes SMPL-Anthropometry
+                   measurements. When omitted, raw intrinsic-beta-scale
+                   values are returned (LHM cannot know real-world scale
+                   from a photo alone). Required for size-recommendation
+                   v2 downstream; matches the production 4DHumans contract.
+      weight_kg:   optional float. Captured in response but does NOT
+                   influence measurements (matches production behaviour).
       gender:      "neutral" (default), "male", or "female"
-      model_name:  LHM checkpoint to use for the splat pass (default LHM-MINI)
-      include_splats: bool (default true). Set false to skip the LHM splat
-                      pass and only return geometry-only artifacts (~10s
-                      faster).
 
-    Returns the 6-artifact bundle: body_apose.obj, smplx_params.npz,
-    avatar_textured.glb, skin_texture.png, splats.ply, measurements.json
-    (plus optional hair.ply when splat classification yields hair).
+    Returns the bundle:
+      body_apose.obj            - A-pose SMPL-X mesh (mm)
+      body_tpose.obj            - T-pose SMPL-X mesh (mm)
+      avatar_textured.glb       - A-pose GLB with uniform face-median skin
+      skin_texture.png          - 4x4 PNG of the face-median skin RGB
+      measurements.json         - 16 standardized + 17 raw measurements
+                                  (height-normalized when height_cm given)
+      smplx_params.npz          - SMPL-X betas + pose params used
+      face_crop.png             - the face region detected from the body photo
     """
     started_inner = _now()
     image_url = inp.get("image_url")
     if not image_url:
         return _err("avatar", "missing 'image_url'", started)
-    selfie_url = inp.get("selfie_url")
     gender = inp.get("gender", "neutral")
     if gender not in ("neutral", "male", "female"):
         return _err("avatar", f"invalid gender '{gender}'", started)
-    # height_cm + weight_kg are optional. Cast defensively because RunPod's
-    # JSON layer sometimes hands us strings from form-data clients.
+
     def _coerce_float(v):
         if v is None or v == "":
             return None
@@ -2163,13 +2207,10 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             return float(v)
         except (TypeError, ValueError):
             return None
+
     height_cm = _coerce_float(inp.get("height_cm"))
     weight_kg = _coerce_float(inp.get("weight_kg"))
-    model_name = inp.get("model_name", DEFAULT_MODEL)
-    include_splats = bool(inp.get("include_splats", True))
 
-    # Ensure prior_model + motion data are present. On a Network Volume worker
-    # this is a no-op after first call.
     try:
         _ensure_lhm_data()
     except Exception as e:
@@ -2183,43 +2224,41 @@ def cmd_avatar(inp: dict, started: float) -> dict:
         except Exception as e:
             return _err("avatar", f"failed to download image: {e}", started)
 
-        # 1) Build / fetch the cached HumanLRMInferrer
-        t_load_start = _now()
-        try:
-            inferrer = _get_inferrer(model_name)
-        except Exception as e:
-            return _err(
-                "avatar", f"failed to instantiate LHM inferrer: {e}", started,
-                extra={"traceback": traceback.format_exc()[-3000:]},
-            )
-        t_load = round(_now() - t_load_start, 2)
-
-        # 2) Pose estimation -> SMPL-X β
+        # 1) Pose estimation -> SMPL-X β
         t_pose_start = _now()
         try:
-            shape_pose = inferrer.pose_estimator(str(img_path))
+            pose_estimator = _get_pose_estimator()
+        except Exception as e:
+            return _err(
+                "avatar", f"failed to load pose estimator: {e}", started,
+                extra={"traceback": traceback.format_exc()[-3000:]},
+            )
+        try:
+            shape_pose = pose_estimator(str(img_path))
         except Exception as e:
             return _err(
                 "avatar", f"pose estimation crashed: {e}", started,
                 extra={"traceback": traceback.format_exc()[-3000:]},
             )
         if shape_pose.beta is None:
-            return _err("avatar", f"pose estimator returned no human: {shape_pose.msg}",
-                        started, extra={"is_full_body": shape_pose.is_full_body})
+            return _err(
+                "avatar", f"pose estimator returned no human: {shape_pose.msg}",
+                started, extra={"is_full_body": shape_pose.is_full_body},
+            )
         beta_np = shape_pose.beta
         t_pose = round(_now() - t_pose_start, 2)
 
-        # 3) Build SMPL-X mesh pair: A-pose (drape-friendly) + T-pose (matches
-        #    splat coordinate frame for color sampling)
+        # 2) Build SMPL-X A-pose + T-pose meshes from β
         t_mesh_start = _now()
         try:
             import torch
+            import numpy as np
             device = "cuda" if torch.cuda.is_available() else "cpu"
             verts_apose_m, verts_tpose_m, faces, smplx_params = _build_smplx_mesh_pair(
                 beta_np=beta_np, gender=gender, device=device,
             )
-            import numpy as np
             verts_apose_mm = (verts_apose_m * 1000.0).astype(np.float32)
+            verts_tpose_mm = (verts_tpose_m * 1000.0).astype(np.float32)
         except Exception as e:
             return _err(
                 "avatar", f"SMPL-X forward pass failed: {e}", started,
@@ -2227,256 +2266,46 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             )
         t_mesh = round(_now() - t_mesh_start, 2)
 
-        # 4) Run the LHM splat pass. We need the splats whether or not the
-        #    caller asked to keep them as an artifact, because per-vertex
-        #    color sampling depends on them. If splats fail, fall back to
-        #    a uniform face-median color so the GLB is still produced.
-        ply_path = None
-        t_splat = None
-        splat_error = None
-        t_splat_start = _now()
-        try:
-            dump_tmp = tmp_path / "lhm_dump_tmp"
-            dump_mesh = tmp_path / "lhm_dump_mesh"
-            dump_tmp.mkdir(exist_ok=True)
-            dump_mesh.mkdir(exist_ok=True)
-            inferrer.infer_mesh(
-                image_path=str(img_path),
-                dump_tmp_dir=str(dump_tmp),
-                dump_mesh_dir=str(dump_mesh),
-                shape_param=beta_np,
-            )
-            splat_candidates = list(dump_mesh.rglob("*.ply"))
-            if splat_candidates:
-                ply_path = splat_candidates[0]
-        except Exception as e:
-            ply_path = None
-            splat_error = f"{type(e).__name__}: {e}\n{traceback.format_exc()[-2000:]}"
-        t_splat = round(_now() - t_splat_start, 2)
-
-        # 5) Per-vertex color from splats (region-aware skin segmentation)
-        #    + extract hair splats for the optional hair.ply overlay artifact.
+        # 3) Face crop + skin-median color from the body photo. Face detector
+        #    failure is tolerated: skin RGB falls back to a neutral tan and
+        #    face_crop.png is just omitted from the artifact list.
         t_color_start = _now()
-        vertex_colors = None
-        skin_rgb_diag = None
-        color_stats = None
-        hair_splat_mask = None
-        color_source = "face_median_fallback"
-        face_median_rgb = _sample_face_median_color(inferrer, str(img_path))
-
-        # Holders for splat data so the UV texture baker (below) can reuse
-        # what the per-vertex sampler loaded + classified.
-        splat_pos_arr = None
-        splat_rgb_arr = None
-        splat_skin_mask = None
-        if ply_path is not None and ply_path.exists():
-            try:
-                splat_pos_arr, splat_rgb_arr = _load_splat_colors(ply_path)
-                # Classify once up front so per-vert sampling and UV baking
-                # share the result.
-                scalp_y_top_m = float(verts_tpose_m[:, 1].max())
-                splat_skin_mask, hair_splat_mask = _classify_splats(
-                    splat_pos=splat_pos_arr,
-                    splat_rgb=splat_rgb_arr,
-                    face_median_rgb=face_median_rgb,
-                    scalp_y=scalp_y_top_m,
-                )
-                (
-                    vertex_colors,
-                    skin_rgb_diag,
-                    color_stats,
-                    hair_splat_mask,
-                ) = _vertex_colors_region_aware(
-                    verts_tpose_m=verts_tpose_m,
-                    splat_pos=splat_pos_arr,
-                    splat_rgb=splat_rgb_arr,
-                    face_median_rgb=face_median_rgb,
-                    k=5,
-                    splat_skin_mask=splat_skin_mask,
-                    splat_hair_mask=hair_splat_mask,
-                )
-                color_source = f"splats_region_aware_n{splat_pos_arr.shape[0]}"
-            except Exception as e:
-                splat_error = (splat_error or "") + f" | color sample failed: {e}"
-                vertex_colors = None
-
-        if vertex_colors is None:
-            # Fallback: uniform face-median color across all verts
-            skin_rgb_diag = face_median_rgb
-            import numpy as np
-            vertex_colors = np.tile(
-                np.array([skin_rgb_diag[0], skin_rgb_diag[1], skin_rgb_diag[2]], dtype=np.uint8),
-                (verts_apose_mm.shape[0], 1),
-            )
+        face_crop_path = tmp_path / "face_crop.png"
+        face_detector = None
+        face_detector_error = None
+        try:
+            face_detector = _get_face_detector()
+        except Exception as e:
+            face_detector_error = f"{type(e).__name__}: {e}"
+        skin_rgb_diag = _sample_face_median_color_v2(
+            face_detector, str(img_path), out_crop_path=face_crop_path,
+        )
+        import numpy as np
+        vertex_colors = np.tile(
+            np.array(
+                [skin_rgb_diag[0], skin_rgb_diag[1], skin_rgb_diag[2]],
+                dtype=np.uint8,
+            ),
+            (verts_apose_mm.shape[0], 1),
+        )
         t_color = round(_now() - t_color_start, 2)
 
-        # 6) Write geometry artifacts to tmp
-        obj_path = tmp_path / "body_apose.obj"
+        # 4) Write geometry artifacts
+        obj_apose_path = tmp_path / "body_apose.obj"
+        obj_tpose_path = tmp_path / "body_tpose.obj"
         glb_path = tmp_path / "avatar_textured.glb"
         png_path = tmp_path / "skin_texture.png"
         npz_path = tmp_path / "smplx_params.npz"
 
-        _write_obj_no_mtl(verts_apose_mm, faces, obj_path)
-
-        # DECA face mapping: if the caller supplied a selfie URL, run the
-        # smplx-deca pipeline and write a GLB whose head region carries
-        # DECA's identity-preserving FLAME geometry + texture, with the body
-        # albedo tinted to the LHM skin tone. On any failure, fall through
-        # to the Tier 3a UV bake below so the worker still returns artifacts.
-        deca_used = False
-        deca_error = None
-        t_deca = 0.0
-        deca_artifacts = {}
-        if selfie_url:
-            t_deca_start = _now()
-            try:
-                selfie_local = tmp_path / "selfie.jpg"
-                _download_to(selfie_local, selfie_url)
-                smplx_model_dir = str(
-                    LHM_ROOT / "pretrained_models" / "human_model_files" / "smplx"
-                )
-                # ABS path to where SMPL-X .npz files actually live (LHM bakes
-                # them under a `smplx/` subdir already; smplx_pkg.create wants
-                # the parent that contains "smplx" or files matching the model
-                # type. We pass the parent of `smplx/`, since smplx_pkg.create
-                # will append model_type when ext='npz'.).
-                smplx_parent = str(
-                    LHM_ROOT / "pretrained_models" / "human_model_files"
-                )
-                deca_result = _deca_face_pass(
-                    selfie_path=selfie_local,
-                    smplx_betas_np=beta_np,
-                    body_skin_rgb=skin_rgb_diag if skin_rgb_diag is not None else face_median_rgb,
-                    smplx_model_dir=smplx_parent,
-                    out_dir=tmp_path,
-                )
-                # Re-pose into A-pose by feeding the DECA-modified v_template
-                # back into a SMPL-X forward pass with the same A-pose body
-                # pose used by _build_smplx_mesh_pair.
-                import torch as _torch
-                import smplx as _smplx_pkg
-                _layer = _smplx_pkg.create(
-                    smplx_parent,
-                    model_type="smplx",
-                    gender=gender,
-                    use_pca=False,
-                    flat_hand_mean=True,
-                    num_betas=10,
-                ).to("cuda" if _torch.cuda.is_available() else "cpu").eval()
-                # v_template is a registered BUFFER on SMPL-X, not a Parameter
-                # (assignment-as-tensor matches the upstream Javisda demo).
-                _new_template = deca_result["v_template_with_head"].to(
-                    device=_layer.v_template.device, dtype=_layer.v_template.dtype,
-                )
-                _layer.v_template = _new_template
-                _device = _layer.v_template.device
-                _dtype = _torch.float32
-                _body_pose_a = _build_apose_body_pose(device=_device, dtype=_dtype)
-                _betas_zero = _torch.zeros(
-                    (1, 10), dtype=_dtype, device=_device
-                )
-                with _torch.no_grad():
-                    _out_a = _layer(
-                        betas=_betas_zero,
-                        body_pose=_body_pose_a,
-                        return_verts=True,
-                    )
-                verts_apose_m_deca = _out_a.vertices[0].detach().cpu().numpy()
-
-                _write_glb_with_addon_uv(
-                    verts_3d_m=verts_apose_m_deca,
-                    faces_v_addon=deca_result["faces_v_addon"],
-                    vt=deca_result["uv_coords"],
-                    faces_vt_addon=deca_result["uv_faces"],
-                    texture_rgb=deca_result["merged_texture"],
-                    out_path=glb_path,
-                )
-                # skin_texture.png becomes the actual merged 8192x4096 texture
-                # (consistent with Tier 3a where skin_texture.png == the
-                # baked UV texture).
-                from PIL import Image as _PIL_Image
-                _PIL_Image.fromarray(deca_result["merged_texture"]).save(png_path)
-                deca_used = True
-                color_source = (
-                    f"deca_face_warp_smplx-addon-uv_{deca_result['merged_texture'].shape[1]}"
-                    f"x{deca_result['merged_texture'].shape[0]}"
-                )
-                deca_artifacts = {
-                    "deca_face_obj": str(deca_result["deca_head_obj_path"]),
-                    "deca_face_tex": str(deca_result["deca_head_tex_path"]),
-                }
-            except Exception as e:
-                deca_error = f"{e.__class__.__name__}: {e}"
-                deca_used = False
-            t_deca = round(_now() - t_deca_start, 2)
-
-        # Tier 3a: try to bake a UV-mapped diffuse texture. Falls back to
-        # per-vertex color if SMPL-X UV layout is unavailable or baking fails.
-        # Skipped when DECA path already produced the GLB.
-        uv_obj_path = (
-            LHM_ROOT / "pretrained_models" / "human_model_files"
-            / "smplx" / "smplx_uv" / "smplx_uv.obj"
-        )
-        uv_baked = deca_used  # treat DECA as a "GLB written" signal
-        uv_coverage_pct = None
-        uv_texture_size = 1024
-        if deca_used:
-            t_uv_bake = 0.0
-        elif (
-            uv_obj_path.exists()
-            and splat_pos_arr is not None
-            and splat_skin_mask is not None
-        ):
-            t_uv_start = _now()
-            try:
-                vt, faces_v_obj, faces_vt_obj = _load_smplx_uv_obj(str(uv_obj_path))
-                texture_rgb, _, uv_coverage_pct = _bake_uv_diffuse_texture(
-                    verts_tpose_m=verts_tpose_m,
-                    faces_v=faces_v_obj,
-                    vt=vt,
-                    faces_vt=faces_vt_obj,
-                    splat_pos=splat_pos_arr,
-                    splat_rgb=splat_rgb_arr,
-                    splat_skin_mask=splat_skin_mask,
-                    splat_hair_mask=hair_splat_mask,
-                    texture_size=uv_texture_size,
-                    k=5,
-                )
-                _write_glb_with_uv_texture(
-                    verts_3d_m=verts_apose_m,
-                    faces_v=faces_v_obj,
-                    vt=vt,
-                    faces_vt=faces_vt_obj,
-                    texture_rgb=texture_rgb,
-                    out_path=glb_path,
-                )
-                from PIL import Image as _PIL_Image
-                _PIL_Image.fromarray(texture_rgb).save(png_path)
-                uv_baked = True
-                color_source = (
-                    f"uv_texture_{uv_texture_size}_"
-                    f"cov{uv_coverage_pct:.1f}pct_"
-                    f"{color_source}"
-                )
-                t_uv_bake = round(_now() - t_uv_start, 2)
-            except Exception as e:
-                splat_error = (splat_error or "") + f" | uv bake failed: {e}"
-                t_uv_bake = round(_now() - t_uv_start, 2)
-        else:
-            t_uv_bake = 0.0
-
-        if not uv_baked:
-            _write_textured_glb(verts_apose_mm, faces, vertex_colors, glb_path)
-            _write_skin_texture_png(skin_rgb_diag, png_path)
-
-        import numpy as np
+        _write_obj_no_mtl(verts_apose_mm, faces, obj_apose_path)
+        _write_obj_no_mtl(verts_tpose_mm, faces, obj_tpose_path)
+        _write_textured_glb(verts_apose_mm, faces, vertex_colors, glb_path)
+        _write_skin_texture_png(skin_rgb_diag, png_path)
         np.savez(npz_path, **{k: v for k, v in smplx_params.items() if k != "gender"})
 
-        # 6.5) SMPL-Anthropometry on the T-pose mesh. Independent of DECA
-        #      (head offset isn't applied to T-pose anyway; body measurements
-        #      don't depend on the head region). Matches the production
-        #      4DHumans contract: raw + standardized + labeled, height-
-        #      normalized to user input.
+        # 5) Measurements via SMPL-Anthropometry on the T-pose mesh. T-pose is
+        #    the required reference pose (DavidBoja/SMPL-Anthropometry computes
+        #    geodesic distances along T-pose vertex paths).
         t_meas_start = _now()
         measurements_block = None
         measurements_error = None
@@ -2490,10 +2319,7 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             measurements_error = f"{e.__class__.__name__}: {e}"
         t_meas = round(_now() - t_meas_start, 2)
 
-        # Write measurements.json artifact (mirrors save_measurements_json
-        # on main:avatar-creation/pipelines/run_avatar_pipeline.py).
         meas_path = tmp_path / "measurements.json"
-        import json as _json
         meas_payload = {
             "input": {
                 "height_cm": height_cm,
@@ -2508,64 +2334,31 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             "error": measurements_error,
             "source_mesh": "smplx_tpose_lhm_betas",
         }
-        meas_path.write_text(_json.dumps(meas_payload, indent=2))
+        meas_path.write_text(json.dumps(meas_payload, indent=2))
 
-        # 7) Upload all artifacts. Rename the splat PLY to splats.ply for
-        #    the contract; LHM internally names it after the input stem.
+        # 6) Upload
         remote_subdir = f"avatars/{int(started)}"
         artifacts = [
-            _collect_artifact(obj_path, remote_subdir),
-            _collect_artifact(npz_path, remote_subdir),
+            _collect_artifact(obj_apose_path, remote_subdir),
+            _collect_artifact(obj_tpose_path, remote_subdir),
             _collect_artifact(glb_path, remote_subdir),
             _collect_artifact(png_path, remote_subdir),
             _collect_artifact(meas_path, remote_subdir),
+            _collect_artifact(npz_path, remote_subdir),
         ]
-        if include_splats and ply_path is not None and ply_path.exists():
-            splats_renamed = tmp_path / "splats.ply"
-            try:
-                shutil.copy(ply_path, splats_renamed)
-                artifacts.append(_collect_artifact(splats_renamed, remote_subdir))
-            except Exception:
-                artifacts.append(_collect_artifact(ply_path, remote_subdir))
-
-        # Tier 2: hair.ply (subset of LHM splats classified as hair). Same
-        # format as splats.ply so the viewer can render with the same loader.
-        # Only attempt if classification produced any hair splats; otherwise
-        # the subject is bald or hair classification failed silently.
-        hair_count = 0
-        if (
-            hair_splat_mask is not None
-            and ply_path is not None
-            and ply_path.exists()
-            and hair_splat_mask.any()
-        ):
-            try:
-                hair_path = tmp_path / "hair.ply"
-                hair_count = _write_hair_splats_ply(ply_path, hair_path, hair_splat_mask)
-                if hair_count > 0:
-                    artifacts.append(_collect_artifact(hair_path, remote_subdir))
-            except Exception as e:
-                splat_error = (splat_error or "") + f" | hair extract failed: {e}"
+        if face_crop_path.exists():
+            artifacts.append(_collect_artifact(face_crop_path, remote_subdir))
 
         result = {
             "image_url": image_url,
-            "selfie_url": selfie_url,
             "height_cm": height_cm,
             "weight_kg": weight_kg,
             "gender": gender,
-            "model_name": model_name,
             "beta_shape": list(beta_np.shape),
             "is_full_body": bool(shape_pose.is_full_body),
             "body_ratio": float(getattr(shape_pose, "ratio", 0.0)),
             "skin_rgb": list(skin_rgb_diag),
-            "color_source": color_source,
-            "color_stats": color_stats,
-            "hair_splat_count": hair_count,
-            "uv_baked": uv_baked,
-            "uv_coverage_pct": uv_coverage_pct,
-            "uv_texture_size": uv_texture_size if uv_baked else None,
-            "deca_used": deca_used,
-            "deca_error": deca_error,
+            "face_detector_error": face_detector_error,
             "measurements": (measurements_block or {}).get("standardized_cm"),
             "measurements_raw": (measurements_block or {}).get("raw_cm"),
             "measurements_labeled": (measurements_block or {}).get("labeled_cm"),
@@ -2582,19 +2375,13 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             "smplx_face_count": int(faces.shape[0]),
             "artifacts": artifacts,
             "timings": {
-                "inferrer_load_s": t_load,
                 "pose_estimation_s": t_pose,
                 "smplx_mesh_s": t_mesh,
-                "splat_pass_s": t_splat,
-                "color_sample_s": t_color,
-                "uv_bake_s": t_uv_bake,
-                "deca_pass_s": t_deca,
+                "face_color_s": t_color,
                 "measurements_s": t_meas,
                 "total_inner_s": round(_now() - started_inner, 2),
             },
         }
-        if splat_error:
-            result["splat_error"] = splat_error
         return _ok("avatar", result, started)
 
 
