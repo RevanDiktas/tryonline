@@ -1625,6 +1625,42 @@ def _silence_tensorboard():
         pass
 
 
+def _patch_smplx_deca_ccbin() -> str:
+    """Strip the historical -ccbin=$$(which gcc-7) JIT-compile flag from
+    smplx-deca's renderer.py before DECA imports it.
+
+    Why: upstream's renderer pins gcc-7 as a CUDA-10.2 / gcc-9 workaround
+    (see their own comment on the line). We run CUDA 12.1 + gcc 11; the pin
+    is obsolete. gcc-7 is not in the Ubuntu 22.04 base, so $(which gcc-7)
+    expands to empty and nvcc dies with "Failed to preprocess host compiler
+    properties" the first time DECA tries to JIT-compile standard_rasterize.
+
+    Runs at module init of _get_deca (before any decalib import). Idempotent
+    via a marker file so repeat calls on the same worker are no-ops. If the
+    patch fails (file moved, regex no longer matches), we log and continue,
+    so the original ccbin error surfaces with its full traceback rather than
+    being hidden behind a silent patch failure.
+    """
+    import re
+    target = Path("/workspace/smplx-deca/smplx_deca_main/deca/decalib/utils/renderer.py")
+    marker = target.parent / ".ccbin_patched"
+    if marker.exists():
+        return "skip:already_patched"
+    if not target.exists():
+        return f"skip:source_missing:{target}"
+    src = target.read_text()
+    patched = re.sub(
+        r"'-std=c\+\+14',\s*'-ccbin=\$\$\(which gcc-7\)'",
+        "'-std=c++14'",
+        src,
+    )
+    if patched == src:
+        return "skip:pattern_not_found"
+    target.write_text(patched)
+    marker.touch()
+    return "patched"
+
+
 def _get_deca():
     """Lazy DECA singleton. Constructed once per worker; survives across
     invocations. First construction compiles the standard_rasterize CUDA
@@ -1636,6 +1672,11 @@ def _get_deca():
 
     _deca_numpy_shim()
     _silence_tensorboard()
+    try:
+        ccbin_status = _patch_smplx_deca_ccbin()
+        print(f"[DECA] ccbin patch: {ccbin_status}")
+    except Exception as e:
+        print(f"[DECA] ccbin patch failed (continuing): {type(e).__name__}: {e}")
 
     # Download DECA model assets to the path cfg.deca_dir + '/data/' resolves
     # to. Raises RuntimeError on download failure; caller wraps in try/except
