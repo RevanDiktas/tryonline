@@ -2210,7 +2210,7 @@ def cmd_avatar(inp: dict, started: float) -> dict:
                 ply_path = splat_candidates[0]
         except Exception as e:
             ply_path = None
-            splat_error = f"{e}"
+            splat_error = f"{type(e).__name__}: {e}\n{traceback.format_exc()[-2000:]}"
         t_splat = round(_now() - t_splat_start, 2)
 
         # 5) Per-vertex color from splats (region-aware skin segmentation)

@@ -36,7 +36,7 @@ FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-devel
 # Standing rule: bump this timestamp on every push, even for empty commits.
 # Build is fully clean as a side effect, which gives us unambiguous logs.
 # ----------------------------------------------------------------------------
-ARG CACHEBUST=2026-05-19T22:55:00-deca-runtime-download
+ARG CACHEBUST=2026-05-20T21:30:00-deca-ccbin-fix-and-splat-traceback
 RUN echo "$CACHEBUST" > /tmp/.cachebust
 
 # ----------------------------------------------------------------------------
@@ -170,6 +170,28 @@ RUN pip install --no-cache-dir \
 # Clone smplx-deca for its decalib + smplx vendored sources + binary assets
 # (UV_mixing_resources/, Neck_masks/, smplx_body_parts_2_faces.json).
 RUN git clone --depth 1 https://github.com/Javisda/smplx-deca.git /workspace/smplx-deca
+
+# Strip the historical -ccbin=$$(which gcc-7) pin from DECA's standard_rasterize
+# JIT-compile flags. Upstream comment says it's for CUDA 10.2 + gcc 9 conflict;
+# we are on CUDA 12.1 + gcc 11, where the pin is obsolete. gcc-7 is not in the
+# Ubuntu 22.04 default repos, so the shell expansion of $(which gcc-7) returns
+# empty and nvcc dies with "Failed to preprocess host compiler properties".
+# Patch is one-shot at build time so every fresh worker compiles cleanly.
+RUN cat > /tmp/patch_ccbin.py <<'PY'
+import re
+p = '/workspace/smplx-deca/smplx_deca_main/deca/decalib/utils/renderer.py'
+s = open(p).read()
+patched = re.sub(
+    r"'-std=c\+\+14',\s*'-ccbin=\$\$\(which gcc-7\)'",
+    "'-std=c++14'",
+    s,
+)
+assert patched != s, "ccbin pattern not found - upstream may have changed"
+open(p, 'w').write(patched)
+print("Patched ccbin flag in", p)
+PY
+RUN python /tmp/patch_ccbin.py \
+    && grep -n "extra_cuda_cflags" /workspace/smplx-deca/smplx_deca_main/deca/decalib/utils/renderer.py
 
 # DECA model assets are NOT baked into the image — the 510 MB push the build
 # past RunPod's 30-min cap (build #79336fb died in cache export with all
