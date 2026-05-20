@@ -1228,17 +1228,33 @@ def _sample_face_median_color(inferrer, image_path: str) -> tuple:
 
 def _sample_face_median_color_v2(face_detector, image_path: str,
                                   out_crop_path: Path | None = None) -> tuple:
-    """Detect the face in the body photo with LHM's standalone FaceDetector,
-    crop it, and return the median skin RGB as (r, g, b) ints.
+    """Detect face -> cheek zone -> HSV skin filter -> median skin RGB.
 
-    Writes the cropped face to `out_crop_path` (PNG) when provided so the
-    client can ship a `face_crop.png` artifact mirroring the 4DHumans bundle.
+    Three-stage filtering guarantees skin tone never picks up clothing or
+    background, and rejects in-face non-skin pixels (eyes, lips, hair).
 
-    Skin sampling is on the CENTRAL 50% of the face crop (so we skip hair
-    above the brow + background at the edges of the bbox).
+    Stage 1: face_detector returns a head bbox on the full body photo. We
+    crop strictly INSIDE the bbox; nothing outside the face can leak in
+    (clothes, hands, background).
 
-    Falls back to a neutral tan (210, 175, 145) on any failure so the
+    Stage 2: within the face crop, sample the CHEEK ZONE only:
+        y in [40%, 70%] of face height  -> below eye-line, above mouth
+        x in [20%, 80%] of face width   -> avoid temples / ears / hair
+    This excludes eyes, eyebrows, lips, hair, jawline.
+
+    Stage 3: HSV skin filter on cheek pixels. OpenCV HSV ranges:
+        H[0,180], S[0,255], V[0,255]. Natural skin tones across all
+        ethnicities sit in H<=25 (red-orange), S in [15%, 70%],
+        V in [30%, 90%]. This washes out shadows, makeup, facial hair.
+
+    Safety net: if HSV is too aggressive (<5% kept), fall back to the
+    unfiltered cheek crop. Better to median over slightly-noisy skin
+    than an empty array.
+
+    Falls back to neutral tan (210, 175, 145) on any failure so the
     avatar GLB still ships a complete artifact set.
+
+    Writes the face crop to `out_crop_path` when provided.
     """
     import numpy as np
     try:
@@ -1262,13 +1278,35 @@ def _sample_face_median_color_v2(face_detector, image_path: str,
             raise ValueError("empty face crop")
         if out_crop_path is not None:
             Image.fromarray(face_rgb).save(out_crop_path)
+
         h, w = face_rgb.shape[:2]
-        cy0, cy1 = h // 4, 3 * h // 4
-        cx0, cx1 = w // 4, 3 * w // 4
-        central = face_rgb[cy0:cy1, cx0:cx1].reshape(-1, 3)
-        if central.shape[0] == 0:
-            central = face_rgb.reshape(-1, 3)
-        med = np.median(central, axis=0).astype(np.uint8)
+        cy0, cy1 = int(0.40 * h), int(0.70 * h)
+        cx0, cx1 = int(0.20 * w), int(0.80 * w)
+        cheek = face_rgb[cy0:cy1, cx0:cx1].reshape(-1, 3)
+        if cheek.shape[0] == 0:
+            cheek = face_rgb.reshape(-1, 3)
+
+        import cv2
+        hsv = cv2.cvtColor(
+            cheek.reshape(-1, 1, 3).astype(np.uint8), cv2.COLOR_RGB2HSV,
+        ).reshape(-1, 3)
+        mask = (
+            (hsv[:, 0] <= 25)
+            & (hsv[:, 1] >= 38) & (hsv[:, 1] <= 178)
+            & (hsv[:, 2] >= 76) & (hsv[:, 2] <= 230)
+        )
+        skin = cheek[mask]
+        kept = int(skin.shape[0])
+        total = int(cheek.shape[0])
+        if kept < max(50, int(0.05 * total)):
+            print(
+                f"[face_median_v2] HSV filter too aggressive "
+                f"({kept}/{total} kept); using all cheek pixels"
+            )
+            skin = cheek
+        else:
+            print(f"[face_median_v2] HSV kept {kept}/{total} cheek pixels")
+        med = np.median(skin, axis=0).astype(np.uint8)
         return int(med[0]), int(med[1]), int(med[2])
     except Exception as e:
         print(f"[face_median_v2] fallback to neutral tan: {type(e).__name__}: {e}")
