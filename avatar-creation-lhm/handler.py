@@ -2424,6 +2424,218 @@ def cmd_avatar(inp: dict, started: float) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Production avatar command (4DHumans drop-in contract)
+# ---------------------------------------------------------------------------
+def cmd_avatar_production(inp: dict, started: float) -> dict:
+    """Drop-in replacement for the 4DHumans `tryonline` endpoint contract.
+
+    Auto-dispatched by handler() when input has `photo_url` and no `command`,
+    which matches the payload shape backend/app/services/runpod.py sends.
+
+    Input (production keys):
+      photo_url   required, body photo URL
+      height      required, integer cm
+      weight      optional, integer kg
+      gender      "male" | "female" | "neutral"
+      user_id     echoed back; the backend does the Supabase upload to
+                  avatars/{user_id}/, so we don't touch storage from here
+
+    Output (FLAT shape, no `data` wrapper):
+      measurements              standardized cm dict (chest/waist/hips/...)
+      files_base64              {apose_mesh, tpose_mesh, avatar_glb,
+                                 skin_texture, smpl_params}
+      file_sizes                {file_key: int_bytes}
+      processing_time_seconds   float
+      skin_rgb / beta_shape / is_full_body / body_ratio / pose_convention
+      face_detector_error / measurements_error
+      measurements_raw / measurements_labeled / measurements_meta (informational)
+      photo_url / height_cm / weight_kg / gender / user_id (echo)
+
+    No Supabase upload from this handler. Backend decodes base64 and writes to
+    avatars/{user_id}/<canonical_filename>, matching the production contract
+    (see backend/app/services/supabase.py:upload_pipeline_files). Total
+    payload ~2.5 MB base64, well under RunPod's ~20 MB inline cap.
+
+    File-key map (matches backend/app/services/supabase.py:406 file_key_to_filename):
+      apose_mesh   -> body_apose.obj
+      tpose_mesh   -> body_tpose.obj
+      avatar_glb   -> avatar_textured.glb
+      skin_texture -> skin_texture.png
+      smpl_params  -> smpl_params.npz
+    """
+    image_url = inp.get("photo_url") or inp.get("image_url")
+    if not image_url:
+        return {"error": "missing 'photo_url'"}
+
+    gender = inp.get("gender", "neutral")
+    if gender not in ("neutral", "male", "female"):
+        return {"error": f"invalid gender '{gender}'"}
+
+    def _coerce_float(v):
+        if v is None or v == "":
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    height_cm = _coerce_float(inp.get("height", inp.get("height_cm")))
+    weight_kg = _coerce_float(inp.get("weight", inp.get("weight_kg")))
+    user_id = inp.get("user_id")
+
+    try:
+        _ensure_lhm_data()
+    except Exception as e:
+        return {"error": f"LHM data bootstrap failed: {e}"}
+
+    with tempfile.TemporaryDirectory(prefix="lhm_avatar_prod_") as tmp:
+        tmp_path = Path(tmp)
+        img_path = tmp_path / "input.png"
+        try:
+            _download_to(img_path, image_url)
+        except Exception as e:
+            return {"error": f"failed to download image: {e}"}
+
+        # 1) Pose estimation -> SMPL-X beta
+        try:
+            pose_estimator = _get_pose_estimator()
+        except Exception as e:
+            return {
+                "error": f"failed to load pose estimator: {e}",
+                "traceback": traceback.format_exc()[-3000:],
+            }
+        try:
+            shape_pose = pose_estimator(str(img_path))
+        except Exception as e:
+            return {
+                "error": f"pose estimation crashed: {e}",
+                "traceback": traceback.format_exc()[-3000:],
+            }
+        if shape_pose.beta is None:
+            return {
+                "error": f"pose estimator returned no human: {shape_pose.msg}",
+                "is_full_body": bool(shape_pose.is_full_body),
+            }
+        beta_np = shape_pose.beta
+
+        # 2) SMPL-X mesh build (A-pose + T-pose)
+        try:
+            import torch
+            import numpy as np
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            verts_apose_m, verts_tpose_m, faces, smplx_params = _build_smplx_mesh_pair(
+                beta_np=beta_np, gender=gender, device=device,
+            )
+            verts_apose_mm = (verts_apose_m * 1000.0).astype(np.float32)
+            verts_tpose_mm = (verts_tpose_m * 1000.0).astype(np.float32)
+        except Exception as e:
+            return {
+                "error": f"SMPL-X forward pass failed: {e}",
+                "traceback": traceback.format_exc()[-3000:],
+            }
+
+        # 3) Face crop + skin-median color
+        face_crop_path = tmp_path / "face_crop.png"
+        face_detector = None
+        face_detector_error = None
+        try:
+            face_detector = _get_face_detector()
+        except Exception as e:
+            face_detector_error = f"{type(e).__name__}: {e}"
+        skin_rgb_diag = _sample_face_median_color_v2(
+            face_detector, str(img_path), out_crop_path=face_crop_path,
+        )
+        import numpy as np
+        vertex_colors = np.tile(
+            np.array(
+                [skin_rgb_diag[0], skin_rgb_diag[1], skin_rgb_diag[2]],
+                dtype=np.uint8,
+            ),
+            (verts_apose_mm.shape[0], 1),
+        )
+
+        # 4) Write artifact files to tmp (backend uploads, not us)
+        obj_apose_path = tmp_path / "body_apose.obj"
+        obj_tpose_path = tmp_path / "body_tpose.obj"
+        glb_path = tmp_path / "avatar_textured.glb"
+        png_path = tmp_path / "skin_texture.png"
+        # NOTE: production canonical filename is smpl_params.npz (not smplx_).
+        # See backend/app/services/supabase.py:411
+        npz_path = tmp_path / "smpl_params.npz"
+
+        _write_obj_no_mtl(verts_apose_mm, faces, obj_apose_path)
+        _write_obj_no_mtl(verts_tpose_mm, faces, obj_tpose_path)
+        _write_textured_glb(verts_apose_mm, faces, vertex_colors, glb_path)
+        _write_skin_texture_png(skin_rgb_diag, png_path)
+        np.savez(npz_path, **{k: v for k, v in smplx_params.items() if k != "gender"})
+
+        # 5) Measurements (SMPL-Anthropometry on T-pose)
+        measurements_block = None
+        measurements_error = None
+        try:
+            measurements_block = _compute_measurements(
+                verts_tpose_m=verts_tpose_m,
+                height_cm=height_cm,
+                gender=gender,
+            )
+        except Exception as e:
+            measurements_error = f"{e.__class__.__name__}: {e}"
+
+        # 6) Base64-encode for the response. Backend decodes + uploads.
+        path_by_key = {
+            "apose_mesh": obj_apose_path,
+            "tpose_mesh": obj_tpose_path,
+            "avatar_glb": glb_path,
+            "skin_texture": png_path,
+            "smpl_params": npz_path,
+        }
+        files_base64: dict[str, str] = {}
+        file_sizes: dict[str, int] = {}
+        for key, p in path_by_key.items():
+            data = p.read_bytes()
+            files_base64[key] = base64.b64encode(data).decode("ascii")
+            file_sizes[key] = len(data)
+
+        # Backend coerces measurements to int and fills `height` from request if
+        # missing. We still pass a height fallback to keep DB updates resilient
+        # when measurements_error is set.
+        meas_standardized = (measurements_block or {}).get("standardized_cm") or {}
+        if not meas_standardized and height_cm:
+            meas_standardized = {"height": int(round(height_cm))}
+
+        return {
+            "measurements": meas_standardized,
+            "files_base64": files_base64,
+            "file_sizes": file_sizes,
+            "processing_time_seconds": round(_now() - started, 2),
+            "skin_rgb": list(skin_rgb_diag),
+            "beta_shape": list(beta_np.shape),
+            "is_full_body": bool(shape_pose.is_full_body),
+            "body_ratio": float(getattr(shape_pose, "ratio", 0.0)),
+            "pose_convention": smplx_params["pose_convention"],
+            "face_detector_error": face_detector_error,
+            "measurements_error": measurements_error,
+            "measurements_raw": (measurements_block or {}).get("raw_cm"),
+            "measurements_labeled": (measurements_block or {}).get("labeled_cm"),
+            "measurements_meta": {
+                "intrinsic_height_cm": (measurements_block or {}).get("intrinsic_height_cm"),
+                "normalization_factor": (measurements_block or {}).get("normalization_factor"),
+                "input_height_cm": height_cm,
+                "input_weight_kg": weight_kg,
+                "source_mesh": "smplx_tpose_lhm_betas",
+            },
+            "smplx_vertex_count": int(verts_apose_mm.shape[0]),
+            "smplx_face_count": int(faces.shape[0]),
+            "photo_url": image_url,
+            "height_cm": height_cm,
+            "weight_kg": weight_kg,
+            "gender": gender,
+            "user_id": user_id,
+            "endpoint": "lhm-production",
+        }
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 COMMANDS = {
@@ -2442,7 +2654,23 @@ COMMANDS = {
 def handler(event: dict) -> dict:
     started = _now()
     job_input = event.get("input", {}) or {}
-    command = job_input.get("command", "info")
+    command = job_input.get("command")
+
+    # Production drop-in: payload without a `command` but with `photo_url`
+    # matches the 4DHumans submit_avatar_job shape (see
+    # backend/app/services/runpod.py). Route to cmd_avatar_production which
+    # returns the flat output shape get_job_status expects.
+    if command is None and job_input.get("photo_url"):
+        try:
+            return cmd_avatar_production(job_input, started)
+        except Exception as e:
+            return {
+                "error": f"avatar production unhandled exception: {e}",
+                "traceback": traceback.format_exc()[-3000:],
+                "elapsed_seconds": round(_now() - started, 2),
+            }
+
+    command = command or "info"
     fn = COMMANDS.get(command)
     if not fn:
         return _err(command, f"unknown command '{command}'. "
