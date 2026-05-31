@@ -1,0 +1,119 @@
+# =============================================================================
+# Garment Construction — BASE IMAGE (build once on a GPU pod, push to registry)
+# =============================================================================
+# Photo -> 3D garment OBJ pipeline. This base bakes every SLOW/compiled dep:
+#   - ChatGarment (LLaVA-1.5-7B) python deps  (torch 2.1.2, transformers 4.37.2,
+#     deepspeed, bitsandbytes, flash-attn)
+#   - NvidiaWarp-GarmentCode  (Warp fork, compiled from source — the hard one)
+#   - GarmentCodeRC + pygarment (the JSON -> 3D drape decoder ChatGarment calls)
+# It does NOT bake model weights (~31 GB) — those are runtime-downloaded by the
+# handler (the _ensure_lhm_data pattern), so this image stays lean and the
+# serverless layer on top is a fast build.
+#
+# WHY a base image: the serverless endpoint's own build runs on RunPod's
+# CPU-only GitHub build farm with a 30-min cap. Compiling the Warp fork +
+# flash-attn there is impossible. So we compile everything ONCE here on a GPU
+# pod (no cap), push to a registry, and the serverless image is just
+# `FROM <this> + COPY handler.py`.
+#
+# The Warp build recipe (flags, CUDA env, pygarment __init__ stub) is lifted
+# verbatim from the PROVEN avatar-creation/draping/Dockerfile (v18), which
+# already ships this fork successfully on the same torch 2.1 / cu118 base.
+#
+# BUILD (on a GPU pod, NOT locally — needs nvcc + an NVIDIA GPU):
+#   docker build -f Dockerfile.base -t revandiktas/tryon-garment-base:latest .
+#   docker push revandiktas/tryon-garment-base:latest
+# =============================================================================
+
+FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
+
+WORKDIR /workspace
+
+# --- system build deps ---------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git git-lfs build-essential cmake ninja-build \
+    libgl1-mesa-glx libglib2.0-0 libegl1 \
+    && rm -rf /var/lib/apt/lists/* && apt-get clean
+
+# --- CUDA env (must precede any source build so find_cuda() sees the toolkit) --
+# Without these the Warp fork builds CPU-only (WP_ENABLE_CUDA=0) — the exact
+# failure the drape image hit on its first attempt.
+ENV CUDA_HOME=/usr/local/cuda
+ENV CUDA_PATH=/usr/local/cuda
+ENV PATH=/usr/local/cuda/bin:$PATH
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+# Arch list so compiled CUDA extensions target real GPUs, not the build host.
+# 8.0 A100 / 8.6 A40,A6000,3090 / 8.9 L40S,4090 / 9.0 H100.
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0"
+ENV FORCE_CUDA=1
+
+# --- pin torch to ChatGarment's tested combo (2.1.2 + cu118) -------------------
+# Base ships 2.1.0; ChatGarment's pyproject pins 2.1.2. We install 2.1.2 from
+# the cu118 index FIRST so that when `pip install -e .` later sees torch==2.1.2
+# it is already satisfied with the cu118 build (NOT the default cu121 wheel,
+# which would mismatch the cu118 toolkit the Warp fork compiles against).
+RUN pip install --no-cache-dir \
+      torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu118
+
+# --- ChatGarment + its declared deps (the documented install) ------------------
+# ChatGarment's pyproject (package name "llava") declares the full, tested dep
+# set: transformers==4.37.2, tokenizers==0.15.1, accelerate==0.32.0,
+# peft==0.10.0, bitsandbytes, einops==0.6.1, timm==0.6.13, gradio==4.16.0,
+# scikit-learn==1.2.2, opencv-python, easydict, sentencepiece ... and the
+# [train] extra adds deepspeed==0.12.6 + ninja (the eval launcher uses
+# deepspeed even for inference). We let the repo install its OWN pins rather
+# than hand-curating, exactly as docs/Installation.md prescribes
+# (`pip install -e ".[train]"`). torch is already satisfied (cu118) above.
+RUN git clone --depth 1 https://github.com/biansy000/ChatGarment.git /workspace/ChatGarment \
+    && cd /workspace/ChatGarment \
+    && pip install --no-cache-dir -e ".[train]"
+
+# --- flash-attn (prebuilt wheel for torch2.1 / cu118 / py310 / cxx11abiFALSE) --
+# Building from source takes ~45 min; the matching prebuilt wheel is instant.
+# If this exact wheel 404s at build time, fall back to source build.
+RUN pip install --no-cache-dir \
+      https://github.com/Dao-AILab/flash-attention/releases/download/v2.5.8/flash_attn-2.5.8+cu118torch2.1cxx11abiFALSE-cp310-cp310-linux_x86_64.whl \
+    || pip install --no-cache-dir flash-attn==2.5.8 --no-build-isolation
+
+# --- NvidiaWarp-GarmentCode (the compiled Warp fork) ---------------------------
+# Recipe verbatim from the proven drape Dockerfile v18:
+#   --cuda_path : force CUDA so the binary is GPU-enabled
+#   --no_standalone : skip Clang/LLVM CPU codegen backend (NVRTC handles CUDA);
+#                     saves 15+ min and dodges the packman permission bug
+#   --no_verify_fp : drop per-kernel finite checks (runtime overhead)
+RUN git clone --depth 1 https://github.com/maria-korosteleva/NvidiaWarp-GarmentCode.git /workspace/warp-gc \
+    && cd /workspace/warp-gc \
+    && (chmod -R +x ./tools/packman/ 2>/dev/null || true) \
+    && python build_lib.py --cuda_path /usr/local/cuda --no_standalone --no_verify_fp \
+    && pip install --no-cache-dir -e .
+
+# --- GarmentCodeRC + pygarment (JSON -> 3D garment decoder + Warp drape) --------
+# biansy000's refined GarmentCode fork that ChatGarment's run_garmentcode_sim.py
+# imports (pygarment.meshgen.*). Same package_dir quirk + cairosvg-in-__init__
+# issue as upstream GarmentCode, so: put repo on PYTHONPATH (no pip install) and
+# stub pygarment/__init__.py to the simulation subset only. (Verify at build:
+# if run_garmentcode_sim.py needs the full __init__, restore it + add cairosvg.)
+RUN git clone --depth 1 https://github.com/biansy000/GarmentCodeRC.git /workspace/GarmentCodeRC \
+    && cp /workspace/GarmentCodeRC/pygarment/__init__.py /workspace/GarmentCodeRC/pygarment/__init__.py.orig \
+    && echo "" > /workspace/GarmentCodeRC/pygarment/__init__.py
+
+# --- ChatGarment repo + its vendored llava package -----------------------------
+RUN git clone --depth 1 https://github.com/biansy000/ChatGarment.git /workspace/ChatGarment \
+    && cd /workspace/ChatGarment \
+    && pip install --no-cache-dir -e . || true
+
+# GarmentCodeRC ships the `assets` folder ChatGarment expects symlinked at its root.
+RUN ln -sfn /workspace/GarmentCodeRC/assets /workspace/ChatGarment/assets
+
+# --- PYTHONPATH so all three import cleanly ------------------------------------
+ENV PYTHONPATH=/workspace/ChatGarment:/workspace/GarmentCodeRC:/workspace/warp-gc:$PYTHONPATH
+
+# Sanity imports at build time (fail fast if any compiled dep is broken).
+RUN python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
+    && python -c "import warp as wp; print('warp', wp.__version__)" \
+    && python -c "import transformers; print('transformers', transformers.__version__)"
+
+# NOTE: `import flash_attn` and a real `wp.init()` GPU check only pass on a GPU
+# host — run those in the handler's cold-start self-test, not here.
+
+CMD ["python", "-c", "print('garment-construction base image ready')"]

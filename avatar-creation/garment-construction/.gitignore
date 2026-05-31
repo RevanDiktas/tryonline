@@ -1,0 +1,10 @@
+# never commit model weights (14+ GB) or job scratch
+weights/
+jobs/
+*.bin
+*.pth
+__pycache__/
+
+# macOS cruft from the external disk
+._*
+.DS_Store
