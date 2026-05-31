@@ -111,8 +111,12 @@ ENV PYTHONPATH=/workspace/ChatGarment:/workspace/GarmentCodeRC:/workspace/warp-g
 # download/upload helpers. tensorboard: the ChatGarment eval script creates a
 # SummaryWriter when launched via deepspeed (local_rank==0), so torch.utils.
 # tensorboard needs the tensorboard package present (verified from source).
-RUN pip install --no-cache-dir runpod requests rembg tensorboard \
-    || pip install --no-cache-dir runpod requests tensorboard
+RUN pip install --no-cache-dir runpod requests rembg tensorboard hf_transfer \
+    || pip install --no-cache-dir runpod requests tensorboard hf_transfer
+
+# Accelerate the cold-start weight downloads (LLaVA-7B + CLIP + the 14GB
+# checkpoint) with the rust multipart transfer backend.
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
 
 # Sanity imports at build time (fail fast if any compiled dep is broken).
 # NOTE: `import flash_attn` and a real `wp.init()` GPU check only pass on a GPU
