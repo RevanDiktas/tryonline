@@ -87,6 +87,11 @@ WORK_ROOT = Path(os.environ.get("GARMENT_WORK_ROOT", "/workspace/jobs"))
 # CHATGARMENT_ROOT/checkpoints/<EXP_NAME>/pytorch_model.bin. We back that dir with
 # the network volume (see setup_storage) so the 14GB persists across cold starts.
 EXP_NAME = "try_7b_lr1e_4_v3_garmentcontrol_4h100_v4_final"
+# Checkpoint host: a PRIVATE Hugging Face repo (DC-independent, big-file native,
+# fast CDN). Set CHATGARMENT_CKPT_HF_REPO + HF_TOKEN on the endpoint. The legacy
+# plain-GET CHATGARMENT_CKPT_URL still works as a fallback.
+CHATGARMENT_CKPT_HF_REPO = os.environ.get("CHATGARMENT_CKPT_HF_REPO", "")
+CHATGARMENT_CKPT_HF_FILE = os.environ.get("CHATGARMENT_CKPT_HF_FILE", "pytorch_model.bin")
 CHATGARMENT_CKPT_URL = os.environ.get("CHATGARMENT_CKPT_URL", "")
 CHATGARMENT_CKPT_DIR = CHATGARMENT_ROOT / "checkpoints" / EXP_NAME
 CHATGARMENT_CKPT_PATH = CHATGARMENT_CKPT_DIR / "pytorch_model.bin"
@@ -192,11 +197,44 @@ def ensure_chatgarment_checkpoint() -> bool:
     if CHATGARMENT_CKPT_PATH.exists() and CHATGARMENT_CKPT_PATH.stat().st_size > 10 << 30:
         log(f"checkpoint present ({CHATGARMENT_CKPT_PATH.stat().st_size >> 30} GB)")
         return True
+
+    CHATGARMENT_CKPT_DIR.mkdir(parents=True, exist_ok=True)
+    t0 = time.time()
+
+    # Preferred path: pull from the private HF repo (resumable, CDN-backed).
+    if CHATGARMENT_CKPT_HF_REPO:
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError:
+            log("ERROR: huggingface_hub not importable for HF checkpoint download")
+            return False
+        log(f"downloading checkpoint from HF {CHATGARMENT_CKPT_HF_REPO}/{CHATGARMENT_CKPT_HF_FILE} ...")
+        try:
+            got = Path(hf_hub_download(
+                repo_id=CHATGARMENT_CKPT_HF_REPO,
+                filename=CHATGARMENT_CKPT_HF_FILE,
+                token=os.environ.get("HF_TOKEN") or None,
+                local_dir=str(CHATGARMENT_CKPT_DIR),
+            ))
+        except Exception as e:
+            log(f"ERROR: HF checkpoint download failed: {e}")
+            return False
+        # hf_hub_download(local_dir=...) lands the file at local_dir/<filename>;
+        # normalize to pytorch_model.bin if the repo filename differs.
+        if got != CHATGARMENT_CKPT_PATH and got.exists():
+            shutil.move(str(got), str(CHATGARMENT_CKPT_PATH))
+        sz = CHATGARMENT_CKPT_PATH.stat().st_size
+        log(f"checkpoint downloaded: {sz >> 30} GB in {time.time()-t0:.0f}s")
+        if sz < 10 << 30:
+            log("ERROR: checkpoint smaller than expected (>10 GB) — corrupt?")
+            return False
+        return True
+
+    # Fallback path: plain-GET URL.
     if not CHATGARMENT_CKPT_URL:
-        log("ERROR: CHATGARMENT_CKPT_URL not set and checkpoint missing")
+        log("ERROR: neither CHATGARMENT_CKPT_HF_REPO nor CHATGARMENT_CKPT_URL set; checkpoint missing")
         return False
     log(f"downloading checkpoint -> {CHATGARMENT_CKPT_PATH} ...")
-    t0 = time.time()
     ok = download_file(CHATGARMENT_CKPT_URL, CHATGARMENT_CKPT_PATH, timeout=3600)
     if ok:
         sz = CHATGARMENT_CKPT_PATH.stat().st_size
