@@ -108,9 +108,11 @@ ENV PYTHONPATH=/workspace/ChatGarment:/workspace/GarmentCodeRC:/workspace/warp-g
 
 # --- handler-only runtime deps (pure-python, no compile) -----------------------
 # rembg pulls onnxruntime (CPU) — fine. runpod = serverless SDK; requests =
-# download/upload helpers.
-RUN pip install --no-cache-dir runpod requests rembg \
-    || pip install --no-cache-dir runpod requests
+# download/upload helpers. tensorboard: the ChatGarment eval script creates a
+# SummaryWriter when launched via deepspeed (local_rank==0), so torch.utils.
+# tensorboard needs the tensorboard package present (verified from source).
+RUN pip install --no-cache-dir runpod requests rembg tensorboard \
+    || pip install --no-cache-dir runpod requests tensorboard
 
 # Sanity imports at build time (fail fast if any compiled dep is broken).
 # NOTE: `import flash_attn` and a real `wp.init()` GPU check only pass on a GPU

@@ -79,10 +79,22 @@ CHATGARMENT_ROOT = Path(os.environ.get("CHATGARMENT_ROOT", "/workspace/ChatGarme
 GARMENTCODERC_ROOT = Path(os.environ.get("GARMENTCODERC_ROOT", "/workspace/GarmentCodeRC"))
 WORK_ROOT = Path(os.environ.get("GARMENT_WORK_ROOT", "/workspace/jobs"))
 
-# Checkpoint: mirrored off SharePoint to a bucket we control. Runtime-download.
+# ChatGarment loads weights from a HARDCODED relative path (verified from source
+# scripts/evaluate_garment_v2_imggen_1float.py:183):
+#     checkpoints/try_7b_lr1e_4_v3_garmentcontrol_4h100_v4_final/pytorch_model.bin
+# resolved against the process CWD (= CHATGARMENT_ROOT, which is where we run the
+# eval subprocess from). No CLI/env arg controls it. So the file MUST appear at
+# CHATGARMENT_ROOT/checkpoints/<EXP_NAME>/pytorch_model.bin. We back that dir with
+# the network volume (see setup_storage) so the 14GB persists across cold starts.
+EXP_NAME = "try_7b_lr1e_4_v3_garmentcontrol_4h100_v4_final"
 CHATGARMENT_CKPT_URL = os.environ.get("CHATGARMENT_CKPT_URL", "")
-CHATGARMENT_CKPT_DIR = CHATGARMENT_ROOT / "checkpoints" / "try_7b_lr1e_4_v3_garmentcontrol_4h100_v4_final"
+CHATGARMENT_CKPT_DIR = CHATGARMENT_ROOT / "checkpoints" / EXP_NAME
 CHATGARMENT_CKPT_PATH = CHATGARMENT_CKPT_DIR / "pytorch_model.bin"
+
+# RunPod serverless mounts the network volume here. We route the ~31GB of model
+# weights (LLaVA-7B base, CLIP, the ChatGarment checkpoint) onto it so they
+# persist across cold starts and don't overflow the 40GB container disk.
+VOLUME_ROOT = Path(os.environ.get("GARMENT_VOLUME_ROOT", "/runpod-volume"))
 
 # Base LLM + vision tower (HF; cached on the RunPod network volume across calls)
 LLAVA_BASE = os.environ.get("LLAVA_BASE", "liuhaotian/llava-v1.5-7b")
@@ -131,6 +143,44 @@ def download_file(url: str, dest: Path, timeout: int = 600) -> bool:
 # =============================================================================
 # STEP 0 — ensure model weights present (cold-start bootstrap, _ensure_* pattern)
 # =============================================================================
+def setup_storage():
+    """Route heavy weights onto the network volume so they persist across cold
+    starts and don't fill the 40GB container disk.
+
+    - HF cache (LLaVA-7B ~14GB + CLIP ~1.7GB) -> <volume>/hf via HF_HOME.
+    - ChatGarment checkpoints dir -> <volume>/chatgarment/checkpoints by
+      symlinking CHATGARMENT_ROOT/checkpoints. The eval script reads the
+      hardcoded relative path checkpoints/<EXP_NAME>/pytorch_model.bin, so the
+      symlink makes the volume-resident file visible at that exact path (and the
+      runtime --output_dir under checkpoints/ also lands on the volume).
+
+    Idempotent: safe to call every cold start. No-op (container disk only) if no
+    volume is mounted, with a warning that weights won't persist.
+    """
+    if not VOLUME_ROOT.exists():
+        log(f"no network volume at {VOLUME_ROOT}; using container disk "
+            f"(weights re-download every cold start)")
+        return
+
+    hf = VOLUME_ROOT / "hf"
+    hf.mkdir(parents=True, exist_ok=True)
+    os.environ["HF_HOME"] = str(hf)
+    os.environ["HUGGINGFACE_HUB_CACHE"] = str(hf / "hub")
+    os.environ["TRANSFORMERS_CACHE"] = str(hf / "hub")
+
+    vol_ck = VOLUME_ROOT / "chatgarment" / "checkpoints"
+    vol_ck.mkdir(parents=True, exist_ok=True)
+    link = CHATGARMENT_ROOT / "checkpoints"
+    if link.is_symlink():
+        pass  # warm worker, already linked
+    elif not link.exists():
+        link.symlink_to(vol_ck, target_is_directory=True)
+        log(f"linked {link} -> {vol_ck}")
+    else:
+        log(f"WARN: {link} exists as a real dir; checkpoint will NOT persist on "
+            f"the volume (re-downloads each cold start)")
+
+
 def ensure_chatgarment_checkpoint() -> bool:
     """Download the ChatGarment LoRA-merged checkpoint from our mirror if absent.
 
@@ -226,7 +276,12 @@ def run_chatgarment_inference(image_paths: list, job_dir: Path) -> Path:
     that contains vis_new/all_json_spec_files.json. Raises on hard failure."""
     import subprocess
 
-    img_folder = job_dir / "input_imgs"
+    # The eval script derives the output run-folder name from the basename of
+    # --data_path_eval (<dataset>_img_recon). Use the unique job name so
+    # concurrent / repeated requests on a warm worker don't collide in runs/.
+    # (Avoid the literal 'img'/'imgs', which the script special-cases.)
+    ds_name = job_dir.name
+    img_folder = job_dir / ds_name
     img_folder.mkdir(parents=True, exist_ok=True)
     for i, p in enumerate(image_paths):
         ext = Path(p).suffix or ".jpg"
@@ -272,11 +327,25 @@ def run_chatgarment_inference(image_paths: list, job_dir: Path) -> Path:
         log("STEP 1 stderr tail:\n" + "\n".join(proc.stderr.splitlines()[-40:]))
         raise RuntimeError("ChatGarment inference failed")
 
-    # locate the produced all_json_spec_files.json under the job dir
-    hits = list(job_dir.rglob("vis_new/all_json_spec_files.json"))
-    if not hits:
-        raise RuntimeError("ChatGarment produced no all_json_spec_files.json")
-    run_folder = hits[0].parent.parent
+    # The eval script writes outputs to ./runs/<EXP_NAME>/<dataset>_img_recon/
+    # (relative to CWD = CHATGARMENT_ROOT), NOT under --output_dir and NOT under
+    # our job_dir. Verified from source (evaluate_garment_v2_imggen_1float.py
+    # :188-259). Prefer the exact expected path; fall back to the freshest match
+    # under runs/ (handles any log_base_dir / dataset-name surprise).
+    runs_root = CHATGARMENT_ROOT / "runs"
+    expected = runs_root / EXP_NAME / f"{ds_name}_img_recon" / "vis_new" / "all_json_spec_files.json"
+    if expected.exists():
+        run_folder = expected.parent.parent
+    else:
+        hits = sorted(runs_root.rglob("vis_new/all_json_spec_files.json"),
+                      key=lambda p: p.stat().st_mtime) if runs_root.exists() else []
+        if not hits:
+            log("STEP 1 stdout tail:\n" + "\n".join(proc.stdout.splitlines()[-40:]))
+            raise RuntimeError(
+                f"ChatGarment produced no all_json_spec_files.json under {runs_root} "
+                f"(expected {expected})")
+        run_folder = hits[-1].parent.parent
+        log(f"STEP 1 expected path absent; using freshest match")
     log(f"STEP 1 run folder: {run_folder}")
     return run_folder
 
@@ -453,6 +522,7 @@ def handler(event: dict) -> dict:
     job_dir.mkdir(parents=True, exist_ok=True)
     try:
         # STEP 0 — bootstrap
+        setup_storage()  # route weights onto the network volume BEFORE any download
         if not ensure_chatgarment_checkpoint():
             return {"success": False, "error": "checkpoint unavailable"}
         ensure_garmentcode_system_json()
