@@ -368,8 +368,9 @@ def run_chatgarment_inference(image_paths: list, job_dir: Path) -> Path:
                           capture_output=True, text=True)
     log(f"STEP 1 finished in {time.time()-t0:.0f}s rc={proc.returncode}")
     if proc.returncode != 0:
-        log("STEP 1 stderr tail:\n" + "\n".join(proc.stderr.splitlines()[-40:]))
-        raise RuntimeError("ChatGarment inference failed")
+        tail = "\n".join(proc.stderr.splitlines()[-40:])
+        log("STEP 1 stderr tail:\n" + tail)
+        raise RuntimeError("ChatGarment inference failed:\n" + tail)
 
     # The eval script writes outputs to ./runs/<EXP_NAME>/<dataset>_img_recon/
     # (relative to CWD = CHATGARMENT_ROOT), NOT under --output_dir and NOT under
@@ -422,8 +423,9 @@ def run_garmentcode_sim(run_folder: Path) -> Path:
                           capture_output=True, text=True)
     log(f"STEP 2 finished in {time.time()-t0:.0f}s rc={proc.returncode}")
     if proc.returncode != 0:
-        log("STEP 2 stderr tail:\n" + "\n".join(proc.stderr.splitlines()[-40:]))
-        raise RuntimeError("GarmentCodeRC simulation failed")
+        tail = "\n".join(proc.stderr.splitlines()[-40:])
+        log("STEP 2 stderr tail:\n" + tail)
+        raise RuntimeError("GarmentCodeRC simulation failed:\n" + tail)
 
     # Find the draped sim OBJ. PathCofig writes <name>_sim.obj near the spec.
     # Prefer *_sim.obj; fall back to any new .obj with UV ('vt') lines.
@@ -617,8 +619,12 @@ def handler(event: dict) -> dict:
         return result
 
     except Exception as e:
-        log("HANDLER ERROR:\n" + traceback.format_exc())
+        tb = traceback.format_exc()
+        log("HANDLER ERROR:\n" + tb)
+        # Surface the failure detail in the JSON response (visible via /status
+        # output) so we can diagnose without scraping the worker console.
         return {"success": False, "error": str(e),
+                "error_detail": "\n".join(tb.splitlines()[-30:]),
                 "processing_time_seconds": round(time.time() - t_start, 1)}
     finally:
         # keep job_dir on failure for debugging; clean on success path is caller's choice

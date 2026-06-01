@@ -32,7 +32,7 @@ WORKDIR /workspace
 # Bump CACHEBUST to force a full clean rebuild (per "always push RunPod clean":
 # guarantees no stale layer hides). Leave unchanged for cheap handler-only
 # iteration — only the final COPY layer rebuilds then.
-ARG CACHEBUST=2026-06-01a
+ARG CACHEBUST=2026-06-01b
 
 # --- system build deps ---------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -96,9 +96,27 @@ RUN git clone --depth 1 https://github.com/maria-korosteleva/NvidiaWarp-GarmentC
 # issue as upstream GarmentCode, so: put repo on PYTHONPATH (no pip install) and
 # stub pygarment/__init__.py to the simulation subset only. (Verify at build: if
 # run_garmentcode_sim.py needs the full __init__, restore it + add cairosvg.)
-RUN git clone --depth 1 https://github.com/biansy000/GarmentCodeRC.git /workspace/GarmentCodeRC \
-    && cp /workspace/GarmentCodeRC/pygarment/__init__.py /workspace/GarmentCodeRC/pygarment/__init__.py.orig \
-    && echo "" > /workspace/GarmentCodeRC/pygarment/__init__.py
+RUN git clone --depth 1 https://github.com/biansy000/GarmentCodeRC.git /workspace/GarmentCodeRC
+
+# --- GarmentCodeRC runtime deps (its setup.cfg install_requires) ---------------
+# We clone + PYTHONPATH (NOT `pip install -e .`: its package_dir quirk + the CGAL
+# bindings make editable install fragile), so install its declared deps here.
+# An earlier image BLANKED pygarment/__init__.py to dodge a cairosvg import, but
+# ChatGarment's garment programs subclass `pyg.Panel`, so blanking broke STEP-1
+# (AttributeError: module 'pygarment' has no attribute 'Panel' -- verified on a
+# real GPU run 2026-06-01). Keep the real __init__ and supply its deps.
+# Import-time set verified from source: __init__ -> garmentcode/* + pattern/core
+# need numpy<2/scipy/svgpathtools/pyyaml; pattern.serialize() -> wrappers.py needs
+# cairosvg+svgwrite (libcairo2 system lib); meshgen/* needs igl/trimesh/matplotlib.
+RUN apt-get update && apt-get install -y --no-install-recommends libcairo2 \
+    && rm -rf /var/lib/apt/lists/* && apt-get clean
+RUN pip install --no-cache-dir \
+      pyyaml scipy svgwrite svgpathtools psutil matplotlib cairosvg trimesh libigl
+# CGAL bindings (panel triangulation in meshgen/triangulation_utils.py). The pip
+# wheel is unreliable and STEP-1 does NOT need it, so don't fail the build if it
+# is absent; STEP-2 triangulation gets a focused follow-up if this is missing.
+RUN pip install --no-cache-dir cgal \
+    || echo "WARN: cgal bindings unavailable; STEP-2 triangulation may need a follow-up"
 
 # GarmentCodeRC ships the `assets` folder ChatGarment expects symlinked at its root.
 RUN ln -sfn /workspace/GarmentCodeRC/assets /workspace/ChatGarment/assets
@@ -136,7 +154,8 @@ RUN python -c "import numpy; assert numpy.__version__.startswith('1.'), 'numpy g
     && python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
     && python -c "import warp as wp; print('warp', wp.__version__)" \
     && python -c "import transformers; print('transformers', transformers.__version__)" \
-    && python -c "import deepspeed; print('deepspeed', deepspeed.__version__)"
+    && python -c "import deepspeed; print('deepspeed', deepspeed.__version__)" \
+    && python -c "import pygarment as pyg; assert hasattr(pyg,'Panel'), 'pygarment __init__ missing Panel'; print('pygarment OK (Panel present)')"
 
 # --- handler (COPYed last so handler edits rebuild only this tiny layer) --------
 ENV GARMENT_BUILD=v0.1
