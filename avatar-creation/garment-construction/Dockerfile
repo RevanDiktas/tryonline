@@ -112,11 +112,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends libcairo2 \
     && rm -rf /var/lib/apt/lists/* && apt-get clean
 RUN pip install --no-cache-dir \
       pyyaml scipy svgwrite svgpathtools psutil matplotlib cairosvg trimesh libigl
-# CGAL bindings (panel triangulation in meshgen/triangulation_utils.py). The pip
-# wheel is unreliable and STEP-1 does NOT need it, so don't fail the build if it
-# is absent; STEP-2 triangulation gets a focused follow-up if this is missing.
-RUN pip install --no-cache-dir cgal \
-    || echo "WARN: cgal bindings unavailable; STEP-2 triangulation may need a follow-up"
+# CGAL bindings: panel triangulation in meshgen/triangulation_utils.py is ON the
+# STEP-2 critical path (boxmeshgen.py:337 builds the box mesh with a Constrained
+# Delaunay triangulation). The `cgal` PyPI package ships a self-contained cp310
+# manylinux wheel (CGAL+GMP+MPFR+Boost bundled), so this is a hard install --
+# verified at build below by importing the exact symbols the code uses.
+RUN pip install --no-cache-dir cgal
+
+# pyrender is imported (and called) only to render UNUSED preview PNGs of the
+# draped garment (simulation.py:28 + :242). The draped OBJ is saved by
+# garment.save_frame() BEFORE that render call, so the renders are output we
+# never consume -- but the module-level import drags in the whole pyrender/EGL
+# GL stack, which is fragile on serverless GPUs and was the STEP-2 crash
+# (ModuleNotFoundError: pyrender, real GPU run 2026-06-01). render_images is the
+# ONLY name anything imports from pythonrender.py (verified across both repos),
+# so replace that module with a no-op stub: removes pyrender/EGL from the
+# critical path entirely while keeping the draped-OBJ output identical.
+RUN printf '%s\n' \
+    'def render_images(*args, **kwargs):' \
+    '    """STUB: preview rendering disabled (pyrender/EGL removed from the' \
+    '    serverless path). The draped OBJ is saved before this call, so the' \
+    '    construction output is unaffected; we do not use the preview PNGs."""' \
+    '    return None' \
+    > /workspace/GarmentCodeRC/pygarment/meshgen/render/pythonrender.py
 
 # GarmentCodeRC ships the `assets` folder ChatGarment expects symlinked at its root.
 RUN ln -sfn /workspace/GarmentCodeRC/assets /workspace/ChatGarment/assets
@@ -155,7 +173,10 @@ RUN python -c "import numpy; assert numpy.__version__.startswith('1.'), 'numpy g
     && python -c "import warp as wp; print('warp', wp.__version__)" \
     && python -c "import transformers; print('transformers', transformers.__version__)" \
     && python -c "import deepspeed; print('deepspeed', deepspeed.__version__)" \
-    && python -c "import pygarment as pyg; assert hasattr(pyg,'Panel'), 'pygarment __init__ missing Panel'; print('pygarment OK (Panel present)')"
+    && python -c "import pygarment as pyg; assert hasattr(pyg,'Panel'), 'pygarment __init__ missing Panel'; print('pygarment OK (Panel present)')" \
+    && python -c "import CGAL.CGAL_Kernel; from CGAL.CGAL_Mesh_2 import Mesh_2_Constrained_Delaunay_triangulation_2, Delaunay_mesh_size_criteria_2; from CGAL.CGAL_Triangulation_2 import Constrained_Delaunay_triangulation_2; print('CGAL OK (triangulation symbols present)')" \
+    && python -c "import pygarment.meshgen.boxmeshgen; print('STEP-2 boxmeshgen import OK (igl/trimesh/cairosvg/CGAL/texture chain)')" \
+    && python -c "import pygarment.meshgen.simulation; print('STEP-2 simulation import OK (warp + stubbed render, no pyrender)')"
 
 # --- handler (COPYed last so handler edits rebuild only this tiny layer) --------
 ENV GARMENT_BUILD=v0.1
