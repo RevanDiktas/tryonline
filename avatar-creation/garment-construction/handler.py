@@ -130,9 +130,15 @@ def download_file(url: str, dest: Path, timeout: int = 600) -> bool:
         except Exception as e:
             log(f"  local copy failed for {url}: {e}")
             return False
+    # Many image hosts/CDNs (Wikimedia, catbox, some Shopify/Supabase edge
+    # configs) 403 the default "python-requests" UA. Send a browser-like UA so
+    # merchant-supplied URLs from arbitrary hosts download reliably.
+    headers = {"User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/124.0 Safari/537.36")}
     for attempt in range(3):
         try:
-            with requests.get(url, stream=True, timeout=timeout) as r:
+            with requests.get(url, stream=True, timeout=timeout, headers=headers) as r:
                 r.raise_for_status()
                 with open(dest, "wb") as f:
                     for chunk in r.iter_content(chunk_size=8 << 20):

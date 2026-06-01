@@ -32,7 +32,7 @@ WORKDIR /workspace
 # Bump CACHEBUST to force a full clean rebuild (per "always push RunPod clean":
 # guarantees no stale layer hides). Leave unchanged for cheap handler-only
 # iteration — only the final COPY layer rebuilds then.
-ARG CACHEBUST=2026-05-31a
+ARG CACHEBUST=2026-06-01a
 
 # --- system build deps ---------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -114,6 +114,17 @@ ENV PYTHONPATH=/workspace/ChatGarment:/workspace/GarmentCodeRC:/workspace/warp-g
 RUN pip install --no-cache-dir runpod requests rembg tensorboard hf_transfer \
     || pip install --no-cache-dir runpod requests tensorboard hf_transfer
 
+# --- pin numpy<2 LAST (authoritative) ------------------------------------------
+# The base image + torch 2.1.2 are compiled against numpy 1.x, and deepspeed
+# 0.12.6's autotuning/scheduler.py does `from numpy import BUFSIZE`, which was
+# REMOVED in numpy 2.0. One of the installs above (rembg/onnxruntime/tensorboard
+# transitive) pulls numpy 2.2.6, which silently breaks torch (UserWarning) and
+# HARD-breaks the deepspeed launcher the ChatGarment eval uses
+# (ImportError: cannot import name 'BUFSIZE'). Force numpy back to the last 1.x
+# release as the FINAL pip step so nothing can re-bump it. Verified from a real
+# GPU run log (2026-06-01): numpy 2.2.6 present -> STEP-1 inference failed.
+RUN pip install --no-cache-dir "numpy==1.26.4"
+
 # Accelerate the cold-start weight downloads (LLaVA-7B + CLIP + the 14GB
 # checkpoint) with the rust multipart transfer backend.
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
@@ -121,9 +132,11 @@ ENV HF_HUB_ENABLE_HF_TRANSFER=1
 # Sanity imports at build time (fail fast if any compiled dep is broken).
 # NOTE: `import flash_attn` and a real `wp.init()` GPU check only pass on a GPU
 # host — those run in the handler's cold-start self-test, not here.
-RUN python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
+RUN python -c "import numpy; assert numpy.__version__.startswith('1.'), 'numpy got bumped to '+numpy.__version__; print('numpy', numpy.__version__)" \
+    && python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
     && python -c "import warp as wp; print('warp', wp.__version__)" \
-    && python -c "import transformers; print('transformers', transformers.__version__)"
+    && python -c "import transformers; print('transformers', transformers.__version__)" \
+    && python -c "import deepspeed; print('deepspeed', deepspeed.__version__)"
 
 # --- handler (COPYed last so handler edits rebuild only this tiny layer) --------
 ENV GARMENT_BUILD=v0.1
