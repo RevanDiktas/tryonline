@@ -342,9 +342,18 @@ def run_chatgarment_inference(image_paths: list, job_dir: Path) -> Path:
     out_dir = job_dir / "cg_run"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Replicate ChatGarment's OWN launcher verbatim
+    # (scripts/v1_5/evaluate_garment_v2_imggen_2step.sh). The eval script asserts
+    # on several TrainingArguments (gradient_checkpointing, etc.) and reads many
+    # others, so a hand-picked subset fails (verified on real GPU run 2026-06-01:
+    # `assert training_args.gradient_checkpointing` tripped). Only deviations from
+    # the .sh: --data_path_eval (our per-job img folder), --output_dir (our dir),
+    # and --report_to none (the .sh uses wandb, which we have no creds for; the
+    # script still writes results to ./runs via the hardcoded log_base_dir).
     cmd = [
         "deepspeed", "scripts/evaluate_garment_v2_imggen_1float.py",
         "--lora_enable", "True", "--lora_r", "128", "--lora_alpha", "256",
+        "--mm_projector_lr", "2e-5",
         "--deepspeed", "./scripts/zero2.json",
         "--model_name_or_path", LLAVA_BASE,
         "--version", "v1",
@@ -357,9 +366,27 @@ def run_chatgarment_inference(image_paths: list, job_dir: Path) -> Path:
         "--mm_use_im_start_end", "False",
         "--mm_use_im_patch_token", "False",
         "--image_aspect_ratio", "pad",
+        "--group_by_modality_length", "True",
         "--bf16", "True",
         "--output_dir", str(out_dir),
+        "--num_train_epochs", "1",
+        "--per_device_train_batch_size", "16",
+        "--per_device_eval_batch_size", "4",
+        "--gradient_accumulation_steps", "1",
+        "--evaluation_strategy", "no",
+        "--save_strategy", "steps",
+        "--save_steps", "50000",
+        "--save_total_limit", "1",
+        "--learning_rate", "2e-4",
+        "--weight_decay", "0.",
+        "--warmup_ratio", "0.03",
+        "--lr_scheduler_type", "cosine",
+        "--logging_steps", "1",
+        "--tf32", "True",
         "--model_max_length", "3072",
+        "--gradient_checkpointing", "True",
+        "--dataloader_num_workers", "4",
+        "--lazy_preprocess", "True",
         "--report_to", "none",
     ]
     log(f"STEP 1: ChatGarment inference on {len(image_paths)} image(s)")
