@@ -110,8 +110,17 @@ RUN git clone --depth 1 https://github.com/biansy000/GarmentCodeRC.git /workspac
 # cairosvg+svgwrite (libcairo2 system lib); meshgen/* needs igl/trimesh/matplotlib.
 RUN apt-get update && apt-get install -y --no-install-recommends libcairo2 \
     && rm -rf /var/lib/apt/lists/* && apt-get clean
+# libigl is PINNED to 2.5.1 (last classic-API release). libigl 2.6.x is a
+# nanobind rewrite that changed return signatures: igl.facet_components(F) now
+# returns a (labels, counts) tuple instead of a flat per-face label array, so
+# meshgen/render/texture_utils.py:_uv_connected_components does
+# `max(face_components)+1` over a tuple-of-arrays -> "truth value of an array
+# with more than one element is ambiguous" (verified on a real GPU run
+# 2026-06-01, and reproduced locally: 2.5.1 returns a flat (#F,) array, 2.6.2
+# does not). All 5 igl calls the meshgen graph uses (facet_components,
+# vertex_components, boundary_loop, read/write_triangle_mesh) exist in 2.5.1.
 RUN pip install --no-cache-dir \
-      pyyaml scipy svgwrite svgpathtools psutil matplotlib cairosvg trimesh libigl
+      pyyaml scipy svgwrite svgpathtools psutil matplotlib cairosvg trimesh "libigl==2.5.1"
 # CGAL bindings: panel triangulation in meshgen/triangulation_utils.py is ON the
 # STEP-2 critical path (boxmeshgen.py:337 builds the box mesh with a Constrained
 # Delaunay triangulation). The `cgal` PyPI package ships a self-contained cp310
@@ -164,6 +173,10 @@ RUN pip install --no-cache-dir "numpy==1.26.4"
 # Accelerate the cold-start weight downloads (LLaVA-7B + CLIP + the 14GB
 # checkpoint) with the rust multipart transfer backend.
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
+# Force matplotlib's headless backend: GarmentCodeRC's UV-island texture step
+# (texture_utils.create_UV_island_texture -> plt.savefig) runs during STEP-2
+# serialize on a worker with no display.
+ENV MPLBACKEND=Agg
 
 # Sanity imports at build time (fail fast if any compiled dep is broken).
 # NOTE: `import flash_attn` and a real `wp.init()` GPU check only pass on a GPU
@@ -175,6 +188,7 @@ RUN python -c "import numpy; assert numpy.__version__.startswith('1.'), 'numpy g
     && python -c "import deepspeed; print('deepspeed', deepspeed.__version__)" \
     && python -c "import pygarment as pyg; assert hasattr(pyg,'Panel'), 'pygarment __init__ missing Panel'; print('pygarment OK (Panel present)')" \
     && python -c "import CGAL.CGAL_Kernel; from CGAL.CGAL_Mesh_2 import Mesh_2_Constrained_Delaunay_triangulation_2, Delaunay_mesh_size_criteria_2; from CGAL.CGAL_Triangulation_2 import Constrained_Delaunay_triangulation_2; print('CGAL OK (triangulation symbols present)')" \
+    && python -c "import importlib.metadata as m, numpy as np, igl; v=m.version('libigl'); assert v=='2.5.1', 'libigl must be 2.5.1 (classic API), got '+v; assert np.asarray(igl.facet_components(np.array([[0,1,2],[3,4,5]],dtype=np.int64))).ndim==1, 'facet_components not flat'; print('libigl', v, '(facet_components flat OK)')" \
     && python -c "import pygarment.meshgen.boxmeshgen; print('STEP-2 boxmeshgen import OK (igl/trimesh/cairosvg/CGAL/texture chain)')" \
     && python -c "import pygarment.meshgen.simulation; print('STEP-2 simulation import OK (warp + stubbed render, no pyrender)')"
 
