@@ -110,17 +110,8 @@ RUN git clone --depth 1 https://github.com/biansy000/GarmentCodeRC.git /workspac
 # cairosvg+svgwrite (libcairo2 system lib); meshgen/* needs igl/trimesh/matplotlib.
 RUN apt-get update && apt-get install -y --no-install-recommends libcairo2 \
     && rm -rf /var/lib/apt/lists/* && apt-get clean
-# libigl is PINNED to 2.5.1 (last classic-API release). libigl 2.6.x is a
-# nanobind rewrite that changed return signatures: igl.facet_components(F) now
-# returns a (labels, counts) tuple instead of a flat per-face label array, so
-# meshgen/render/texture_utils.py:_uv_connected_components does
-# `max(face_components)+1` over a tuple-of-arrays -> "truth value of an array
-# with more than one element is ambiguous" (verified on a real GPU run
-# 2026-06-01, and reproduced locally: 2.5.1 returns a flat (#F,) array, 2.6.2
-# does not). All 5 igl calls the meshgen graph uses (facet_components,
-# vertex_components, boundary_loop, read/write_triangle_mesh) exist in 2.5.1.
 RUN pip install --no-cache-dir \
-      pyyaml scipy svgwrite svgpathtools psutil matplotlib cairosvg trimesh "libigl==2.5.1"
+      pyyaml scipy svgwrite svgpathtools psutil matplotlib cairosvg trimesh libigl
 # CGAL bindings: panel triangulation in meshgen/triangulation_utils.py is ON the
 # STEP-2 critical path (boxmeshgen.py:337 builds the box mesh with a Constrained
 # Delaunay triangulation). The `cgal` PyPI package ships a self-contained cp310
@@ -169,6 +160,18 @@ RUN pip install --no-cache-dir runpod requests rembg tensorboard hf_transfer \
 # release as the FINAL pip step so nothing can re-bump it. Verified from a real
 # GPU run log (2026-06-01): numpy 2.2.6 present -> STEP-1 inference failed.
 RUN pip install --no-cache-dir "numpy==1.26.4"
+
+# Downgrade libigl to the classic API (2.5.1) as a LATE, tiny layer -- NOT by
+# editing the big pip-deps layer above (doing that invalidates + re-exports the
+# heavy handler-deps/onnxruntime layers and blew the 30-min build cap on a real
+# build 2026-06-01). libigl 2.6.x is a nanobind rewrite where
+# igl.facet_components(F) returns a (labels, counts) tuple instead of a flat
+# per-face label array, so meshgen/render/texture_utils.py does
+# `max(face_components)+1` over a tuple -> "truth value of an array with more
+# than one element is ambiguous" (real GPU run 2026-06-01; reproduced locally:
+# 2.5.1 returns flat (#F,), 2.6.2 does not). All 5 igl calls the meshgen graph
+# uses exist in 2.5.1. Verified at build below.
+RUN pip install --no-cache-dir "libigl==2.5.1"
 
 # Accelerate the cold-start weight downloads (LLaVA-7B + CLIP + the 14GB
 # checkpoint) with the rust multipart transfer backend.
