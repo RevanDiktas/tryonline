@@ -432,7 +432,31 @@ def run_chatgarment_inference(image_paths: list, job_dir: Path) -> Path:
 #   the spec's own folder. Output naming follows PathCofig (in_name = stem minus
 #   trailing _<word>); the draped sim mesh lands as <name>_sim.obj.
 
-def run_garmentcode_sim(run_folder: Path) -> Path:
+def _select_garment_obj(candidates: list, garment_type_hint: str) -> Path:
+    """ChatGarment may drape several components (upper/lower/wholebody) for one
+    photo. Pick the one matching the garment type instead of blindly taking the
+    last (which gave us the trousers of a predicted outfit for a t-shirt photo,
+    2026-06-01). Falls back to the largest mesh if nothing matches the hint."""
+    hint = (garment_type_hint or "").lower()
+    TOPS = ("shirt", "tshirt", "t-shirt", "tee", "hoodie", "sweater", "sweat",
+            "top", "jacket", "blouse", "polo", "coat")
+    BOTTOMS = ("pants", "trouser", "short", "skirt", "jeans", "legging")
+    def name(p): return p.name.lower()
+    if any(h in hint for h in TOPS):
+        want = ("upper", "wholebody", "whole")
+    elif any(h in hint for h in BOTTOMS):
+        want = ("lower",)
+    else:
+        want = ("wholebody", "whole", "upper")  # default: prefer a full/upper garment
+    for key in want:
+        hits = [c for c in candidates if key in name(c)]
+        if hits:
+            return max(hits, key=lambda p: p.stat().st_size)
+    # no name match -> largest mesh (most complete garment)
+    return max(candidates, key=lambda p: p.stat().st_size)
+
+
+def run_garmentcode_sim(run_folder: Path, garment_type_hint: str = "") -> Path:
     """Invoke ChatGarment's run_garmentcode_sim.py over the run folder.
     Returns the path to the produced draped garment OBJ (with UVs)."""
     import subprocess
@@ -462,8 +486,9 @@ def run_garmentcode_sim(run_folder: Path) -> Path:
                       if b"vt " in p.read_bytes()[:200000]]
     if not candidates:
         raise RuntimeError("STEP 2 produced no draped OBJ with UVs")
-    obj = candidates[-1]
-    log(f"STEP 2 draped OBJ: {obj}")
+    log(f"STEP 2 produced {len(candidates)} garment(s): {[c.name for c in candidates]}")
+    obj = _select_garment_obj(candidates, garment_type_hint)
+    log(f"STEP 2 selected OBJ (hint={garment_type_hint!r}): {obj}")
     return obj
 
 
@@ -578,6 +603,48 @@ def upload_to_supabase(local: Path, dest_path: str, content_type: str) -> str:
 
 
 # =============================================================================
+# Diagnostics — snapshot the (ephemeral) ChatGarment run folder
+# =============================================================================
+def collect_run_artifacts(run_folder: Path) -> dict:
+    """What did ChatGarment actually predict, and what did STEP-2 drape?
+
+    ChatGarment is trained on full-outfit photos, so from a single garment shot
+    it often predicts a COMPLETE outfit (upperbody_garment + lowerbody_garment,
+    or a wholebody_garment). The parser then builds one spec per component and
+    STEP-2 drapes each into its own *_sim.obj. This returns the model's raw
+    prediction text + every draped garment (verts/faces + its 2D sewing-pattern
+    PNG, downscaled) so we can see which piece is which from one upload:false run.
+    """
+    diag = {"run_folder": str(run_folder), "model_predictions": [], "garments": []}
+    for txt in sorted(run_folder.rglob("output.txt")):
+        try:
+            diag["model_predictions"].append({
+                "path": str(txt.relative_to(run_folder)),
+                "text": txt.read_text(errors="ignore")[:6000],
+            })
+        except Exception:
+            pass
+    for obj in sorted(run_folder.rglob("*_sim.obj")):
+        try:
+            t = obj.read_text(errors="ignore")
+            entry = {"name": str(obj.relative_to(run_folder)),
+                     "verts": t.count("\nv "), "faces": t.count("\nf "),
+                     "has_uv": "vt " in t}
+            pats = list(obj.parent.rglob("*_pattern.png"))
+            if pats:
+                from PIL import Image
+                import io
+                im = Image.open(pats[0]); im.thumbnail((1024, 1024))
+                buf = io.BytesIO(); im.save(buf, "PNG")
+                entry["pattern_png_base64"] = base64.b64encode(buf.getvalue()).decode()
+                entry["pattern_file"] = pats[0].name
+            diag["garments"].append(entry)
+        except Exception as e:
+            diag["garments"].append({"name": str(obj), "error": str(e)})
+    return diag
+
+
+# =============================================================================
 # Main handler
 # =============================================================================
 def handler(event: dict) -> dict:
@@ -612,8 +679,8 @@ def handler(event: dict) -> dict:
         # STEP 1 — photo -> JSON (uses the first/best photo for geometry)
         run_folder = run_chatgarment_inference(local_imgs[:1], job_dir)
 
-        # STEP 2 — JSON -> draped OBJ + UV
-        garment_obj = run_garmentcode_sim(run_folder)
+        # STEP 2 — JSON -> draped OBJ + UV (pick the component matching the type)
+        garment_obj = run_garmentcode_sim(run_folder, (inp.get("garment_type_hint") or ""))
 
         # STEP 3 — texture extraction + bundle assembly
         bundle = build_texture_bundle(garment_obj, local_imgs, job_dir / "out", size)
@@ -626,6 +693,14 @@ def handler(event: dict) -> dict:
             "has_uv": bundle["has_uv"],
             "processing_time_seconds": round(time.time() - t_start, 1),
         }
+
+        # Diagnostics: what ChatGarment predicted + every draped garment + its
+        # 2D pattern image. On by default for non-upload (test) runs.
+        if inp.get("debug", not do_upload):
+            try:
+                result["diagnostics"] = collect_run_artifacts(run_folder)
+            except Exception as e:
+                result["diagnostics_error"] = str(e)
 
         if do_upload:
             base = f"{garment_id}/{size}"
