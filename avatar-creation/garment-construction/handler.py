@@ -482,51 +482,69 @@ def _reserialize_design(design: dict, name: str, dest_spec: Path):
         os.chdir(cwd0)
 
 
-def postprocess_specs(run_folder: Path):
+def postprocess_specs(run_folder: Path) -> list:
     """Floor shirt length + null phantom standing collars on every predicted
-    garment, in place, before STEP-2 drape. Per-garment non-fatal."""
+    garment, in place, before STEP-2 drape. Per-garment non-fatal. Returns a
+    per-garment report (surfaced in the response diagnostics) so the outcome is
+    visible without scraping worker logs."""
     import yaml
+    report = []
     spec_list = run_folder / "vis_new" / "all_json_spec_files.json"
     if not spec_list.exists():
         log("STEP 1.5: no all_json_spec_files.json; skipping corrections")
-        return
+        return [{"error": "all_json_spec_files.json missing"}]
     try:
         specs = json.loads(spec_list.read_text())
     except Exception as e:
         log(f"STEP 1.5: cannot read spec list ({e}); skipping")
-        return
+        return [{"error": f"spec list unreadable: {e}"}]
     for sp in specs:
         sp = sp.replace("validate_garment", "valid_garment")  # mirror run_garmentcode_sim.py:78
         spec_path = Path(sp)
+        # Paths in all_json_spec_files.json are RELATIVE to CHATGARMENT_ROOT (the
+        # eval uses log_base_dir='./runs'). STEP-2 resolves them via its subprocess
+        # cwd; we run in-process, so anchor them to CHATGARMENT_ROOT ourselves —
+        # otherwise design.yaml "goes missing" and no correction is applied.
+        if not spec_path.is_absolute():
+            spec_path = CHATGARMENT_ROOT / spec_path
         folder = spec_path.parent
         name = folder.name.replace("valid_garment_", "")
         dy = folder / "design.yaml"
+        rec = {"name": name}
         if not dy.exists():
-            log(f"STEP 1.5 [{name}]: design.yaml missing; leaving spec as-is")
-            continue
+            rec["status"] = f"design.yaml missing at {dy}"
+            log(f"STEP 1.5 [{name}]: {rec['status']}; leaving spec as-is")
+            report.append(rec); continue
         try:
             design = (yaml.safe_load(dy.read_text()) or {}).get("design")
             if not isinstance(design, dict):
-                log(f"STEP 1.5 [{name}]: no 'design' block; skip")
-                continue
+                rec["status"] = "no 'design' block"
+                report.append(rec); continue
             changed = []
             sh = design.get("shirt")
             if (isinstance(sh, dict) and isinstance(sh.get("length"), dict)
-                    and sh["length"].get("v") is not None
-                    and float(sh["length"]["v"]) < SHIRT_LENGTH_FLOOR_V):
-                changed.append(f"shirt.length {sh['length']['v']}->{SHIRT_LENGTH_FLOOR_V}")
-                sh["length"]["v"] = SHIRT_LENGTH_FLOOR_V
+                    and sh["length"].get("v") is not None):
+                rec["read_shirt_length_v"] = sh["length"]["v"]
+                if float(sh["length"]["v"]) < SHIRT_LENGTH_FLOOR_V:
+                    changed.append(f"shirt.length {sh['length']['v']}->{SHIRT_LENGTH_FLOOR_V}")
+                    sh["length"]["v"] = SHIRT_LENGTH_FLOOR_V
             st = (design.get("collar") or {}).get("component", {}).get("style")
             if isinstance(st, dict) and st.get("v") in STANDING_COLLAR_STYLES:
                 changed.append(f"collar.style {st['v']}->None")
                 st["v"] = None
             if not changed:
-                continue
+                rec["status"] = "no change needed"
+                report.append(rec); continue
             dy.write_text(yaml.dump({"design": design}))
             _reserialize_design(design, name, spec_path)
+            rec["status"] = "re-serialized"
+            rec["changed"] = changed
             log(f"STEP 1.5 [{name}]: {', '.join(changed)} (spec re-serialized)")
         except Exception as e:
+            rec["status"] = f"failed: {e}"
             log(f"STEP 1.5 [{name}]: correction failed, keeping original spec ({e})")
+        report.append(rec)
+    return report
 
 
 # =============================================================================
@@ -793,8 +811,8 @@ def handler(event: dict) -> dict:
 
         # STEP 1.5 — correct systematic prediction errors (crop-top length +
         # phantom standing collar) by editing design.yaml and re-serializing the
-        # baked spec, before the (paid) drape. Non-fatal.
-        postprocess_specs(run_folder)
+        # baked spec, before the (paid) drape. Non-fatal; report surfaced below.
+        step15_report = postprocess_specs(run_folder)
 
         # STEP 2 — JSON -> draped OBJ + UV (pick the component matching the type)
         garment_obj = run_garmentcode_sim(run_folder, (inp.get("garment_type_hint") or ""))
@@ -808,6 +826,7 @@ def handler(event: dict) -> dict:
             "size": size,
             "is_stub": False,
             "has_uv": bundle["has_uv"],
+            "step1_5": step15_report,
             "processing_time_seconds": round(time.time() - t_start, 1),
         }
 
