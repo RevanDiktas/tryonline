@@ -423,6 +423,113 @@ def run_chatgarment_inference(image_paths: list, job_dir: Path) -> Path:
 
 
 # =============================================================================
+# STEP 1.5 — correct systematic ChatGarment prediction errors before draping
+# =============================================================================
+# Two source-traced defects (verified 2026-06-02 against biansy000/ChatGarment +
+# GarmentCodeRC HEAD). Both are fixed by editing the per-garment design.yaml and
+# RE-SERIALIZING the spec: the serialized *_specification.json is geometry-baked
+# (concrete panel vertices/edges/stitches, no design params), so editing the JSON
+# directly is inert (pygarment/pattern/core.py serialize -> json.dump(self.spec)).
+#
+#   1. Crop-top tees. Shirt body length = design['shirt']['length']['v'] *
+#      body['waist_line'] (assets/garment_programs/tee.py:34). ChatGarment
+#      systematically under-predicts the length float (template default v=1.2 ->
+#      ~44cm; our Moncler tee came back v~1.38 -> 51cm crop-top). Floor it so a
+#      labelled shirt never drapes shorter than a normal tee. length range is
+#      [0.5,3.5] (assets/design_params/design_used.yaml).
+#
+#   2. Phantom standing collars. design['collar']['component']['style']='Turtle'
+#      makes GarmentCode build a real StraightBandPanel turtleneck band
+#      (collars.py Turtle) that is stitched on regardless of the crew f_collar/
+#      b_collar. Null the style so getattr(collars, str(style), NoPanelsCollar)
+#      (bodice.py:309) falls back to a plain neckline (collars has no 'None' attr).
+#
+# Non-fatal by design: any failure here logs and leaves the original spec, so a
+# post-process bug can never turn the working pipeline into a hard failure.
+
+SHIRT_LENGTH_FLOOR_V = 1.85          # ~68cm body on mean_all waist_line; tune on render
+STANDING_COLLAR_STYLES = ("Turtle", "SimpleLapel", "Hood2Panels")
+
+
+def _reserialize_design(design: dict, name: str, dest_spec: Path):
+    """Rebuild dest_spec from an edited `design` dict via GarmentCode's own
+    assembler (the same code path STEP-1 used successfully). Serializes into a
+    temp dir, then copies the produced *_specification.json over dest_spec — this
+    sidesteps guessing serialize()'s output-path/tag semantics. Runs in-process
+    so the numpy<2 atan2/pow shim at module top covers assembly()."""
+    cwd0 = os.getcwd()
+    try:
+        # assets.* / sub-component configs resolve relative to GarmentCodeRC root
+        os.chdir(str(GARMENTCODERC_ROOT))
+        from assets.garment_programs.meta_garment import MetaGarment
+        from assets.bodies.body_params import BodyParameters
+        body = BodyParameters(str(GARMENTCODERC_ROOT / "assets" / "bodies" / "mean_all.yaml"))
+        pat = MetaGarment("valid_garment", body, design).assembly()
+        tmp = dest_spec.parent / "_reserialized"
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True, exist_ok=True)
+        try:
+            pat.serialize(str(tmp), tag=name, to_subfolder=True,
+                          with_3d=False, with_text=False, view_ids=False)
+        except TypeError:  # older/newer serialize signature
+            pat.serialize(str(tmp), tag=name, to_subfolder=True)
+        produced = sorted(tmp.rglob("*_specification.json"),
+                          key=lambda p: p.stat().st_mtime)
+        if not produced:
+            raise RuntimeError("re-serialize produced no *_specification.json")
+        shutil.copy(str(produced[-1]), str(dest_spec))
+    finally:
+        os.chdir(cwd0)
+
+
+def postprocess_specs(run_folder: Path):
+    """Floor shirt length + null phantom standing collars on every predicted
+    garment, in place, before STEP-2 drape. Per-garment non-fatal."""
+    import yaml
+    spec_list = run_folder / "vis_new" / "all_json_spec_files.json"
+    if not spec_list.exists():
+        log("STEP 1.5: no all_json_spec_files.json; skipping corrections")
+        return
+    try:
+        specs = json.loads(spec_list.read_text())
+    except Exception as e:
+        log(f"STEP 1.5: cannot read spec list ({e}); skipping")
+        return
+    for sp in specs:
+        sp = sp.replace("validate_garment", "valid_garment")  # mirror run_garmentcode_sim.py:78
+        spec_path = Path(sp)
+        folder = spec_path.parent
+        name = folder.name.replace("valid_garment_", "")
+        dy = folder / "design.yaml"
+        if not dy.exists():
+            log(f"STEP 1.5 [{name}]: design.yaml missing; leaving spec as-is")
+            continue
+        try:
+            design = (yaml.safe_load(dy.read_text()) or {}).get("design")
+            if not isinstance(design, dict):
+                log(f"STEP 1.5 [{name}]: no 'design' block; skip")
+                continue
+            changed = []
+            sh = design.get("shirt")
+            if (isinstance(sh, dict) and isinstance(sh.get("length"), dict)
+                    and sh["length"].get("v") is not None
+                    and float(sh["length"]["v"]) < SHIRT_LENGTH_FLOOR_V):
+                changed.append(f"shirt.length {sh['length']['v']}->{SHIRT_LENGTH_FLOOR_V}")
+                sh["length"]["v"] = SHIRT_LENGTH_FLOOR_V
+            st = (design.get("collar") or {}).get("component", {}).get("style")
+            if isinstance(st, dict) and st.get("v") in STANDING_COLLAR_STYLES:
+                changed.append(f"collar.style {st['v']}->None")
+                st["v"] = None
+            if not changed:
+                continue
+            dy.write_text(yaml.dump({"design": design}))
+            _reserialize_design(design, name, spec_path)
+            log(f"STEP 1.5 [{name}]: {', '.join(changed)} (spec re-serialized)")
+        except Exception as e:
+            log(f"STEP 1.5 [{name}]: correction failed, keeping original spec ({e})")
+
+
+# =============================================================================
 # STEP 2 — GarmentCodeRC JSON -> draped 3D garment OBJ + UVs
 # =============================================================================
 # Verified from REFERENCE_run_garmentcode_sim.py:
@@ -548,20 +655,25 @@ def build_texture_bundle(garment_obj: Path, source_images: list,
                     (int(r * 255), int(g * 255), int(b * 255)))
     tex.save(tex_out)
 
-    # copy the OBJ, ensuring a single mtllib line points at our MTL basename
+    # copy the OBJ, ensuring a single mtllib line points at our MTL basename AND
+    # that every usemtl references the material name we actually declare. STEP-2
+    # ships the OBJ with `usemtl panels_texture`, which doesn't match our
+    # `newmtl fabric_{size}`, so the texture never binds in a viewer (confirmed
+    # 2026-06-02). Rewrite any existing usemtl to our name; if there is none,
+    # insert one before the first face.
     obj_txt = garment_obj.read_text()
-    obj_lines = [ln for ln in obj_txt.splitlines() if not ln.startswith("mtllib")]
-    has_usemtl = any(ln.startswith("usemtl") for ln in obj_lines)
+    obj_lines, inserted = [], False
+    for ln in obj_txt.splitlines():
+        if ln.startswith("mtllib"):
+            continue
+        if ln.startswith("usemtl"):
+            ln = f"usemtl {mtl_name}"
+            inserted = True
+        elif ln.startswith("f ") and not inserted:
+            obj_lines.append(f"usemtl {mtl_name}")
+            inserted = True
+        obj_lines.append(ln)
     header = [f"mtllib {mtl_out.name}"]
-    if not has_usemtl:
-        # insert a usemtl before the first face so the material binds
-        new_lines, inserted = [], False
-        for ln in obj_lines:
-            if ln.startswith("f ") and not inserted:
-                new_lines.append(f"usemtl {mtl_name}")
-                inserted = True
-            new_lines.append(ln)
-        obj_lines = new_lines
     obj_out.write_text("\n".join(header + obj_lines) + "\n")
 
     # MTL: basename map_Kd only (drape handler requires no absolute paths)
@@ -678,6 +790,11 @@ def handler(event: dict) -> dict:
 
         # STEP 1 — photo -> JSON (uses the first/best photo for geometry)
         run_folder = run_chatgarment_inference(local_imgs[:1], job_dir)
+
+        # STEP 1.5 — correct systematic prediction errors (crop-top length +
+        # phantom standing collar) by editing design.yaml and re-serializing the
+        # baked spec, before the (paid) drape. Non-fatal.
+        postprocess_specs(run_folder)
 
         # STEP 2 — JSON -> draped OBJ + UV (pick the component matching the type)
         garment_obj = run_garmentcode_sim(run_folder, (inp.get("garment_type_hint") or ""))
