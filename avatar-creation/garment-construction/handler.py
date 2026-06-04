@@ -444,11 +444,43 @@ def run_chatgarment_inference(image_paths: list, job_dir: Path) -> Path:
 #      b_collar. Null the style so getattr(collars, str(style), NoPanelsCollar)
 #      (bodice.py:309) falls back to a plain neckline (collars has no 'None' attr).
 #
+#   3. Waist-cropped fitted bodice (verified 2026-06-04: a crew-neck product photo
+#      came back a cropped V-neck). meta.upper='FittedShirt' builds a darted bodice
+#      BLOCK (bodice.py BodiceFront/BackHalf) whose length is HARDCODED to the waist
+#      line (max_len=waist_over_bust_line / length=waist_line); it never reads
+#      design['shirt']['length'], so the length floor (#1) is INERT and the result is
+#      an un-lengthenable crop top with bust/waist darts. Remap to the non-fitted
+#      'Shirt' (BodiceHalf fitted=False -> tee.TorsoFront/BackHalfPanel), whose length
+#      IS design['shirt']['length']['v'] * body['waist_line'] and which has no darts.
+#      The length floor then takes effect. Verified path: meta_garment.py uses
+#      globals()[design['meta']['upper']['v']]; 'Shirt' and 'FittedShirt' both live in
+#      bodice.py, FittedShirt just calls Shirt with fitted=True.
+#
+#   4. Wrong neckline. The neckline shape is globals()[design['collar']['f_collar']['v']]
+#      (collars.py:98). ChatGarment's low-level params contradict its own first-pass
+#      geometry description (predicted f_collar='VNeckHalf' for a photo it described as
+#      'crew neck' / 'round neckline'). The 2-step CoT description is the more reliable
+#      signal, so reconcile f_collar/b_collar against it.
+#
 # Non-fatal by design: any failure here logs and leaves the original spec, so a
 # post-process bug can never turn the working pipeline into a hard failure.
 
 SHIRT_LENGTH_FLOOR_V = 1.85          # ~68cm body on mean_all waist_line; tune on render
 STANDING_COLLAR_STYLES = ("Turtle", "SimpleLapel", "Hood2Panels")
+
+# Upper-garment programs whose torso length is hardcoded to the waist (bodice.py)
+# and which ignore design['shirt']['length']. Remap to the length-respecting,
+# dart-free equivalent so the length floor (#1) actually lengthens the garment.
+FITTED_TO_RELAXED_UPPER = {"FittedShirt": "Shirt"}
+
+# Neckline keyword (from ChatGarment's first-pass geometry description, lowercased)
+# -> (f_collar, b_collar) shape names in collars.py. First match wins; 'crew'/'round'
+# is checked before 'v' so 'round neckline' never falls through to the v-neck rule.
+NECKLINE_FROM_DESC = [
+    (("crew", "round", "circle", "scoop"), ("CircleNeckHalf", "CircleNeckHalf")),
+    (("v-neck", "v neck", "vneck"),        ("VNeckHalf", "CircleNeckHalf")),
+    (("square",),                          ("SquareNeckHalf", "SquareNeckHalf")),
+]
 
 
 def _reserialize_design(design: dict, name: str, dest_spec: Path):
@@ -482,11 +514,43 @@ def _reserialize_design(design: dict, name: str, dest_spec: Path):
         os.chdir(cwd0)
 
 
+def _neckline_from_description(run_folder: Path):
+    """Return (f_collar, b_collar) for the upper garment by reading ChatGarment's
+    first-pass geometry description from output.txt, or None. The description (the
+    high-level CoT BEFORE 'ASSISTANT:') is more reliable than the low-level collar
+    params, so we use it to reconcile the neckline. Non-fatal."""
+    try:
+        txts = list(run_folder.rglob("output.txt"))
+        if not txts:
+            return None
+        blob = txts[0].read_text(errors="ignore").lower()
+        # Keep only the question + geometry description; drop the param dump after
+        # the response marker 'assistant:' (which literally contains 'vneckhalf' etc.
+        # and would pollute). NOTE: split on 'assistant:' WITH the colon -- the prompt
+        # preamble ("artificial intelligence assistant. The assistant gives...")
+        # contains 'assistant' without a colon, and splitting on that truncates the
+        # description away.
+        desc = blob.split("assistant:", 1)[0]
+        # Narrow to the upper-garment segment so the lower garment can't match.
+        if "upperbody_garment" in desc:
+            start = desc.index("upperbody_garment")
+            end = desc.index("lowerbody_garment") if "lowerbody_garment" in desc[start:] \
+                else len(desc)
+            desc = desc[start:end]
+        for kws, shapes in NECKLINE_FROM_DESC:
+            if any(k in desc for k in kws):
+                return shapes
+    except Exception as e:
+        log(f"STEP 1.5: neckline-from-description parse failed ({e})")
+    return None
+
+
 def postprocess_specs(run_folder: Path) -> list:
-    """Floor shirt length + null phantom standing collars on every predicted
-    garment, in place, before STEP-2 drape. Per-garment non-fatal. Returns a
-    per-garment report (surfaced in the response diagnostics) so the outcome is
-    visible without scraping worker logs."""
+    """Correct systematic ChatGarment mispredictions in place before STEP-2 drape:
+    remap waist-cropped fitted programs, floor shirt length, null phantom standing
+    collars, reconcile the neckline against the model's own description. Per-garment
+    non-fatal. Returns a per-garment report (surfaced in the response diagnostics)
+    so the outcome is visible without scraping worker logs."""
     import yaml
     report = []
     spec_list = run_folder / "vis_new" / "all_json_spec_files.json"
@@ -498,6 +562,7 @@ def postprocess_specs(run_folder: Path) -> list:
     except Exception as e:
         log(f"STEP 1.5: cannot read spec list ({e}); skipping")
         return [{"error": f"spec list unreadable: {e}"}]
+    desc_neck = _neckline_from_description(run_folder)   # (f_collar, b_collar) or None
     for sp in specs:
         sp = sp.replace("validate_garment", "valid_garment")  # mirror run_garmentcode_sim.py:78
         spec_path = Path(sp)
@@ -521,6 +586,15 @@ def postprocess_specs(run_folder: Path) -> list:
                 rec["status"] = "no 'design' block"
                 report.append(rec); continue
             changed = []
+            # (3) Remap a waist-cropped fitted program to the length-respecting one
+            # BEFORE flooring length, so the floor (below) actually lengthens it.
+            up = (design.get("meta") or {}).get("upper")
+            if isinstance(up, dict) and up.get("v") in FITTED_TO_RELAXED_UPPER:
+                new_up = FITTED_TO_RELAXED_UPPER[up["v"]]
+                rec["read_upper"] = up["v"]
+                changed.append(f"meta.upper {up['v']}->{new_up}")
+                up["v"] = new_up
+            # (1) Floor shirt length (now effective for the relaxed Shirt program).
             sh = design.get("shirt")
             if (isinstance(sh, dict) and isinstance(sh.get("length"), dict)
                     and sh["length"].get("v") is not None):
@@ -528,10 +602,23 @@ def postprocess_specs(run_folder: Path) -> list:
                 if float(sh["length"]["v"]) < SHIRT_LENGTH_FLOOR_V:
                     changed.append(f"shirt.length {sh['length']['v']}->{SHIRT_LENGTH_FLOOR_V}")
                     sh["length"]["v"] = SHIRT_LENGTH_FLOOR_V
+            # (2) Null phantom standing collars.
             st = (design.get("collar") or {}).get("component", {}).get("style")
             if isinstance(st, dict) and st.get("v") in STANDING_COLLAR_STYLES:
                 changed.append(f"collar.style {st['v']}->None")
                 st["v"] = None
+            # (4) Reconcile neckline against ChatGarment's own description (uppers only).
+            col = design.get("collar")
+            has_upper = isinstance(up, dict) and up.get("v")
+            if (desc_neck and has_upper and isinstance(col, dict)
+                    and isinstance(col.get("f_collar"), dict)
+                    and isinstance(col.get("b_collar"), dict)):
+                fc, bc = desc_neck
+                rec["read_neckline"] = [col["f_collar"].get("v"), col["b_collar"].get("v")]
+                if [col["f_collar"].get("v"), col["b_collar"].get("v")] != [fc, bc]:
+                    changed.append(f"neckline {rec['read_neckline']}->[{fc},{bc}]")
+                    col["f_collar"]["v"] = fc
+                    col["b_collar"]["v"] = bc
             if not changed:
                 rec["status"] = "no change needed"
                 report.append(rec); continue
