@@ -621,29 +621,149 @@ def run_garmentcode_sim(run_folder: Path, garment_type_hint: str = "") -> Path:
 # STEP 3 — texture extraction onto the UV layout
 # =============================================================================
 # Scope (per product decision 2026-05-31): we do NOT bake a photoreal texture.
-# Our existing drape model already does texture MAPPING; STEP 3 only EXTRACTS
-# the right pixels and writes the file bundle the drape handler ingests:
+# Our existing drape model already does texture MAPPING; STEP 3 EXTRACTS the
+# right pixels and writes the file bundle the drape handler ingests:
 #   {size}.obj (UVs + mtllib line), {size}.mtl (newmtl + Kd + map_Kd basename),
 #   <texture>.png.
-# v1: dominant fabric colour fill (rembg-masked) as the diffuse texture.
-# v2 (follow-up, flagged): paste detected logo/print region at its UV location.
+#
+# v1  (shipped 2026-06-02): dominant fabric-colour fill (rembg-masked).
+# v2b (this version): PROJECT the front product photo onto the front torso panel
+#     via the draped mesh. The OBJ carries both 3D world position AND per-face UV,
+#     so for every texel of a front-facing (+Z) triangle we barycentric-interpolate
+#     the world (x,y), map it into the photo's garment bbox, and sample the pixel.
+#     This lands any logo/print/graphic exactly where it sits on the real garment,
+#     no fragile per-logo detection. Back + sleeves + uncovered texels keep the
+#     dominant fabric colour. Verified locally against the Moncler m.obj: a chest
+#     roundel + wordmark land centred on the chest, undistorted, reading correctly,
+#     with the center-front seam invisible. Non-fatal: any failure falls back to
+#     the flat fill, so a texture bug never breaks the working pipeline.
 
-def _dominant_color(img_path: Path) -> tuple:
-    """Mean RGB of the garment region (background removed via rembg if present)."""
+# A face is "front torso" when its normal points toward the camera (+Z). The body
+# faces +Z in the GarmentCode mean_all frame (front panel = top-centre UV island,
+# verified on the produced mesh). MIRROR_X flips the world->photo X mapping; a
+# normal front-on product photo needs no mirror (text reads correctly).
+FRONT_NORMAL_Z = 0.30
+MIRROR_X = False
+TEXTURE_RES = 1024
+
+
+def _parse_obj_geometry(obj_txt: str):
+    """Return (V, T, F, FT) numpy arrays from OBJ text: vertices (Nv,3),
+    UVs (Nt,2), per-face vertex idx (Nf,3), per-face UV idx (Nf,3). 0-based."""
+    verts, uvs, fv, ft = [], [], [], []
+    for ln in obj_txt.splitlines():
+        if ln.startswith("v "):
+            verts.append([float(x) for x in ln.split()[1:4]])
+        elif ln.startswith("vt "):
+            uvs.append([float(x) for x in ln.split()[1:3]])
+        elif ln.startswith("f "):
+            tv, tt = [], []
+            for tok in ln.split()[1:4]:
+                a = tok.split("/")
+                tv.append(int(a[0]) - 1)
+                tt.append(int(a[1]) - 1 if len(a) > 1 and a[1] else -1)
+            fv.append(tv); ft.append(tt)
+    return (np.array(verts, np.float64), np.array(uvs, np.float64),
+            np.array(fv, np.int64), np.array(ft, np.int64))
+
+
+def _extract_garment(img_path: Path):
+    """Return (photo_rgb HxWx3 float, mask HxW bool, dom_rgb 0..1). Background
+    removed via rembg when available, else a near-background-colour threshold."""
     from PIL import Image
     im = Image.open(img_path).convert("RGB")
-    arr = np.asarray(im).reshape(-1, 3).astype(np.float32)
+    P = np.asarray(im).astype(np.float32)
+    h, w = P.shape[:2]
+    mask = None
     try:
         from rembg import remove
-        cut = remove(im)  # RGBA with bg alpha=0
-        rgba = np.asarray(cut.convert("RGBA")).reshape(-1, 4)
-        mask = rgba[:, 3] > 16
-        if mask.sum() > 100:
-            arr = rgba[mask][:, :3].astype(np.float32)
+        rgba = np.asarray(remove(im).convert("RGBA"))
+        mask = rgba[:, :, 3] > 24
     except Exception as e:
-        log(f"  rembg unavailable, using full-image mean ({e})")
-    rgb = arr.mean(axis=0) / 255.0
-    return float(rgb[0]), float(rgb[1]), float(rgb[2])
+        log(f"  rembg unavailable for mask ({e}); using corner-colour threshold")
+    if mask is None or mask.sum() < 100:
+        # estimate background from the four corners, mask = pixels far from it
+        corners = np.array([P[0, 0], P[0, -1], P[-1, 0], P[-1, -1]])
+        bg = corners.mean(0)
+        mask = np.abs(P - bg).sum(2) > 24
+    if mask.sum() < 100:                       # mask still empty -> whole image
+        mask = np.ones((h, w), bool)
+    dom = (P[mask].mean(0) / 255.0)
+    return P, mask, (float(dom[0]), float(dom[1]), float(dom[2]))
+
+
+def _bake_front_texture(obj_txt: str, photo_path: Path, res: int = TEXTURE_RES):
+    """v2b projection bake. Returns (PIL.Image RGB, dom_rgb 0..1) or raises.
+    Texel<-photo sampling is by interpolated WORLD position, so the print lands
+    correctly in 3D regardless of how the UV island is shaped/packed."""
+    from PIL import Image
+    V, T, F, FT = _parse_obj_geometry(obj_txt)
+    if len(T) == 0 or len(F) == 0:
+        raise RuntimeError("OBJ has no UVs/faces to bake onto")
+
+    P, mask, dom = _extract_garment(photo_path)
+    ph, pw = P.shape[:2]
+    ys, xs = np.where(mask)
+    gx0, gx1, gy0, gy1 = xs.min(), xs.max(), ys.min(), ys.max()
+
+    # front-facing faces (normal +Z) and the panel's world bbox
+    p0, p1, p2 = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    nrm = np.cross(p1 - p0, p2 - p0)
+    nrm /= (np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-9)
+    front = nrm[:, 2] > FRONT_NORMAL_Z
+    if front.sum() < 10:
+        raise RuntimeError(f"too few front-facing faces ({front.sum()})")
+    fv = V[F[front].ravel()]
+    wx0, wx1 = fv[:, 0].min(), fv[:, 0].max()
+    wy0, wy1 = fv[:, 1].min(), fv[:, 1].max()
+    log(f"STEP 3 bake: {int(front.sum())} front faces, world x[{wx0:.1f},{wx1:.1f}] "
+        f"y[{wy0:.1f},{wy1:.1f}] -> photo x[{gx0},{gx1}] y[{gy0},{gy1}]")
+
+    # base = dominant fill; front texels overwritten by the photo projection
+    tex = np.empty((res, res, 3), np.float32)
+    tex[:] = np.array(dom, np.float32) * 255.0
+
+    for fi in np.where(front)[0]:
+        vt = FT[fi]
+        if (vt < 0).any():
+            continue
+        uv = T[vt]
+        wp = V[F[fi]][:, :2]
+        px = uv[:, 0] * (res - 1)
+        py = (1.0 - uv[:, 1]) * (res - 1)              # OBJ v=0 is bottom row
+        minx, maxx = int(np.floor(px.min())), int(np.ceil(px.max()))
+        miny, maxy = int(np.floor(py.min())), int(np.ceil(py.max()))
+        minx = max(minx, 0); miny = max(miny, 0)
+        maxx = min(maxx, res - 1); maxy = min(maxy, res - 1)
+        if maxx < minx or maxy < miny:
+            continue
+        det = ((py[1] - py[2]) * (px[0] - px[2]) + (px[2] - px[1]) * (py[0] - py[2]))
+        if abs(det) < 1e-9:
+            continue
+        gx, gy = np.meshgrid(np.arange(minx, maxx + 1), np.arange(miny, maxy + 1))
+        l0 = ((py[1] - py[2]) * (gx - px[2]) + (px[2] - px[1]) * (gy - py[2])) / det
+        l1 = ((py[2] - py[0]) * (gx - px[2]) + (px[0] - px[2]) * (gy - py[2])) / det
+        l2 = 1.0 - l0 - l1
+        inside = (l0 >= -1e-3) & (l1 >= -1e-3) & (l2 >= -1e-3)
+        if not inside.any():
+            continue
+        wx = l0 * wp[0, 0] + l1 * wp[1, 0] + l2 * wp[2, 0]
+        wy = l0 * wp[0, 1] + l1 * wp[1, 1] + l2 * wp[2, 1]
+        u = (wx - wx0) / (wx1 - wx0 + 1e-9)
+        if MIRROR_X:
+            u = 1.0 - u
+        v = (wy - wy0) / (wy1 - wy0 + 1e-9)
+        ppx = np.clip(gx0 + u * (gx1 - gx0), 0, pw - 1).astype(int)
+        ppy = np.clip(gy1 - v * (gy1 - gy0), 0, ph - 1).astype(int)   # world up -> photo up
+        # Only sample garment pixels. Front faces wrap to the sides/shoulders and
+        # map to photo regions OUTSIDE the silhouette (background); writing those
+        # paints a bg-colour halo on the garment edges. Where the mapped pixel is
+        # off-garment, keep the dominant fabric fill instead.
+        sel = inside & mask[ppy, ppx]
+        if sel.any():
+            tex[gy[sel], gx[sel]] = P[ppy[sel], ppx[sel]]
+
+    return Image.fromarray(tex.astype(np.uint8)), dom
 
 
 def build_texture_bundle(garment_obj: Path, source_images: list,
@@ -657,21 +777,29 @@ def build_texture_bundle(garment_obj: Path, source_images: list,
     tex_out = out_dir / f"{size}_texture.png"
     mtl_name = f"fabric_{size}"
 
-    # extract dominant fabric colour from the first usable photo
+    obj_txt = garment_obj.read_text()
+
+    # STEP 3 texture: project the front photo onto the front panel (v2b). On any
+    # failure, fall back to a flat dominant-colour fill so a texture bug can never
+    # break the working pipeline (same non-fatal contract as STEP 1.5).
     r, g, b = (0.5, 0.5, 0.5)
+    texture_mode = "flat_fill"
     if source_images:
         try:
-            r, g, b = _dominant_color(Path(source_images[0]))
+            img, (r, g, b) = _bake_front_texture(obj_txt, Path(source_images[0]))
+            img.save(tex_out)
+            texture_mode = "front_projection"
+            log(f"STEP 3: front-projection bake ok, fabric rgb=({r:.2f},{g:.2f},{b:.2f})")
         except Exception as e:
-            log(f"  colour extraction failed, grey fallback ({e})")
-    log(f"STEP 3: fabric colour rgb=({r:.2f},{g:.2f},{b:.2f})")
-
-    # flat diffuse texture (1024x1024) of the fabric colour.
-    # NOTE: drape model does the mapping; a flat fill is the honest v1. Logo
-    # placement onto the UV island is the v2 follow-up.
-    tex = Image.new("RGB", (1024, 1024),
-                    (int(r * 255), int(g * 255), int(b * 255)))
-    tex.save(tex_out)
+            log(f"STEP 3: front-projection bake failed ({e}); flat-fill fallback")
+            try:
+                _, _, (r, g, b) = _extract_garment(Path(source_images[0]))
+            except Exception as e2:
+                log(f"  colour extraction failed, grey fallback ({e2})")
+    if texture_mode != "front_projection":
+        Image.new("RGB", (TEXTURE_RES, TEXTURE_RES),
+                  (int(r * 255), int(g * 255), int(b * 255))).save(tex_out)
+        log(f"STEP 3: flat fill, fabric rgb=({r:.2f},{g:.2f},{b:.2f})")
 
     # copy the OBJ, ensuring a single mtllib line points at our MTL basename AND
     # that every usemtl references the material name we actually declare. STEP-2
@@ -679,7 +807,6 @@ def build_texture_bundle(garment_obj: Path, source_images: list,
     # `newmtl fabric_{size}`, so the texture never binds in a viewer (confirmed
     # 2026-06-02). Rewrite any existing usemtl to our name; if there is none,
     # insert one before the first face.
-    obj_txt = garment_obj.read_text()
     obj_lines, inserted = [], False
     for ln in obj_txt.splitlines():
         if ln.startswith("mtllib"):
@@ -705,7 +832,8 @@ def build_texture_bundle(garment_obj: Path, source_images: list,
     has_uv = "vt " in obj_txt
     if not has_uv:
         log("WARN: STEP-2 OBJ has no 'vt' UVs — texture will not map")
-    return {"obj": obj_out, "mtl": mtl_out, "texture": tex_out, "has_uv": has_uv}
+    return {"obj": obj_out, "mtl": mtl_out, "texture": tex_out,
+            "has_uv": has_uv, "texture_mode": texture_mode}
 
 
 # =============================================================================
@@ -826,6 +954,7 @@ def handler(event: dict) -> dict:
             "size": size,
             "is_stub": False,
             "has_uv": bundle["has_uv"],
+            "texture_mode": bundle.get("texture_mode"),
             "step1_5": step15_report,
             "processing_time_seconds": round(time.time() - t_start, 1),
         }
