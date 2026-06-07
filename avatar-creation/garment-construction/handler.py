@@ -52,6 +52,7 @@ validation; must be replaced before any paid use. See BUILD_SPEC.md.
 
 import os
 import sys
+import re
 import time
 import json
 import base64
@@ -466,7 +467,20 @@ def run_chatgarment_inference(image_paths: list, job_dir: Path) -> Path:
 # post-process bug can never turn the working pipeline into a hard failure.
 
 SHIRT_LENGTH_FLOOR_V = 1.85          # ~68cm body on mean_all waist_line; tune on render
+# collar.component.style values that ChatGarment hallucinates on plain tees and
+# that we null UNLESS the model's own first-pass description actually supports the
+# feature (a real hood / stand collar / lapel). Blanket-nulling these destroyed
+# legitimate hoods (hoodie) and stand collars (track jacket) on 2026-06-07.
 STANDING_COLLAR_STYLES = ("Turtle", "SimpleLapel", "Hood2Panels")
+
+# Description keyword -> the standing-collar style it legitimises. Checked against
+# the first-pass description so a real feature is kept and only phantoms are nulled.
+COLLAR_STYLE_DESC_SUPPORT = {
+    "Hood2Panels": ("hood",),  # hood field handled separately (guards 'no hood')
+    "Turtle": ("stand collar", "turtle", "mock neck", "funnel", "high neck",
+               "high collar"),
+    "SimpleLapel": ("lapel", "notch", "shawl", "blazer"),
+}
 
 # Upper-garment programs whose torso length is hardcoded to the waist (bodice.py)
 # and which ignore design['shirt']['length']. Remap to the length-respecting,
@@ -545,6 +559,38 @@ def _neckline_from_description(run_folder: Path):
     return None
 
 
+def _collar_styles_to_keep(run_folder: Path) -> set:
+    """Which STANDING_COLLAR_STYLES the upper-garment description actually supports
+    (and must NOT be nulled). Reads ChatGarment's first-pass description the same way
+    _neckline_from_description does. A hood is read from the dedicated 'hood' field
+    (guarding the negative 'no hood'); stand collars / lapels from the 'collar' field.
+    Non-fatal: on any parse failure returns an empty set (preserves the old null behaviour)."""
+    keep = set()
+    try:
+        txts = list(run_folder.rglob("output.txt"))
+        if not txts:
+            return keep
+        blob = txts[0].read_text(errors="ignore").lower()
+        desc = blob.split("assistant:", 1)[0]
+        if "upperbody_garment" in desc:
+            start = desc.index("upperbody_garment")
+            end = desc.index("lowerbody_garment") if "lowerbody_garment" in desc[start:] \
+                else len(desc)
+            desc = desc[start:end]
+        m = re.search(r"'hood'\s*:\s*\[([^\]]*)\]", desc)
+        hood_val = m.group(1) if m else ""
+        if "hood" in hood_val and "no hood" not in hood_val:
+            keep.add("Hood2Panels")
+        m = re.search(r"'collar'\s*:\s*\[([^\]]*)\]", desc)
+        collar_val = m.group(1) if m else ""
+        for style in ("Turtle", "SimpleLapel"):
+            if any(k in collar_val for k in COLLAR_STYLE_DESC_SUPPORT[style]):
+                keep.add(style)
+    except Exception as e:
+        log(f"STEP 1.5: collar-keep parse failed ({e})")
+    return keep
+
+
 def postprocess_specs(run_folder: Path) -> list:
     """Correct systematic ChatGarment mispredictions in place before STEP-2 drape:
     remap waist-cropped fitted programs, floor shirt length, null phantom standing
@@ -563,6 +609,7 @@ def postprocess_specs(run_folder: Path) -> list:
         log(f"STEP 1.5: cannot read spec list ({e}); skipping")
         return [{"error": f"spec list unreadable: {e}"}]
     desc_neck = _neckline_from_description(run_folder)   # (f_collar, b_collar) or None
+    keep_collars = _collar_styles_to_keep(run_folder)    # real hood/stand/lapel, don't null
     for sp in specs:
         sp = sp.replace("validate_garment", "valid_garment")  # mirror run_garmentcode_sim.py:78
         spec_path = Path(sp)
@@ -602,11 +649,17 @@ def postprocess_specs(run_folder: Path) -> list:
                 if float(sh["length"]["v"]) < SHIRT_LENGTH_FLOOR_V:
                     changed.append(f"shirt.length {sh['length']['v']}->{SHIRT_LENGTH_FLOOR_V}")
                     sh["length"]["v"] = SHIRT_LENGTH_FLOOR_V
-            # (2) Null phantom standing collars.
+            # (2) Null PHANTOM standing collars only. Keep a hood / stand collar /
+            # lapel that the model's own description supports (see _collar_styles_to_keep)
+            # so we no longer destroy real hoods (hoodie) and stand collars (jacket).
             st = (design.get("collar") or {}).get("component", {}).get("style")
             if isinstance(st, dict) and st.get("v") in STANDING_COLLAR_STYLES:
-                changed.append(f"collar.style {st['v']}->None")
-                st["v"] = None
+                rec["read_collar_style"] = st["v"]
+                if st["v"] in keep_collars:
+                    rec["kept_collar_style"] = st["v"]
+                else:
+                    changed.append(f"collar.style {st['v']}->None")
+                    st["v"] = None
             # (4) Reconcile neckline against ChatGarment's own description (uppers only).
             col = design.get("collar")
             has_upper = isinstance(up, dict) and up.get("v")

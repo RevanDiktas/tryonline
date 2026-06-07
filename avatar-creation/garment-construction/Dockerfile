@@ -196,7 +196,7 @@ RUN python -c "import numpy; assert numpy.__version__.startswith('1.'), 'numpy g
     && python -c "import pygarment.meshgen.simulation; print('STEP-2 simulation import OK (warp + stubbed render, no pyrender)')"
 
 # --- handler (COPYed last so handler edits rebuild only this tiny layer) --------
-ENV GARMENT_BUILD=v0.1
+ENV GARMENT_BUILD=v0.2
 COPY handler.py /workspace/handler.py
 
 CMD ["python", "/workspace/handler.py"]
