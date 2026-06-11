@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
 import { SharedNav, NavCta, AuthAwareSignInLink } from '@/components/redesign/SharedNav';
 import { useIsMobile } from '@/components/redesign/useIsMobile';
@@ -284,7 +283,6 @@ export default function DemoPage() {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const C = dark ? PAL.dark : PAL.light;
-  const router = useRouter();
   const mobile = useIsMobile();
   const [showWidget, setShowWidget] = useState(false);
 
@@ -305,11 +303,11 @@ export default function DemoPage() {
         dark={dark}
         links={links}
         rightSlot={mobile ? (
-          <NavCta dark={dark} label="Start" onClick={() => router.push('/signup?type=brand')} />
+          <NavCta dark={dark} label="Contact us" onClick={() => { window.location.href = 'mailto:revan@tryon.global?subject=Tryon%20for%20my%20brand'; }} />
         ) : (
           <>
             <AuthAwareSignInLink dark={dark} />
-            <NavCta dark={dark} label="Start free" onClick={() => router.push('/signup?type=brand')} />
+            <NavCta dark={dark} label="Contact us" onClick={() => { window.location.href = 'mailto:revan@tryon.global?subject=Tryon%20for%20my%20brand'; }} />
           </>
         )}
       />

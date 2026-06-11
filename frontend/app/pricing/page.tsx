@@ -79,10 +79,10 @@ function Tiers({ C }: { C: Palette }) {
         '3 garment uploads',
         'Branded TryOn widget',
         'Basic funnel analytics',
-        'Self-serve install',
+        '10-minute install',
         'Community support',
       ],
-      cta: 'Start free', ctaHref: '/signup?type=brand',
+      cta: 'Book a call', ctaHref: 'mailto:revan@tryon.global?subject=Tryon%20Free%20plan',
     },
     {
       name: 'Studio', price: '$149', priceSub: 'per month',
@@ -95,7 +95,7 @@ function Tiers({ C }: { C: Palette }) {
         'Basic analytics dashboard',
         'Email support, 48h SLA',
       ],
-      cta: 'Start', ctaHref: '/signup?type=brand&plan=studio',
+      cta: 'Book a call', ctaHref: 'mailto:revan@tryon.global?subject=Tryon%20Studio%20plan',
     },
     {
       name: 'Brand', price: '$2,490', priceSub: 'per month',
@@ -112,7 +112,7 @@ function Tiers({ C }: { C: Palette }) {
         'Shopify webhook integration',
         'Slack support, 24h SLA',
       ],
-      cta: 'Start', ctaHref: '/signup?type=brand&plan=brand',
+      cta: 'Book a call', ctaHref: 'mailto:revan@tryon.global?subject=Tryon%20Brand%20plan',
     },
     {
       name: 'Scale', price: 'Custom', priceSub: 'talk to us',
@@ -128,7 +128,7 @@ function Tiers({ C }: { C: Palette }) {
         'Custom analytics export',
         'White-label option',
       ],
-      cta: 'Book a call', ctaHref: 'mailto:revandiktas1@gmail.com?subject=TryOn%20Scale%20pricing',
+      cta: 'Book a call', ctaHref: 'mailto:revan@tryon.global?subject=Tryon%20Scale%20pricing',
     },
   ];
 
@@ -383,14 +383,14 @@ function FinalCTA({ C }: { C: Palette }) {
     <section style={{ background: C.surface, color: C.ink, padding: '64px 20px 80px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center' }}>
         <h2 style={{ ...headingStyle('clamp(36px, 4.5vw, 64px)'), marginBottom: 14 }}>
-          Install free. Upgrade when it works.
+          Start with a call. Live within a week.
         </h2>
         <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, margin: '0 auto 28px', maxWidth: 540 }}>
-          200 free sessions. No credit card. 10 minutes to live on your store. If the conversion data is not better than your last marketing spend, do not upgrade.
+          Every plan starts with a short call. We install the widget on your store with you, you watch the conversion data, and if it is not better than your last marketing spend, you do not pay.
         </p>
         <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
           <button
-            onClick={() => router.push('/signup?type=brand')}
+            onClick={() => { window.location.href = 'mailto:revan@tryon.global?subject=Tryon%20for%20my%20brand'; }}
             style={{
               background: '#0040FF', color: '#FFFFFF', border: 'none',
               padding: '14px 24px',
@@ -400,9 +400,9 @@ function FinalCTA({ C }: { C: Palette }) {
               borderRadius: 9999,
               transition: 'background 180ms cubic-bezier(0.4, 0, 0.2, 1)',
             }}
-          >Start free <span>→</span></button>
+          >Book a call <span>→</span></button>
           <button
-            onClick={() => { window.location.href = 'mailto:revandiktas1@gmail.com?subject=TryOn%20Brand%20Demo'; }}
+            onClick={() => router.push('/demo')}
             style={{
               background: 'transparent', color: C.ink,
               border: `1px solid ${C.ink}`,
@@ -412,7 +412,7 @@ function FinalCTA({ C }: { C: Palette }) {
               display: 'inline-flex', alignItems: 'center', gap: 10,
               borderRadius: 9999,
             }}
-          >Book a call</button>
+          >Try the demo</button>
         </div>
       </div>
     </section>
@@ -465,7 +465,6 @@ export default function PricingPage() {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const C = dark ? PAL.dark : PAL.light;
-  const router = useRouter();
   const mobile = useIsMobile();
 
   const links = [
@@ -485,11 +484,11 @@ export default function PricingPage() {
         dark={dark}
         links={links}
         rightSlot={mobile ? (
-          <NavCta dark={dark} label="Start" onClick={() => router.push('/signup?type=brand')} />
+          <NavCta dark={dark} label="Contact us" onClick={() => { window.location.href = 'mailto:revan@tryon.global?subject=Tryon%20for%20my%20brand'; }} />
         ) : (
           <>
             <AuthAwareSignInLink dark={dark} />
-            <NavCta dark={dark} label="Start free →" onClick={() => router.push('/signup?type=brand')} />
+            <NavCta dark={dark} label="Contact us →" onClick={() => { window.location.href = 'mailto:revan@tryon.global?subject=Tryon%20for%20my%20brand'; }} />
           </>
         )}
       />
