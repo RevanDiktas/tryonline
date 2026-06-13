@@ -226,9 +226,10 @@ export default function BrandDashboardPage() {
   useEffect(() => { fetchMetrics(); }, [fetchMetrics]);
 
   useEffect(() => {
+    const loginPath = resolvedShop ? `/login?shop=${encodeURIComponent(resolvedShop)}` : '/login';
     getCurrentUser().then(async (u) => {
       if (!u) {
-        router.push('/login');
+        router.push(loginPath);
         return;
       }
       if (u.user_type !== 'brand') {
@@ -251,8 +252,8 @@ export default function BrandDashboardPage() {
         }
       } catch {}
       setBrandLoaded(true);
-    }).catch(() => router.push('/login'));
-  }, [router]);
+    }).catch(() => router.push(loginPath));
+  }, [router, resolvedShop]);
 
   const handleLogout = async () => {
     const shopForRedirect =

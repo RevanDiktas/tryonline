@@ -8,8 +8,11 @@ const APP_BRIDGE_URL = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
  * 1) This response is minimal HTML with App Bridge as the ONLY external script (sync, first) -
  *    satisfies Shopify’s embedded checks.
  * 2) We run getSessionToken + shopify:admin fetch here.
- * 3) We then redirect IN THE SAME IFRAME to /?shop=... (Next app). No nested iframe - avoids
- *    postMessage errors (code was posting to admin.shopify.com with targetOrigin tryon.global).
+ * 3) We then redirect IN THE SAME IFRAME to /brand?shop=... (the brand-only surface). We go
+ *    straight to /brand, NOT the marketing root /: on the pilot host (tryon.global) the root
+ *    renders the consumer landing because isShopifyMode() only flips true on app.tryon.global.
+ *    /brand has its own auth gate (-> /login when logged out), so merchants never see the
+ *    consumer site. No nested iframe - avoids postMessage errors.
  */
 export function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -17,12 +20,12 @@ export function GET(request: NextRequest) {
   const isEmbedded = shop?.includes('.myshopify.com');
 
   if (!isEmbedded) {
-    const target = searchParams.toString() ? `/?${searchParams.toString()}` : '/';
+    const target = searchParams.toString() ? `/brand?${searchParams.toString()}` : '/brand';
     return NextResponse.redirect(new URL(target, request.url));
   }
 
   const queryString = searchParams.toString();
-  const nextPath = queryString ? `/?${queryString}` : '/';
+  const nextPath = queryString ? `/brand?${queryString}` : '/brand';
   const debug = searchParams.get('debug') === '1' || searchParams.get('debug') === 'true';
 
   const html = `<!DOCTYPE html>
