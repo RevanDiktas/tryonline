@@ -145,6 +145,10 @@ export default function DashboardTryOnModal({ item, passport, dark, onClose }: D
               avatarUrl={avatarUrl}
               garmentUrls={garmentConfig.model_urls}
               sizeChart={garmentConfig.size_chart}
+              // Real merchant charts are flat (tech-pack). Fall back to circumference only
+              // when there is no real chart (TryOnViewer uses its circumference demo then).
+              measurementConvention={garmentConfig.size_chart && Object.keys(garmentConfig.size_chart).length ? 'flat' : 'circumference'}
+              gender={passport?.gender === 'male' || passport?.gender === 'female' ? passport.gender : 'unisex'}
               userMeasurements={userMeasurements}
               brandName={item.brand_name || item.shop_domain}
               productName={item.product_name || undefined}

@@ -28,6 +28,7 @@ function EmbedContent() {
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined)
   const [garmentUrls, setGarmentUrls] = useState<Record<string, string> | undefined>(undefined)
   const [sizeChart, setSizeChart] = useState<Record<string, { chest: number; waist: number; hips: number }> | undefined>(undefined)
+  const [gender, setGender] = useState<'male' | 'female' | 'unisex'>('unisex')
   const [combinedModels, setCombinedModels] = useState(true)
 
   const productId = searchParams.get('product_id') || 'demo-npc-tshirt'
@@ -78,6 +79,10 @@ function EmbedContent() {
             height: m.height ?? DEFAULT_MEASUREMENTS.height,
           })
           if (avatarRes.avatar_url) setAvatarUrl(avatarRes.avatar_url)
+        }
+        if (mounted && avatarRes) {
+          const g = String((avatarRes as { gender?: unknown }).gender ?? '').toLowerCase()
+          if (g === 'male' || g === 'female') setGender(g)
         }
         if (mounted && productRes) {
           setCombinedModels(productRes.model_type !== 'garment_only')
@@ -165,6 +170,10 @@ function EmbedContent() {
         garmentUrls={garmentUrls}
         userMeasurements={userMeasurements}
         sizeChart={sizeChart}
+        // Real merchant charts are flat (tech-pack pit-to-pit). Only when sizeChart is
+        // populated; the demo fallback chart is circumference.
+        measurementConvention={sizeChart ? 'flat' : 'circumference'}
+        gender={gender}
         preferredFit={preferredFit === 'slim' || preferredFit === 'loose' ? preferredFit : 'regular'}
         onSizeSelect={(size) => {
           track('size_selected', { size })

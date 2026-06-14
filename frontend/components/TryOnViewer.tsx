@@ -6,7 +6,7 @@ import { OrbitControls, useGLTF, Environment } from '@react-three/drei'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as THREE from 'three'
 import { Check, Ruler, RotateCcw, ExternalLink } from 'lucide-react'
-import { recommendSize, type PreferredFit, type GarmentCategory, type GarmentFitType, type SizeRecommendation } from '@/lib/sizeRecommendation'
+import { recommendSize, type PreferredFit, type GarmentCategory, type GarmentFitType, type SizeRecommendation, type MeasurementConvention, type Gender } from '@/lib/sizeRecommendation'
 
 interface FitResult {
   size: string
@@ -44,6 +44,11 @@ interface TryOnViewerProps {
   productUrl?: string
   garmentCategory?: GarmentCategory
   garmentFitType?: GarmentFitType
+  // How the size chart values are recorded. Real merchant charts are 'flat' (tech-pack
+  // pit-to-pit); defaults to 'circumference' to keep the seeded demo chart correct.
+  measurementConvention?: MeasurementConvention
+  // Shopper's gender, selects the standard body->size scale for native-size anchoring.
+  gender?: Gender
 }
 
 // ---------------------------------------------------------------------------
@@ -300,6 +305,8 @@ export default function TryOnViewer({
   productUrl,
   garmentCategory = 'tops',
   garmentFitType = 'regular',
+  measurementConvention = 'circumference',
+  gender = 'unisex',
 }: TryOnViewerProps) {
   const [selectedSize, setSelectedSize] = useState<string>('M')
   const hasSetInitialSize = useRef(false)
@@ -323,9 +330,16 @@ export default function TryOnViewer({
     preferredFit,
     garmentCategory,
     garmentFitType,
-  ), [userMeasurements, sizeChart, preferredFit, garmentCategory, garmentFitType])
+    measurementConvention,
+    gender,
+  ), [userMeasurements, sizeChart, preferredFit, garmentCategory, garmentFitType, measurementConvention, gender])
 
   const recommendedSize = sizeRec.recommendedSize
+
+  // chest/waist/hips are girth: a flat chart records them as half the circumference, so
+  // double them to match the body measurement (mirrors the engine's conversion).
+  const toCircumference = (v: number) =>
+    measurementConvention === 'flat' ? v * 2 : v
 
   const calculateFit = useCallback((size: string): FitResult => {
     const sizeData = sizeRec.allSizes.find(
@@ -333,29 +347,35 @@ export default function TryOnViewer({
     )
     if (sizeData) {
       const chart = getChart(size) ?? {}
+      const gChest = toCircumference(chart.chest ?? 0)
+      const gWaist = toCircumference(chart.waist ?? 0)
+      const gHips = toCircumference(chart.hips ?? 0)
       return {
         size,
         fit: sizeData.fit,
         measurements: {
-          chest: { user: userMeasurements.chest, garment: chart.chest ?? 0, diff: (chart.chest ?? 0) - userMeasurements.chest },
-          waist: { user: userMeasurements.waist, garment: chart.waist ?? 0, diff: (chart.waist ?? 0) - userMeasurements.waist },
-          hips: { user: userMeasurements.hips, garment: chart.hips ?? 0, diff: (chart.hips ?? 0) - userMeasurements.hips },
+          chest: { user: userMeasurements.chest, garment: gChest, diff: gChest - userMeasurements.chest },
+          waist: { user: userMeasurements.waist, garment: gWaist, diff: gWaist - userMeasurements.waist },
+          hips: { user: userMeasurements.hips, garment: gHips, diff: gHips - userMeasurements.hips },
         },
       }
     }
     const chart = getChart(size)
     if (!chart) return { size, fit: 'recommended', measurements: { chest: { user: 0, garment: 0, diff: 0 }, waist: { user: 0, garment: 0, diff: 0 }, hips: { user: 0, garment: 0, diff: 0 } } }
+    const gChest = toCircumference(chart.chest ?? 0)
+    const gWaist = toCircumference(chart.waist ?? 0)
+    const gHips = toCircumference(chart.hips ?? 0)
     return {
       size,
       fit: 'recommended',
       measurements: {
-        chest: { user: userMeasurements.chest, garment: chart.chest ?? 0, diff: (chart.chest ?? 0) - userMeasurements.chest },
-        waist: { user: userMeasurements.waist, garment: chart.waist ?? 0, diff: (chart.waist ?? 0) - userMeasurements.waist },
-        hips: { user: userMeasurements.hips, garment: chart.hips ?? 0, diff: (chart.hips ?? 0) - userMeasurements.hips },
+        chest: { user: userMeasurements.chest, garment: gChest, diff: gChest - userMeasurements.chest },
+        waist: { user: userMeasurements.waist, garment: gWaist, diff: gWaist - userMeasurements.waist },
+        hips: { user: userMeasurements.hips, garment: gHips, diff: gHips - userMeasurements.hips },
       },
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sizeRec, sizeChart, userMeasurements])
+  }, [sizeRec, sizeChart, userMeasurements, measurementConvention])
 
   const handleSizeSelect = (size: string) => {
     setSelectedSize(size)
