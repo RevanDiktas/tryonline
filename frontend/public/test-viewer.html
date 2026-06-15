@@ -968,6 +968,8 @@
     let modelType = 'combined'; // 'combined' | 'garment_only'
     let garmentCategory = 'tops';
     let garmentFitType = 'regular';
+    let userGender = 'unisex';
+    let recommendedSize = 'm';
     let drapedUrls = {};
     let drapingAvailable = false;
     let serverGarmentId = null;
@@ -980,6 +982,7 @@
       var m = d.measurements || {};
       return {
         avatarUrl: d.avatar_url || null,
+        gender: (d.gender || m.gender || '').toString().toLowerCase(),
         measurements: {
           chest: m.chest || 102,
           waist: m.waist || 83,
@@ -1171,6 +1174,7 @@
           return false;
         }
         userMeasurements = userData.measurements || {};
+        userGender = (userData.gender === 'male' || userData.gender === 'female') ? userData.gender : 'unisex';
         avatarUrl = userData.avatarUrl;
         if (!/\.glb$/i.test(avatarUrl)) {
           avatarUrl = avatarUrl.replace(/\/[^/]*\.(obj|ply)$/i, '/avatar_textured.glb');
@@ -1269,45 +1273,120 @@
       return Math.max(0, 1 - ((ease - tMax) / 15)); // loose = lighter penalty
     }
 
+    // ----- True-to-fit body-anchored scale (ported from lib/sizeRecommendation.ts v1) -----
+    // The garment's own measurements can't tell us a shopper's native size: an intentionally
+    // oversized M jacket has a 130cm chest, so the old ease-matcher picked the SMALLEST size on
+    // any roomy garment (the 192cm/85kg -> S bug). Instead anchor on the shopper's REAL body
+    // against a standard adult scale, pick their native size, then map to the garment's label.
+    // Upper bound (cm, body circumference) of each size band per gender.
+    const BODY_SIZE_SCALE = {
+      male:   { chest:{xs:90,s:98,m:106,l:114,xl:122,xxl:130}, waist:{xs:74,s:82,m:90,l:98,xl:106,xxl:114}, hips:{xs:90,s:98,m:104,l:110,xl:117,xxl:124} },
+      female: { chest:{xs:80,s:86,m:92,l:100,xl:108,xxl:116},  waist:{xs:64,s:70,m:78,l:86,xl:94,xxl:102},  hips:{xs:88,s:94,m:100,l:108,xl:116,xxl:124} },
+      unisex: { chest:{xs:85,s:92,m:99,l:107,xl:115,xxl:123},  waist:{xs:69,s:76,m:84,l:92,xl:100,xxl:108},  hips:{xs:89,s:96,m:102,l:109,xl:116,xxl:124} },
+    };
+    // Typical wearer height (cm) at the centre of each size: a build much taller than their
+    // girth-size's typical wearer needs the next size up for length (tall-and-lean problem).
+    const EXPECTED_HEIGHT_BY_SIZE = {
+      male:   { xs:168,s:173,m:178,l:183,xl:188,xxl:193 },
+      female: { xs:158,s:163,m:168,l:173,xl:178,xxl:183 },
+      unisex: { xs:163,s:168,m:173,l:178,xl:183,xxl:188 },
+    };
+    const CATEGORY_ANCHOR = { tops:'chest', outerwear:'chest', dresses:'chest', bottoms:'waist', accessories:'chest' };
+    const NATIVE_SCALE_ORDER = ['xs','s','m','l','xl','xxl'];
+    const PREF_SIZE_SHIFT = { slim:-1, regular:0, loose:1 };
+
+    // Map the shopper's REAL body to a native size ordinal (index into SIZE_ORDER). null if no anchor.
+    function nativeSizeOrdinal(cat, gender) {
+      var scale = BODY_SIZE_SCALE[gender] || BODY_SIZE_SCALE.unisex;
+      var anchorKey = CATEGORY_ANCHOR[cat] || 'chest';
+      var value = userMeasurements[anchorKey];
+      var usedKey = anchorKey;
+      if (value == null) { // bottoms can fall back to hips, tops to waist
+        var fb = anchorKey === 'waist' ? 'hips' : 'waist';
+        value = userMeasurements[fb]; usedKey = fb;
+      }
+      if (value == null) return null;
+      var band = scale[usedKey];
+      var girthOrdinal = SIZE_ORDER.indexOf('xxl'); // default if larger than every band
+      for (var i = 0; i < NATIVE_SCALE_ORDER.length; i++) {
+        var sz = NATIVE_SCALE_ORDER[i];
+        if (band[sz] != null && value <= band[sz]) { girthOrdinal = SIZE_ORDER.indexOf(sz); break; }
+      }
+      // Frame / length nudge: size up a notably tall build (never down).
+      var heightBump = 0;
+      var height = userMeasurements.height;
+      var expected = EXPECTED_HEIGHT_BY_SIZE[gender] && EXPECTED_HEIGHT_BY_SIZE[gender][SIZE_ORDER[girthOrdinal]];
+      if (height != null && expected != null) {
+        var over = height - expected;
+        if (over > 20) heightBump = 2; else if (over > 6) heightBump = 1;
+      }
+      return girthOrdinal + heightBump;
+    }
+
     function recommendSize(preferredFit) {
       var available = SIZE_ORDER.filter(function(s) { return modelPaths[s]; });
       if (available.length === 0) return 'm';
-      var hasMeas = userMeasurements && (userMeasurements.chest != null || userMeasurements.waist != null || userMeasurements.hips != null);
-      if (!hasMeas || !sizeChart || Object.keys(sizeChart).length === 0) {
-        return available.includes('m') ? 'm' : available[0];
-      }
       preferredFit = preferredFit || 'regular';
       var cat = garmentCategory || 'tops';
+      var gender = (userGender === 'male' || userGender === 'female') ? userGender : 'unisex';
+
+      // PRIMARY: true-to-fit, body-anchored. The garment's designed fit (oversized/slim) is
+      // communicated in the description, never used to move the recommended size. This also
+      // makes the recommendation immune to unreliable merchant size charts.
+      var nativeOrd = nativeSizeOrdinal(cat, gender);
+      if (nativeOrd != null) {
+        var shifted = nativeOrd + (PREF_SIZE_SHIFT[preferredFit] || 0);
+        var availOrd = available.map(function(s){ return SIZE_ORDER.indexOf(s); }).sort(function(a,b){ return a-b; });
+        var lo = availOrd[0], hi = availOrd[availOrd.length-1];
+        var clamped = Math.max(lo, Math.min(hi, shifted));
+        var bestOrd = availOrd.reduce(function(best,o){ return Math.abs(o-clamped) < Math.abs(best-clamped) ? o : best; }, availOrd[0]);
+        return SIZE_ORDER[bestOrd];
+      }
+
+      // FALLBACK (no body anchor at all): legacy ease-matcher against the chart.
+      var hasMeas = userMeasurements && (userMeasurements.chest != null || userMeasurements.waist != null || userMeasurements.hips != null);
+      if (!hasMeas || !sizeChart || Object.keys(sizeChart).length === 0) {
+        return available.indexOf('m') >= 0 ? 'm' : available[0];
+      }
       var ft = garmentFitType || 'regular';
       var weights = CATEGORY_WEIGHTS[cat] || DEFAULT_WEIGHTS;
       var easeProfile = ((EASE_PROFILES[cat] || EASE_PROFILES.tops)[ft]) || EASE_PROFILES.tops.regular;
       var shift = PREF_SHIFT[preferredFit] || 0;
-
       var sizes = SIZE_ORDER.filter(function(s) { return sizeChart[s]; });
-      if (sizes.length === 0) return available.includes('m') ? 'm' : available[0];
-
+      if (sizes.length === 0) return available.indexOf('m') >= 0 ? 'm' : available[0];
       var scored = sizes.map(function(size) {
-        var c = sizeChart[size];
-        var totalW = 0, scoreSum = 0, easeSum = 0;
+        var c = sizeChart[size]; var totalW = 0, scoreSum = 0;
         var keys = Object.keys(c);
         for (var i = 0; i < keys.length; i++) {
           var key = keys[i];
           if (c[key] == null || userMeasurements[key] == null) continue;
           var w = (weights[key] != null) ? weights[key] : (DEFAULT_WEIGHTS[key] != null ? DEFAULT_WEIGHTS[key] : 0.3);
           if (w === 0) continue;
-          var ease = c[key] - userMeasurements[key];
-          var sc = scoreMeasEase(ease, easeProfile, shift);
-          scoreSum += sc * w;
-          easeSum += ease * w;
+          scoreSum += scoreMeasEase(c[key] - userMeasurements[key], easeProfile, shift) * w;
           totalW += w;
         }
-        var total = totalW > 0 ? scoreSum / totalW : 0;
-        var wEase = totalW > 0 ? easeSum / totalW : 0;
-        return { size: size, score: total, ease: wEase };
+        return { size: size, score: totalW > 0 ? scoreSum / totalW : 0 };
       });
-
       scored.sort(function(a, b) { return b.score - a.score; });
-      return scored[0].size;
+      var pick = scored.length ? scored[0].size : 'm';
+      return available.indexOf(pick) >= 0 ? pick : (available.indexOf('m') >= 0 ? 'm' : available[0]);
+    }
+
+    // Fit blurb RELATIVE to the recommended size (so the recommended size never reads as
+    // "loose/snug"). Distance from the recommendation drives the copy, not the absolute letter.
+    function fitDescription(size) {
+      var ri = SIZE_ORDER.indexOf(recommendedSize);
+      var si = SIZE_ORDER.indexOf(size);
+      if (si < 0 || ri < 0) return fitData[size] || fitData.m || 'SELECT A SIZE ABOVE.';
+      var noun = garmentFitType === 'oversized' ? 'OVERSIZED FIT'
+        : (garmentFitType === 'slim' ? 'SLIM FIT' : 'RECOMMENDED FIT');
+      if (si === ri) return 'YOUR BEST MATCH — FITS TRUE TO SIZE FOR A <em>' + noun + '</em>';
+      if (si < ri) return (ri - si >= 2)
+        ? 'TOO TIGHT — SIZE UP FOR A COMFORTABLE <em>FIT</em>'
+        : 'SNUGGER THAN RECOMMENDED, A MORE <em>FITTED LOOK</em>';
+      return (si - ri >= 2)
+        ? 'VERY ROOMY THROUGHOUT, FOR AN <em>OVERSIZED LOOK</em>'
+        : 'ROOMIER THAN RECOMMENDED, A MORE <em>RELAXED FIT</em>';
     }
 
     // Fit data
@@ -1386,6 +1465,7 @@
         const av = SIZE_ORDER.filter((s) => modelPaths[s] && String(modelPaths[s]).trim());
         size = av.length ? av[0] : 'm';
       }
+      recommendedSize = size;
       return size;
     }
 
@@ -1781,7 +1861,7 @@
         if (b.hidden) return;
         b.classList.toggle('active', b.dataset.size === currentSize);
       });
-      fitText.innerHTML = fitData[currentSize] || fitData.m || 'SELECT A SIZE ABOVE.';
+      fitText.innerHTML = fitDescription(currentSize);
       sessionId = await createTryonSession();
       track('widget_opened');
       tryonStartTime = Date.now();
@@ -2004,7 +2084,7 @@
 
         sizeButtons.forEach(b => { if (!b.hidden) b.classList.remove('active'); });
         btn.classList.add('active');
-        fitText.innerHTML = fitData[size] || fitData.m;
+        fitText.innerHTML = fitDescription(size);
         currentSize = size;
 
         track('size_selected', { size: size });

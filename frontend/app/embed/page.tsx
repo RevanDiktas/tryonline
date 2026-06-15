@@ -29,6 +29,8 @@ function EmbedContent() {
   const [garmentUrls, setGarmentUrls] = useState<Record<string, string> | undefined>(undefined)
   const [sizeChart, setSizeChart] = useState<Record<string, { chest: number; waist: number; hips: number }> | undefined>(undefined)
   const [gender, setGender] = useState<'male' | 'female' | 'unisex'>('unisex')
+  const [garmentCategory, setGarmentCategory] = useState<'tops' | 'bottoms' | 'outerwear' | 'dresses' | 'accessories'>('tops')
+  const [garmentFitType, setGarmentFitType] = useState<'slim' | 'regular' | 'oversized'>('regular')
   const [combinedModels, setCombinedModels] = useState(true)
 
   const productId = searchParams.get('product_id') || 'demo-npc-tshirt'
@@ -86,6 +88,10 @@ function EmbedContent() {
         }
         if (mounted && productRes) {
           setCombinedModels(productRes.model_type !== 'garment_only')
+          const cat = (productRes as { category?: string }).category
+          if (cat === 'tops' || cat === 'bottoms' || cat === 'outerwear' || cat === 'dresses' || cat === 'accessories') setGarmentCategory(cat)
+          const ft = (productRes as { fit_type?: string }).fit_type
+          if (ft === 'slim' || ft === 'regular' || ft === 'oversized') setGarmentFitType(ft)
           const base = typeof window !== 'undefined' ? window.location.origin : ''
           const urls: Record<string, string> = {}
           for (const [k, v] of Object.entries(productRes.model_urls || {})) {
@@ -174,6 +180,8 @@ function EmbedContent() {
         // populated; the demo fallback chart is circumference.
         measurementConvention={sizeChart ? 'flat' : 'circumference'}
         gender={gender}
+        garmentCategory={garmentCategory}
+        garmentFitType={garmentFitType}
         preferredFit={preferredFit === 'slim' || preferredFit === 'loose' ? preferredFit : 'regular'}
         onSizeSelect={(size) => {
           track('size_selected', { size })
