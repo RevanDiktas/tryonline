@@ -24,10 +24,13 @@ function EmbedContent() {
   const searchParams = useSearchParams()
   const { theme } = useTheme()
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const [userMeasurements, setUserMeasurements] = useState(DEFAULT_MEASUREMENTS)
+  const [userMeasurements, setUserMeasurements] = useState<{
+    chest: number; waist: number; hips: number; height: number
+    inseam?: number; shoulder_width?: number; arm_length?: number; thigh?: number; neck?: number
+  }>(DEFAULT_MEASUREMENTS)
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined)
   const [garmentUrls, setGarmentUrls] = useState<Record<string, string> | undefined>(undefined)
-  const [sizeChart, setSizeChart] = useState<Record<string, { chest: number; waist: number; hips: number }> | undefined>(undefined)
+  const [sizeChart, setSizeChart] = useState<Record<string, Record<string, number>> | undefined>(undefined)
   const [gender, setGender] = useState<'male' | 'female' | 'unisex'>('unisex')
   const [garmentCategory, setGarmentCategory] = useState<'tops' | 'bottoms' | 'outerwear' | 'dresses' | 'accessories'>('tops')
   const [garmentFitType, setGarmentFitType] = useState<'slim' | 'regular' | 'oversized'>('regular')
@@ -73,12 +76,20 @@ function EmbedContent() {
           api.getProductTryonConfig(productId, shop ? { shop } : undefined).catch(() => null),
         ])
         if (mounted && avatarRes?.measurements) {
-          const m = avatarRes.measurements
+          const m = avatarRes.measurements as Record<string, number | undefined>
+          // Pass through every body measurement the recommender can use (not just chest/waist/
+          // hips) so the structural fields — shoulder, sleeve, inseam, thigh, neck — actually
+          // reach the engine for the new size-chart columns.
           setUserMeasurements({
             chest: m.chest ?? DEFAULT_MEASUREMENTS.chest,
             waist: m.waist ?? DEFAULT_MEASUREMENTS.waist,
             hips: m.hips ?? DEFAULT_MEASUREMENTS.hips,
             height: m.height ?? DEFAULT_MEASUREMENTS.height,
+            inseam: m.inseam,
+            shoulder_width: m.shoulder_width,
+            arm_length: m.arm_length,
+            thigh: m.thigh,
+            neck: m.neck,
           })
           if (avatarRes.avatar_url) setAvatarUrl(avatarRes.avatar_url)
         }
@@ -99,10 +110,16 @@ function EmbedContent() {
           }
           setGarmentUrls(urls)
           if (productRes.size_chart && Object.keys(productRes.size_chart).length) {
-            const chart: Record<string, { chest: number; waist: number; hips: number }> = {}
+            // Keep ALL measurement columns the merchant provided (shoulder, sleeve, inseam, neck,
+            // cuff, rise, hem, ...), not just chest/waist/hips, so the recommender can use them.
+            const chart: Record<string, Record<string, number>> = {}
             for (const [k, v] of Object.entries(productRes.size_chart)) {
               const o = v as Record<string, number>
-              chart[k] = { chest: o.chest ?? 100, waist: o.waist ?? 84, hips: o.hips ?? 98 }
+              const row: Record<string, number> = {}
+              for (const [mk, mv] of Object.entries(o)) {
+                if (typeof mv === 'number' && !isNaN(mv)) row[mk] = mv
+              }
+              if (Object.keys(row).length) chart[k] = row
             }
             setSizeChart(chart)
           }

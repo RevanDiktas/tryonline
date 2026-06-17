@@ -810,6 +810,9 @@
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
     import { clone as cloneSkinnedScene } from 'three/addons/utils/SkeletonUtils.js';
+    // Shared sizing engine — single source of truth, also used by the React app via
+    // lib/sizeRecommendation.ts. Keep all sizing logic there, not duplicated here.
+    import { recommendSize as engineRecommendSize, inferSizeSystem, sizeToOrdinal } from './sizing-engine.js';
 
     function cloneGltfRoot(root) {
       try {
@@ -1243,37 +1246,9 @@
     let currentModel = null;
     let scene, camera, renderer, controls, loader;
     let initialized = false;
-    const SIZE_ORDER = ['xxs','xs','s','m','l','xl','xxl','3xl','4xl'];
-
-    // ----- Size systems (mirror of lib/sizeRecommendation.ts) -----
-    // A garment uses ONE system. Its size labels (the keys of modelPaths / sizeChart) are the
-    // source of truth; the system is inferred from those labels + gender. Every system maps onto
-    // the common 0..7 ordinal scale so the body-anchored recommender is identical across systems.
-    const SIZE_SYSTEMS = {
-      alpha:    { label: 'Letter',     sizes: ['xxs','xs','s','m','l','xl','xxl','xxxl'] },
-      women_eu: { label: 'Women (EU)', sizes: ['32','34','36','38','40','42','44','46'] },
-      men_eu:   { label: 'Men (EU)',   sizes: ['44','46','48','50','52','54','56','58'] },
-    };
-    const SIZE_ORDINALS = {
-      alpha:    { xxs:0, xs:1, s:2, m:3, l:4, xl:5, xxl:6, xxxl:7, '3xl':7, '4xl':8 },
-      women_eu: { '32':0, '34':1, '36':2, '38':3, '40':4, '42':5, '44':6, '46':7 },
-      men_eu:   { '44':1, '46':2, '48':3, '50':4, '52':5, '54':6, '56':7, '58':8 },
-    };
-    function inferSizeSystem(labels, gender) {
-      var keys = (labels || []).map(function(l){ return String(l).toLowerCase().trim(); }).filter(Boolean);
-      if (!keys.length || !keys.every(function(k){ return /^\d+$/.test(k); })) return 'alpha';
-      if (gender === 'male') return 'men_eu';
-      if (gender === 'female') return 'women_eu';
-      var nums = keys.map(Number);
-      return (Math.min.apply(null, nums) >= 48 || Math.max.apply(null, nums) >= 50) ? 'men_eu' : 'women_eu';
-    }
-    function sizeToOrdinal(size, system) {
-      var key = String(size).toLowerCase().trim();
-      var map = SIZE_ORDINALS[system] || SIZE_ORDINALS.alpha;
-      if (map[key] != null) return map[key];
-      if (SIZE_ORDINALS.alpha[key] != null) return SIZE_ORDINALS.alpha[key];
-      return 3; // default M
-    }
+    // Size-system + recommender logic live in the shared engine (sizing-engine.js, imported at
+    // the top of this module) so the widget and the React app can't drift. Only widget-UI glue
+    // (which chips to render, which size has a 3D model) lives here.
     function availableSizes() {
       return Object.keys(modelPaths).filter(function(s){ return modelPaths[s] && String(modelPaths[s]).trim(); });
     }
@@ -1299,136 +1274,24 @@
       sizeButtons = sizeSelectorEl.querySelectorAll('.size-btn');
     }
 
-    // Measurement weights per garment category
-    const CATEGORY_WEIGHTS = {
-      tops:      { chest: 1.0, shoulder: 0.8, shoulder_width: 0.8, waist: 0.5, hips: 0.2, arm_length: 0.3, sleeve: 0.3, neck: 0.3 },
-      bottoms:   { waist: 1.0, hips: 0.9, inseam: 0.7, thigh: 0.6, chest: 0.0, shoulder: 0.0 },
-      outerwear: { chest: 1.0, shoulder: 0.9, shoulder_width: 0.9, waist: 0.4, hips: 0.3, arm_length: 0.5, sleeve: 0.5 },
-      dresses:   { chest: 0.8, waist: 0.9, hips: 1.0, shoulder: 0.5, shoulder_width: 0.5 },
-      accessories: { chest: 0.5, waist: 0.5, hips: 0.5 },
-    };
-    const DEFAULT_WEIGHTS = { chest: 0.8, waist: 0.7, hips: 0.7, inseam: 0.4, shoulder: 0.5, shoulder_width: 0.5, arm_length: 0.3, sleeve: 0.3, thigh: 0.3, neck: 0.2 };
-
-    // Ideal ease profiles (cm): { min, ideal, max } per category × fit type
-    const EASE_PROFILES = {
-      tops:       { slim: {min:2,ideal:5,max:8},   regular: {min:5,ideal:8,max:12},  oversized: {min:10,ideal:15,max:22} },
-      bottoms:    { slim: {min:0,ideal:2,max:5},   regular: {min:2,ideal:5,max:8},   oversized: {min:6,ideal:10,max:16} },
-      outerwear:  { slim: {min:6,ideal:10,max:14}, regular: {min:10,ideal:14,max:20}, oversized: {min:16,ideal:22,max:30} },
-      dresses:    { slim: {min:1,ideal:4,max:7},   regular: {min:4,ideal:7,max:11},  oversized: {min:8,ideal:13,max:20} },
-      accessories:{ slim: {min:0,ideal:3,max:6},   regular: {min:3,ideal:6,max:10},  oversized: {min:6,ideal:10,max:16} },
-    };
-    const PREF_SHIFT = { slim: -3, regular: 0, loose: 3 };
-
-    function scoreMeasEase(ease, profile, shift) {
-      var tMin = profile.min + shift, tIdeal = profile.ideal + shift, tMax = profile.max + shift;
-      if (ease >= tMin && ease <= tMax) {
-        var maxDist = Math.max(tIdeal - tMin, tMax - tIdeal);
-        return maxDist > 0 ? 1 - (Math.abs(ease - tIdeal) / maxDist) * 0.3 : 1;
-      }
-      if (ease < tMin) return Math.max(0, 1 - ((tMin - ease) / 10) * 1.5); // tight = heavier penalty
-      return Math.max(0, 1 - ((ease - tMax) / 15)); // loose = lighter penalty
-    }
-
-    // ----- True-to-fit body-anchored scale (ported from lib/sizeRecommendation.ts v1) -----
-    // The garment's own measurements can't tell us a shopper's native size: an intentionally
-    // oversized M jacket has a 130cm chest, so the old ease-matcher picked the SMALLEST size on
-    // any roomy garment (the 192cm/85kg -> S bug). Instead anchor on the shopper's REAL body
-    // against a standard adult scale, pick their native size, then map to the garment's label.
-    // Upper bound (cm, body circumference) of each size band per gender.
-    const BODY_SIZE_SCALE = {
-      male:   { chest:{xs:90,s:98,m:106,l:114,xl:122,xxl:130}, waist:{xs:74,s:82,m:90,l:98,xl:106,xxl:114}, hips:{xs:90,s:98,m:104,l:110,xl:117,xxl:124} },
-      female: { chest:{xs:80,s:86,m:92,l:100,xl:108,xxl:116},  waist:{xs:64,s:70,m:78,l:86,xl:94,xxl:102},  hips:{xs:88,s:94,m:100,l:108,xl:116,xxl:124} },
-      unisex: { chest:{xs:85,s:92,m:99,l:107,xl:115,xxl:123},  waist:{xs:69,s:76,m:84,l:92,xl:100,xxl:108},  hips:{xs:89,s:96,m:102,l:109,xl:116,xxl:124} },
-    };
-    // Typical wearer height (cm) at the centre of each size: a build much taller than their
-    // girth-size's typical wearer needs the next size up for length (tall-and-lean problem).
-    const EXPECTED_HEIGHT_BY_SIZE = {
-      male:   { xs:168,s:173,m:178,l:183,xl:188,xxl:193 },
-      female: { xs:158,s:163,m:168,l:173,xl:178,xxl:183 },
-      unisex: { xs:163,s:168,m:173,l:178,xl:183,xxl:188 },
-    };
-    const CATEGORY_ANCHOR = { tops:'chest', outerwear:'chest', dresses:'chest', bottoms:'waist', accessories:'chest' };
-    const NATIVE_SCALE_ORDER = ['xs','s','m','l','xl','xxl'];
-    const PREF_SIZE_SHIFT = { slim:-1, regular:0, loose:1 };
-
-    // Map the shopper's REAL body to a native size ordinal (index into SIZE_ORDER). null if no anchor.
-    function nativeSizeOrdinal(cat, gender) {
-      var scale = BODY_SIZE_SCALE[gender] || BODY_SIZE_SCALE.unisex;
-      var anchorKey = CATEGORY_ANCHOR[cat] || 'chest';
-      var value = userMeasurements[anchorKey];
-      var usedKey = anchorKey;
-      if (value == null) { // bottoms can fall back to hips, tops to waist
-        var fb = anchorKey === 'waist' ? 'hips' : 'waist';
-        value = userMeasurements[fb]; usedKey = fb;
-      }
-      if (value == null) return null;
-      var band = scale[usedKey];
-      var girthOrdinal = SIZE_ORDER.indexOf('xxl'); // default if larger than every band
-      for (var i = 0; i < NATIVE_SCALE_ORDER.length; i++) {
-        var sz = NATIVE_SCALE_ORDER[i];
-        if (band[sz] != null && value <= band[sz]) { girthOrdinal = SIZE_ORDER.indexOf(sz); break; }
-      }
-      // Frame / length nudge: size up a notably tall build (never down).
-      var heightBump = 0;
-      var height = userMeasurements.height;
-      var expected = EXPECTED_HEIGHT_BY_SIZE[gender] && EXPECTED_HEIGHT_BY_SIZE[gender][SIZE_ORDER[girthOrdinal]];
-      if (height != null && expected != null) {
-        var over = height - expected;
-        if (over > 20) heightBump = 2; else if (over > 6) heightBump = 1;
-      }
-      return girthOrdinal + heightBump;
-    }
-
+    // Recommendation delegates to the shared engine. We recommend among the sizes that actually
+    // have a 3D model (availableSizes), anchored on the shopper's real body — so it still works
+    // if the merchant provided no size chart. Real merchant charts are flat (pit-to-pit).
     function recommendSize(preferredFit) {
       var available = availableSizes();
-      if (available.length === 0) return 'm';
-      preferredFit = preferredFit || 'regular';
-      var cat = garmentCategory || 'tops';
-      var gender = currentGender();
-      var system = inferSizeSystem(available, gender);
-
-      // PRIMARY: true-to-fit, body-anchored. The garment's designed fit (oversized/slim) is
-      // communicated in the description, never used to move the recommended size. This also
-      // makes the recommendation immune to unreliable merchant size charts.
-      var nativeOrd = nativeSizeOrdinal(cat, gender);
-      if (nativeOrd != null) {
-        var shifted = nativeOrd + (PREF_SIZE_SHIFT[preferredFit] || 0);
-        var availOrd = available.map(function(s){ return sizeToOrdinal(s, system); }).sort(function(a,b){ return a-b; });
-        var lo = availOrd[0], hi = availOrd[availOrd.length-1];
-        var clamped = Math.max(lo, Math.min(hi, shifted));
-        var bestOrd = availOrd.reduce(function(best,o){ return Math.abs(o-clamped) < Math.abs(best-clamped) ? o : best; }, availOrd[0]);
-        // Map the chosen ordinal back to the garment's own label.
-        var pick = available.filter(function(s){ return sizeToOrdinal(s, system) === bestOrd; })[0];
-        return pick || available[0];
-      }
-
-      // FALLBACK (no body anchor at all): legacy ease-matcher against the chart.
-      var hasMeas = userMeasurements && (userMeasurements.chest != null || userMeasurements.waist != null || userMeasurements.hips != null);
-      if (!hasMeas || !sizeChart || Object.keys(sizeChart).length === 0) {
-        return available.indexOf('m') >= 0 ? 'm' : available[0];
-      }
-      var ft = garmentFitType || 'regular';
-      var weights = CATEGORY_WEIGHTS[cat] || DEFAULT_WEIGHTS;
-      var easeProfile = ((EASE_PROFILES[cat] || EASE_PROFILES.tops)[ft]) || EASE_PROFILES.tops.regular;
-      var shift = PREF_SHIFT[preferredFit] || 0;
-      var sizes = Object.keys(sizeChart);
-      if (sizes.length === 0) return available.indexOf('m') >= 0 ? 'm' : available[0];
-      var scored = sizes.map(function(size) {
-        var c = sizeChart[size]; var totalW = 0, scoreSum = 0;
-        var keys = Object.keys(c);
-        for (var i = 0; i < keys.length; i++) {
-          var key = keys[i];
-          if (c[key] == null || userMeasurements[key] == null) continue;
-          var w = (weights[key] != null) ? weights[key] : (DEFAULT_WEIGHTS[key] != null ? DEFAULT_WEIGHTS[key] : 0.3);
-          if (w === 0) continue;
-          scoreSum += scoreMeasEase(c[key] - userMeasurements[key], easeProfile, shift) * w;
-          totalW += w;
-        }
-        return { size: size, score: totalW > 0 ? scoreSum / totalW : 0 };
-      });
-      scored.sort(function(a, b) { return b.score - a.score; });
-      var pick = scored.length ? scored[0].size : 'm';
-      return available.indexOf(pick) >= 0 ? pick : (available.indexOf('m') >= 0 ? 'm' : available[0]);
+      if (!available.length) return 'm';
+      var hasChart = sizeChart && Object.keys(sizeChart).length > 0;
+      var rec = engineRecommendSize(
+        userMeasurements || {},
+        sizeChart || {},
+        preferredFit || 'regular',
+        garmentCategory || 'tops',
+        garmentFitType || 'regular',
+        hasChart ? 'flat' : 'circumference',
+        currentGender(),
+        available
+      );
+      return (rec && rec.recommendedSize) || available[0];
     }
 
     // Fit blurb RELATIVE to the recommended size (so the recommended size never reads as
