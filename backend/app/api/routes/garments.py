@@ -22,7 +22,13 @@ supabase = SupabaseService()
 
 VALID_CATEGORIES = ["tops", "bottoms", "outerwear", "dresses", "accessories"]
 VALID_FIT_TYPES = ["slim", "regular", "oversized"]
-VALID_SIZES = ["xs", "s", "m", "l", "xl", "xxl"]
+# Letter sizes (XXS-XXXL) plus numeric/EU systems (Women 32-46, Men 44-58). A garment uses
+# one system; keys are stored as-is in the sizes / size_chart JSONB.
+VALID_SIZES = [
+    "xxs", "xs", "s", "m", "l", "xl", "xxl", "xxxl",
+    "32", "34", "36", "38", "40", "42", "44", "46",
+    "48", "50", "52", "54", "56", "58",
+]
 
 
 def _storage_product_folder(garment: dict) -> str:

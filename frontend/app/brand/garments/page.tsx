@@ -5,11 +5,15 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getCurrentUser, type User } from '@/lib/supabase-auth';
 import { getMyBrand, garmentApi, type Garment } from '@/lib/api';
+import { SIZE_SYSTEMS, inferSizeSystem, type SizeSystem } from '@/lib/sizeRecommendation';
 import { useTheme } from '@/contexts/ThemeContext';
 
 const CATEGORIES = ['tops', 'bottoms', 'outerwear', 'dresses', 'accessories'];
 const FIT_TYPES = ['slim', 'regular', 'oversized'];
-const SIZES = ['xs', 's', 'm', 'l', 'xl'];
+// Default (letter) size labels; a garment's actual rows come from its chosen size system.
+const SIZES = SIZE_SYSTEMS.alpha.sizes;
+// Every size label across all systems — used to validate sizes on import before merging.
+const ALL_SIZE_LABELS = new Set(Object.values(SIZE_SYSTEMS).flatMap((s) => s.sizes));
 
 // Garment measurements, ordered head-to-toe. Each maps to a body measurement the avatar
 // extracts (see avatar-creation handler.py MEASUREMENT_MAPPING) so the recommender can compare
@@ -89,7 +93,7 @@ function rowsToChart(rows: unknown[][]): Record<string, Record<string, number>> 
     const row = rows[r];
     if (!Array.isArray(row)) continue;
     const sz = String(row[0] ?? '').trim().toLowerCase();
-    if (!SIZES.includes(sz)) continue;
+    if (!ALL_SIZE_LABELS.has(sz)) continue;
     const vals: Record<string, number> = {};
     for (const idx of Object.keys(colMap)) {
       const v = parseNum(row[Number(idx)]);
@@ -248,9 +252,38 @@ export default function GarmentsPage() {
   const [savingSizeChart, setSavingSizeChart] = useState(false);
   const csvInputRef = useRef<HTMLInputElement>(null);
 
+  // Per-garment size system (letters / Women EU / Men EU). A merchant override is kept here;
+  // otherwise it's inferred from the labels already stored on the garment.
+  const [garmentSystems, setGarmentSystems] = useState<Record<string, SizeSystem>>({});
+  const systemOf = (id: string): SizeSystem => {
+    if (garmentSystems[id]) return garmentSystems[id];
+    const g = garments.find((x) => x.id === id);
+    const keys = g ? [...Object.keys(g.sizes || {}), ...Object.keys(g.size_chart || {})] : [];
+    return inferSizeSystem(keys);
+  };
+  const setSystem = (id: string, sys: SizeSystem) => setGarmentSystems((p) => ({ ...p, [id]: sys }));
+  const sizesOf = (id: string): string[] => SIZE_SYSTEMS[systemOf(id)].sizes;
+
+  // Switch the open editor to a different size system, rebuilding the rows (keeping any values
+  // already stored or typed for labels that carry over).
+  const changeModalSystem = (sys: SizeSystem) => {
+    if (!sizeChartGarmentId) return;
+    setSystem(sizeChartGarmentId, sys);
+    const g = garments.find((x) => x.id === sizeChartGarmentId);
+    const chart: Record<string, Record<string, string>> = {};
+    for (const sz of SIZE_SYSTEMS[sys].sizes) {
+      chart[sz] = {};
+      for (const m of MEASUREMENTS) {
+        const stored = (g?.size_chart?.[sz] as Record<string, number> | undefined)?.[m];
+        chart[sz][m] = String(stored ?? sizeChartData[sz]?.[m] ?? '');
+      }
+    }
+    setSizeChartData(chart);
+  };
+
   const openSizeChart = (g: Garment) => {
     const chart: Record<string, Record<string, string>> = {};
-    for (const sz of SIZES) {
+    for (const sz of sizesOf(g.id)) {
       chart[sz] = {};
       for (const m of MEASUREMENTS) {
         chart[sz][m] = String((g.size_chart?.[sz] as Record<string, number> | undefined)?.[m] ?? '');
@@ -272,7 +305,7 @@ export default function GarmentsPage() {
     setSavingSizeChart(true);
     try {
       const chart: Record<string, Record<string, number>> = {};
-      for (const sz of SIZES) {
+      for (const sz of sizesOf(sizeChartGarmentId)) {
         const row = sizeChartData[sz];
         if (!row) continue;
         const vals: Record<string, number> = {};
@@ -306,7 +339,7 @@ export default function GarmentsPage() {
         const obj = JSON.parse(await file.text());
         for (const rawSz of Object.keys(obj || {})) {
           const sz = rawSz.toLowerCase().trim();
-          if (!SIZES.includes(sz)) continue;
+          if (!ALL_SIZE_LABELS.has(sz)) continue;
           const vals: Record<string, number> = {};
           for (const [rawKey, rawVal] of Object.entries(obj[rawSz] || {})) {
             const key = normalizeHeader(rawKey);
@@ -333,7 +366,7 @@ export default function GarmentsPage() {
 
       // Merge into editor (only canonical keys survive normalization, so this stays in-schema)
       const updated = { ...sizeChartData };
-      for (const sz of SIZES) {
+      for (const sz of (sizeChartGarmentId ? sizesOf(sizeChartGarmentId) : SIZES)) {
         if (!updated[sz]) updated[sz] = {};
         if (parsed[sz]) {
           for (const m of MEASUREMENTS) {
@@ -545,11 +578,25 @@ export default function GarmentsPage() {
 
                 {/* Size GLB uploads */}
                 <div className={`border-t pt-4 ${dark ? 'border-white/10' : 'border-gray-100'}`}>
-                  <p className={`text-xs font-medium mb-2 uppercase tracking-wide ${dark ? 'text-white/40' : 'text-gray-500'}`}>
-                    3D Models ({sizeCount(g)}/{SIZES.length} sizes)
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className={`text-xs font-medium uppercase tracking-wide ${dark ? 'text-white/40' : 'text-gray-500'}`}>
+                      3D Models ({sizeCount(g)}/{sizesOf(g.id).length} sizes)
+                    </p>
+                    <label className={`flex items-center gap-1.5 text-xs ${dark ? 'text-white/40' : 'text-gray-500'}`}>
+                      Sizing
+                      <select
+                        value={systemOf(g.id)}
+                        onChange={(e) => setSystem(g.id, e.target.value as SizeSystem)}
+                        className={`text-xs rounded border px-1.5 py-1 focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200 text-black'}`}
+                      >
+                        {(Object.keys(SIZE_SYSTEMS) as SizeSystem[]).map((s) => (
+                          <option key={s} value={s}>{SIZE_SYSTEMS[s].label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                   <div className="flex flex-wrap gap-2">
-                    {SIZES.map((size) => {
+                    {sizesOf(g.id).map((size) => {
                       const hasFile = !!(g.sizes && g.sizes[size]);
                       const isUploading = uploadingSize === `${g.id}-${size}`;
                       return (
@@ -605,7 +652,7 @@ export default function GarmentsPage() {
                   </div>
                   {sizeChartCount(g) > 0 && (() => {
                     const usedMeasurements = MEASUREMENTS.filter((m) =>
-                      SIZES.some((sz) => (g.size_chart?.[sz] as Record<string, number> | undefined)?.[m] != null)
+                      sizesOf(g.id).some((sz) => (g.size_chart?.[sz] as Record<string, number> | undefined)?.[m] != null)
                     );
                     return (
                     <div className="overflow-x-auto">
@@ -619,7 +666,7 @@ export default function GarmentsPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {SIZES.filter((sz) => g.size_chart?.[sz]).map((sz) => {
+                          {sizesOf(g.id).filter((sz) => g.size_chart?.[sz]).map((sz) => {
                             const row = g.size_chart[sz] as Record<string, number>;
                             return (
                               <tr key={sz} className={dark ? 'text-white/70' : 'text-gray-700'}>
@@ -646,7 +693,21 @@ export default function GarmentsPage() {
             <div className={`rounded-2xl p-6 w-full max-w-2xl shadow-xl ${dark ? 'bg-gray-900 border border-white/10' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-lg font-semibold">Size Chart (measurements in cm)</h3>
-                <button onClick={() => setSizeChartGarmentId(null)} className={`text-xl ${dark ? 'text-white/40 hover:text-white' : 'text-gray-400 hover:text-black'}`}>&times;</button>
+                <div className="flex items-center gap-3">
+                  <label className={`flex items-center gap-1.5 text-xs ${dark ? 'text-white/40' : 'text-gray-500'}`}>
+                    Sizing
+                    <select
+                      value={systemOf(sizeChartGarmentId)}
+                      onChange={(e) => changeModalSystem(e.target.value as SizeSystem)}
+                      className={`text-xs rounded border px-1.5 py-1 focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-gray-200 text-black'}`}
+                    >
+                      {(Object.keys(SIZE_SYSTEMS) as SizeSystem[]).map((s) => (
+                        <option key={s} value={s}>{SIZE_SYSTEMS[s].label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button onClick={() => setSizeChartGarmentId(null)} className={`text-xl ${dark ? 'text-white/40 hover:text-white' : 'text-gray-400 hover:text-black'}`}>&times;</button>
+                </div>
               </div>
 
               <input id="size-chart-import" name="size-chart-import" type="file" ref={csvInputRef} accept=".csv,.json,.xlsx,.xls" className="hidden" onChange={handleImportFile} />
@@ -662,7 +723,7 @@ export default function GarmentsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {SIZES.map((sz) => (
+                    {sizesOf(sizeChartGarmentId).map((sz) => (
                       <tr key={sz} className={`border-b ${dark ? 'border-white/5' : 'border-gray-100'}`}>
                         <td className="py-2 pr-3 font-medium uppercase">{sz}</td>
                         {MEASUREMENTS.map((m) => (

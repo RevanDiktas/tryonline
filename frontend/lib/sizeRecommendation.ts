@@ -89,11 +89,59 @@ export interface SizeRecommendation {
 // Constants
 // ---------------------------------------------------------------------------
 
+// Alpha master scale used for body anchoring (BODY_SIZE_SCALE bands are keyed XS..XXL).
 const SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL']
 
-function sizeToOrdinal(size: string): number {
-  const i = SIZE_ORDER.indexOf(size.toUpperCase())
-  return i >= 0 ? i : 3 // default M
+// ---------------------------------------------------------------------------
+// Size systems
+//
+// A garment is sold in ONE system (letters OR a numeric/EU range). The size labels stored as
+// the keys of `size_chart` / `sizes` are the source of truth, so the system is inferred from
+// those keys + the shopper's gender (no extra column needed). Every system's labels map onto
+// the SAME 0..7 ordinal scale (0=XXS … 7=XXXL) so the body-anchored recommender is identical
+// across systems — a Women-EU 38 and a Men-EU 48 both anchor to ordinal 3 (≈ M).
+// ---------------------------------------------------------------------------
+
+export type SizeSystem = 'alpha' | 'women_eu' | 'men_eu'
+
+export const SIZE_SYSTEMS: Record<SizeSystem, { label: string; sizes: string[] }> = {
+  alpha:    { label: 'Letter (XXS–XXXL)', sizes: ['xxs', 'xs', 's', 'm', 'l', 'xl', 'xxl', 'xxxl'] },
+  women_eu: { label: 'Women (EU 32–46)',  sizes: ['32', '34', '36', '38', '40', '42', '44', '46'] },
+  men_eu:   { label: 'Men (EU 44–58)',    sizes: ['44', '46', '48', '50', '52', '54', '56', '58'] },
+}
+
+// Standard apparel conversions onto the common ordinal scale.
+const SIZE_ORDINALS: Record<SizeSystem, Record<string, number>> = {
+  alpha:    { xxs: 0, xs: 1, s: 2, m: 3, l: 4, xl: 5, xxl: 6, xxxl: 7, '3xl': 7, '4xl': 8 },
+  women_eu: { '32': 0, '34': 1, '36': 2, '38': 3, '40': 4, '42': 5, '44': 6, '46': 7 },
+  men_eu:   { '44': 1, '46': 2, '48': 3, '50': 4, '52': 5, '54': 6, '56': 7, '58': 8 },
+}
+
+// Infer a garment's size system from its labels + gender. Women EU (32–46) and Men EU (44–58)
+// only overlap at 44/46; gender breaks the tie. Non-numeric labels are always letters.
+export function inferSizeSystem(labels: string[], gender: Gender = 'unisex'): SizeSystem {
+  const keys = labels.map((l) => String(l).toLowerCase().trim()).filter(Boolean)
+  if (!keys.length || !keys.every((k) => /^\d+$/.test(k))) return 'alpha'
+  if (gender === 'male') return 'men_eu'
+  if (gender === 'female') return 'women_eu'
+  // Unknown gender: men's run 44+ and skew higher; women's top out at 46.
+  const nums = keys.map(Number)
+  return Math.min(...nums) >= 48 || Math.max(...nums) >= 50 ? 'men_eu' : 'women_eu'
+}
+
+function sizeToOrdinal(size: string, system: SizeSystem = 'alpha'): number {
+  const key = String(size).toLowerCase().trim()
+  const map = SIZE_ORDINALS[system] ?? SIZE_ORDINALS.alpha
+  if (map[key] != null) return map[key]
+  if (SIZE_ORDINALS.alpha[key] != null) return SIZE_ORDINALS.alpha[key] // letter fallback
+  return 3 // default M
+}
+
+// Reverse lookup: ordinal -> the system's label (for human-readable reasoning).
+function ordinalToLabel(ord: number, system: SizeSystem = 'alpha'): string {
+  const map = SIZE_ORDINALS[system] ?? SIZE_ORDINALS.alpha
+  const hit = Object.keys(map).find((k) => map[k] === ord)
+  return (hit ?? 'm').toUpperCase()
 }
 
 // ---------------------------------------------------------------------------
@@ -401,7 +449,9 @@ export function recommendSize(
   // Gender selects the standard body->size scale used to anchor native size.
   gender: Gender = 'unisex',
 ): SizeRecommendation {
-  const sizes = Object.keys(sizeChart).sort((a, b) => sizeToOrdinal(a) - sizeToOrdinal(b))
+  // Which size system this garment uses (letters / Women EU / Men EU), inferred from its labels.
+  const system = inferSizeSystem(Object.keys(sizeChart), gender)
+  const sizes = Object.keys(sizeChart).sort((a, b) => sizeToOrdinal(a, system) - sizeToOrdinal(b, system))
 
   // Fallback: no sizes or no measurements
   if (sizes.length === 0) {
@@ -485,7 +535,7 @@ export function recommendSize(
   const native = nativeSizeOrdinal(measurements, category, gender)
 
   // The garment's available sizes as ordinals, sorted ascending.
-  const availOrdinals = sizes.map((s) => sizeToOrdinal(s)).sort((a, b) => a - b)
+  const availOrdinals = sizes.map((s) => sizeToOrdinal(s, system)).sort((a, b) => a - b)
   const clampOrdinal = (ord: number): number => {
     const lo = availOrdinals[0]
     const hi = availOrdinals[availOrdinals.length - 1]
@@ -499,18 +549,18 @@ export function recommendSize(
   if (native) {
     const shifted = native.ordinal + PREFERRED_FIT_SIZE_SHIFT[preferredFit]
     recommendedOrdinal = clampOrdinal(shifted)
-    recommendedSize = sizes.find((s) => sizeToOrdinal(s) === recommendedOrdinal) ?? 'M'
+    recommendedSize = sizes.find((s) => sizeToOrdinal(s, system) === recommendedOrdinal) ?? sizes[0]
   } else {
     // No body anchor available — fall back to the descriptive best-ease size.
     const best = [...allSizes].sort((a, b) => b.totalScore - a.totalScore)[0]
-    recommendedSize = best?.size ?? 'M'
-    recommendedOrdinal = sizeToOrdinal(recommendedSize)
+    recommendedSize = best?.size ?? sizes[0]
+    recommendedOrdinal = sizeToOrdinal(recommendedSize, system)
   }
 
   // Relabel the per-size chips RELATIVE to the recommendation so the UI shows a clean
   // tight -> recommended -> loose gradient consistent with the pick.
   for (const s of allSizes) {
-    const ord = sizeToOrdinal(s.size)
+    const ord = sizeToOrdinal(s.size, system)
     s.fit = ord < recommendedOrdinal ? 'tight' : ord > recommendedOrdinal ? 'loose' : 'recommended'
   }
 
@@ -548,7 +598,7 @@ export function recommendSize(
     confidence = 25 // fell back to ease-only with no body anchor
   }
 
-  const nativeLabel = native ? SIZE_ORDER[native.ordinal] : undefined
+  const nativeLabel = native ? ordinalToLabel(native.ordinal, system) : undefined
   const reasoning = buildReasoning(
     recommended, category, fitType, preferredFit, confidence, nativeLabel,
   )

@@ -762,7 +762,8 @@
               </div>
             </div>
 
-            <div class="size-selector">
+            <!-- Size chips are rendered dynamically from the garment's sizes (renderSizeButtons). -->
+            <div class="size-selector" id="size-selector">
               <button class="size-btn" data-size="xs">XS</button>
               <button class="size-btn" data-size="s">S</button>
               <button class="size-btn active" data-size="m">M</button>
@@ -889,7 +890,8 @@
     const closeBtn = document.getElementById('close-tryon');
     const loading = document.getElementById('loading');
     const container = document.getElementById('canvas-container');
-    const sizeButtons = document.querySelectorAll('.size-btn');
+    let sizeButtons = document.querySelectorAll('.size-btn');
+    const sizeSelectorEl = document.getElementById('size-selector');
     const fitText = document.getElementById('fit-text');
     const preloadStatus = document.getElementById('preload-status');
     const addToCartBtn = document.getElementById('add-to-cart');
@@ -1243,6 +1245,60 @@
     let initialized = false;
     const SIZE_ORDER = ['xxs','xs','s','m','l','xl','xxl','3xl','4xl'];
 
+    // ----- Size systems (mirror of lib/sizeRecommendation.ts) -----
+    // A garment uses ONE system. Its size labels (the keys of modelPaths / sizeChart) are the
+    // source of truth; the system is inferred from those labels + gender. Every system maps onto
+    // the common 0..7 ordinal scale so the body-anchored recommender is identical across systems.
+    const SIZE_SYSTEMS = {
+      alpha:    { label: 'Letter',     sizes: ['xxs','xs','s','m','l','xl','xxl','xxxl'] },
+      women_eu: { label: 'Women (EU)', sizes: ['32','34','36','38','40','42','44','46'] },
+      men_eu:   { label: 'Men (EU)',   sizes: ['44','46','48','50','52','54','56','58'] },
+    };
+    const SIZE_ORDINALS = {
+      alpha:    { xxs:0, xs:1, s:2, m:3, l:4, xl:5, xxl:6, xxxl:7, '3xl':7, '4xl':8 },
+      women_eu: { '32':0, '34':1, '36':2, '38':3, '40':4, '42':5, '44':6, '46':7 },
+      men_eu:   { '44':1, '46':2, '48':3, '50':4, '52':5, '54':6, '56':7, '58':8 },
+    };
+    function inferSizeSystem(labels, gender) {
+      var keys = (labels || []).map(function(l){ return String(l).toLowerCase().trim(); }).filter(Boolean);
+      if (!keys.length || !keys.every(function(k){ return /^\d+$/.test(k); })) return 'alpha';
+      if (gender === 'male') return 'men_eu';
+      if (gender === 'female') return 'women_eu';
+      var nums = keys.map(Number);
+      return (Math.min.apply(null, nums) >= 48 || Math.max.apply(null, nums) >= 50) ? 'men_eu' : 'women_eu';
+    }
+    function sizeToOrdinal(size, system) {
+      var key = String(size).toLowerCase().trim();
+      var map = SIZE_ORDINALS[system] || SIZE_ORDINALS.alpha;
+      if (map[key] != null) return map[key];
+      if (SIZE_ORDINALS.alpha[key] != null) return SIZE_ORDINALS.alpha[key];
+      return 3; // default M
+    }
+    function availableSizes() {
+      return Object.keys(modelPaths).filter(function(s){ return modelPaths[s] && String(modelPaths[s]).trim(); });
+    }
+    function currentGender() {
+      return (userGender === 'male' || userGender === 'female') ? userGender : 'unisex';
+    }
+    function currentSystem() {
+      return inferSizeSystem(availableSizes(), currentGender());
+    }
+    function sortedAvailableSizes() {
+      var sys = currentSystem();
+      return availableSizes().sort(function(a,b){ return sizeToOrdinal(a, sys) - sizeToOrdinal(b, sys); });
+    }
+    // Build the size chips from the garment's available sizes (handles letters and numeric/EU).
+    function renderSizeButtons() {
+      if (!sizeSelectorEl) return;
+      var sizes = sortedAvailableSizes();
+      if (!sizes.length) return; // keep the static default chips if nothing loaded yet
+      sizeSelectorEl.innerHTML = sizes.map(function(s){
+        var label = /^\d+$/.test(s) ? s : s.toUpperCase();
+        return '<button class="size-btn" data-size="' + s + '">' + label + '</button>';
+      }).join('');
+      sizeButtons = sizeSelectorEl.querySelectorAll('.size-btn');
+    }
+
     // Measurement weights per garment category
     const CATEGORY_WEIGHTS = {
       tops:      { chest: 1.0, shoulder: 0.8, shoulder_width: 0.8, waist: 0.5, hips: 0.2, arm_length: 0.3, sleeve: 0.3, neck: 0.3 },
@@ -1324,11 +1380,12 @@
     }
 
     function recommendSize(preferredFit) {
-      var available = SIZE_ORDER.filter(function(s) { return modelPaths[s]; });
+      var available = availableSizes();
       if (available.length === 0) return 'm';
       preferredFit = preferredFit || 'regular';
       var cat = garmentCategory || 'tops';
-      var gender = (userGender === 'male' || userGender === 'female') ? userGender : 'unisex';
+      var gender = currentGender();
+      var system = inferSizeSystem(available, gender);
 
       // PRIMARY: true-to-fit, body-anchored. The garment's designed fit (oversized/slim) is
       // communicated in the description, never used to move the recommended size. This also
@@ -1336,11 +1393,13 @@
       var nativeOrd = nativeSizeOrdinal(cat, gender);
       if (nativeOrd != null) {
         var shifted = nativeOrd + (PREF_SIZE_SHIFT[preferredFit] || 0);
-        var availOrd = available.map(function(s){ return SIZE_ORDER.indexOf(s); }).sort(function(a,b){ return a-b; });
+        var availOrd = available.map(function(s){ return sizeToOrdinal(s, system); }).sort(function(a,b){ return a-b; });
         var lo = availOrd[0], hi = availOrd[availOrd.length-1];
         var clamped = Math.max(lo, Math.min(hi, shifted));
         var bestOrd = availOrd.reduce(function(best,o){ return Math.abs(o-clamped) < Math.abs(best-clamped) ? o : best; }, availOrd[0]);
-        return SIZE_ORDER[bestOrd];
+        // Map the chosen ordinal back to the garment's own label.
+        var pick = available.filter(function(s){ return sizeToOrdinal(s, system) === bestOrd; })[0];
+        return pick || available[0];
       }
 
       // FALLBACK (no body anchor at all): legacy ease-matcher against the chart.
@@ -1352,7 +1411,7 @@
       var weights = CATEGORY_WEIGHTS[cat] || DEFAULT_WEIGHTS;
       var easeProfile = ((EASE_PROFILES[cat] || EASE_PROFILES.tops)[ft]) || EASE_PROFILES.tops.regular;
       var shift = PREF_SHIFT[preferredFit] || 0;
-      var sizes = SIZE_ORDER.filter(function(s) { return sizeChart[s]; });
+      var sizes = Object.keys(sizeChart);
       if (sizes.length === 0) return available.indexOf('m') >= 0 ? 'm' : available[0];
       var scored = sizes.map(function(size) {
         var c = sizeChart[size]; var totalW = 0, scoreSum = 0;
@@ -1375,8 +1434,9 @@
     // Fit blurb RELATIVE to the recommended size (so the recommended size never reads as
     // "loose/snug"). Distance from the recommendation drives the copy, not the absolute letter.
     function fitDescription(size) {
-      var ri = SIZE_ORDER.indexOf(recommendedSize);
-      var si = SIZE_ORDER.indexOf(size);
+      var sys = currentSystem();
+      var ri = sizeToOrdinal(recommendedSize, sys);
+      var si = sizeToOrdinal(size, sys);
       if (si < 0 || ri < 0) return fitData[size] || fitData.m || 'SELECT A SIZE ABOVE.';
       var noun = garmentFitType === 'oversized' ? 'OVERSIZED FIT'
         : (garmentFitType === 'slim' ? 'SLIM FIT' : 'RECOMMENDED FIT');
@@ -1462,7 +1522,7 @@
     function resolveCurrentSizeForOpen() {
       let size = recommendSize(config.preferredFit || 'regular');
       if (!modelPaths[size]) {
-        const av = SIZE_ORDER.filter((s) => modelPaths[s] && String(modelPaths[s]).trim());
+        const av = sortedAvailableSizes();
         size = av.length ? av[0] : 'm';
       }
       recommendedSize = size;
@@ -1855,6 +1915,7 @@
     async function openViewer() {
       setHeaderName();
       overlay.classList.add('active');
+      renderSizeButtons();
       updateSizeSelectorVisibility();
       currentSize = resolveCurrentSizeForOpen();
       sizeButtons.forEach(function(b) {
@@ -2071,10 +2132,12 @@
       }
     });
 
-    // Size button clicks - INSTANT switching
-    sizeButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (btn.hidden) return;
+    // Size button clicks - INSTANT switching. Delegated on the container so it works for the
+    // dynamically-rendered chips (letters or numeric/EU) built by renderSizeButtons().
+    if (sizeSelectorEl) {
+      sizeSelectorEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('.size-btn');
+        if (!btn || btn.hidden) return;
         const size = btn.dataset.size;
         if (!modelPaths[size]) return;
 
@@ -2092,7 +2155,7 @@
         // INSTANT switch from cache
         showModel(size);
       });
-    });
+    }
 
     // ============================================
     // THREE.JS SCENE
