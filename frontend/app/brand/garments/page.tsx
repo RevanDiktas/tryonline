@@ -11,6 +11,95 @@ const CATEGORIES = ['tops', 'bottoms', 'outerwear', 'dresses', 'accessories'];
 const FIT_TYPES = ['slim', 'regular', 'oversized'];
 const SIZES = ['xs', 's', 'm', 'l', 'xl'];
 
+// Garment measurements, ordered head-to-toe. Each maps to a body measurement the avatar
+// extracts (see avatar-creation handler.py MEASUREMENT_MAPPING) so the recommender can compare
+// garment vs body: neck->neck, shoulder->shoulder_width, sleeve->arm_length, cuff->wrist,
+// bicep->bicep, rise->crotch_height, thigh->thigh, inseam->inseam, hem->leg/calf opening.
+// length & hem are garment-only (no body equivalent). Merchants leave irrelevant columns blank.
+const MEASUREMENTS = ['neck', 'shoulder', 'chest', 'bicep', 'sleeve', 'cuff', 'length', 'waist', 'hips', 'rise', 'thigh', 'inseam', 'hem'];
+
+// Maps real-world size-chart header names (from merchant Excel/CSV packs) onto our canonical keys.
+const MEASUREMENT_ALIASES: Record<string, string> = {
+  bust: 'chest', chest: 'chest',
+  shoulder: 'shoulder', shoulders: 'shoulder', 'shoulder width': 'shoulder', 'across shoulder': 'shoulder', 'across back': 'shoulder',
+  bicep: 'bicep', biceps: 'bicep', 'upper arm': 'bicep', armhole: 'bicep',
+  sleeve: 'sleeve', 'sleeve length': 'sleeve', 'arm length': 'sleeve', arm: 'sleeve',
+  cuff: 'cuff', wrist: 'cuff', 'sleeve opening': 'cuff', 'cuff width': 'cuff', 'cuff opening': 'cuff',
+  neck: 'neck', neckline: 'neck', collar: 'neck', 'neck width': 'neck',
+  length: 'length', 'body length': 'length', 'garment length': 'length', 'total length': 'length', 'back length': 'length', 'front length': 'length',
+  waist: 'waist',
+  hip: 'hips', hips: 'hips', seat: 'hips',
+  rise: 'rise', 'front rise': 'rise', 'rise front': 'rise',
+  thigh: 'thigh', 'thigh width': 'thigh', 'leg width': 'thigh',
+  inseam: 'inseam', 'inside leg': 'inseam', 'inner leg': 'inseam', inleg: 'inseam',
+  hem: 'hem', 'hem width': 'hem', 'bottom opening': 'hem', 'leg opening': 'hem', sweep: 'hem', 'bottom width': 'hem', opening: 'hem',
+};
+
+// Normalize a header cell ("Sleeve Length (cm)", "CHEST", "inside leg") to a canonical key, or null.
+function normalizeHeader(raw: unknown): string | null {
+  if (raw == null) return null;
+  let h = String(raw).toLowerCase().trim();
+  h = h.replace(/\([^)]*\)/g, ' ');                 // drop parenthetical units e.g. "(cm)"
+  h = h.replace(/\bcm\b|\binch(es)?\b|"/g, ' ');     // drop bare units
+  h = h.replace(/[_\-/]+/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!h) return null;
+  if (MEASUREMENT_ALIASES[h]) return MEASUREMENT_ALIASES[h];
+  if (MEASUREMENTS.includes(h)) return h;
+  const first = h.split(' ')[0];                     // "chest circumference" -> "chest"
+  if (MEASUREMENT_ALIASES[first]) return MEASUREMENT_ALIASES[first];
+  if (MEASUREMENTS.includes(first)) return first;
+  return null;
+}
+
+// Parse a numeric cell, tolerating European decimal commas ("33,5") and thousands separators.
+function parseNum(raw: unknown): number {
+  if (typeof raw === 'number') return raw;
+  if (raw == null) return NaN;
+  let s = String(raw).trim().replace(/\s/g, '');
+  if (!s) return NaN;
+  s = s.replace(/[^0-9.,-]/g, '');
+  if (s.includes(',') && !s.includes('.')) s = s.replace(',', '.'); // decimal comma -> dot
+  else s = s.replace(/,/g, '');                                     // comma is thousands sep
+  return parseFloat(s);
+}
+
+// Split a CSV (comma / semicolon / tab delimited) into a row-major array of trimmed cells.
+function csvToRows(text: string): string[][] {
+  const lines = text.replace(/\r\n?/g, '\n').trim().split('\n').filter((l) => l.length);
+  if (!lines.length) return [];
+  const count = (ch: string) => (lines[0].split(ch).length - 1);
+  const semi = count(';'), tab = count('\t'), comma = count(',');
+  const delim = semi >= comma && semi >= tab ? ';' : tab > comma ? '\t' : ',';
+  return lines.map((l) => l.split(delim).map((c) => c.trim().replace(/^"|"$/g, '')));
+}
+
+// Turn a sheet (array of rows; col 0 = size label, header row names measurements) into a size chart.
+function rowsToChart(rows: unknown[][]): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  if (!rows || rows.length < 2) return out;
+  let headerIdx = rows.findIndex((r) => Array.isArray(r) && r.slice(1).some((c) => normalizeHeader(c)));
+  if (headerIdx < 0) headerIdx = 0;
+  const header = rows[headerIdx] || [];
+  const colMap: Record<number, string> = {};
+  for (let i = 1; i < header.length; i++) {            // col 0 holds the size label
+    const key = normalizeHeader(header[i]);
+    if (key) colMap[i] = key;
+  }
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!Array.isArray(row)) continue;
+    const sz = String(row[0] ?? '').trim().toLowerCase();
+    if (!SIZES.includes(sz)) continue;
+    const vals: Record<string, number> = {};
+    for (const idx of Object.keys(colMap)) {
+      const v = parseNum(row[Number(idx)]);
+      if (!isNaN(v) && v > 0) vals[colMap[Number(idx)]] = v;
+    }
+    out[sz] = vals;
+  }
+  return out;
+}
+
 interface GarmentForm {
   name: string;
   category: string;
@@ -153,13 +242,7 @@ export default function GarmentsPage() {
     }
   };
 
-  // --- Size Chart Editor ---
-  // Garment measurements, ordered head-to-toe. Each maps to a body measurement the avatar
-  // extracts (see avatar-creation handler.py MEASUREMENT_MAPPING) so the recommender can compare
-  // garment vs body: neck->neck, shoulder->shoulder_width, sleeve->arm_length, cuff->wrist,
-  // bicep->bicep, rise->crotch_height, thigh->thigh, inseam->inseam, hem->leg/calf opening.
-  // length & hem are garment-only (no body equivalent). Merchants leave irrelevant columns blank.
-  const MEASUREMENTS = ['neck', 'shoulder', 'chest', 'bicep', 'sleeve', 'cuff', 'length', 'waist', 'hips', 'rise', 'thigh', 'inseam', 'hem'];
+  // --- Size Chart Editor --- (MEASUREMENTS + import helpers are module-level, above)
   const [sizeChartGarmentId, setSizeChartGarmentId] = useState<string | null>(null);
   const [sizeChartData, setSizeChartData] = useState<Record<string, Record<string, string>>>({});
   const [savingSizeChart, setSavingSizeChart] = useState(false);
@@ -210,52 +293,58 @@ export default function GarmentsPage() {
     }
   };
 
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const text = ev.target?.result as string;
-        let parsed: Record<string, Record<string, number>> = {};
+    try {
+      const name = file.name.toLowerCase();
+      let parsed: Record<string, Record<string, number>> = {};
 
-        if (file.name.endsWith('.json')) {
-          parsed = JSON.parse(text);
-        } else {
-          // CSV: first column = size, header row = measurement names
-          const lines = text.trim().split('\n').map((l) => l.split(',').map((c) => c.trim()));
-          if (lines.length < 2) { alert('CSV must have a header row and at least one data row'); return; }
-          const headers = lines[0].slice(1).map((h) => h.toLowerCase());
-          for (let i = 1; i < lines.length; i++) {
-            const row = lines[i];
-            const sz = row[0].toLowerCase();
-            if (!SIZES.includes(sz)) continue;
-            const vals: Record<string, number> = {};
-            headers.forEach((h, idx) => {
-              const v = parseFloat(row[idx + 1]);
-              if (!isNaN(v)) vals[h] = v;
-            });
-            parsed[sz] = vals;
+      if (name.endsWith('.json')) {
+        // JSON: {"xs": {"chest": 86, "sleeve length": 60, ...}, ...} — keys + values are normalized.
+        const obj = JSON.parse(await file.text());
+        for (const rawSz of Object.keys(obj || {})) {
+          const sz = rawSz.toLowerCase().trim();
+          if (!SIZES.includes(sz)) continue;
+          const vals: Record<string, number> = {};
+          for (const [rawKey, rawVal] of Object.entries(obj[rawSz] || {})) {
+            const key = normalizeHeader(rawKey);
+            const v = parseNum(rawVal);
+            if (key && !isNaN(v) && v > 0) vals[key] = v;
           }
+          parsed[sz] = vals;
         }
-
-        // Merge into editor
-        const updated = { ...sizeChartData };
-        for (const sz of SIZES) {
-          if (!updated[sz]) updated[sz] = {};
-          if (parsed[sz]) {
-            for (const m of MEASUREMENTS) {
-              if (parsed[sz][m] !== undefined) updated[sz][m] = String(parsed[sz][m]);
-            }
-          }
-        }
-        setSizeChartData(updated);
-      } catch (_e) {
-        alert('Failed to parse file. Use JSON format like {"xs": {"chest": 86, ...}} or CSV with size,chest,waist,hips,length columns.');
+      } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+        // Excel: read the first sheet as a grid (size in col 0, measurement names in the header row).
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }) as unknown[][];
+        parsed = rowsToChart(rows);
+      } else {
+        parsed = rowsToChart(csvToRows(await file.text()));
       }
-    };
-    reader.readAsText(file);
+
+      if (!Object.keys(parsed).length) {
+        alert('Could not read any size rows. Put the size (XS/S/M/L/XL) in the first column and the measurement names in the header row.');
+        return;
+      }
+
+      // Merge into editor (only canonical keys survive normalization, so this stays in-schema)
+      const updated = { ...sizeChartData };
+      for (const sz of SIZES) {
+        if (!updated[sz]) updated[sz] = {};
+        if (parsed[sz]) {
+          for (const m of MEASUREMENTS) {
+            if (parsed[sz][m] !== undefined) updated[sz][m] = String(parsed[sz][m]);
+          }
+        }
+      }
+      setSizeChartData(updated);
+    } catch (err) {
+      alert('Failed to parse file. Accepted formats: .xlsx, .csv, .json. ' + (err instanceof Error ? err.message : ''));
+    }
   };
 
   const sizeCount = (g: Garment) => Object.keys(g.sizes || {}).length;
@@ -560,7 +649,7 @@ export default function GarmentsPage() {
                 <button onClick={() => setSizeChartGarmentId(null)} className={`text-xl ${dark ? 'text-white/40 hover:text-white' : 'text-gray-400 hover:text-black'}`}>&times;</button>
               </div>
 
-              <input id="size-chart-import" name="size-chart-import" type="file" ref={csvInputRef} accept=".csv,.json" className="hidden" onChange={handleImportFile} />
+              <input id="size-chart-import" name="size-chart-import" type="file" ref={csvInputRef} accept=".csv,.json,.xlsx,.xls" className="hidden" onChange={handleImportFile} />
 
               <div className="overflow-x-auto mb-4">
                 <table className="w-full text-sm">
@@ -603,7 +692,7 @@ export default function GarmentsPage() {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                   </svg>
-                  Import CSV / JSON
+                  Import Excel / CSV / JSON
                 </button>
                 <div className="flex gap-3">
                   <button onClick={() => setSizeChartGarmentId(null)} className={`px-4 py-2 text-sm transition ${dark ? 'text-white/50 hover:text-white' : 'text-gray-600 hover:text-black'}`}>
@@ -620,7 +709,8 @@ export default function GarmentsPage() {
               </div>
 
               <p className={`text-xs mt-3 ${dark ? 'text-white/25' : 'text-gray-400'}`}>
-                CSV format: size,chest,waist,hips,length (header row + data rows). JSON format: {`{"xs": {"chest": 86, "waist": 72, ...}, ...}`}
+                Excel/CSV: first column = size (XS/S/M/L/XL), header row names the measurements (chest,
+                sleeve length, inside leg, hem ... are recognized; decimal commas OK). JSON: {`{"xs": {"chest": 86, "sleeve": 60, ...}, ...}`}
               </p>
             </div>
           </div>
