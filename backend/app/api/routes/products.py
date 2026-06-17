@@ -106,7 +106,7 @@ def _get_draped_urls(garment_id: str, body_hash: str, sizes: list[str]) -> dict[
 class TryonConfigResponse(BaseModel):
     product_id: str
     model_urls: dict[str, str]
-    size_chart: dict[str, dict[str, int]]
+    size_chart: dict[str, dict[str, float]]  # cm, decimals allowed (e.g. 33.5)
     model_type: str = "combined"
     category: str = "tops"
     fit_type: str = "regular"
@@ -158,7 +158,17 @@ async def get_tryon_config(
         size_chart_out = {}
         for k, v in (size_chart or {}).items():
             if isinstance(v, dict):
-                size_chart_out[str(k).lower()] = {kk: int(vv) for kk, vv in v.items() if vv is not None}
+                # Keep measurements as floats — merchant charts use decimals (e.g. 33.5 cm).
+                # int() truncated half-cm values, throwing the size match off.
+                clean: dict[str, float] = {}
+                for kk, vv in v.items():
+                    if vv is None:
+                        continue
+                    try:
+                        clean[str(kk).lower()] = float(vv)
+                    except (TypeError, ValueError):
+                        continue
+                size_chart_out[str(k).lower()] = clean
 
         has_obj = bool(obj_sizes and any(obj_sizes.values()))
         draped_urls: Optional[dict[str, str]] = None
