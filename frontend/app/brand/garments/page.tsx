@@ -154,7 +154,12 @@ export default function GarmentsPage() {
   };
 
   // --- Size Chart Editor ---
-  const MEASUREMENTS = ['chest', 'waist', 'hips', 'length', 'inseam', 'shoulder', 'sleeve', 'thigh'];
+  // Garment measurements, ordered head-to-toe. Each maps to a body measurement the avatar
+  // extracts (see avatar-creation handler.py MEASUREMENT_MAPPING) so the recommender can compare
+  // garment vs body: neck->neck, shoulder->shoulder_width, sleeve->arm_length, cuff->wrist,
+  // bicep->bicep, rise->crotch_height, thigh->thigh, inseam->inseam, hem->leg/calf opening.
+  // length & hem are garment-only (no body equivalent). Merchants leave irrelevant columns blank.
+  const MEASUREMENTS = ['neck', 'shoulder', 'chest', 'bicep', 'sleeve', 'cuff', 'length', 'waist', 'hips', 'rise', 'thigh', 'inseam', 'hem'];
   const [sizeChartGarmentId, setSizeChartGarmentId] = useState<string | null>(null);
   const [sizeChartData, setSizeChartData] = useState<Record<string, Record<string, string>>>({});
   const [savingSizeChart, setSavingSizeChart] = useState(false);
