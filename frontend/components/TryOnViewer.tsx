@@ -49,6 +49,8 @@ interface TryOnViewerProps {
   measurementConvention?: MeasurementConvention
   // Shopper's gender, selects the standard body->size scale for native-size anchoring.
   gender?: Gender
+  // Shopper's ISO 3166-1 alpha-2 country (e.g. 'NL', 'US'); selects the regional body-size bands.
+  country?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +309,7 @@ export default function TryOnViewer({
   garmentFitType = 'regular',
   measurementConvention = 'circumference',
   gender = 'unisex',
+  country,
 }: TryOnViewerProps) {
   const [selectedSize, setSelectedSize] = useState<string>('M')
   const hasSetInitialSize = useRef(false)
@@ -332,7 +335,9 @@ export default function TryOnViewer({
     garmentFitType,
     measurementConvention,
     gender,
-  ), [userMeasurements, sizeChart, preferredFit, garmentCategory, garmentFitType, measurementConvention, gender])
+    undefined, // availableSizes: let the engine use the chart keys
+    country,
+  ), [userMeasurements, sizeChart, preferredFit, garmentCategory, garmentFitType, measurementConvention, gender, country])
 
   const recommendedSize = sizeRec.recommendedSize
 

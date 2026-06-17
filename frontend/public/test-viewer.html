@@ -635,6 +635,7 @@
         userId: userId,
         displayName: displayName || null,
         preferredFit: p.get('preferred_fit') || null,
+        country: p.get('country') || null,  // ISO 3166-1 alpha-2; selects regional body-size bands
         openDirect: openParam || inIframe,
         tryGarmentOnly: p.get('try_garment_only') === '1',
         productName: p.get('product_name') ? decodeURIComponent(p.get('product_name')) : null,
@@ -1295,7 +1296,8 @@
         garmentFitType || 'regular',
         hasChart ? 'flat' : 'circumference',
         currentGender(),
-        available
+        available,
+        config.country
       );
       return (rec && rec.recommendedSize) || available[0];
     }

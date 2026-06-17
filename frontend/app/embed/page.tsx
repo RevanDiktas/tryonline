@@ -197,6 +197,7 @@ function EmbedContent() {
         // populated; the demo fallback chart is circumference.
         measurementConvention={sizeChart ? 'flat' : 'circumference'}
         gender={gender}
+        country={country || undefined}
         garmentCategory={garmentCategory}
         garmentFitType={garmentFitType}
         preferredFit={preferredFit === 'slim' || preferredFit === 'loose' ? preferredFit : 'regular'}

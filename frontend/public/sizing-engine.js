@@ -131,23 +131,167 @@ export const PREFERRED_FIT_SHIFT = { slim: -3, regular: 0, loose: 3 };
 // Upper bound (cm, body circumference) of each size band per gender.
 // ---------------------------------------------------------------------------
 
-export const BODY_SIZE_SCALE = {
-  male: {
-    chest: { XS: 90, S: 98, M: 106, L: 114, XL: 122, XXL: 130 },
-    waist: { XS: 74, S: 82, M: 90, L: 98, XL: 106, XXL: 114 },
-    hips:  { XS: 90, S: 98, M: 104, L: 110, XL: 117, XXL: 124 },
+// Per-region bands. Body sizes vary by continent (an East-Asian "L" is a smaller body than a
+// North-American "L"), so we pick the scale matching the shopper's location and fall back to a
+// worldwide blend ("global") when location is unknown. Numbers are body CIRCUMFERENCE upper
+// bounds (cm) per size, grounded in regional anthropometric surveys/standards (see sources in
+// the commit / project memory). "global" stays the historical blend so unknown-location is
+// unchanged. female "chest" = bust circumference.
+export const BODY_SIZE_SCALE_BY_REGION = {
+  global: {
+    male: {
+      chest: { XS: 90, S: 98, M: 106, L: 114, XL: 122, XXL: 130 },
+      waist: { XS: 74, S: 82, M: 90, L: 98, XL: 106, XXL: 114 },
+      hips:  { XS: 90, S: 98, M: 104, L: 110, XL: 117, XXL: 124 },
+    },
+    female: {
+      chest: { XS: 80, S: 86, M: 92, L: 100, XL: 108, XXL: 116 },
+      waist: { XS: 64, S: 70, M: 78, L: 86, XL: 94, XXL: 102 },
+      hips:  { XS: 88, S: 94, M: 100, L: 108, XL: 116, XXL: 124 },
+    },
+    unisex: {
+      chest: { XS: 85, S: 92, M: 99, L: 107, XL: 115, XXL: 123 },
+      waist: { XS: 69, S: 76, M: 84, L: 92, XL: 100, XXL: 108 },
+      hips:  { XS: 89, S: 96, M: 102, L: 109, XL: 116, XXL: 124 },
+    },
   },
-  female: {
-    chest: { XS: 80, S: 86, M: 92, L: 100, XL: 108, XXL: 116 },
-    waist: { XS: 64, S: 70, M: 78, L: 86, XL: 94, XXL: 102 },
-    hips:  { XS: 88, S: 94, M: 100, L: 108, XL: 116, XXL: 124 },
+  // EN 13402 / SizeGERMANY / ISO 8559 / EU brand charts.
+  europe: {
+    male: {
+      chest: { XS: 86, S: 94, M: 100, L: 108, XL: 116, XXL: 124 },
+      waist: { XS: 74, S: 82, M: 90, L: 98, XL: 108, XXL: 118 },
+      hips:  { XS: 90, S: 96, M: 102, L: 108, XL: 116, XXL: 124 },
+    },
+    female: {
+      chest: { XS: 80, S: 88, M: 94, L: 102, XL: 112, XXL: 124 },
+      waist: { XS: 64, S: 70, M: 78, L: 86, XL: 96, XXL: 108 },
+      hips:  { XS: 88, S: 96, M: 102, L: 110, XL: 118, XXL: 128 },
+    },
   },
-  unisex: {
-    chest: { XS: 85, S: 92, M: 99, L: 107, XL: 115, XXL: 123 },
-    waist: { XS: 69, S: 76, M: 84, L: 92, XL: 100, XXL: 108 },
-    hips:  { XS: 89, S: 96, M: 102, L: 109, XL: 116, XXL: 124 },
+  // ANSUR II / SizeUSA / ASTM D6240/D5585/D6960 / NHANES. Runs larger than Europe.
+  north_america: {
+    male: {
+      chest: { XS: 91, S: 97, M: 104, L: 112, XL: 122, XXL: 132 },
+      waist: { XS: 76, S: 81, M: 89, L: 97, XL: 107, XXL: 117 },
+      hips:  { XS: 90, S: 98, M: 105, L: 113, XL: 123, XXL: 133 },
+    },
+    female: {
+      chest: { XS: 84, S: 89, M: 94, L: 102, XL: 109, XXL: 117 },
+      waist: { XS: 64, S: 69, M: 74, L: 81, XL: 89, XXL: 97 },
+      hips:  { XS: 89, S: 94, M: 99, L: 107, XL: 114, XXL: 122 },
+    },
+  },
+  // China GB/T 1335 / Japan JIS L 4004-5 / Size Korea. East-Asian frames run smaller/narrower.
+  asia: {
+    male: {
+      chest: { XS: 84, S: 90, M: 96, L: 104, XL: 112, XXL: 120 },
+      waist: { XS: 72, S: 78, M: 84, L: 92, XL: 100, XXL: 108 },
+      hips:  { XS: 84, S: 90, M: 96, L: 102, XL: 110, XXL: 118 },
+    },
+    female: {
+      chest: { XS: 78, S: 83, M: 88, L: 94, XL: 101, XXL: 108 },
+      waist: { XS: 62, S: 67, M: 73, L: 80, XL: 88, XXL: 96 },
+      hips:  { XS: 85, S: 90, M: 95, L: 101, XL: 108, XXL: 115 },
+    },
+  },
+  // Argentina INTI EAAr 2024 / Brazil ABNT NBR 16060 / Colombia NTC 5518. Larger frames; women
+  // carry a higher hip-to-waist ratio.
+  south_america: {
+    male: {
+      chest: { XS: 90, S: 98, M: 106, L: 114, XL: 122, XXL: 130 },
+      waist: { XS: 78, S: 86, M: 94, L: 102, XL: 110, XXL: 118 },
+      hips:  { XS: 86, S: 92, M: 98, L: 105, XL: 112, XXL: 119 },
+    },
+    female: {
+      chest: { XS: 84, S: 92, M: 100, L: 108, XL: 116, XXL: 124 },
+      waist: { XS: 72, S: 79, M: 86, L: 94, XL: 102, XXL: 110 },
+      hips:  { XS: 90, S: 98, M: 105, L: 113, XL: 121, XXL: 129 },
+    },
+  },
+  // LOW CONFIDENCE: no apparel-grade African survey exists. Anchored on SANHANES-1 / Ethiopian /
+  // Nigerian medical+ergonomic waist+hip data; chest/bust is DERIVED from waist offsets, not
+  // measured. Huge intra-continent variation; SA women carry very high hip mass. Override per
+  // country/brand where real charts exist.
+  africa: {
+    male: {
+      chest: { XS: 84, S: 91, M: 98, L: 105, XL: 113, XXL: 122 },
+      waist: { XS: 72, S: 79, M: 86, L: 94, XL: 103, XXL: 113 },
+      hips:  { XS: 84, S: 90, M: 97, L: 104, XL: 112, XXL: 121 },
+    },
+    female: {
+      chest: { XS: 82, S: 89, M: 96, L: 104, XL: 113, XXL: 123 },
+      waist: { XS: 70, S: 77, M: 85, L: 94, XL: 104, XXL: 115 },
+      hips:  { XS: 91, S: 98, M: 106, L: 114, XL: 123, XXL: 133 },
+    },
+  },
+  // AS 1344 / ABS National Health Survey / NZ Health Survey. Similar to North America; Pacific
+  // Islander bodies run larger still and will commonly land one band higher.
+  oceania: {
+    male: {
+      chest: { XS: 88, S: 96, M: 102, L: 108, XL: 116, XXL: 124 },
+      waist: { XS: 76, S: 84, M: 92, L: 100, XL: 110, XXL: 120 },
+      hips:  { XS: 88, S: 96, M: 104, L: 112, XL: 120, XXL: 130 },
+    },
+    female: {
+      chest: { XS: 84, S: 90, M: 96, L: 104, XL: 112, XXL: 122 },
+      waist: { XS: 66, S: 72, M: 80, L: 88, XL: 98, XXL: 110 },
+      hips:  { XS: 92, S: 98, M: 104, L: 112, XL: 120, XXL: 132 },
+    },
   },
 };
+
+// Back-compat: the historical global table.
+export const BODY_SIZE_SCALE = BODY_SIZE_SCALE_BY_REGION.global;
+
+// ISO 3166-1 alpha-2 country -> continent region key. Unknown -> 'global'.
+const COUNTRY_TO_REGION = {
+  // Europe
+  GB: 'europe', IE: 'europe', FR: 'europe', DE: 'europe', NL: 'europe', BE: 'europe', LU: 'europe',
+  ES: 'europe', PT: 'europe', IT: 'europe', CH: 'europe', AT: 'europe', DK: 'europe', SE: 'europe',
+  NO: 'europe', FI: 'europe', IS: 'europe', PL: 'europe', CZ: 'europe', SK: 'europe', HU: 'europe',
+  RO: 'europe', BG: 'europe', GR: 'europe', HR: 'europe', SI: 'europe', RS: 'europe', BA: 'europe',
+  ME: 'europe', MK: 'europe', AL: 'europe', EE: 'europe', LV: 'europe', LT: 'europe', UA: 'europe',
+  BY: 'europe', MD: 'europe', RU: 'europe', TR: 'europe', CY: 'europe', MT: 'europe',
+  // North America (geographic: incl. Mexico, Central America, Caribbean)
+  US: 'north_america', CA: 'north_america', MX: 'north_america', GT: 'north_america', BZ: 'north_america',
+  SV: 'north_america', HN: 'north_america', NI: 'north_america', CR: 'north_america', PA: 'north_america',
+  CU: 'north_america', DO: 'north_america', HT: 'north_america', JM: 'north_america', TT: 'north_america',
+  BS: 'north_america', BB: 'north_america', PR: 'north_america',
+  // South America
+  BR: 'south_america', AR: 'south_america', CL: 'south_america', CO: 'south_america', PE: 'south_america',
+  VE: 'south_america', EC: 'south_america', BO: 'south_america', PY: 'south_america', UY: 'south_america',
+  GY: 'south_america', SR: 'south_america',
+  // Asia (incl. Middle East + Central Asia, geographically)
+  CN: 'asia', JP: 'asia', KR: 'asia', KP: 'asia', TW: 'asia', HK: 'asia', MO: 'asia', MN: 'asia',
+  IN: 'asia', PK: 'asia', BD: 'asia', LK: 'asia', NP: 'asia', BT: 'asia', MV: 'asia', TH: 'asia',
+  VN: 'asia', KH: 'asia', LA: 'asia', MM: 'asia', MY: 'asia', SG: 'asia', ID: 'asia', PH: 'asia',
+  BN: 'asia', TL: 'asia', KZ: 'asia', UZ: 'asia', TM: 'asia', KG: 'asia', TJ: 'asia', AF: 'asia',
+  IR: 'asia', IQ: 'asia', SA: 'asia', AE: 'asia', QA: 'asia', KW: 'asia', BH: 'asia', OM: 'asia',
+  YE: 'asia', JO: 'asia', LB: 'asia', SY: 'asia', IL: 'asia', PS: 'asia', GE: 'asia', AM: 'asia', AZ: 'asia',
+  // Africa
+  NG: 'africa', ZA: 'africa', EG: 'africa', ET: 'africa', KE: 'africa', GH: 'africa', TZ: 'africa',
+  UG: 'africa', DZ: 'africa', MA: 'africa', TN: 'africa', LY: 'africa', SD: 'africa', SS: 'africa',
+  CM: 'africa', CI: 'africa', SN: 'africa', ML: 'africa', AO: 'africa', MZ: 'africa', ZW: 'africa',
+  ZM: 'africa', RW: 'africa', BW: 'africa', NA: 'africa', MW: 'africa', BJ: 'africa', BF: 'africa',
+  NE: 'africa', TD: 'africa', SO: 'africa', CD: 'africa', CG: 'africa', GA: 'africa', MG: 'africa', MU: 'africa',
+  // Oceania
+  AU: 'oceania', NZ: 'oceania', PG: 'oceania', FJ: 'oceania', SB: 'oceania', VU: 'oceania', WS: 'oceania',
+  TO: 'oceania', KI: 'oceania', FM: 'oceania', NC: 'oceania', PF: 'oceania',
+};
+
+// Resolve an ISO alpha-2 country (or a region key) to a region key. Unknown -> 'global'.
+export function regionForCountry(country) {
+  if (!country) return 'global';
+  const c = String(country).trim();
+  if (BODY_SIZE_SCALE_BY_REGION[c]) return c; // already a region key
+  return COUNTRY_TO_REGION[c.toUpperCase()] || 'global';
+}
+
+// Pick the body-size bands for a region + gender, falling back to the global blend.
+export function bodyScaleFor(region, gender) {
+  const reg = BODY_SIZE_SCALE_BY_REGION[region] || BODY_SIZE_SCALE_BY_REGION.global;
+  return reg[gender] || reg.unisex || BODY_SIZE_SCALE_BY_REGION.global.unisex;
+}
 
 export const NATIVE_SCALE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
@@ -169,8 +313,8 @@ export const PREFERRED_FIT_SIZE_SHIFT = { slim: -1, regular: 0, loose: 1 };
 
 // Map a shopper's real body measurements to their native size ORDINAL (index into SIZE_ORDER).
 // Returns null if the anchoring measurement is missing.
-export function nativeSizeOrdinal(measurements, category, gender) {
-  const scale = BODY_SIZE_SCALE[gender] || BODY_SIZE_SCALE.unisex;
+export function nativeSizeOrdinal(measurements, category, gender, region) {
+  const scale = bodyScaleFor(region || 'global', gender);
   const anchorKey = CATEGORY_ANCHOR[category] || 'chest';
   const measMap = measurements || {};
   let value = measMap[anchorKey];
@@ -197,9 +341,12 @@ export function nativeSizeOrdinal(measurements, category, gender) {
   const height = measMap['height'];
   const expected = EXPECTED_HEIGHT_BY_SIZE[gender] && EXPECTED_HEIGHT_BY_SIZE[gender][SIZE_ORDER[girthOrdinal]];
   if (height != null && expected != null) {
+    // Size up a notably tall build for length. Threshold is generous (>12cm over the size's
+    // typical wearer) so it doesn't double-count once the girth bands already place a tall-lean
+    // shopper at the right size — e.g. a 192cm/102cm-chest man is L, not XL.
     const over = height - expected;
-    if (over > 20) heightBump = 2;
-    else if (over > 6) heightBump = 1;
+    if (over > 22) heightBump = 2;
+    else if (over > 12) heightBump = 1;
   }
 
   return { ordinal: girthOrdinal + heightBump, girthOrdinal, anchorKey: usedKey, anchorValue: value, heightBump };
@@ -252,6 +399,7 @@ export function recommendSize(
   convention,
   gender,
   availableSizes,
+  country,
 ) {
   preferredFit = preferredFit || 'regular';
   category = category || 'tops';
@@ -259,6 +407,8 @@ export function recommendSize(
   convention = convention || 'circumference';
   gender = gender || 'unisex';
   sizeChart = sizeChart || {};
+  // Pick the regional body-size bands matching the shopper's location (unknown -> 'global').
+  const region = regionForCountry(country);
 
   const candidates = (availableSizes && availableSizes.length) ? availableSizes : Object.keys(sizeChart);
   // Which size system this garment uses (letters / Women EU / Men EU), inferred from its labels.
@@ -321,7 +471,7 @@ export function recommendSize(
 
   // TRUE-TO-FIT selection: anchor on the shopper's REAL body -> native size, map to the
   // garment's matching label, then shift by whole sizes for the fit preference.
-  const native = nativeSizeOrdinal(measurements, category, gender);
+  const native = nativeSizeOrdinal(measurements, category, gender, region);
   const availOrdinals = sizes.map((s) => sizeToOrdinal(s, system)).sort((a, b) => a - b);
   const clampOrdinal = (ord) => {
     const lo = availOrdinals[0];
@@ -353,7 +503,7 @@ export function recommendSize(
   // Confidence scoring (0–100).
   let confidence = 0;
   if (native && recommended) {
-    const scale = BODY_SIZE_SCALE[gender] || BODY_SIZE_SCALE.unisex;
+    const scale = bodyScaleFor(region, gender);
     const band = scale[native.anchorKey];
     const upper = band[SIZE_ORDER[native.girthOrdinal]] != null ? band[SIZE_ORDER[native.girthOrdinal]] : native.anchorValue;
     const prevSize = SIZE_ORDER[native.girthOrdinal - 1];

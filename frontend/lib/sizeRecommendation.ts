@@ -79,9 +79,11 @@ export function recommendSize(
   convention: MeasurementConvention = 'circumference',
   gender: Gender = 'unisex',
   availableSizes?: string[],
+  // ISO 3166-1 alpha-2 country (e.g. 'NL', 'US') — selects the regional body-size bands.
+  country?: string,
 ): SizeRecommendation {
   return engine.recommendSize(
-    measurements, sizeChart, preferredFit, category, fitType, convention, gender, availableSizes,
+    measurements, sizeChart, preferredFit, category, fitType, convention, gender, availableSizes, country,
   ) as SizeRecommendation
 }
 
