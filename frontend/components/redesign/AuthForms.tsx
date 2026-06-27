@@ -381,7 +381,7 @@ function SignUpInner({
               <p style={{
                 fontFamily: 'var(--display)', fontSize: 14, color: C.dim,
                 margin: '14px 0 0', maxWidth: 380, letterSpacing: '-0.005em', lineHeight: 1.5,
-              }}>One body. Every brand. Build your fit passport once and try clothes on from any TryOn-enabled store.</p>
+              }}>One body. Every brand. Build your fit passport once and try clothes on from any Tryon-enabled store.</p>
             </div>
 
             <div style={{

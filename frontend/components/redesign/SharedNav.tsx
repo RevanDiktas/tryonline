@@ -107,12 +107,12 @@ export function SharedNav({
               background: 'none', border: 'none', padding: 0,
               cursor: 'pointer', display: 'inline-flex',
             }}
-            aria-label="TryOn home"
+            aria-label="Tryon home"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={dark ? '/redesign/wordmark-white.png' : '/redesign/wordmark.png'}
-              alt="TryOn"
+              alt="Tryon"
               style={{ height: 18, width: 'auto', display: 'block' }}
             />
           </button>

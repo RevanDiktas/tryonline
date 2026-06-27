@@ -6,7 +6,7 @@ import { ShopifyAppBridge } from '@/components/ShopifyAppBridge'
 import { SHOPIFY_EMBEDDED_CLIENT_ID } from '@/lib/shopify-embedded-client-id'
 
 export const metadata: Metadata = {
-  title: 'TryOn - Virtual Fitting Room',
+  title: 'Tryon - Virtual Fitting Room',
   description: 'See how clothes fit on your body before you buy',
 }
 

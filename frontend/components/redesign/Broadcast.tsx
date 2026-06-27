@@ -151,7 +151,7 @@ function DesktopHero() {
             letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
             marginBottom: 28,
           }}>
-            TryOn — Fit before you buy
+            Tryon · Fit before you buy
           </div>
 
           <h1 style={{
@@ -427,7 +427,7 @@ function DesktopComponents() {
 function DesktopEvidence() {
   const C = useC();
   const wasteRows = [
-    { k: 'Returns avoided', v: 40, suffix: '%', sub: 'less reverse logistics, less landfill.' },
+    { k: 'Returns avoided', v: 20, suffix: '%', sub: 'less reverse logistics, less landfill.' },
     { k: 'Overproduction cut', v: 18, suffix: '%', sub: 'closer to real demand.' },
     { k: 'CO₂e saved per order', v: 2.4, suffix: 'kg', sub: 'when a return is prevented.', decimals: 1 },
   ];
@@ -453,7 +453,7 @@ function DesktopEvidence() {
         <p style={{
           ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48,
         }}>
-          70% of fashion returns are caused by fit (McKinsey, 2024). In 2022, 9.5 billion pounds of US returns went to landfill, emitting 24 million tonnes of CO₂ (Optoro). TryOn kills the return before the order. Fewer trucks. Less plastic. Less polyester pulled out of the ground for stock that nobody wears.
+          70% of fashion returns are caused by fit (McKinsey, 2024). In 2022, 9.5 billion pounds of US returns went to landfill, emitting 24 million tonnes of CO₂ (Optoro). Tryon kills the return before the order. Fewer trucks. Less plastic. Less polyester pulled out of the ground for stock that nobody wears.
         </p>
 
         <div style={{
@@ -538,7 +538,7 @@ function DesktopEvidence() {
               <div style={{
                 padding: '12px 24px', borderTop: `1px solid ${C.line}`,
                 fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
-              }}>Sources: McKinsey 2024, Optoro 2022, TryOn Ramin pilot 2026.</div>
+              }}>Sources: McKinsey 2024, Optoro 2022, Tryon Ramin pilot 2026.</div>
             </div>
           </div>
 
@@ -592,7 +592,7 @@ function DesktopBrands() {
       muted: true,
     },
     {
-      name: 'TryOn',
+      name: 'Tryon',
       bullets: ['Real 3D avatar, real cloth physics.', 'Per-SKU fit confidence.', 'Brand keeps the data and the PDP.'],
       muted: false,
     },
@@ -626,7 +626,7 @@ function DesktopBrands() {
         <div style={{ marginBottom: 56 }}>
           <div style={{
             fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 14,
-          }}>Why TryOn</div>
+          }}>Why Tryon</div>
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0,
             border: `1px solid ${C.line}`,
@@ -657,35 +657,16 @@ function DesktopBrands() {
           </div>
         </div>
 
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 40, alignItems: 'center',
-          marginBottom: 56,
-        }}>
-          <div>
-            <div style={{
-              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 10,
-            }}>Shopify integration</div>
-            <h3 style={{ ...headingStyle('clamp(26px, 3vw, 40px)'), marginBottom: 12 }}>
-              8 lines. Live in a week.
-            </h3>
-            <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, maxWidth: 380 }}>
-              Drop the theme block onto any Shopify store. Embed the widget on your PDP. The widget fetches a fit report from our API. No SDK install, no model upload, no agency.
-            </p>
-          </div>
-          <pre style={{
-            background: C.cardBg, color: C.cardInk,
-            padding: '24px 28px',
-            fontFamily: 'var(--mono)', fontSize: 12.5, lineHeight: 1.6,
-            border: `1px solid ${C.cardBg}`, borderRadius: 16,
-            margin: 0, overflowX: 'auto',
-          }}>{`{% comment %} TryOn widget block {% endcomment %}
-<div id="tryon-widget"
-     data-shop="{{ shop.permanent_domain }}"
-     data-product="{{ product.id }}"
-     data-variant="{{ product.selected_variant.id }}">
-</div>
-<script src="https://cdn.tryon.global/v1/widget.js" defer>
-</script>`}</pre>
+        <div style={{ marginBottom: 56, maxWidth: 720 }}>
+          <div style={{
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 10,
+          }}>Shopify integration</div>
+          <h3 style={{ ...headingStyle('clamp(26px, 3vw, 40px)'), marginBottom: 12 }}>
+            8 lines. Live in a week.
+          </h3>
+          <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, maxWidth: 560 }}>
+            Drop the theme block onto any Shopify store. Embed the widget on your PDP. The widget fetches a fit report from our API. No SDK install, no model upload, no agency.
+          </p>
         </div>
 
         <div>
@@ -842,11 +823,11 @@ function DesktopFooter() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-            alt="TryOn"
+            alt="Tryon"
             style={{ height: 14, width: 'auto', display: 'block' }}
           />
           <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
-            TryOn, 2026
+            Tryon, 2026
           </div>
         </div>
         <div style={{ display: 'flex', gap: 22 }}>
@@ -895,7 +876,7 @@ function MobileHero() {
         letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
         marginBottom: 18,
       }}>
-        TryOn — Fit before you buy
+        Tryon · Fit before you buy
       </div>
       <h1 style={{
         fontFamily: 'var(--display)', fontWeight: 900,
@@ -1054,7 +1035,7 @@ function MobileComponents() {
 function MobileEvidence() {
   const C = useC();
   const wasteRows = [
-    { k: 'Returns avoided', v: 40, suffix: '%', sub: 'less landfill, less reverse logistics.' },
+    { k: 'Returns avoided', v: 20, suffix: '%', sub: 'less landfill, less reverse logistics.' },
     { k: 'Overproduction cut', v: 18, suffix: '%', sub: 'closer to real demand.' },
     { k: 'CO₂e per order', v: 2.4, suffix: 'kg', sub: 'when a return is prevented.', decimals: 1 },
   ];
@@ -1125,7 +1106,7 @@ function MobileEvidence() {
         <div style={{
           padding: '10px 16px', borderTop: `1px solid ${C.line}`,
           fontFamily: 'var(--display)', fontSize: 11, color: C.mute,
-        }}>Sources: McKinsey, Optoro, TryOn pilot 2026.</div>
+        }}>Sources: McKinsey, Optoro, Tryon pilot 2026.</div>
       </div>
 
       <div style={{
@@ -1286,7 +1267,7 @@ function MobileFooter() {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-        alt="TryOn"
+        alt="Tryon"
         style={{ height: 13, width: 'auto', display: 'block' }}
       />
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
@@ -1306,7 +1287,7 @@ function MobileFooter() {
           >{it.label}</button>
         ))}
       </div>
-      <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute }}>TryOn, 2026</div>
+      <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute }}>Tryon, 2026</div>
     </section>
   );
 }

@@ -138,7 +138,7 @@ function Widget({ C, mobile, onClose }: { C: Palette; mobile: boolean; onClose: 
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-              alt="TryOn"
+              alt="Tryon"
               style={{ height: 14, width: 'auto', display: 'block', flexShrink: 0 }}
             />
             <div style={{
@@ -178,7 +178,7 @@ function Widget({ C, mobile, onClose }: { C: Palette; mobile: boolean; onClose: 
               src={`/embed-viewer.html#${currentSize}`}
               className="viewer-canvas"
               style={{ width: '100%', height: '100%', border: 0, display: 'block' }}
-              title="TryOn 3D viewer"
+              title="Tryon 3D viewer"
             />
             <div style={{
               position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)',

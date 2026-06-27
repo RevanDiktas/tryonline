@@ -53,7 +53,7 @@ function Hero({ C }: { C: Palette }) {
         <p style={{
           ...bodyStyle, fontSize: 17, color: C.mute, maxWidth: 720, marginBottom: 8,
         }}>
-          TryOn costs less than the value of returns we save you. Every paid tier prices at well under 30% of the dollar value of returns prevented at conservative assumptions.
+          Tryon costs less than the value of returns we save you. Every paid tier prices at well under 30% of the dollar value of returns prevented at conservative assumptions.
         </p>
         <p style={{
           ...bodyStyle, fontSize: 13.5, color: C.mute, maxWidth: 720,
@@ -77,7 +77,7 @@ function Tiers({ C }: { C: Palette }) {
       features: [
         '200 try-on sessions per month',
         '3 garment uploads',
-        'Branded TryOn widget',
+        'Branded Tryon widget',
         'Basic funnel analytics',
         '10-minute install',
         'Community support',
@@ -274,7 +274,7 @@ function ROI({ C }: { C: Palette }) {
               </div>
               <div>
                 <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4 }}>
-                  Monthly savings with TryOn
+                  Monthly savings with Tryon
                 </div>
                 <div style={{
                   fontFamily: 'var(--display)', fontSize: 28, fontWeight: 700,
@@ -314,7 +314,7 @@ function ROI({ C }: { C: Palette }) {
 function FAQ({ C }: { C: Palette }) {
   const items = [
     { q: 'How do you count a try-on session?',
-      a: 'A session is one shopper opening the TryOn widget on a product page and rendering at least one garment. Page views without a render do not count. Session counts reset monthly.' },
+      a: 'A session is one shopper opening the Tryon widget on a product page and rendering at least one garment. Page views without a render do not count. Session counts reset monthly.' },
     { q: 'Do you charge per garment upload?',
       a: 'No. Garment counts are tier limits, not per-garment fees. We do not believe in per-asset pricing because it punishes brands for adding inventory.' },
     { q: 'What happens if I exceed my tier limit?',
@@ -322,7 +322,7 @@ function FAQ({ C }: { C: Palette }) {
     { q: 'How long does Shopify integration take?',
       a: '8 lines of code in your theme. Brands usually go live in under a week. Studio and above get a Slack channel with our team during install.' },
     { q: 'Are you EU Digital Product Passport ready?',
-      a: 'Every garment we render is structurally a 3D digital twin. We are aligning our metadata schema with the ESPR textile delegated act due late 2026 / early 2027 so brands can plug TryOn assets into their DPP records when the regulation lands.' },
+      a: 'Every garment we render is structurally a 3D digital twin. We are aligning our metadata schema with the ESPR textile delegated act due late 2026 / early 2027 so brands can plug Tryon assets into their DPP records when the regulation lands.' },
     { q: 'Can I try before I commit?',
       a: 'Yes. Free tier is forever-free, no credit card. 200 sessions per month is enough to validate the experience on your store before upgrading.' },
   ];
@@ -432,11 +432,11 @@ function Footer({ C }: { C: Palette }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-            alt="TryOn"
+            alt="Tryon"
             style={{ height: 14, width: 'auto', display: 'block' }}
           />
           <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
-            TryOn, 2026
+            Tryon, 2026
           </div>
         </div>
         <div style={{ display: 'flex', gap: 22 }}>
