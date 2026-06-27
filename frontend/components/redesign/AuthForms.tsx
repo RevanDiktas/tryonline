@@ -631,7 +631,7 @@ function SignInInner({
               fontFamily: 'var(--display)', fontWeight: 700,
               fontSize: mobile ? 28 : 36, letterSpacing: '-0.025em', lineHeight: 1.05,
               margin: 0, color: C.ink,
-            }}>{shopifyMode ? 'Welcome back, brand.' : 'Welcome back, shopper.'}</h1>
+            }}>Welcome back.</h1>
           </div>
 
           {!shopifyMode && (

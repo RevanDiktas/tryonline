@@ -588,7 +588,7 @@ function DesktopBrands() {
     },
     {
       name: 'True Fit',
-      bullets: ['Size recommendation only.', 'No 3D, no avatar.', '$10K to $50K/mo enterprise.'],
+      bullets: ['Size recommendation only.', 'No 3D, no avatar.', 'Reportedly $10K to $50K/mo enterprise.'],
       muted: true,
     },
     {

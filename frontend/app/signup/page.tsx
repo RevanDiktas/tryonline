@@ -12,6 +12,7 @@ import {
   AuthSignUp, type SignUpData,
   AuthBrandSignUp, type BrandSignUpData,
 } from '@/components/redesign/AuthForms';
+import { TryonLogo } from '@/components/TryonLogo';
 
 function SignupContent() {
   const router = useRouter();
@@ -26,7 +27,14 @@ function SignupContent() {
   const isBrand = shopifyMode || typeParam === 'brand';
 
   if (isBrand) {
-    return <BrandSignupView dark={dark} shopifyMode={shopifyMode} resolvedShop={resolvedShop} />;
+    // Shopify-embedded install stays self-serve: the merchant arrives through the
+    // Shopify admin and needs an account immediately. Website brand onboarding is
+    // high-touch (size charts, 3D garment build, widget install) with no self-serve
+    // billing yet, so it routes to a booked call instead of an account form.
+    if (shopifyMode) {
+      return <BrandSignupView dark={dark} shopifyMode={shopifyMode} resolvedShop={resolvedShop} />;
+    }
+    return <BrandBookACallView dark={dark} />;
   }
 
   return <ShopperSignupView dark={dark} router={router} />;
@@ -168,6 +176,63 @@ function BrandSignupView({
       shopifyMode={shopifyMode}
       prefilledShop={resolvedShop}
     />
+  );
+}
+
+/* ───────── Brand onboarding: book a call (website) ───────── */
+function BrandBookACallView({ dark }: { dark: boolean }) {
+  const router = useRouter();
+  const ink = dark ? '#F2F1EC' : '#0A0A0A';
+  const bg = dark ? '#0A0A0A' : '#FFFFFF';
+  return (
+    <div style={{
+      minHeight: '100vh', background: bg, color: ink,
+      display: 'flex', flexDirection: 'column',
+    }}>
+      <div style={{ padding: '20px 24px' }}>
+        <TryonLogo href="/" className="h-6 w-auto" />
+      </div>
+      <div style={{
+        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+      }}>
+        <div style={{ maxWidth: 480, textAlign: 'center' }}>
+          <div style={{
+            fontFamily: 'var(--mono)', fontSize: 12, letterSpacing: '0.08em',
+            textTransform: 'uppercase', opacity: 0.55, marginBottom: 16,
+          }}>For brands</div>
+          <h1 style={{
+            fontFamily: 'var(--display)', fontWeight: 700,
+            fontSize: 'clamp(30px, 5vw, 46px)', letterSpacing: '-0.03em',
+            lineHeight: 1.05, margin: '0 0 16px',
+          }}>Get your brand set up.</h1>
+          <p style={{
+            fontFamily: 'var(--display)', fontSize: 16, lineHeight: 1.6,
+            opacity: 0.7, margin: '0 0 28px',
+          }}>
+            Onboarding is hands-on: we map your size charts, build your garments in 3D,
+            and get the widget live on your store. Book a call and we will set it up with you.
+          </p>
+          <a
+            href="mailto:revan@tryon.global?subject=Tryon%20brand%20onboarding"
+            style={{
+              background: '#0040FF', color: '#FFFFFF',
+              padding: '14px 28px', borderRadius: 9999,
+              fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600,
+              textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8,
+            }}
+          >Book a call <span>→</span></a>
+          <div>
+            <button
+              onClick={() => router.push('/login')}
+              style={{
+                marginTop: 24, background: 'none', border: 'none', cursor: 'pointer',
+                fontFamily: 'var(--display)', fontSize: 14, color: ink, opacity: 0.6,
+              }}
+            >Already have an account? Sign in</button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

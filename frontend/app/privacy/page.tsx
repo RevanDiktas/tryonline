@@ -81,7 +81,7 @@ export default function PrivacyPolicyPage() {
               <li><strong>Export</strong> your data in a portable format</li>
               <li><strong>Withdraw consent</strong> for data processing at any time</li>
             </ul>
-            <p className="mt-3">To exercise any of these rights, contact us at privacy@tryonline.app.</p>
+            <p className="mt-3">To exercise any of these rights, contact us at revan@tryon.global.</p>
           </section>
 
           <section>
@@ -108,7 +108,7 @@ export default function PrivacyPolicyPage() {
             <h2 className={`text-xl font-semibold ${dark ? 'text-white' : 'text-black'}`}>11. Contact Us</h2>
             <p>If you have questions about this Privacy Policy, contact us at:</p>
             <p className="mt-2">
-              <strong>Email:</strong> privacy@tryonline.app<br />
+              <strong>Email:</strong> revan@tryon.global<br />
               <strong>Website:</strong> tryon.global
             </p>
           </section>

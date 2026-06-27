@@ -124,7 +124,7 @@ function Tiers({ C }: { C: Palette }) {
         'Multi-brand workspace',
         'Custom avatar pipeline',
         'Stressmaps and dedicated CSM',
-        'SLA and SOC2 documentation',
+        'SLA and security documentation',
         'Custom analytics export',
         'White-label option',
       ],
