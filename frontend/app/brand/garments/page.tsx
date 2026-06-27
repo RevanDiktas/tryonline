@@ -451,7 +451,7 @@ export default function GarmentsPage() {
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'border-gray-200 text-black focus:ring-black'}`}
                 />
                 <p className={`text-xs mt-1 ${dark ? 'text-white/30' : 'text-gray-400'}`}>
-                  Must match the storefront URL slug: /products/<strong>handle</strong> (same value the theme sends to TryOn). Stored as product id + handle in the database.
+                  Must match the storefront URL slug: /products/<strong>handle</strong> (same value the theme sends to Tryon). Stored as product id + handle in the database.
                 </p>
               </div>
               <div>

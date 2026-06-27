@@ -11,7 +11,7 @@ const SUPABASE_CONFIGURED =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.length > 0;
 
 /**
- * Sign-in for the TryOn widget.
+ * Sign-in for the Tryon widget.
  * - If opened in iframe with ?return=<widget URL>: after sign-in, redirect iframe to return URL + user_id (stays on product page).
  * - If opened in popup (window.opener): after sign-in, post user_id to opener and close.
  */
@@ -197,7 +197,7 @@ export default function WidgetSignInPage() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-6">
           <p className="text-lg font-semibold text-black">Sign in to Try On</p>
-          <p className="text-sm text-gray-500 mt-1">Use your TryOn account</p>
+          <p className="text-sm text-gray-500 mt-1">Use your Tryon account</p>
         </div>
 
         {/* Social login buttons */}

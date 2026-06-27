@@ -939,7 +939,7 @@ function CompleteBody({
               <span style={{
                 fontFamily: 'var(--display)', fontSize: 13, color: C.ink,
                 letterSpacing: '-0.005em',
-              }}>One passport. Use these measurements at every TryOn-enabled brand. Update them any time.</span>
+              }}>One passport. Use these measurements at every Tryon-enabled brand. Update them any time.</span>
             </div>
           )}
           <Primary onClick={onOpenDashboard}>Open dashboard →</Primary>

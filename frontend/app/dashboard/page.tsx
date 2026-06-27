@@ -689,7 +689,7 @@ function DashboardPage() {
             <p style={{
               fontFamily: 'var(--display)', fontSize: 13, color: DIM,
               margin: '0 0 14px', letterSpacing: '-0.005em',
-            }}>Your saved addresses for checkout. Use one as default at TryOn brands.</p>
+            }}>Your saved addresses for checkout. Use one as default at Tryon brands.</p>
 
             {addressError && (
               <div style={{
@@ -892,7 +892,7 @@ function DashboardPage() {
         <div style={{ padding: mobile ? '24px 18px 32px' : '32px 32px 40px' }}>
           <PageHeading
             title="My Closet"
-            sub="Items you've purchased through TryOn. Try them on anytime."
+            sub="Items you've purchased through Tryon. Try them on anytime."
             mobile={mobile}
           />
           <div style={{ marginTop: mobile ? 24 : 32 }}>

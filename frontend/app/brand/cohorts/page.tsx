@@ -85,7 +85,7 @@ function Hero({ C }: { C: Palette }) {
           fontFamily: 'var(--display)', fontSize: 15, lineHeight: 1.55,
           color: C.mute, maxWidth: 720, margin: 0,
         }}>
-          Side-by-side comparison of shoppers who used the TryOn widget against the store baseline. Numbers are computed on the rolling 30-day window. Baselines pulled from your Shopify Analytics.
+          Side-by-side comparison of shoppers who used the Tryon widget against the store baseline. Numbers are computed on the rolling 30-day window. Baselines pulled from your Shopify Analytics.
         </p>
       </div>
     </section>

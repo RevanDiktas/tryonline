@@ -110,7 +110,7 @@ export default function SavedItemsGrid({ listType, dark, onTryOn }: SavedItemsGr
         <p className={`text-sm max-w-sm mx-auto ${dark ? 'text-white/50' : 'text-slate-500'}`}>
           {listType === 'wishlist'
             ? 'Heart items when trying them on in-store to save them here. You can try them on anytime from your dashboard.'
-            : 'Items you purchase through TryOn will appear here automatically.'}
+            : 'Items you purchase through Tryon will appear here automatically.'}
         </p>
       </div>
     );

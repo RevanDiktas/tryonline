@@ -107,8 +107,8 @@ export function VelocityChart({ velocity, dark }: { velocity: { tryon_velocity_7
   if (!velocity) return null;
   const colors = dark ? CHART_COLORS_DARK : CHART_COLORS;
   const data = [
-    { period: '7d', TryOn: velocity.tryon_velocity_7d, Purchase: velocity.purchase_velocity_7d },
-    { period: '30d', TryOn: velocity.tryon_velocity_30d, Purchase: velocity.purchase_velocity_30d },
+    { period: '7d', Tryon: velocity.tryon_velocity_7d, Purchase: velocity.purchase_velocity_7d },
+    { period: '30d', Tryon: velocity.tryon_velocity_30d, Purchase: velocity.purchase_velocity_30d },
   ];
   const tt = tooltipStyle(dark);
 
@@ -121,7 +121,7 @@ export function VelocityChart({ velocity, dark }: { velocity: { tryon_velocity_7
           <YAxis tick={tickStyle(dark)} allowDecimals={false} axisLine={false} tickLine={false} />
           <Tooltip contentStyle={tt.contentStyle} labelStyle={tt.labelStyle} itemStyle={tt.itemStyle} cursor={tt.cursor} isAnimationActive={false} formatter={(value: number | undefined) => [value ?? 0, '']} />
           <Legend wrapperStyle={legendStyle(dark)} />
-          <Bar dataKey="TryOn" fill={colors.tryon} radius={[6, 6, 0, 0]} name="Try-on" isAnimationActive={false} />
+          <Bar dataKey="Tryon" fill={colors.tryon} radius={[6, 6, 0, 0]} name="Try-on" isAnimationActive={false} />
           <Bar dataKey="Purchase" fill={colors.purchase} radius={[6, 6, 0, 0]} name="Purchase" isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>

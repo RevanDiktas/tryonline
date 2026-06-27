@@ -585,7 +585,7 @@ export default function BrandDashboardPage() {
                 )}
               </>
             ) : !fetchError && (
-              <EmptyState message="No metrics yet" sub="Use the TryOn widget, then refresh" dark={dark} />
+              <EmptyState message="No metrics yet" sub="Use the Tryon widget, then refresh" dark={dark} />
             )}
           </div>
         )}
@@ -965,13 +965,13 @@ export default function BrandDashboardPage() {
                   <MetricCell label="Avg Days to Return" value={returnMetrics.avg_days_to_return != null ? `${Number(returnMetrics.avg_days_to_return).toFixed(1)}d` : '-'} dark={dark} />
                 </div>
 
-                {/* TryOn Cohort vs Baseline */}
+                {/* Tryon Cohort vs Baseline */}
                 {cohortComparison && (
                   <div className={`${panelClass} p-5`}>
-                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-4 ${labelCl}`}>TryOn cohort vs baseline</p>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-4 ${labelCl}`}>Tryon cohort vs baseline</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-3">
-                        <p className={`text-xs font-semibold ${dark ? 'text-white/70' : 'text-black/70'}`}>TryOn Users</p>
+                        <p className={`text-xs font-semibold ${dark ? 'text-white/70' : 'text-black/70'}`}>Tryon Users</p>
                         <div className="grid grid-cols-2 gap-3">
                           <MetricCell label="Count" value={cohortComparison.tryon_users_count ?? '-'} dark={dark} />
                           <MetricCell label="Purchases" value={cohortComparison.tryon_purchases ?? '-'} dark={dark} />
@@ -984,7 +984,7 @@ export default function BrandDashboardPage() {
                       <div className={`flex flex-col justify-center px-5 py-4 rounded-xl ${dark ? 'bg-white/[0.03]' : 'bg-black/[0.03]'}`}>
                         <p className={`text-xs font-semibold mb-2 ${dark ? 'text-white/70' : 'text-black/70'}`}>Shopify Store Baseline</p>
                         <p className={`text-xs leading-relaxed ${dark ? 'text-white/40' : 'text-black/40'}`}>
-                          Compare against your Shopify store baseline. The TryOn cohort metrics on the left are attributed to shoppers who used the virtual try-on widget before purchasing.
+                          Compare against your Shopify store baseline. The Tryon cohort metrics on the left are attributed to shoppers who used the virtual try-on widget before purchasing.
                         </p>
                       </div>
                     </div>
