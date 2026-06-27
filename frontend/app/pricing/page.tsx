@@ -82,7 +82,7 @@ function Tiers({ C }: { C: Palette }) {
         '10-minute install',
         'Community support',
       ],
-      cta: 'Book a call', ctaHref: 'mailto:revan@tryon.global?subject=Tryon%20Free%20plan',
+      cta: 'Book a call', ctaHref: '/book',
     },
     {
       name: 'Studio', price: '$149', priceSub: 'per month',
@@ -95,7 +95,7 @@ function Tiers({ C }: { C: Palette }) {
         'Basic analytics dashboard',
         'Email support, 48h SLA',
       ],
-      cta: 'Book a call', ctaHref: 'mailto:revan@tryon.global?subject=Tryon%20Studio%20plan',
+      cta: 'Book a call', ctaHref: '/book',
     },
     {
       name: 'Brand', price: '$2,490', priceSub: 'per month',
@@ -112,7 +112,7 @@ function Tiers({ C }: { C: Palette }) {
         'Shopify webhook integration',
         'Slack support, 24h SLA',
       ],
-      cta: 'Book a call', ctaHref: 'mailto:revan@tryon.global?subject=Tryon%20Brand%20plan',
+      cta: 'Book a call', ctaHref: '/book',
     },
     {
       name: 'Scale', price: 'Custom', priceSub: 'talk to us',
@@ -128,7 +128,7 @@ function Tiers({ C }: { C: Palette }) {
         'Custom analytics export',
         'White-label option',
       ],
-      cta: 'Book a call', ctaHref: 'mailto:revan@tryon.global?subject=Tryon%20Scale%20pricing',
+      cta: 'Book a call', ctaHref: '/book',
     },
   ];
 
@@ -390,7 +390,7 @@ function FinalCTA({ C }: { C: Palette }) {
         </p>
         <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
           <button
-            onClick={() => { window.location.href = 'mailto:revan@tryon.global?subject=Tryon%20for%20my%20brand'; }}
+            onClick={() => { router.push('/book'); }}
             style={{
               background: '#0040FF', color: '#FFFFFF', border: 'none',
               padding: '14px 24px',
@@ -465,6 +465,7 @@ export default function PricingPage() {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const C = dark ? PAL.dark : PAL.light;
+  const router = useRouter();
   const mobile = useIsMobile();
 
   const links = [
@@ -484,11 +485,11 @@ export default function PricingPage() {
         dark={dark}
         links={links}
         rightSlot={mobile ? (
-          <NavCta dark={dark} label="Contact us" onClick={() => { window.location.href = 'mailto:revan@tryon.global?subject=Tryon%20for%20my%20brand'; }} />
+          <NavCta dark={dark} label="Book a call" onClick={() => { router.push('/book'); }} />
         ) : (
           <>
             <AuthAwareSignInLink dark={dark} />
-            <NavCta dark={dark} label="Contact us →" onClick={() => { window.location.href = 'mailto:revan@tryon.global?subject=Tryon%20for%20my%20brand'; }} />
+            <NavCta dark={dark} label="Book a call →" onClick={() => { router.push('/book'); }} />
           </>
         )}
       />

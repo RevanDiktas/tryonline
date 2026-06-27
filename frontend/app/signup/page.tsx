@@ -212,15 +212,16 @@ function BrandBookACallView({ dark }: { dark: boolean }) {
             Onboarding is hands-on: we map your size charts, build your garments in 3D,
             and get the widget live on your store. Book a call and we will set it up with you.
           </p>
-          <a
-            href="mailto:revan@tryon.global?subject=Tryon%20brand%20onboarding"
+          <button
+            onClick={() => router.push('/book')}
             style={{
               background: '#0040FF', color: '#FFFFFF',
               padding: '14px 28px', borderRadius: 9999,
               fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600,
-              textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8,
+              border: 'none', cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 8,
             }}
-          >Book a call <span>→</span></a>
+          >Book a call <span>→</span></button>
           <div>
             <button
               onClick={() => router.push('/login')}
