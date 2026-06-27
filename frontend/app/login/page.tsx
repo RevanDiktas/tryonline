@@ -51,7 +51,10 @@ function LoginContent() {
     else if (error) setFormError(error);
   };
 
-  const shopifyMode = isShopifyMode() || !!resolvedShop;
+  // Brand-only sign in is reserved for the Shopify-embedded surface (host/env).
+  // It must NOT be driven by resolvedShop: a stale shop context in sessionStorage
+  // would otherwise hide the shopper Google/Apple sign in on the public website.
+  const shopifyMode = isShopifyMode();
 
   return (
     <AuthSignIn

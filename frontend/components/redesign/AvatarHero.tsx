@@ -60,11 +60,24 @@ function DrapedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; garmentUrl:
     const group = groupRef.current;
     if (!group) return;
 
-    avatar.position.set(0, 0, 0);
-    avatar.rotation.set(0, 0, 0);
+    // useGLTF hands back shared, cached scene objects that we mutate in place.
+    // On a remount (e.g. navigating brand dashboard -> home) those objects still
+    // carry the scale from the previous mount, so unit auto-detection must start
+    // from a clean identity transform every time. Otherwise metersScaleFor reads
+    // an already-scaled garment, mis-detects its units, and the group-fit shrinks
+    // the garment to a few millimetres while the body stays correct (clothing
+    // "disappears"). Reset group + both meshes, then measure from a known state.
+    group.position.set(0, 0, 0);
+    group.rotation.set(0, 0, 0);
+    group.scale.setScalar(1);
+    for (const obj of [avatar, garment]) {
+      obj.position.set(0, 0, 0);
+      obj.rotation.set(0, 0, 0);
+      obj.scale.setScalar(1);
+    }
+    group.updateMatrixWorld(true);
+
     avatar.scale.setScalar(metersScaleFor(avatar));
-    garment.position.set(0, 0, 0);
-    garment.rotation.set(0, 0, 0);
     garment.scale.setScalar(metersScaleFor(garment));
 
     avatar.traverse((c) => {

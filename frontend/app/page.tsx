@@ -29,10 +29,10 @@ function HomePageContent() {
         if (!active) return;
         if (!u) {
           router.replace(resolvedShop ? `/login?shop=${encodeURIComponent(resolvedShop)}` : '/login');
-        } else if (u.user_type === 'brand') {
-          router.replace(resolvedShop ? `/brand?shop=${encodeURIComponent(resolvedShop)}` : '/brand');
         } else {
-          router.replace('/dashboard');
+          // The Shopify-embedded surface only ever shows the brand dashboard,
+          // never the shopper /dashboard. Any signed-in user goes to /brand.
+          router.replace(resolvedShop ? `/brand?shop=${encodeURIComponent(resolvedShop)}` : '/brand');
         }
       } catch (e) {
         console.error('[HomePage] Auth check error in shopifyMode:', e);
