@@ -292,6 +292,7 @@ export default function DemoPage() {
     { label: 'Demo', href: '/demo', active: true },
     { label: 'Shoppers', href: '/signup' },
     { label: 'Deck', href: '/pitch-deck.html', external: true },
+    { label: 'Book a call', href: '/book' },
   ];
 
   return (

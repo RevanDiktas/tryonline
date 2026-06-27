@@ -1302,6 +1302,7 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
     { label: 'Pricing', href: '/pricing' },
     { label: 'Demo', href: '/demo' },
     { label: 'Deck', href: '/pitch-deck.html', external: true },
+    { label: 'Book a call', href: '/book' },
   ];
 
   return (
