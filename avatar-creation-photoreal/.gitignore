@@ -1,0 +1,11 @@
+# macOS AppleDouble cruft (external volume writes these)
+._*
+.DS_Store
+# runtime-downloaded weights / working dirs (never commit)
+pretrained_models/
+outputs/
+*.ply
+*.obj
+*.glb
+*.pt
+*.bin

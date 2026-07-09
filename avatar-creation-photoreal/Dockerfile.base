@@ -1,0 +1,130 @@
+# =============================================================================
+# Photoreal Avatar - BASE IMAGE (build once on a GPU pod, push to registry)
+# =============================================================================
+# Multi-photo -> photoreal, drape-ready, clothing-stripped avatar. This base
+# bakes every SLOW / compiled dependency so the serverless layer on top is just
+# `FROM <this> + COPY handler.py` and builds in a few minutes under RunPod's
+# 30-min GitHub-farm cap.
+#
+# What it bakes:
+#   - LHM++ (aigc3d/LHM-plusplus, code Apache-2.0) and its full install recipe,
+#     verbatim from the repo's INSTALL.md (torch 2.3.0 / cu121 / py3.10). LHM++
+#     provides BOTH the SMPL-X PoseEstimator (engine.pose_estimation, used for
+#     the hidden betas + measurements) AND the multi-image Gaussian splat export
+#     (scripts/inference/to_gs_ply.py). One repo covers the whole pipeline.
+#   - The three from-source CUDA extensions LHM++ needs: pointops, ashawkey
+#     diff-gaussian-rasterization, camenduru simple-knn.
+#   - Prebuilt wheels: pytorch3d, gsplat, torch_scatter, spconv (no source build).
+#   - SMPL-Anthropometry (DavidBoja) for the 16-key measurement bundle, same as
+#     the live LHM image.
+#   - SCHP (MIT) human parsing for the clothing-strip stage.
+# It does NOT bake model weights (LHMPP-700M-*, human_model_files, SCHP ckpt) -
+# those are runtime-downloaded by the handler (the _ensure_lhm_data pattern),
+# so this image stays lean and export fits the cap.
+#
+# WHY a base image: the serverless endpoint builds on RunPod's CPU-only GitHub
+# farm with a 30-min cap (RUN + image export + cache export all counted).
+# Compiling three CUDA extensions there is risky, so compile ONCE here on a GPU
+# pod (no cap), push to a registry, thin serverless image on top.
+#
+# BUILD (on a GPU pod, NOT on the Mac - needs nvcc + an NVIDIA GPU):
+#   docker build -f Dockerfile.base -t revandiktas/tryon-photoreal-base:latest .
+#   docker push revandiktas/tryon-photoreal-base:latest
+# (or: bash build_base.sh push)
+# =============================================================================
+
+# Same known-good base the live LHM image ships on (torch 2.3.0 + cu121 + py3.10,
+# which is exactly what LHM++'s INSTALL.md pins). It already carries torch, so we
+# do NOT reinstall it (avoids pulling the cu121 torch wheel twice).
+FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-devel
+
+WORKDIR /workspace
+
+# --- system build deps ---------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git git-lfs build-essential cmake ninja-build wget curl aria2 \
+    libgl1-mesa-glx libglib2.0-0 libegl1 libgomp1 \
+    && rm -rf /var/lib/apt/lists/* && apt-get clean
+
+# --- CUDA env (MUST precede any source build so find_cuda() sees the toolkit) --
+# Without these, pointops / diff-gaussian-rasterization / simple-knn compile
+# CPU-only or crash with the empty-arch-list IndexError on the CPU build host.
+ENV CUDA_HOME=/usr/local/cuda
+ENV CUDA_PATH=/usr/local/cuda
+ENV PATH=/usr/local/cuda/bin:$PATH
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+# Arch list so compiled CUDA extensions target real GPUs, not the build host.
+# 8.0 A100 / 8.6 A40,A6000,3090 / 8.9 L40S,4090 / 9.0 H100.
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0"
+ENV FORCE_CUDA=1
+
+# --- xformers (base already has torch 2.3.0 + cu121; only add xformers) --------
+RUN pip install --no-cache-dir -U xformers==0.0.26.post1 \
+      --index-url https://download.pytorch.org/whl/cu121
+
+# --- clone LHM++ ---------------------------------------------------------------
+# TODO before first prod build: pin a specific commit SHA (replace --depth 1 with
+# a fixed checkout) so the base is reproducible. Kept floating for bring-up.
+RUN git clone --depth 1 https://github.com/aigc3d/LHM-plusplus.git /workspace/LHM-plusplus
+
+# --- LHM++ base python deps (its own requirements.txt) -------------------------
+# requirements.txt pins torch==2.3.0 (already satisfied by the base image, so pip
+# treats it as a no-op) plus gsplat/xatlas/open3d/smplx/etc. rembg[cpu] is used
+# only for sparse-view input extraction.
+RUN cd /workspace/LHM-plusplus \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir "rembg[cpu]"
+
+# --- pointops (INSTALL.md step 4, from-source CUDA ext for the point encoder) ---
+RUN cd /workspace/LHM-plusplus/lib/pointops \
+    && python setup.py install
+
+# --- spconv + torch_scatter (INSTALL.md step 5, prebuilt wheels) ---------------
+# torch_scatter via the PyG find-links index auto-selects the pt23+cu121 wheel.
+RUN pip install --no-cache-dir spconv-cu121 \
+    && pip install --no-cache-dir torch_scatter \
+       -f https://data.pyg.org/whl/torch-2.3.0+cu121.html
+
+# --- pytorch3d (INSTALL.md step 6, prebuilt wheel; our UV bake needs it too) ----
+RUN pip install --no-index --no-cache-dir pytorch3d \
+      -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu121_pyt230/download.html
+
+# --- diff-gaussian-rasterization + simple-knn (INSTALL.md steps 7-8, source) ----
+# Small CUDA exts (~2-3 min each). This base builds on a GPU pod so nvcc is
+# present; FORCE_CUDA + the arch list above make the binaries target the deploy
+# GPUs (A100/A6000/L40S/H100), not the build host.
+RUN pip install --no-cache-dir "git+https://github.com/ashawkey/diff-gaussian-rasterization/" \
+    && pip install --no-cache-dir "git+https://github.com/camenduru/simple-knn/"
+
+# --- gsplat (INSTALL.md step 9, prebuilt wheel) --------------------------------
+# Find-links index for the pt23/cu121 build. If the exact URL 404s at build,
+# fall back to the PyPI sdist (JIT-compiles CUDA on first use; nvcc is present).
+RUN pip install --no-cache-dir gsplat==1.4.0 \
+      -f https://docs.gsplat.studio/whl/pt23cu121.html \
+    || pip install --no-cache-dir gsplat==1.4.0
+
+# --- SMPL-Anthropometry (DavidBoja) for the 16-key measurement bundle ----------
+# Same package the live LHM image uses. The class loads SMPLX_<GENDER>.npz
+# relative to its cwd; the handler symlinks the human_model_files smplx dir in
+# at runtime. Patch the loader to expect .npz (matches the human_model_files).
+RUN git clone --depth 1 https://github.com/DavidBoja/SMPL-Anthropometry.git /workspace/SMPL-Anthropometry \
+    && sed -i 's/\.pkl/\.npz/g' /workspace/SMPL-Anthropometry/measure.py \
+    && echo "patched SMPL-Anthropometry to load ext=npz"
+
+# --- SCHP (MIT) human parsing for the clothing-strip stage ---------------------
+# Self-Correction-Human-Parsing. Weights runtime-downloaded by the handler.
+RUN git clone --depth 1 https://github.com/GoGoDuck912/Self-Correction-Human-Parsing.git /workspace/SCHP
+
+# --- PYTHONPATH so LHM++ / SMPL-Anthropometry / SCHP import cleanly -------------
+ENV PYTHONPATH=/workspace/LHM-plusplus:/workspace/SMPL-Anthropometry:/workspace/SCHP:$PYTHONPATH
+
+# --- build-time smoke imports (fail fast if a wheel/dep is broken) -------------
+# CPU-safe imports only. diff_gaussian_rasterization / simple-knn / pointops /
+# gsplat launch CUDA kernels, so their real init runs in the handler's
+# cold-start self-test on a GPU, not here on the (GPU pod) build host.
+RUN python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
+    && python -c "import pytorch3d; print('pytorch3d', pytorch3d.__version__)" \
+    && python -c "import xformers, smplx, trimesh, xatlas, open3d, cv2; print('core deps OK')" \
+    && python -c "import measure; print('SMPL-Anthropometry OK')"
+
+CMD ["python", "-c", "print('tryon-photoreal base image ready')"]
