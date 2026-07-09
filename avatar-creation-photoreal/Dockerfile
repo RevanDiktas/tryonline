@@ -50,11 +50,13 @@ ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0"
 ENV FORCE_CUDA=1
 
-# --- runpod SDK + xformers -----------------------------------------------------
-# Base already has torch 2.3.0 + cu121; only add xformers (matching wheel) and
-# the runpod serverless SDK (base image does not carry it).
-RUN pip install --no-cache-dir runpod \
-    && pip install --no-cache-dir -U xformers==0.0.26.post1 \
+# --- xformers ------------------------------------------------------------------
+# Base already has torch 2.3.0 + cu121; only add the matching xformers wheel.
+# NOTE: the runpod serverless SDK is installed LAST (near the end of this file),
+# not here. If installed first, LHM++'s requirements.txt then DOWNGRADES
+# fastapi/requests/tomlkit below what runpod 1.10.x needs, which breaks
+# runpod.serverless.start() at worker boot. Installing it last lets its deps win.
+RUN pip install --no-cache-dir -U xformers==0.0.26.post1 \
        --index-url https://download.pytorch.org/whl/cu121
 
 # --- clone LHM++ ---------------------------------------------------------------
@@ -79,7 +81,12 @@ RUN pip install --no-cache-dir spconv-cu121 \
        -f https://data.pyg.org/whl/torch-2.3.0+cu121.html
 
 # --- pytorch3d (INSTALL.md step 6, prebuilt wheel; our UV bake needs it too) ----
-RUN pip install --no-index --no-cache-dir pytorch3d \
+# pytorch3d depends on fvcore + iopath, which live on PyPI (NOT on the wheel
+# find-links page). Install them first WITHOUT --no-index, then pull the
+# pytorch3d wheel itself with --no-index so we get the prebuilt binary (not a
+# ~10-min source compile). Base image is py3.10, so the py310 wheel matches.
+RUN pip install --no-cache-dir fvcore iopath \
+    && pip install --no-index --no-cache-dir pytorch3d \
       -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu121_pyt230/download.html
 
 # --- diff-gaussian-rasterization + simple-knn (INSTALL.md 7-8, source, small) ---
@@ -100,6 +107,10 @@ RUN git clone --depth 1 https://github.com/DavidBoja/SMPL-Anthropometry.git /wor
 # --- SCHP (MIT) human parsing for the clothing-strip stage ---------------------
 # Weights runtime-downloaded by the handler.
 RUN git clone --depth 1 https://github.com/GoGoDuck912/Self-Correction-Human-Parsing.git /workspace/SCHP
+
+# --- runpod SDK (installed LAST so its fastapi/requests/tomlkit deps win over
+#     LHM++ requirements.txt's older pins; our handler path never uses gradio) --
+RUN pip install --no-cache-dir runpod
 
 # --- PYTHONPATH so LHM++ / SMPL-Anthropometry / SCHP import cleanly -------------
 ENV PYTHONPATH=/workspace/LHM-plusplus:/workspace/SMPL-Anthropometry:/workspace/SCHP:$PYTHONPATH

@@ -86,7 +86,10 @@ RUN pip install --no-cache-dir spconv-cu121 \
        -f https://data.pyg.org/whl/torch-2.3.0+cu121.html
 
 # --- pytorch3d (INSTALL.md step 6, prebuilt wheel; our UV bake needs it too) ----
-RUN pip install --no-index --no-cache-dir pytorch3d \
+# pytorch3d depends on fvcore + iopath (PyPI, not on the wheel find-links page).
+# Install them first without --no-index, then the pytorch3d wheel with --no-index.
+RUN pip install --no-cache-dir fvcore iopath \
+    && pip install --no-index --no-cache-dir pytorch3d \
       -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu121_pyt230/download.html
 
 # --- diff-gaussian-rasterization + simple-knn (INSTALL.md steps 7-8, source) ----
