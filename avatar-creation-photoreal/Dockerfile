@@ -113,7 +113,14 @@ RUN git clone --depth 1 https://github.com/GoGoDuck912/Self-Correction-Human-Par
 RUN pip install --no-cache-dir runpod
 
 # --- PYTHONPATH so LHM++ / SMPL-Anthropometry / SCHP import cleanly -------------
-ENV PYTHONPATH=/workspace/LHM-plusplus:/workspace/SMPL-Anthropometry:/workspace/SCHP:$PYTHONPATH
+# Extra entries verified against the LHM++ tree (2026-07-11 selftest):
+#  - lib/                     : pointops setup.py installs only the compiled
+#                               `pointops_cuda` ext (no packages=), so the python
+#                               wrapper package `pointops` (lib/pointops/) must be
+#                               on the path for `import pointops` to resolve.
+#  - engine/pose_estimation/  : pose_estimation/model.py does `from blocks import`
+#                               where `blocks` is a package under that dir.
+ENV PYTHONPATH=/workspace/LHM-plusplus:/workspace/LHM-plusplus/lib:/workspace/LHM-plusplus/engine/pose_estimation:/workspace/SMPL-Anthropometry:/workspace/SCHP:$PYTHONPATH
 
 # --- build-time smoke imports (fail fast if a wheel/dep is broken) -------------
 # CPU-safe imports only. The CUDA-kernel exts (diff_gaussian_rasterization,
