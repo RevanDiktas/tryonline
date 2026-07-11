@@ -121,11 +121,16 @@ ENV PYTHONPATH=/workspace/LHM-plusplus:/workspace/SMPL-Anthropometry:/workspace/
 # handler cold-start self-test, not here on the farm build host.
 RUN python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
     && python -c "import runpod; print('runpod SDK', runpod.__version__)" \
+    && python -c "from runpod.serverless import start; print('runpod.serverless import OK')" \
     && python -c "import pytorch3d; print('pytorch3d', pytorch3d.__version__)" \
     && python -c "import xformers, smplx, trimesh, xatlas, open3d, cv2, plyfile; print('core deps OK')" \
     && python -c "import measure; print('SMPL-Anthropometry OK')"
 
 # --- handler (COPYed last so handler edits rebuild only this tiny layer) --------
+# Unbuffered so a boot-time traceback flushes to the worker log before exit(1),
+# instead of being lost (which is what produced the bare "worker exited with exit
+# code 1" with no cause on the first deploy).
+ENV PYTHONUNBUFFERED=1
 ENV PHOTOREAL_BUILD=v0.1-skeleton
 COPY handler.py /workspace/handler.py
 

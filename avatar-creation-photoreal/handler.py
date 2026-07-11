@@ -17,6 +17,9 @@ Input contract (health probe): {"input": {"ping": true}} or {} -> status dict.
 """
 
 import os
+import sys
+import traceback
+
 import runpod
 
 
@@ -75,4 +78,17 @@ def handler(event):
 
 
 if __name__ == "__main__":
-    runpod.serverless.start({"handler": handler})
+    # Boot loudly. A dep conflict inside runpod.serverless (e.g. fastapi/pydantic
+    # too old) raises HERE, and the plain `import runpod` build-smoke test cannot
+    # see it. Print a flushed traceback before the exit(1) so the worker log shows
+    # the real cause instead of a bare "worker exited with exit code 1".
+    try:
+        print(f"[boot] runpod {runpod.__version__} - starting serverless worker",
+              flush=True)
+        runpod.serverless.start({"handler": handler})
+    except Exception:  # noqa: BLE001
+        print("[boot] FATAL: worker failed to start", flush=True)
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        raise
