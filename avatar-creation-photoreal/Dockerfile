@@ -99,10 +99,18 @@ RUN pip install --no-cache-dir gsplat==1.4.0 \
     || pip install --no-cache-dir gsplat==1.4.0
 
 # --- SMPL-Anthropometry (DavidBoja) for the 16-key measurement bundle ----------
-# Same package the live LHM image uses; loader patched to expect .npz.
+# Same package the live LHM image uses; loader patched to load the .npz SMPL-X
+# models we ship (we have no .pkl models). measure.py references the ext two
+# ways: `.pkl` path literals AND `ext="pkl"` kwargs on smplx.SMPLX(...). The
+# first sed catches the literals; the second catches the kwargs (which the
+# original .pkl->.npz sed missed, causing MeasureSMPLX to assert a missing
+# SMPLX_NEUTRAL.pkl). The handler also normalizes this at runtime as a fallback
+# (the repo is cloned unpinned).
 RUN git clone --depth 1 https://github.com/DavidBoja/SMPL-Anthropometry.git /workspace/SMPL-Anthropometry \
     && sed -i 's/\.pkl/\.npz/g' /workspace/SMPL-Anthropometry/measure.py \
-    && echo "patched SMPL-Anthropometry to load ext=npz"
+    && sed -i -E "s/ext=['\"]pkl['\"]/ext='npz'/g" /workspace/SMPL-Anthropometry/measure.py \
+    && echo "patched SMPL-Anthropometry to load ext=npz" \
+    && grep -n "ext=" /workspace/SMPL-Anthropometry/measure.py
 
 # --- SCHP (MIT) human parsing for the clothing-strip stage ---------------------
 # Weights runtime-downloaded by the handler.
@@ -146,7 +154,7 @@ RUN python -c "import torch; print('torch', torch.__version__, 'cuda', torch.ver
 ENV PYTHONUNBUFFERED=1
 # Turn on the Rust parallel downloader for the cold-start prior fetch (no volume).
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
-ENV PHOTOREAL_BUILD=v0.5-stage2b
+ENV PHOTOREAL_BUILD=v0.6-stage2b
 COPY handler.py /workspace/handler.py
 
 CMD ["python", "/workspace/handler.py"]

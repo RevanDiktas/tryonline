@@ -517,6 +517,14 @@ def _get_measurer():
     if str(ANTHROPOMETRY_ROOT) not in sys.path:
         sys.path.insert(0, str(ANTHROPOMETRY_ROOT))
 
+    # Evict any already-cached `measure` module before importing. The health
+    # ping's selftest does `__import__("measure")`, so on a warm worker the
+    # UNPATCHED module is already in sys.modules and a plain import would return
+    # it, ignoring _patch_anthropometry_ext's on-disk fix. Popping forces a fresh
+    # read of the patched source.
+    for _m in ("measure", "measurement_definitions"):
+        sys.modules.pop(_m, None)
+
     prev = os.getcwd()
     try:
         os.chdir(str(ANTHROPOMETRY_ROOT))
