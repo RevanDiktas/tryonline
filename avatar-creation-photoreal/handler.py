@@ -472,6 +472,25 @@ def _standardize_measurements(raw: dict) -> dict:
     return out
 
 
+def _patch_anthropometry_ext():
+    """Force SMPL-Anthropometry to load the SMPL-X model as .npz, not .pkl.
+
+    measure.py builds the model as `smplx.SMPLX(path, ext="pkl")` (a kwarg
+    string with no dot), so the Dockerfile's `sed 's/.pkl/.npz/g'` can't reach
+    it and MeasureSMPLX asserts `data/smplx/SMPLX_NEUTRAL.pkl does not exist`
+    (we only ship the .npz SMPL-X models). We normalize the ext in the source
+    before importing. Idempotent; the repo is cloned unpinned so we cannot rely
+    on a specific upstream layout."""
+    mp = ANTHROPOMETRY_ROOT / "measure.py"
+    try:
+        src = mp.read_text()
+    except OSError:
+        return
+    patched = src.replace('ext="pkl"', 'ext="npz"').replace("ext='pkl'", "ext='npz'")
+    if patched != src:
+        mp.write_text(patched)
+
+
 def _get_measurer():
     """Lazy MeasureBody('smplx') singleton. Symlinks the LHM++ SMPL-X .npz files
     into SMPL-Anthropometry's data/smplx/ dir so its loader (which reads
@@ -481,6 +500,7 @@ def _get_measurer():
         return _MEASURER
 
     _deca_numpy_shim()
+    _patch_anthropometry_ext()
 
     smplx_src = _human_model_files() / "smplx"
     smplx_dst = ANTHROPOMETRY_ROOT / "data" / "smplx"
