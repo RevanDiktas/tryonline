@@ -71,7 +71,18 @@ ANTHROPOMETRY_ROOT = Path("/workspace/SMPL-Anthropometry")
 # HuggingFace first, ModelScope fallback, mirroring LHM++'s own AutoModelQuery.
 HF_PRIOR_REPO = "3DAIGC/LHMPP-Prior"
 MS_PRIOR_REPO = "Damo_XR_Lab/LHMPP-Prior"
-PRIOR_ALLOW_PATTERNS = ["human_model_files/**"]
+# Fetch ONLY the ~2.15 GB Stage-2b needs (Multi-HMR ckpt 1.29 GB + SMPL-X models
+# 846 MB + smpl_mean_params 1 KB). The full human_model_files/** is ~4 GB: the
+# extra ~1.85 GB is FLAME (a 1.26 GB texture + 6 FLAME .pkl) and SMPL .pkl that
+# the pose/mesh/measure path never loads. That bloat blew a cold download past
+# the endpoint's 600 s execution cap (job e2a41140 FAILED "executionTimeout
+# exceeded" at 611 s). Narrowing lands a cold call at ~370 s. Later stages that
+# need FLAME/SMPL widen this list.
+PRIOR_ALLOW_PATTERNS = [
+    "human_model_files/pose_estimate/**",
+    "human_model_files/smplx/**",
+    "human_model_files/smpl_mean_params.npz",
+]
 
 # A-pose shoulder rotation (identical convention to the live LHM endpoint so the
 # draper sees the same canonical pose it was tuned against).
@@ -215,7 +226,6 @@ def _ensure_lhmpp_prior(log: list | None = None) -> Path:
             repo_id=HF_PRIOR_REPO,
             allow_patterns=PRIOR_ALLOW_PATTERNS,
             local_dir=str(prior_dir),
-            local_dir_use_symlinks=False,
             token=os.environ.get("HF_TOKEN") or None,
         )
     except Exception as e:  # noqa: BLE001
@@ -743,6 +753,31 @@ def handler(event):
             "echo": inp,
             "selftest": _gpu_selftest(),
         }
+
+    # Pre-populate the LHM++ prior (Multi-HMR + SMPL-X) without running inference.
+    # Run this once against a volume-backed endpoint so the first real avatar
+    # request doesn't pay the download inside its execution window.
+    if command == "warm":
+        log: list = []
+        try:
+            hmf = _ensure_lhmpp_prior(log=log)
+            sizes = {}
+            for f in ("pose_estimate/multiHMR_896_L.pt", "smplx/SMPLX_NEUTRAL.npz",
+                      "smpl_mean_params.npz"):
+                p = hmf / f
+                sizes[f] = p.stat().st_size if p.exists() else None
+            return {
+                "status": "prior ready",
+                "human_model_files": str(hmf),
+                "on_volume": str(hmf).startswith("/runpod-volume"),
+                "file_sizes": sizes,
+                "log": log,
+                "elapsed_seconds": round(_now() - started, 2),
+                "build": PHOTOREAL_BUILD,
+            }
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"warm failed: {e}",
+                    "traceback": traceback.format_exc()[-3000:], "log": log}
 
     if command in ("avatar", "avatar_photoreal") or (command is None and inp.get("photo_url")):
         try:
