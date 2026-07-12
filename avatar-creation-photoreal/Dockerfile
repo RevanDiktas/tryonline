@@ -110,7 +110,13 @@ RUN git clone --depth 1 https://github.com/GoGoDuck912/Self-Correction-Human-Par
 
 # --- runpod SDK (installed LAST so its fastapi/requests/tomlkit deps win over
 #     LHM++ requirements.txt's older pins; our handler path never uses gradio) --
-RUN pip install --no-cache-dir runpod
+# hf_transfer: Rust parallel downloader for huggingface_hub. The handler pulls
+# the ~2.15 GB LHM++ prior at cold start (no Network Volume attached), and plain
+# single-threaded HTTP (~6.7 MB/s observed) blew past the endpoint's 600 s
+# execution cap. With HF_HUB_ENABLE_HF_TRANSFER=1 the same pull saturates the
+# worker link (~200+ MB/s) and finishes in seconds, so every cold avatar request
+# fits comfortably under the cap WITHOUT a volume.
+RUN pip install --no-cache-dir runpod hf_transfer
 
 # --- PYTHONPATH so LHM++ / SMPL-Anthropometry / SCHP import cleanly -------------
 # Extra entries verified against the LHM++ tree (2026-07-11 selftest):
@@ -138,7 +144,9 @@ RUN python -c "import torch; print('torch', torch.__version__, 'cuda', torch.ver
 # instead of being lost (which is what produced the bare "worker exited with exit
 # code 1" with no cause on the first deploy).
 ENV PYTHONUNBUFFERED=1
-ENV PHOTOREAL_BUILD=v0.3-stage2b
+# Turn on the Rust parallel downloader for the cold-start prior fetch (no volume).
+ENV HF_HUB_ENABLE_HF_TRANSFER=1
+ENV PHOTOREAL_BUILD=v0.4-stage2b
 COPY handler.py /workspace/handler.py
 
 CMD ["python", "/workspace/handler.py"]
