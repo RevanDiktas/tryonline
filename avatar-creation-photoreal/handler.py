@@ -472,74 +472,56 @@ def _standardize_measurements(raw: dict) -> dict:
     return out
 
 
-def _patch_anthropometry_ext():
-    """Force SMPL-Anthropometry to load the SMPL-X model as .npz, not .pkl.
+def _get_measurer(faces):
+    """Lazy MeasureBody('smplx') singleton, built WITHOUT loading a SMPL-X model
+    file.
 
-    measure.py builds the model as `smplx.SMPLX(path, ext="pkl")` (a kwarg
-    string with no dot), so the Dockerfile's `sed 's/.pkl/.npz/g'` can't reach
-    it and MeasureSMPLX asserts `data/smplx/SMPLX_NEUTRAL.pkl does not exist`
-    (we only ship the .npz SMPL-X models). We normalize the ext in the source
-    before importing. Idempotent; the repo is cloned unpinned so we cannot rely
-    on a specific upstream layout."""
-    mp = ANTHROPOMETRY_ROOT / "measure.py"
-    try:
-        src = mp.read_text()
-    except OSError:
-        return
-    patched = src.replace('ext="pkl"', 'ext="npz"').replace("ext='pkl'", "ext='npz'")
-    if patched != src:
-        mp.write_text(patched)
-
-
-def _get_measurer():
-    """Lazy MeasureBody('smplx') singleton. Symlinks the LHM++ SMPL-X .npz files
-    into SMPL-Anthropometry's data/smplx/ dir so its loader (which reads
-    data/smplx/SMPLX_<GENDER>.npz relative to its own root) resolves."""
+    MeasureSMPLX.__init__ touches the SMPL-X model exactly once, to read
+    `smplx.SMPLX(path, ext="pkl").faces` for the mesh topology. We already have
+    that topology (`faces`, from the smplx layer we forward for the avatar), so
+    we stub `smplx.SMPLX` to hand it straight back and skip the model load. This
+    sidesteps the whole failure surface that broke three prior builds: the
+    `ext="pkl"` kwarg the Dockerfile sed can't reach, the npz-vs-pkl mismatch,
+    the SMPL-Anthropometry clone being unpinned, and the sys.modules cache race
+    with the health-ping selftest. The measurer needs nothing else from the model
+    (landmarks/segmentation are repo constants + a shipped json).
+    """
     global _MEASURER
     if _MEASURER is not None:
         return _MEASURER
 
     _deca_numpy_shim()
-    _patch_anthropometry_ext()
-
-    smplx_src = _human_model_files() / "smplx"
-    smplx_dst = ANTHROPOMETRY_ROOT / "data" / "smplx"
-    smplx_dst.mkdir(parents=True, exist_ok=True)
-    for g in ("NEUTRAL", "MALE", "FEMALE"):
-        src = smplx_src / f"SMPLX_{g}.npz"
-        dst = smplx_dst / f"SMPLX_{g}.npz"
-        if src.exists() and not dst.exists() and not dst.is_symlink():
-            try:
-                dst.symlink_to(src)
-            except OSError:
-                shutil.copy(src, dst)
+    import numpy as np
+    faces_arr = np.asarray(faces).astype("int64")
 
     if str(ANTHROPOMETRY_ROOT) not in sys.path:
         sys.path.insert(0, str(ANTHROPOMETRY_ROOT))
 
-    # Evict any already-cached `measure` module before importing. The health
-    # ping's selftest does `__import__("measure")`, so on a warm worker the
-    # UNPATCHED module is already in sys.modules and a plain import would return
-    # it, ignoring _patch_anthropometry_ext's on-disk fix. Popping forces a fresh
-    # read of the patched source.
-    for _m in ("measure", "measurement_definitions"):
-        sys.modules.pop(_m, None)
+    import smplx as _smplx_mod
 
-    prev = os.getcwd()
+    class _FacesOnly:
+        def __init__(self, *a, **k):
+            self.faces = faces_arr
+
+    prev_smplx = getattr(_smplx_mod, "SMPLX", None)
+    prev_cwd = os.getcwd()
     try:
         os.chdir(str(ANTHROPOMETRY_ROOT))
+        _smplx_mod.SMPLX = _FacesOnly  # measure.py resolves smplx.SMPLX at call time
         from measure import MeasureBody
         _MEASURER = MeasureBody("smplx")
     finally:
-        os.chdir(prev)
+        if prev_smplx is not None:
+            _smplx_mod.SMPLX = prev_smplx
+        os.chdir(prev_cwd)
     return _MEASURER
 
 
-def _compute_measurements(verts_tpose_m, height_cm, gender):
+def _compute_measurements(verts_tpose_m, faces, height_cm, gender):
     """Run SMPL-Anthropometry on a T-pose SMPL-X mesh. Returns the raw /
     standardized / labeled cm bundle the backend expects."""
     import torch
-    measurer = _get_measurer()
+    measurer = _get_measurer(faces)
 
     verts_t = torch.from_numpy(verts_tpose_m.astype("float32"))
 
@@ -705,7 +687,8 @@ def cmd_avatar_photoreal(inp: dict, started: float) -> dict:
         measurements_error = None
         try:
             measurements_block = _compute_measurements(
-                verts_tpose_m=verts_tpose_m, height_cm=height_cm, gender=gender,
+                verts_tpose_m=verts_tpose_m, faces=faces,
+                height_cm=height_cm, gender=gender,
             )
         except Exception as e:
             measurements_error = f"{e.__class__.__name__}: {e}"
