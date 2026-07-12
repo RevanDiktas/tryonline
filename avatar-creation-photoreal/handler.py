@@ -472,56 +472,64 @@ def _standardize_measurements(raw: dict) -> dict:
     return out
 
 
-def _get_measurer(faces):
-    """Lazy MeasureBody('smplx') singleton, built WITHOUT loading a SMPL-X model
-    file.
+def _ensure_smplx_pkl():
+    """Give SMPL-Anthropometry the .pkl SMPL-X models it hardcodes.
 
-    MeasureSMPLX.__init__ touches the SMPL-X model exactly once, to read
-    `smplx.SMPLX(path, ext="pkl").faces` for the mesh topology. We already have
-    that topology (`faces`, from the smplx layer we forward for the avatar), so
-    we stub `smplx.SMPLX` to hand it straight back and skip the model load. This
-    sidesteps the whole failure surface that broke three prior builds: the
-    `ext="pkl"` kwarg the Dockerfile sed can't reach, the npz-vs-pkl mismatch,
-    the SMPL-Anthropometry clone being unpinned, and the sys.modules cache race
-    with the health-ping selftest. The measurer needs nothing else from the model
-    (landmarks/segmentation are repo constants + a shipped json).
+    measure.py loads SMPL-X two ways, BOTH pinned to `ext="pkl"`:
+      - MeasureSMPLX.__init__:  smplx.SMPLX(data/smplx, ext="pkl").faces
+      - get_joint_regressor:    smplx.create(data, "smplx", ext="pkl")  (in from_verts)
+    We only ship the LHM++ prior's .npz SMPL-X models. Rather than patch those
+    call sites (fragile: a kwarg the Dockerfile sed can't reach, an unpinned
+    clone, and a sys.modules cache race with the health-ping selftest - all of
+    which defeated builds v0.4-v0.7), convert the .npz to .pkl once. smplx feeds
+    both `np.load(npz)` and `pickle.load(pkl)` into the same `Struct(**data)`, so
+    the .pkl is an equivalent model and the real code path runs unpatched.
+    Idempotent. Writes into data/smplx/ next to the shipped segmentation json.
     """
+    import numpy as np
+    import pickle
+    src_dir = _human_model_files() / "smplx"
+    dst_dir = ANTHROPOMETRY_ROOT / "data" / "smplx"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    for g in ("NEUTRAL", "MALE", "FEMALE"):
+        npz = src_dir / f"SMPLX_{g}.npz"
+        pkl = dst_dir / f"SMPLX_{g}.pkl"
+        if pkl.exists() or not npz.exists():
+            continue
+        data = dict(np.load(npz, allow_pickle=True))
+        with open(pkl, "wb") as f:
+            pickle.dump(data, f)
+
+
+def _get_measurer():
+    """Lazy MeasureBody('smplx') singleton. Ensures the .pkl SMPL-X models exist
+    (converted from our .npz) so measure.py's hardcoded ext="pkl" loads resolve,
+    then constructs the measurer with the real, unpatched code path."""
     global _MEASURER
     if _MEASURER is not None:
         return _MEASURER
 
     _deca_numpy_shim()
-    import numpy as np
-    faces_arr = np.asarray(faces).astype("int64")
+    _ensure_smplx_pkl()
 
     if str(ANTHROPOMETRY_ROOT) not in sys.path:
         sys.path.insert(0, str(ANTHROPOMETRY_ROOT))
 
-    import smplx as _smplx_mod
-
-    class _FacesOnly:
-        def __init__(self, *a, **k):
-            self.faces = faces_arr
-
-    prev_smplx = getattr(_smplx_mod, "SMPLX", None)
     prev_cwd = os.getcwd()
     try:
         os.chdir(str(ANTHROPOMETRY_ROOT))
-        _smplx_mod.SMPLX = _FacesOnly  # measure.py resolves smplx.SMPLX at call time
         from measure import MeasureBody
         _MEASURER = MeasureBody("smplx")
     finally:
-        if prev_smplx is not None:
-            _smplx_mod.SMPLX = prev_smplx
         os.chdir(prev_cwd)
     return _MEASURER
 
 
-def _compute_measurements(verts_tpose_m, faces, height_cm, gender):
+def _compute_measurements(verts_tpose_m, height_cm, gender):
     """Run SMPL-Anthropometry on a T-pose SMPL-X mesh. Returns the raw /
     standardized / labeled cm bundle the backend expects."""
     import torch
-    measurer = _get_measurer(faces)
+    measurer = _get_measurer()
 
     verts_t = torch.from_numpy(verts_tpose_m.astype("float32"))
 
@@ -687,8 +695,7 @@ def cmd_avatar_photoreal(inp: dict, started: float) -> dict:
         measurements_error = None
         try:
             measurements_block = _compute_measurements(
-                verts_tpose_m=verts_tpose_m, faces=faces,
-                height_cm=height_cm, gender=gender,
+                verts_tpose_m=verts_tpose_m, height_cm=height_cm, gender=gender,
             )
         except Exception as e:
             measurements_error = f"{e.__class__.__name__}: {e}"

@@ -154,7 +154,7 @@ RUN python -c "import torch; print('torch', torch.__version__, 'cuda', torch.ver
 ENV PYTHONUNBUFFERED=1
 # Turn on the Rust parallel downloader for the cold-start prior fetch (no volume).
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
-ENV PHOTOREAL_BUILD=v0.7-stage2b
+ENV PHOTOREAL_BUILD=v0.8-stage2b
 COPY handler.py /workspace/handler.py
 
 CMD ["python", "/workspace/handler.py"]
