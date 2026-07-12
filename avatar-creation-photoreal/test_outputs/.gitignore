@@ -1,0 +1,8 @@
+# Test-output binaries are large and reproducible; keep the repo lean.
+# Track only README.md and each run's result.json (the metadata).
+*.obj
+*.glb
+*.png
+*.npz
+*.jpg
+*.jpeg
