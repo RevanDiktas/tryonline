@@ -138,7 +138,7 @@ RUN python -c "import torch; print('torch', torch.__version__, 'cuda', torch.ver
 # instead of being lost (which is what produced the bare "worker exited with exit
 # code 1" with no cause on the first deploy).
 ENV PYTHONUNBUFFERED=1
-ENV PHOTOREAL_BUILD=v0.1-skeleton
+ENV PHOTOREAL_BUILD=v0.2-stage2b
 COPY handler.py /workspace/handler.py
 
 CMD ["python", "/workspace/handler.py"]
