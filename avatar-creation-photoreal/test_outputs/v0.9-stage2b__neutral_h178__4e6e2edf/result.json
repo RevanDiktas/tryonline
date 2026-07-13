@@ -1,0 +1,100 @@
+{
+  "delayTime": 318,
+  "executionTime": 30769,
+  "id": "4e6e2edf-9bc0-43c0-b731-cbf31708fc88-e2",
+  "output": {
+    "beta_shape": [
+      10
+    ],
+    "build": "v0.9-stage2b",
+    "endpoint": "photoreal-stage2b",
+    "file_sizes": {
+      "apose_mesh": 653604,
+      "avatar_glb": 419504,
+      "skin_texture": 77,
+      "smpl_params": 3654,
+      "tpose_mesh": 648922
+    },
+    "gender": "neutral",
+    "height_cm": 178,
+    "is_full_body": true,
+    "measurements": {
+      "ankle": 24.1,
+      "arm_length": 52.8,
+      "bicep": 28.5,
+      "calf": 36,
+      "chest": 97.6,
+      "forearm": 25.8,
+      "head": 56.8,
+      "height": 178,
+      "hips": 101.5,
+      "inseam": 78.7,
+      "neck": 35.2,
+      "shoulder_width": 33.4,
+      "thigh": 50.1,
+      "torso_length": 65.1,
+      "waist": 82.1,
+      "wrist": 17.1
+    },
+    "measurements_error": null,
+    "measurements_labeled": {
+      "A": 56.37,
+      "B": 34.89,
+      "C": 64.55,
+      "D": 96.85,
+      "E": 81.49,
+      "F": 100.67,
+      "G": 16.94,
+      "H": 28.32,
+      "I": 25.6,
+      "J": 54.23,
+      "K": 78.06,
+      "L": 49.74,
+      "M": 35.7,
+      "N": 23.94,
+      "O": 33.19,
+      "P": 176.62
+    },
+    "measurements_meta": {
+      "input_height_cm": 178,
+      "input_weight_kg": 75,
+      "intrinsic_height_cm": 176.62,
+      "normalization_factor": 1.0078,
+      "source_mesh": "smplx_tpose_lhmpp_betas"
+    },
+    "measurements_raw": {
+      "ankle left circumference": 24.12,
+      "arm left length": 52.78,
+      "arm right length": 54.66,
+      "bicep right circumference": 28.54,
+      "calf left circumference": 35.98,
+      "chest circumference": 97.6,
+      "forearm right circumference": 25.8,
+      "head circumference": 56.81,
+      "height": 178,
+      "hip circumference": 101.46,
+      "inside leg height": 78.67,
+      "neck circumference": 35.16,
+      "shoulder breadth": 33.45,
+      "shoulder to crotch height": 65.05,
+      "thigh left circumference": 50.13,
+      "waist circumference": 82.13,
+      "wrist right circumference": 17.07
+    },
+    "photo_url": "https://cykwthsbrylonconqlfz.supabase.co/storage/v1/object/public/lhm-artifacts/inputs/2026-05-20/user_001.jpg",
+    "pose_convention": "a_pose_shoulder_z_0.7854rad",
+    "processing_time_seconds": 30.52,
+    "skin_rgb": [
+      210,
+      175,
+      145
+    ],
+    "skin_rgb_source": "neutral_tan_placeholder_stage2b",
+    "smplx_face_count": 20908,
+    "smplx_vertex_count": 10475,
+    "user_id": "stage2b-e2e-test",
+    "weight_kg": 75
+  },
+  "status": "COMPLETED",
+  "workerId": "ngixod9urlivih"
+}
