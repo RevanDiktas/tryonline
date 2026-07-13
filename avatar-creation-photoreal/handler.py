@@ -472,19 +472,20 @@ def _standardize_measurements(raw: dict) -> dict:
     return out
 
 
-def _ensure_smplx_pkl():
-    """Give SMPL-Anthropometry the .pkl SMPL-X models it hardcodes.
+def _ensure_smplx_models():
+    """Give SMPL-Anthropometry the SMPL-X models it loads, in BOTH .npz and .pkl.
 
-    measure.py loads SMPL-X two ways, BOTH pinned to `ext="pkl"`:
-      - MeasureSMPLX.__init__:  smplx.SMPLX(data/smplx, ext="pkl").faces
-      - get_joint_regressor:    smplx.create(data, "smplx", ext="pkl")  (in from_verts)
-    We only ship the LHM++ prior's .npz SMPL-X models. Rather than patch those
-    call sites (fragile: a kwarg the Dockerfile sed can't reach, an unpinned
-    clone, and a sys.modules cache race with the health-ping selftest - all of
-    which defeated builds v0.4-v0.7), convert the .npz to .pkl once. smplx feeds
-    both `np.load(npz)` and `pickle.load(pkl)` into the same `Struct(**data)`, so
-    the .pkl is an equivalent model and the real code path runs unpatched.
-    Idempotent. Writes into data/smplx/ next to the shipped segmentation json.
+    measure.py loads SMPL-X at two sites (MeasureSMPLX.__init__ via smplx.SMPLX,
+    and get_joint_regressor via smplx.create in from_verts). The ext those use
+    depends on whether the Dockerfile's `ext=pkl->npz` sed layer actually rebuilt
+    - and on RunPod that layer cached nondeterministically across v0.4-v0.8 (the
+    error flipped from SMPLX_NEUTRAL.pkl to .npz between builds). Instead of
+    betting on the ext, we place the model under BOTH extensions in data/smplx/,
+    so the load resolves either way. The .npz is symlinked straight from our LHM++
+    prior (the same file `_build_smplx_mesh_pair` already loads); the .pkl is
+    converted from it (smplx feeds np.load(npz) and pickle.load(pkl) into the same
+    Struct(**data), so they're equivalent). Idempotent; sits next to the shipped
+    segmentation json.
     """
     import numpy as np
     import pickle
@@ -492,13 +493,22 @@ def _ensure_smplx_pkl():
     dst_dir = ANTHROPOMETRY_ROOT / "data" / "smplx"
     dst_dir.mkdir(parents=True, exist_ok=True)
     for g in ("NEUTRAL", "MALE", "FEMALE"):
-        npz = src_dir / f"SMPLX_{g}.npz"
-        pkl = dst_dir / f"SMPLX_{g}.pkl"
-        if pkl.exists() or not npz.exists():
+        npz_src = src_dir / f"SMPLX_{g}.npz"
+        if not npz_src.exists():
             continue
-        data = dict(np.load(npz, allow_pickle=True))
-        with open(pkl, "wb") as f:
-            pickle.dump(data, f)
+        # .npz: symlink (fall back to copy) so the ext='npz' path resolves.
+        npz_dst = dst_dir / f"SMPLX_{g}.npz"
+        if not npz_dst.exists() and not npz_dst.is_symlink():
+            try:
+                npz_dst.symlink_to(npz_src)
+            except OSError:
+                shutil.copy(npz_src, npz_dst)
+        # .pkl: convert once so the ext='pkl' path resolves.
+        pkl_dst = dst_dir / f"SMPLX_{g}.pkl"
+        if not pkl_dst.exists():
+            data = dict(np.load(npz_src, allow_pickle=True))
+            with open(pkl_dst, "wb") as f:
+                pickle.dump(data, f)
 
 
 def _get_measurer():
@@ -510,7 +520,7 @@ def _get_measurer():
         return _MEASURER
 
     _deca_numpy_shim()
-    _ensure_smplx_pkl()
+    _ensure_smplx_models()
 
     if str(ANTHROPOMETRY_ROOT) not in sys.path:
         sys.path.insert(0, str(ANTHROPOMETRY_ROOT))
