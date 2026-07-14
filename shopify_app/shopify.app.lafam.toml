@@ -1,0 +1,50 @@
+# la fam — dedicated custom app for the Lafam Amsterdam pilot (store la-fam-ams.myshopify.com).
+# Same backend + callback as the other pilot apps; only the client_id differs.
+#
+# Deploy config + the TryOn Widget extension to THIS app:
+#   cd shopify_app && SHOPIFY_CONFIG=shopify.app.lafam.toml bash deploy.sh
+#
+# Backend must map la-fam-ams -> this app's creds via the SHOPIFY_SHOP_APPS env var (Railway),
+# and la-fam-ams must be REMOVED from SHOPIFY_PILOT_SHOPS so it stops using the Ramin pilot creds.
+# https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "9ef2f50e267d2339dfd39332f85096ce"
+name = "la fam"
+application_url = "https://tryon.global/app"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2026-01"
+
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/shopify/compliance"
+
+[[webhooks.subscriptions]]
+topics = ["orders/paid"]
+uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/shopify/orders-paid"
+
+[[webhooks.subscriptions]]
+topics = ["refunds/create"]
+uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/shopify/refunds-created"
+
+[access_scopes]
+scopes = "read_orders"
+optional_scopes = []
+use_legacy_install_flow = false
+
+[access.admin]
+direct_api_mode = "online"
+
+[auth]
+redirect_urls = [
+  "https://heroic-celebration-production-9f72.up.railway.app/api/shopify/auth/callback",
+  "https://tryon.global/app",
+]
+
+[pos]
+embedded = false

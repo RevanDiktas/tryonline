@@ -64,15 +64,18 @@ def get_current_user_id(
 
 
 def _webhook_hmac_secrets() -> list[str]:
-    """Secrets Shopify may use to sign webhooks (primary app, optional pilot app, optional explicit webhook secret)."""
+    """Secrets Shopify may use to sign webhooks (primary app, optional pilot app, per-shop dedicated apps, optional explicit webhook secret)."""
+    from app.config import get_shop_apps
     settings = get_settings()
     seen: set[str] = set()
     out: list[str] = []
-    for s in (
+    candidates = [
         settings.shopify_webhook_secret,
         settings.shopify_client_secret,
         settings.shopify_client_secret_pilot,
-    ):
+    ]
+    candidates.extend((app.get("client_secret") or "") for app in get_shop_apps().values())
+    for s in candidates:
         t = (s or "").strip()
         if t and t not in seen:
             seen.add(t)

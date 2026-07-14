@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Query, Request, Response, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
 
-from app.config import get_settings
+from app.config import get_settings, get_shop_apps
 from app.services.supabase import SupabaseService
 
 router = APIRouter()
@@ -35,9 +35,15 @@ def _pilot_shop_domains() -> set[str]:
 def _oauth_creds_for_shop(shop: str) -> tuple[str, str] | None:
     """
     Return (client_id, client_secret) for OAuth authorize, token exchange, and callback HMAC.
-    Pilot-listed shops use SHOPIFY_CLIENT_ID_PILOT / SECRET when set; others use primary.
+    A shop with its OWN dedicated app (SHOPIFY_SHOP_APPS) uses those creds; pilot-listed shops
+    use SHOPIFY_CLIENT_ID_PILOT / SECRET; all others use primary.
     """
     shop = shop.strip().lower()
+    app = get_shop_apps().get(shop)
+    if app is not None:
+        cid = (app.get("client_id") or "").strip()
+        csec = (app.get("client_secret") or "").strip()
+        return (cid, csec) if (cid and csec) else None
     if shop in _pilot_shop_domains():
         cid = (settings.shopify_client_id_pilot or "").strip()
         csec = (settings.shopify_client_secret_pilot or "").strip()
@@ -53,11 +59,17 @@ def _oauth_creds_for_shop(shop: str) -> tuple[str, str] | None:
 
 def _frontend_app_url_for_shop(shop: str | None) -> str:
     """
-    Return the frontend domain to redirect to after OAuth. Pilot shops land on the
-    pilot frontend (tryon.global); all others land on the App Store submission
-    frontend (app.tryon.global). Falls back to primary if pilot override is unset.
+    Return the frontend domain to redirect to after OAuth. A shop with its own dedicated app
+    (SHOPIFY_SHOP_APPS) uses its configured frontend_url; pilot shops land on the pilot frontend
+    (tryon.global); all others land on the App Store submission frontend (app.tryon.global).
+    Falls back to primary if the relevant override is unset.
     """
     s = (shop or "").strip().lower()
+    app = get_shop_apps().get(s)
+    if app is not None:
+        fu = (app.get("frontend_url") or "").strip()
+        if fu:
+            return fu.rstrip("/")
     if s and s in _pilot_shop_domains():
         pilot = (settings.frontend_app_url_pilot or "").strip()
         if pilot:
