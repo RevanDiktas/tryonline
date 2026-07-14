@@ -1,7 +1,6 @@
 """
 Configuration settings for TryOn Backend API
 """
-import json
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 from functools import lru_cache
@@ -51,11 +50,13 @@ class Settings(BaseSettings):
     shopify_client_secret_pilot: str = ""
     # Comma-separated *.myshopify.com hostnames that use pilot OAuth credentials (default: Ramin Studios store)
     shopify_pilot_shops: str = "raminstudios.myshopify.com"
-    # Per-shop dedicated Shopify apps (client-isolated), JSON keyed by *.myshopify.com host:
-    #   {"la-fam-ams.myshopify.com": {"client_id": "...", "client_secret": "...", "frontend_url": "https://tryon.global"}}
-    # Takes precedence over pilot/primary for OAuth creds + post-install redirect; the secret also
-    # joins the webhook-HMAC candidate list. Lets a brand run on its OWN app without a new code slot.
-    shopify_shop_apps: str = ""
+    # Third app: Lafam's dedicated custom app ("la fam") — same callback URL, different credentials.
+    # Exact parallel of the pilot slot above; used for shops listed in shopify_lafam_shops.
+    shopify_client_id_lafam: str = ""
+    shopify_client_secret_lafam: str = ""
+    # Comma-separated *.myshopify.com hostnames served by the la fam app (default: Lafam Amsterdam store)
+    shopify_lafam_shops: str = "la-fam-ams.myshopify.com"
+    frontend_app_url_lafam: str = ""  # Override for shopify_lafam_shops; falls back to the pilot frontend (tryon.global)
     frontend_app_url: str = "https://tryon-shopify-theta.vercel.app"  # Base URL of Shopify app frontend for OAuth redirect (primary app)
     frontend_app_url_pilot: str = ""  # Override for shopify_pilot_shops (e.g. Ramin Studios stays on tryon.global; App Store submission lives on app.tryon.global)
     backend_public_url: str = ""  # Public URL of this API (e.g. https://api.railway.app) for OAuth callback
@@ -75,24 +76,3 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance"""
     return Settings()
-
-
-@lru_cache()
-def get_shop_apps() -> dict[str, dict]:
-    """
-    Parse SHOPIFY_SHOP_APPS JSON into {shop_host_lower: {client_id, client_secret, frontend_url}}.
-    Empty or malformed config yields {} so behavior is unchanged when the var is unset.
-    """
-    raw = (get_settings().shopify_shop_apps or "").strip()
-    if not raw:
-        return {}
-    try:
-        data = json.loads(raw)
-    except (ValueError, TypeError):
-        return {}
-    out: dict[str, dict] = {}
-    if isinstance(data, dict):
-        for shop, cfg in data.items():
-            if isinstance(shop, str) and isinstance(cfg, dict):
-                out[shop.strip().lower()] = cfg
-    return out

@@ -13,25 +13,31 @@ export const SHOPIFY_EMBEDDED_CLIENT_ID =
 
 /**
  * Per-shop dedicated apps (a brand on its OWN Shopify app) map their *.myshopify.com host to
- * that app's client_id via **NEXT_PUBLIC_SHOPIFY_EMBEDDED_CLIENT_IDS** (JSON), e.g.
- *   {"la-fam-ams.myshopify.com":"9ef2f50e267d2339dfd39332f85096ce"}
- * Client IDs are public (they appear in OAuth URLs), so mapping them here exposes no secret.
+ * that app's client_id. Known pilot apps are hard-defaulted here (client IDs are public — they
+ * appear in OAuth URLs — so this exposes no secret), the same way the backend hard-defaults
+ * `shopify_lafam_shops` to `la-fam-ams`. NEXT_PUBLIC_SHOPIFY_EMBEDDED_CLIENT_IDS (JSON) can add
+ * or override entries without a code change, e.g. {"la-fam-ams.myshopify.com":"9ef2f50e…"}.
  */
+const BUILTIN_SHOP_CLIENT_IDS: Record<string, string> = {
+  'la-fam-ams.myshopify.com': '9ef2f50e267d2339dfd39332f85096ce', // la fam app
+};
+
 function shopClientIdMap(): Record<string, string> {
+  const out: Record<string, string> = { ...BUILTIN_SHOP_CLIENT_IDS };
   const raw = process.env.NEXT_PUBLIC_SHOPIFY_EMBEDDED_CLIENT_IDS?.trim();
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    const out: Record<string, string> = {};
-    if (parsed && typeof parsed === 'object') {
-      for (const [shop, id] of Object.entries(parsed)) {
-        if (typeof id === 'string') out[shop.trim().toLowerCase()] = id.trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        for (const [shop, id] of Object.entries(parsed)) {
+          if (typeof id === 'string') out[shop.trim().toLowerCase()] = id.trim();
+        }
       }
+    } catch {
+      /* keep built-ins */
     }
-    return out;
-  } catch {
-    return {};
   }
+  return out;
 }
 
 /** App Bridge client_id for a shop: its dedicated app if mapped, else the default (pilot/public) app. */
