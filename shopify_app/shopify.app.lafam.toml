@@ -10,7 +10,12 @@
 
 client_id = "9ef2f50e267d2339dfd39332f85096ce"
 name = "la fam"
-application_url = "https://tryon.global/app"
+# Brand-mode host: app.tryon.global renders the brand-only surface (isShopifyMode
+# true -> "Brand sign in" + self-serve brand signup). tryon.global is website mode
+# (shopper "passport" login), so the embedded app must load app.tryon.global/app.
+# Railway must also set frontend_app_url_lafam=https://app.tryon.global so the
+# post-OAuth redirect lands on the brand host.
+application_url = "https://app.tryon.global/app"
 embedded = true
 
 [build]
@@ -24,6 +29,10 @@ topics = ["app/uninstalled"]
 compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
 uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/shopify/compliance"
 
+# Order + refund tracking. These topics carry protected customer data, which
+# custom-distribution apps get automatically (PCD Level 1+2 "Always available",
+# no review) — provided a distribution method is selected first. Custom
+# distribution is now set on this app, so version creation accepts these.
 [[webhooks.subscriptions]]
 topics = ["orders/paid"]
 uri = "https://heroic-celebration-production-9f72.up.railway.app/api/webhooks/shopify/orders-paid"
@@ -43,7 +52,7 @@ direct_api_mode = "online"
 [auth]
 redirect_urls = [
   "https://heroic-celebration-production-9f72.up.railway.app/api/shopify/auth/callback",
-  "https://tryon.global/app",
+  "https://app.tryon.global/app",
 ]
 
 [pos]
