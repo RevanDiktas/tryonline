@@ -9,7 +9,7 @@ Garment CRUD + GLB file upload for brand dashboard — JWT-protected.
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks
 from pydantic import BaseModel
 
 from app.config import get_settings
@@ -19,6 +19,22 @@ from app.services.supabase import SupabaseService
 router = APIRouter()
 settings = get_settings()
 supabase = SupabaseService()
+
+
+def _backfill_drape_for_garment(garment_id: str) -> None:
+    """Fan a freshly uploaded/updated garment out onto every existing avatar so
+    its drapes are pre-warmed before shoppers arrive (near-zero try-on latency).
+
+    Recomputes the content hash first: the upload route clears garments.content_hash,
+    so this recomputes a fresh version that invalidates stale draped_meshes when a
+    corrected OBJ is re-uploaded. Best-effort — never fails the upload."""
+    try:
+        from app.services.drape_queue import compute_garment_content_hash, enqueue_for_garment
+        compute_garment_content_hash(garment_id)  # content_hash cleared on upload -> recompute fresh
+        counts = enqueue_for_garment(garment_id)
+        print(f"[garments] drape backfill garment={garment_id}: {counts}")
+    except Exception as e:
+        print(f"[garments] drape backfill failed garment={garment_id}: {e}")
 
 VALID_CATEGORIES = ["tops", "bottoms", "outerwear", "dresses", "accessories"]
 VALID_FIT_TYPES = ["slim", "regular", "oversized"]
@@ -318,6 +334,7 @@ async def upload_garment_glb(
 @router.post("/{garment_id}/upload-obj")
 async def upload_garment_obj(
     garment_id: str,
+    background_tasks: BackgroundTasks,
     size: str = Form(..., description="Size key: xs, s, m, l, xl"),
     file: UploadFile = File(..., description="OBJ mesh file (triangulated)"),
     user_id: str = Depends(get_current_user_id),
@@ -358,7 +375,15 @@ async def upload_garment_obj(
     full_url = bucket.get_public_url(storage_path)
 
     current_obj_sizes[size_key] = f"garments/{storage_path}"
-    supabase.client.table("garments").update({"obj_sizes": current_obj_sizes}).eq("id", garment_id).execute()
+    # Clear content_hash so _backfill recomputes a fresh version (invalidates stale
+    # draped_meshes when a corrected OBJ is re-uploaded during grading).
+    supabase.client.table("garments").update(
+        {"obj_sizes": current_obj_sizes, "content_hash": None}
+    ).eq("id", garment_id).execute()
+
+    # Pre-warm drapes: fan this garment onto every existing avatar (background,
+    # best-effort). New avatars already fan out to all active garments on creation.
+    background_tasks.add_task(_backfill_drape_for_garment, garment_id)
 
     return {"ok": True, "size": size_key, "url": full_url, "path": storage_path}
 
