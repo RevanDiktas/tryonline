@@ -991,25 +991,60 @@ export default function BrandDashboardPage() {
                   </div>
                 )}
 
-                {/* Top Returned Products */}
+                {/* Top Returned SKUs */}
                 {returnMetrics.top_returned_products && Array.isArray(returnMetrics.top_returned_products) && returnMetrics.top_returned_products.length > 0 && (
                   <div>
-                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${labelCl}`}>Top returned products</p>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${labelCl}`}>Top returned SKUs</p>
                     <div className={`${panelClass} overflow-hidden`}>
                       <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead><tr className={`border-b ${borderCl}`}>
-                            <th className={tableHeaderClass}>Product</th>
+                            <th className={tableHeaderClass}>SKU</th>
                             <th className={`${tableHeaderClass} text-right`}>Returns</th>
                             <th className={`${tableHeaderClass} text-right`}>Purchases</th>
                             <th className={`${tableHeaderClass} text-right`}>Return Rate</th>
                           </tr></thead>
                           <tbody>
                             {returnMetrics.top_returned_products.slice(0, 10).map((p, i) => (
-                              <tr key={p.product_id} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
-                                <td className={`${tableCellClass} font-medium`}>{p.product_id}</td>
+                              <tr key={(p.sku || p.variant_id || p.product_id || String(i))} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                                <td className={`${tableCellClass} font-medium`}>
+                                  <span className="font-mono">{p.sku || p.variant_id || p.product_id || '-'}</span>
+                                  {p.title ? <span className={`ml-2 ${labelCl}`}>{p.title}</span> : null}
+                                </td>
                                 <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.return_count}</td>
                                 <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.purchase_count}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{fmtPct(p.return_rate)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sales & returns by SKU (every SKU sold or returned) */}
+                {returnMetrics.sku_breakdown && Array.isArray(returnMetrics.sku_breakdown) && returnMetrics.sku_breakdown.length > 0 && (
+                  <div>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-3 ${labelCl}`}>Sales &amp; returns by SKU</p>
+                    <div className={`${panelClass} overflow-hidden`}>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead><tr className={`border-b ${borderCl}`}>
+                            <th className={tableHeaderClass}>SKU</th>
+                            <th className={`${tableHeaderClass} text-right`}>Sold</th>
+                            <th className={`${tableHeaderClass} text-right`}>Returned</th>
+                            <th className={`${tableHeaderClass} text-right`}>Return Rate</th>
+                          </tr></thead>
+                          <tbody>
+                            {returnMetrics.sku_breakdown.map((p, i) => (
+                              <tr key={(p.sku || p.variant_id || p.product_id || String(i))} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                                <td className={`${tableCellClass} font-medium`}>
+                                  <span className="font-mono">{p.sku || p.variant_id || p.product_id || '-'}</span>
+                                  {p.title ? <span className={`ml-2 ${labelCl}`}>{p.title}</span> : null}
+                                </td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.purchase_count}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{p.return_count}</td>
                                 <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{fmtPct(p.return_rate)}</td>
                               </tr>
                             ))}

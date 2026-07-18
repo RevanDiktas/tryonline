@@ -267,12 +267,23 @@ export interface BodyShapeInsightsResponse {
   total_data_points: number;
 }
 
+export interface SkuMetricRow {
+  sku: string;
+  variant_id: string;
+  product_id: string;
+  title: string;
+  return_count: number;
+  purchase_count: number;
+  return_rate?: number | null;
+}
+
 export interface ReturnMetricsData {
   total_purchases: number;
   total_returns: number;
   return_rate?: number | null;
   revenue_lost: number;
-  top_returned_products: Array<{ product_id: string; return_count: number; purchase_count: number; return_rate?: number | null }>;
+  top_returned_products: SkuMetricRow[];
+  sku_breakdown?: SkuMetricRow[];
   avg_days_to_return?: number | null;
 }
 

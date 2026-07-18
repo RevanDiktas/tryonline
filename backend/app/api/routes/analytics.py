@@ -1733,6 +1733,8 @@ class ReturnMetricsResponse(BaseModel):
     return_rate: Optional[float] = None
     revenue_lost: float
     top_returned_products: list[dict]
+    # Per-SKU sales + returns (every SKU with a sale or a return), sorted by units sold.
+    sku_breakdown: list[dict] = []
     avg_days_to_return: Optional[float] = None
 
 
@@ -1774,11 +1776,41 @@ async def get_return_metrics(
     purchases_by_order: dict[str, dict] = {}
     # order_id -> return_ts
     returns_by_order: dict[str, str] = {}
-    # product -> {purchases, returns}
-    product_counts: dict[str, dict[str, int]] = defaultdict(lambda: {"purchases": 0, "returns": 0})
+    # sku key -> {purchases, returns, sku, variant_id, product_id, title} — counts are in units
+    sku_counts: dict[str, dict[str, Any]] = {}
     revenue_lost = 0.0
     total_purchases = 0
     total_returns = 0
+
+    def _sku_meta(li: dict[str, Any]) -> tuple[str, dict[str, str]]:
+        """Group key + display meta for a line item. Shopify variant == one SKU;
+        prefer the merchant SKU code, fall back to variant_id, then product_id."""
+        sku = str(li.get("sku") or "").strip()
+        variant_id = str(li.get("variant_id") or "").strip()
+        product_id = str(li.get("product_id") or "").strip()
+        key = sku or variant_id or product_id
+        meta = {
+            "sku": sku,
+            "variant_id": variant_id,
+            "product_id": product_id,
+            "title": str(li.get("title") or li.get("name") or "").strip(),
+        }
+        return key, meta
+
+    def _bump_sku(li: dict[str, Any], field: str) -> None:
+        key, meta = _sku_meta(li)
+        if not key:
+            return
+        qty = int(li.get("quantity", 1) or 1)
+        row = sku_counts.get(key)
+        if row is None:
+            row = {"purchases": 0, "returns": 0, **meta}
+            sku_counts[key] = row
+        row[field] += qty
+        # Backfill display fields if a later event carries richer info
+        for k in ("sku", "variant_id", "product_id", "title"):
+            if not row.get(k) and meta.get(k):
+                row[k] = meta[k]
 
     for e in events:
         ed = e.get("event_data") or {}
@@ -1794,8 +1826,14 @@ async def get_return_metrics(
                     "created_at": e.get("created_at"),
                     "amount": float(ed.get("amount", 0) or 0),
                 }
-            if pid:
-                product_counts[pid]["purchases"] += 1
+            # Per-SKU sold units from the raw order line items (webhook stores these
+            # in event_data; the top-level product_id column is not set for orders/paid).
+            line_items = ed.get("line_items") or []
+            if line_items:
+                for li in line_items:
+                    _bump_sku(li, "purchases")
+            elif pid:  # legacy events with no line_items payload
+                _bump_sku({"product_id": pid}, "purchases")
 
         elif etype == "return":
             total_returns += 1
@@ -1803,9 +1841,15 @@ async def get_return_metrics(
             if oid:
                 returns_by_order[str(oid)] = e.get("created_at", "")
             revenue_lost += float(ed.get("amount_refunded", 0) or 0)
-            ret_pid = pid or ed.get("product_id", "")
-            if ret_pid:
-                product_counts[ret_pid]["returns"] += 1
+            # Per-SKU returned units from refund line items (event_data.items).
+            ret_items = ed.get("items") or []
+            if ret_items:
+                for it in ret_items:
+                    _bump_sku(it, "returns")
+            else:  # legacy events with no per-item payload
+                ret_pid = pid or str(ed.get("product_id", "") or "")
+                if ret_pid:
+                    _bump_sku({"product_id": ret_pid}, "returns")
 
     return_rate = round(total_returns / total_purchases, 4) if total_purchases else None
 
@@ -1824,19 +1868,28 @@ async def get_return_metrics(
 
     avg_days = round(sum(days_to_return) / len(days_to_return), 2) if days_to_return else None
 
+    def _sku_row(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "sku": row["sku"],
+            "variant_id": row["variant_id"],
+            "product_id": row["product_id"],
+            "title": row["title"],
+            "return_count": row["returns"],
+            "purchase_count": row["purchases"],
+            "return_rate": round(row["returns"] / row["purchases"], 4) if row["purchases"] else None,
+        }
+
+    # "Most returned" widget: per-SKU, only SKUs that actually came back.
     top_returned = sorted(
-        [
-            {
-                "product_id": pid,
-                "return_count": c["returns"],
-                "purchase_count": c["purchases"],
-                "return_rate": round(c["returns"] / c["purchases"], 4) if c["purchases"] else None,
-            }
-            for pid, c in product_counts.items()
-            if c["returns"] > 0
-        ],
+        [_sku_row(row) for row in sku_counts.values() if row["returns"] > 0],
         key=lambda x: -x["return_count"],
     )[:10]
+
+    # Full per-SKU sales + returns table (paid and/or returned), best sellers first.
+    sku_breakdown = sorted(
+        [_sku_row(row) for row in sku_counts.values() if row["purchases"] > 0 or row["returns"] > 0],
+        key=lambda x: (-x["purchase_count"], -x["return_count"]),
+    )[:100]
 
     result = ReturnMetricsResponse(
         total_purchases=total_purchases,
@@ -1844,6 +1897,7 @@ async def get_return_metrics(
         return_rate=return_rate,
         revenue_lost=round(revenue_lost, 2),
         top_returned_products=top_returned,
+        sku_breakdown=sku_breakdown,
         avg_days_to_return=avg_days,
     )
     _cache[key] = result
