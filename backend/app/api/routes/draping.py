@@ -212,6 +212,9 @@ class TestRunRequest(BaseModel):
     garment_obj_url: str
     fabric_preset: str = "cotton_medium"
     simulation_mode: str = "swift"
+    # v46: anchors partial garments anatomically (tops -> shoulder,
+    # bottoms -> hip). Omit for full-body garments; they feet-match.
+    category: Optional[str] = None
 
 
 @router.post("/test-run")
@@ -235,6 +238,7 @@ async def test_drape_run(body: TestRunRequest):
             "garment_obj_url": body.garment_obj_url,
             "fabric_config": {"preset": body.fabric_preset},
             "simulation_mode": body.simulation_mode,
+            "category": body.category,
             "garment_id": "test",
             "size": "test",
             "user_id": "test",

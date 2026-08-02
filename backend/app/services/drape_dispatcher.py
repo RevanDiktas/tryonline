@@ -69,7 +69,7 @@ def _build_runpod_payload(job: dict) -> Optional[dict]:
         return None
 
     g = supabase_service.client.table("garments").select(
-        "obj_sizes,fabric_config"
+        "obj_sizes,fabric_config,category"
     ).eq("id", garment_id).limit(1).execute()
     if not g.data:
         return None
@@ -84,6 +84,11 @@ def _build_runpod_payload(job: dict) -> Optional[dict]:
             "garment_obj_url": _resolve_storage_url(garment_obj),
             "smpl_params_url": _resolve_storage_url(pf.get("smpl_params") or "") or None,
             "fabric_config": g.data[0].get("fabric_config") or {},
+            # v46: the handler anchors PARTIAL garments anatomically by
+            # category — tops at the shoulder, bottoms at the hip crest.
+            # Without it a t-shirt's hem is matched to the avatar's feet.
+            # Full-body garments ignore this and keep feet-matching.
+            "category": g.data[0].get("category"),
             "simulation_mode": "swift",
             "garment_id": garment_id,
             "size": size,
