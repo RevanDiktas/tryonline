@@ -122,12 +122,69 @@ except Exception as e:
     print(f"[Draping] Warp not available ({e}) — will use geometric fallback only")
 
 
+# MTL map_* option flags and how many arguments each consumes, so a filename
+# is never confused with an option value. CLO3D doesn't emit these, but other
+# exporters (Blender, Substance) do.
+_MTL_MAP_OPTS = {
+    "-blendu": 1, "-blendv": 1, "-boost": 1, "-mm": 2, "-o": 3, "-s": 3,
+    "-t": 3, "-texres": 1, "-clamp": 1, "-bm": 1, "-imfchan": 1, "-type": 1,
+}
+
+
+def _mtl_map_filename(line: str) -> str:
+    """Basename of the texture referenced by an MTL `map_*` / `bump` line.
+
+    Texture filenames may contain spaces — CLO3D writes lines like
+    `map_Kd ChatGPT Image Jul 14, 2026, 04_26_05 PM.png` verbatim. Splitting on
+    whitespace and taking the last token truncated that to `PM.png`, so every
+    download 404'd and the garment draped untextured. Everything after the
+    keyword (minus any leading option flags) is the filename.
+
+    Returns "" when the line carries no filename.
+    """
+    head = line.strip().split(None, 1)
+    if len(head) < 2:
+        return ""
+    rest = head[1].strip()
+    while rest.startswith("-"):
+        tok = rest.split(None, 1)[0]
+        nargs = _MTL_MAP_OPTS.get(tok)
+        if nargs is None:
+            break  # unknown flag: treat the remainder as the filename
+        parts = rest.split(None, nargs + 1)
+        if len(parts) <= nargs:
+            return ""
+        rest = parts[nargs + 1].strip() if len(parts) > nargs + 1 else ""
+    return rest.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _encode_url_path(url: str) -> str:
+    """Percent-encode unsafe characters in a URL's path/query.
+
+    CLO3D texture filenames routinely contain spaces and commas. httpx rejects
+    a raw space outright, so those downloads failed before a request was made.
+    `safe="/%"` preserves any %xx already present, so an already-encoded URL
+    passing through a second time is unchanged.
+    """
+    from urllib.parse import quote, urlsplit, urlunsplit
+    parts = urlsplit(url)
+    if not parts.scheme:
+        return url
+    return urlunsplit((
+        parts.scheme, parts.netloc,
+        quote(parts.path, safe="/%"),
+        quote(parts.query, safe="=&%"),
+        parts.fragment,
+    ))
+
+
 def download_file(url: str, dest: Path) -> bool:
     """Download a file from URL to local path."""
     try:
         if url.startswith("file://"):
             shutil.copy(url[7:], dest)
             return True
+        url = _encode_url_path(url)
         if USE_HTTPX:
             with httpx.Client(timeout=120.0) as client:
                 r = client.get(url)
@@ -709,11 +766,19 @@ def _retarget_garment_to_body(
     return verts, stats_out
 
 
-def align_meshes(body_verts: np.ndarray, garment_verts: np.ndarray) -> tuple:
+def align_meshes(
+    body_verts: np.ndarray,
+    garment_verts: np.ndarray,
+    category: "str | None" = None,
+) -> tuple:
     """
     Auto-align garment to body by matching height ranges and centering.
     CLO3D and SMPL may use different coordinate origins and scales.
     Returns (aligned_garment_verts, scale_factor, translation).
+
+    `category` is the garment's DB category (tops / bottoms / outerwear /
+    dresses). It decides where a PARTIAL garment is anchored vertically; it is
+    ignored for full-body garments, which keep the original feet-match.
     """
     body_min_y, body_max_y = body_verts[:, 1].min(), body_verts[:, 1].max()
     garm_min_y, garm_max_y = garment_verts[:, 1].min(), garment_verts[:, 1].max()
@@ -727,12 +792,33 @@ def align_meshes(body_verts: np.ndarray, garment_verts: np.ndarray) -> tuple:
     height_ratio = garm_h / body_h
     print(f"[Draping] Alignment: body_h={body_h:.4f} garment_h={garm_h:.4f} ratio={height_ratio:.4f}")
 
-    # Only rescale if significantly off (>20% difference)
+    # v46: STOP STRETCHING PARTIAL GARMENTS TO BODY HEIGHT.
+    #
+    # `scale = body_h / garm_h` assumed every garment spans the whole body.
+    # That held for Ramin, whose products are full tracksuits (hoodie + pants,
+    # ratio 1.0185 → the 0.8-1.2 band → never rescaled). It is catastrophic
+    # for a single garment: La Fam's diamond tee is 0.5817 m against a 1.80 m
+    # body (ratio 0.3232), so it was blown up 3.0943x into a 1.8 m tee running
+    # from the floor to the crown of the head. The striped longsleeve got
+    # 2.9472x. Every La Fam product is a single garment, so all of them hit it.
+    #
+    # Units are NOT this function's job — _normalize_to_meters() already
+    # converts mm→m before we are called. So a ratio of 0.32 is not a unit
+    # error, it is a t-shirt. The only thing left worth correcting here is a
+    # gross unit failure that slipped past normalisation, which would land
+    # orders of magnitude out, not at 0.32.
+    UNIT_SANITY_LO, UNIT_SANITY_HI = 0.05, 5.0
     if 0.8 < height_ratio < 1.2:
         scale = 1.0
         print(f"[Draping] Scale close enough — no rescale")
+    elif UNIT_SANITY_LO < height_ratio < UNIT_SANITY_HI:
+        scale = 1.0
+        print(f"[Draping] v46: partial garment (ratio={height_ratio:.4f}) — "
+              f"authored proportion kept, NOT rescaled to body height")
     else:
-        print(f"[Draping] Rescaling garment by {scale:.4f}")
+        print(f"[Draping] v46: ratio={height_ratio:.4f} is outside "
+              f"[{UNIT_SANITY_LO}, {UNIT_SANITY_HI}] — treating as a unit "
+              f"error and rescaling by {scale:.4f}")
 
     aligned = garment_verts.copy()
     aligned *= scale
@@ -775,12 +861,50 @@ def align_meshes(body_verts: np.ndarray, garment_verts: np.ndarray) -> tuple:
     garm_cx = (garm_torso[:, 0].min() + garm_torso[:, 0].max()) / 2
     garm_cz = (garm_torso[:, 2].min() + garm_torso[:, 2].max()) / 2
 
-    # Match feet (bottom Y)
+    # v46: ANCHOR PARTIAL GARMENTS BY ANATOMY, NOT BY FEET.
+    #
+    # Feet-matching (garment bottom → body bottom) is right for a full-body
+    # tracksuit and nonsense for a tee: it parks the hem at the ANKLES. With
+    # the v46 no-rescale change above, an un-anchored tee would sit around the
+    # shins. v45.11 already corrects this for garments that carry a Sleeves_*
+    # material, but La Fam's diamond tee names its whole shell FABRIC_1_* so
+    # that path is skipped entirely.
+    #
+    # Anchors use the same anatomical fractions as the rest of the pipeline:
+    # shoulder at 0.81 of body height (v28), hip crest at 0.54.
+    # Verified against the real meshes on a 1.80 m body:
+    #   diamond tee  → y=[0.876, 1.458]  (hem at hip, shoulders at shoulder)
+    #   longsleeve   → y=[0.847, 1.458]
+    #   Ramin m      → ratio 1.0185, full-body path, feet-match, UNCHANGED
+    FULL_BODY_RATIO = 0.8
+    cat = (category or "").strip().lower()
+    if height_ratio >= FULL_BODY_RATIO:
+        dy = body_min_y - garm_min_y            # full body: feet-to-feet
+        anchor = "feet (full-body garment)"
+    elif cat in ("bottoms",):
+        # Waistband (garment top) to the hip crest.
+        dy = (body_min_y + 0.54 * body_h) - garm_max_y
+        anchor = "waistband->hip (0.54)"
+    elif cat in ("tops", "outerwear", "dresses"):
+        dy = (body_min_y + 0.81 * body_h) - garm_max_y
+        anchor = f"shoulder (0.81), category={cat}"
+    else:
+        # No category supplied. Infer from where the garment's own mass sits
+        # once its top is placed at the shoulder: if that would push the hem
+        # below the knee it is more likely a lower-body piece.
+        dy = (body_min_y + 0.81 * body_h) - garm_max_y
+        if (garm_min_y + dy) < body_min_y + 0.30 * body_h:
+            dy = (body_min_y + 0.54 * body_h) - garm_max_y
+            anchor = "inferred bottoms (hem would fall below knee)"
+        else:
+            anchor = "inferred top (no category supplied)"
+
     translation = np.array([
         body_cx - garm_cx,
-        body_min_y - garm_min_y,
+        dy,
         body_cz - garm_cz,
     ])
+    print(f"[Draping] v46 anchor: {anchor}")
 
     aligned += translation
     print(f"[Draping] Torso filter: body={len(body_torso)} garm={len(garm_torso)} verts")
@@ -911,6 +1035,39 @@ def _drop_small_intra_material_components(
     drop_summary: list = []  # (mtl, vert_count, face_count)
     keep_summary: list = []  # (mtl, vert_count, face_count, share_frac) for stitched comps
 
+    # v46: the whole drop rule PRESUPPOSES CLO3D's Ramin-style naming, where
+    # the structural shell is Body_*/Sleeves_* and the decorative extras land
+    # in FABRIC_*. Every threshold below was tuned against that convention.
+    #
+    # La Fam's diamond tee names its ENTIRE shell FABRIC_1_FRONT_2633 — front
+    # panel (2518 faces), back panel (2432), and the two SLEEVES (449, 399).
+    # The sleeves are 17.8% and 15.8% of the largest component, just under the
+    # 0.20 cutoff, so both were deleted on every run. Measured against Ramin's
+    # real pocket bags (14.3-15.9% of largest) the size ratio cannot tell the
+    # two apart — the distributions overlap outright.
+    #
+    # When no Body_*/Sleeves_* material exists, the premise is false and the
+    # rule has no basis for calling anything decorative. Skip it: keeping a
+    # pocket bag costs a hidden interior surface, dropping a sleeve costs the
+    # sleeve. The asymmetry is not close.
+    _has_structural_naming = any(
+        m and (m.startswith("Body_") or m.startswith("Sleeves_"))
+        for m in faces_by_mtl
+    )
+    if not _has_structural_naming:
+        print(f"[PyGarment] v46: no Body_*/Sleeves_* materials in this garment "
+              f"({sorted(faces_by_mtl)[:4]}...) — component-drop rule does not "
+              f"apply, keeping all {len(face_entries)} faces")
+        shutil.copy(garment_obj_in, garment_obj_out)
+        return {
+            "faces_kept": len(face_entries),
+            "faces_dropped": 0,
+            "verts_kept": len(v_positions),
+            "verts_dropped_orphan": 0,
+            "components_dropped": 0,
+            "skipped_reason": "no_structural_material_naming",
+        }
+
     # v45.1: KD-tree of all vertex positions for the seam-stitch connectivity
     # check below. The check distinguishes pocket-bag-style isolated trim
     # (drop, was the v19 fix) from seam-stitched trim that's structurally
@@ -1014,7 +1171,12 @@ def _drop_small_intra_material_components(
                                 n_with_external += 1
                                 break
                     share_frac = n_with_external / len(vset)
-                    if share_frac >= 0.20:
+                    # v46: 0.20 -> 0.08. Measured on real meshes: Ramin's pocket
+                    # bags share 0.5-5.3% of their verts with the outside world,
+                    # La Fam tee sleeves share 11.1-12.3%. The old cutoff sat
+                    # above BOTH, so seam-stitched sleeves were dropped along
+                    # with genuinely isolated bags. 0.08 lands in the gap.
+                    if share_frac >= 0.08:
                         keep_summary.append(
                             (mtl, len(vset), len(lis), share_frac)
                         )
@@ -1577,6 +1739,7 @@ def pygarment_drape(
     output_obj: Path,
     fabric_config: dict,
     simulation_mode: str = "swift",
+    category: "str | None" = None,
 ) -> dict:
     """
     Run the PyGarment XPBD cloth simulation. Returns stats dict matching
@@ -1763,7 +1926,9 @@ def pygarment_drape(
     body_verts, _ = _normalize_to_meters(body_verts_raw, "Body")
     garment_verts, garment_unit_scale = _normalize_to_meters(garment_verts_raw, "Garment")
     garment_faces = load_obj_faces(garment_obj)
-    aligned_verts, align_scale, translation = align_meshes(body_verts, garment_verts)
+    aligned_verts, align_scale, translation = align_meshes(
+        body_verts, garment_verts, category=category
+    )
 
     # v45.11: SHOULDER-ALIGN secondary Y shift.
     #
@@ -2300,6 +2465,7 @@ def geometric_drape(
     garment_obj: Path,
     output_obj: Path,
     fabric_config: dict,
+    category: "str | None" = None,
 ) -> dict:
     """
     Multi-pass geometric draping with gravity settling, spring constraints,
@@ -2324,7 +2490,9 @@ def geometric_drape(
     print(f"[Draping] Body: {len(body_verts)} verts, Y=[{body_verts[:,1].min():.4f}, {body_verts[:,1].max():.4f}]")
     print(f"[Draping] Garment: {len(garment_verts)} verts, Y=[{garment_verts[:,1].min():.4f}, {garment_verts[:,1].max():.4f}]")
 
-    aligned_verts, scale, translation = align_meshes(body_verts, garment_verts)
+    aligned_verts, scale, translation = align_meshes(
+        body_verts, garment_verts, category=category
+    )
 
     thickness = fabric_config.get("thickness", 0.006)
     offset = max(thickness, 0.006)
@@ -2466,9 +2634,9 @@ def _parse_mtl_for_glb(mtl_path: Path) -> dict:
                 except ValueError:
                     pass
         elif s.startswith("map_Kd "):
-            p = s.split()
-            if len(p) >= 2:
-                out[cur]["map_kd"] = p[-1].replace("\\", "/").rsplit("/", 1)[-1]
+            name = _mtl_map_filename(s)
+            if name:
+                out[cur]["map_kd"] = name
     return out
 
 
@@ -2489,7 +2657,9 @@ def _resolve_mtl_for_obj(obj_path: Path) -> "Path | None":
         cand = parent / mtllib_name
         if cand.exists():
             return cand
-    for cand in parent.glob("*.mtl"):
+    for cand in sorted(parent.glob("*.mtl")):
+        if cand.name.startswith("._"):
+            continue  # macOS AppleDouble sidecar, not a real MTL
         return cand
     return None
 
@@ -2531,7 +2701,9 @@ def _obj_to_glb_textured(
         # then in asset_dir (the production layout).
         mtl_path = _resolve_mtl_for_obj(obj_path)
         if (mtl_path is None) or (not mtl_path.exists()):
-            for cand in asset_dir.glob("*.mtl"):
+            for cand in sorted(asset_dir.glob("*.mtl")):
+                if cand.name.startswith("._"):
+                    continue  # macOS AppleDouble sidecar, not a real MTL
                 mtl_path = cand
                 break
         materials_info = _parse_mtl_for_glb(mtl_path) if mtl_path else {}
@@ -2730,6 +2902,9 @@ def handler(event: dict) -> dict:
     user_id = job_input.get("user_id", "unknown")
 
     garment_glb_url = job_input.get("garment_glb_url")
+    # v46: DB category (tops/bottoms/outerwear/dresses) drives anatomical
+    # anchoring for partial garments. Absent -> align_meshes infers it.
+    category = job_input.get("category")
 
     if not garment_obj_url:
         return {"error": "garment_obj_url is required", "success": False}
@@ -2800,13 +2975,11 @@ def handler(event: dict) -> dict:
                 for _mline in _mtl_text.split("\n"):
                     _stripped = _mline.strip()
                     if _stripped.startswith("map_") or _stripped.startswith("bump"):
-                        _parts = _stripped.split()
-                        if len(_parts) >= 2:
-                            _tex_full = _parts[-1]
-                            # Handle both POSIX and Windows-style path separators
-                            _tex_base = _tex_full.replace("\\", "/").rsplit("/", 1)[-1]
-                            _parts[-1] = _tex_base
-                            _rewritten_lines.append(" ".join(_parts))
+                        # Handles POSIX/Windows separators AND spaces in names.
+                        _tex_base = _mtl_map_filename(_stripped)
+                        if _tex_base:
+                            _keyword = _stripped.split(None, 1)[0]
+                            _rewritten_lines.append(f"{_keyword} {_tex_base}")
                             continue
                     _rewritten_lines.append(_mline)
                 mtl_dest.write_text("\n".join(_rewritten_lines))
@@ -2832,9 +3005,8 @@ def handler(event: dict) -> dict:
                 for _mline in mtl_dest.read_text().split("\n"):
                     _mline = _mline.strip()
                     if _mline.startswith("map_") or _mline.startswith("bump"):
-                        _parts = _mline.split()
-                        if len(_parts) >= 2:
-                            tex_name = _parts[-1]  # already basename after rewrite
+                        tex_name = _mtl_map_filename(_mline)  # basename after rewrite
+                        if tex_name:
                             tex_dest = garment_obj.parent / tex_name
                             if not tex_dest.exists():
                                 if download_file(f"{url_dir}/{tex_name}", tex_dest):
@@ -2876,6 +3048,7 @@ def handler(event: dict) -> dict:
                 output_obj=draped_obj,
                 fabric_config=merged_fabric,
                 simulation_mode=simulation_mode,
+                category=category,
             )
             simulation_method = "pygarment"
             # v44: log a slim copy without the multi-MB iteration_frames_base64
@@ -2900,6 +3073,7 @@ def handler(event: dict) -> dict:
                     garment_obj=garment_obj,
                     output_obj=draped_obj,
                     fabric_config=merged_fabric,
+                    category=category,
                 )
                 simulation_method = "geometric_fallback"
                 print(f"[Draping] Geometric drape done: {sim_stats}")
@@ -2935,7 +3109,8 @@ def handler(event: dict) -> dict:
                 # for weeks but the backend was sending nothing. Pick the
                 # first .mtl on disk; the input-side already rewrote it to
                 # use basename texture references.
-                candidates = list(garment_obj.parent.glob("*.mtl"))
+                candidates = [c for c in sorted(garment_obj.parent.glob("*.mtl"))
+                              if not c.name.startswith("._")]
                 if candidates:
                     print(f"[Draping] mtllib '{mtl_name}' not on disk; using {candidates[0].name} from {garment_obj.parent}")
                     mtl_source = candidates[0]
@@ -2948,9 +3123,8 @@ def handler(event: dict) -> dict:
                 for mtl_line in mtl_text_orig.split("\n"):
                     stripped = mtl_line.strip()
                     if stripped.startswith("map_") or stripped.startswith("bump"):
-                        parts = stripped.split()
-                        if len(parts) >= 2:
-                            tex_filename = parts[-1].replace("\\", "/").rsplit("/", 1)[-1]
+                        tex_filename = _mtl_map_filename(stripped)
+                        if tex_filename:
                             tex_path = garment_obj.parent / tex_filename
                             if tex_path.exists() and tex_path.stat().st_size < 10_000_000:
                                 tex_bytes = tex_path.read_bytes()
@@ -3096,6 +3270,48 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
+    "drape-handler 2026-08-02/v46-partial-garment-support "
+    "(v46 makes the pipeline work for SINGLE garments, not just Ramin-style "
+    "full-body tracksuits. Every assumption below was tuned on garments that "
+    "span the whole body, and each one fails silently on a t-shirt. Measured "
+    "on La Fam's real Supabase meshes against a 1.80 m body. "
+    "(1) SCALE: align_meshes did `scale = body_h/garm_h` whenever the height "
+    "ratio fell outside 0.8-1.2. Ramin sits at 1.0185 so it never fired. The "
+    "La Fam diamond tee is 0.5817 m (ratio 0.3232) and was blown up 3.0943x "
+    "into a 1.8 m tee spanning floor to crown; the striped longsleeve got "
+    "2.9472x. Units are NOT this function's job — _normalize_to_meters "
+    "already did mm->m — so 0.32 is not a unit error, it is a t-shirt. v46 "
+    "keeps the authored proportion for any ratio in [0.05, 5.0] and only "
+    "rescales outside that, where a genuine unit failure would land. "
+    "(2) ANCHOR: alignment matched garment BOTTOM to body BOTTOM, which parks "
+    "a tee's hem at the ANKLES. v45.11 corrects this via the Sleeves_* "
+    "material, but the diamond tee names its whole shell FABRIC_1_FRONT_2633 "
+    "so that path was skipped. v46 anchors partial garments anatomically by "
+    "DB category: tops/outerwear/dresses put the garment top at the shoulder "
+    "(0.81 body height), bottoms put the waistband at the hip crest (0.54), "
+    "inferring from hem position when no category is supplied. Full-body "
+    "garments (ratio >= 0.8) keep feet-matching untouched. Verified: tee "
+    "y=[0.876, 1.458], longsleeve y=[0.847, 1.458], Ramin y=[0.000, 1.833] "
+    "with scale 1.0 and feet-match — bit-identical to v45.12.1. "
+    "(3) COMPONENT DROP: the rule presupposes CLO3D naming where the shell is "
+    "Body_*/Sleeves_* and extras are FABRIC_*. The tee's sleeves (449 and 399 "
+    "faces, 17.8% and 15.8% of the largest component) sat just under the 0.20 "
+    "cutoff and were deleted every run — the 848 faces in the 2026-08-02 log. "
+    "Size ratio cannot separate them from Ramin's real pocket bags (14.3-15.9%); "
+    "the distributions overlap. Stitch-share does: bags share 0.5-5.3% of "
+    "their verts with the outside, sleeves 11.1-12.3%, so the threshold drops "
+    "0.20 -> 0.08. And when NO Body_*/Sleeves_* material exists the premise is "
+    "false outright, so the rule is skipped entirely. A/B against pristine "
+    "v45.12.1: Ramin 52607 -> 52607 faces (identical), tee 6667 -> 7515 "
+    "(+848, sleeves restored), longsleeve 69897 -> 69897 (identical). "
+    "(4) MTL TEXTURE NAMES: every map_*/bump parse used line.split()[-1], so "
+    "`map_Kd ChatGPT Image Jul 14, 2026, 04_26_05 PM.png` resolved to "
+    "'PM.png' and 404'd — all 120 map_* lines across La Fam's 24 MTLs. New "
+    "_mtl_map_filename() takes everything after the keyword and skips MTL "
+    "option flags. download_file() now percent-encodes the URL path, since "
+    "httpx rejects a raw space before the request is even made. MTL glob "
+    "fallbacks skip macOS '._' AppleDouble sidecars. "
+    "PREVIOUS v45.12.1 BANNER FOLLOWS: "
     "drape-handler 2026-05-11/v45.12.1-fix-supabase-auth-for-sb_secret-keys "
     "(v45.12 deployed and bow-sweats L completed, but the Supabase upload "
     "silently fell back to base64 every time because Supabase's new "
