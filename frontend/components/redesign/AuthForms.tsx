@@ -457,7 +457,7 @@ function SignUpInner({
                 display: 'flex', gap: 10, alignItems: 'flex-start', padding: '4px 0', cursor: 'pointer',
               }}>
                 <span
-                  onClick={() => setAgreed(a => !a)}
+                  aria-hidden
                   style={{
                     width: 14, height: 14, border: `1px solid ${C.faint}`,
                     background: agreed ? C.ink : C.surface,
@@ -963,7 +963,7 @@ function BrandSignUpInner({
                 display: 'flex', gap: 10, alignItems: 'flex-start', padding: '4px 0', cursor: 'pointer',
               }}>
                 <span
-                  onClick={() => setAgreed(a => !a)}
+                  aria-hidden
                   style={{
                     width: 14, height: 14, border: `1px solid ${C.faint}`,
                     background: agreed ? C.ink : C.surface,
