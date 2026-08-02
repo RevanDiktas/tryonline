@@ -766,6 +766,29 @@ def _retarget_garment_to_body(
     return verts, stats_out
 
 
+def _is_prefitted(body_verts: np.ndarray, garment_verts: np.ndarray) -> bool:
+    """True when the garment already arrives draped on this body.
+
+    CLO3D exports either at the origin (needs alignment) or in world
+    coordinates already fitted to the avatar (must be left alone). A fitted
+    garment hugs the body surface and lies inside its vertical span.
+    """
+    try:
+        from scipy.spatial import cKDTree as _KD
+        body_min_y, body_max_y = body_verts[:, 1].min(), body_verts[:, 1].max()
+        g_min_y, g_max_y = garment_verts[:, 1].min(), garment_verts[:, 1].max()
+        tree = _KD(body_verts)
+        sample = garment_verts if len(garment_verts) <= 20000 else garment_verts[
+            np.random.default_rng(0).choice(len(garment_verts), 20000, replace=False)]
+        d, _ = tree.query(sample, k=1)
+        near = float((d < 0.05).mean())
+        within = (g_min_y >= body_min_y - 0.05) and (g_max_y <= body_max_y + 0.05)
+        return bool(near >= 0.60 and within)
+    except Exception as e:
+        print(f"[Draping] pre-fit check failed: {e}")
+        return False
+
+
 def align_meshes(
     body_verts: np.ndarray,
     garment_verts: np.ndarray,
@@ -792,72 +815,14 @@ def align_meshes(
     height_ratio = garm_h / body_h
     print(f"[Draping] Alignment: body_h={body_h:.4f} garment_h={garm_h:.4f} ratio={height_ratio:.4f}")
 
-    # v47: IF THE GARMENT ALREADY ARRIVES FITTED TO THIS BODY, DO NOTHING.
-    #
-    # This is the bug that shredded every La Fam garment. CLO3D can export a
-    # garment either (a) sitting at the origin, needing alignment, or (b) in
-    # world coordinates already draped on the target avatar. Ramin's exports
-    # are type (a) — raw Y [0.002, 1.835] on a 1.8 m body — so align_meshes
-    # was written for that and applied unconditionally.
-    #
-    # La Fam's exports are type (b). The tee arrives at Y [0.972, 1.553],
-    # Z [-0.127, 0.176] against a body at Y [0, 1.8], Z [-0.122, 0.173]:
-    # already on the torso, 1 of 4052 verts inside the body, 0.1 mm max
-    # penetration. Perfect. align_meshes then drove it 9.5 cm DOWN
-    # (dy=-0.0955), leaving 934/4052 verts up to 74 mm INSIDE the body. The
-    # SDF retarget then hurled those 934 verts back out, which is what tore
-    # the shoulders and sleeve caps apart — the shredding was our own
-    # alignment being undone, not a simulation failure.
-    #
-    # Detection: a pre-fitted garment hugs the body surface. Sample the
-    # garment against the body and check both that most of it is close AND
-    # that it lies within the body's vertical span. A garment dumped at the
-    # origin fails the first test by metres.
-    try:
-        from scipy.spatial import cKDTree as _KD
-        _tree = _KD(body_verts)
-        _sample = garment_verts if len(garment_verts) <= 20000 else garment_verts[
-            np.random.default_rng(0).choice(len(garment_verts), 20000, replace=False)]
-        _d, _ = _tree.query(_sample, k=1)
-        _near_frac = float((_d < 0.05).mean())
-        _within_y = (garm_min_y >= body_min_y - 0.05) and (garm_max_y <= body_max_y + 0.05)
-        if _near_frac >= 0.60 and _within_y:
-            print(f"[Draping] v47: garment already fitted to this body "
-                  f"({_near_frac*100:.0f}% of verts within 50mm, Y inside body span) "
-                  f"— IDENTITY transform, no scale, no translation")
-            return garment_verts.copy(), 1.0, np.zeros(3)
-        print(f"[Draping] v47: not pre-fitted ({_near_frac*100:.0f}% within 50mm, "
-              f"y_inside={_within_y}) — running alignment")
-    except Exception as _e:
-        print(f"[Draping] v47 pre-fit check skipped: {_e}")
-
-    # v46: STOP STRETCHING PARTIAL GARMENTS TO BODY HEIGHT.
-    #
-    # `scale = body_h / garm_h` assumed every garment spans the whole body.
-    # That held for Ramin, whose products are full tracksuits (hoodie + pants,
-    # ratio 1.0185 → the 0.8-1.2 band → never rescaled). It is catastrophic
-    # for a single garment: La Fam's diamond tee is 0.5817 m against a 1.80 m
-    # body (ratio 0.3232), so it was blown up 3.0943x into a 1.8 m tee running
-    # from the floor to the crown of the head. The striped longsleeve got
-    # 2.9472x. Every La Fam product is a single garment, so all of them hit it.
-    #
-    # Units are NOT this function's job — _normalize_to_meters() already
-    # converts mm→m before we are called. So a ratio of 0.32 is not a unit
-    # error, it is a t-shirt. The only thing left worth correcting here is a
-    # gross unit failure that slipped past normalisation, which would land
-    # orders of magnitude out, not at 0.32.
-    UNIT_SANITY_LO, UNIT_SANITY_HI = 0.05, 5.0
-    if 0.8 < height_ratio < 1.2:
-        scale = 1.0
-        print(f"[Draping] Scale close enough — no rescale")
-    elif UNIT_SANITY_LO < height_ratio < UNIT_SANITY_HI:
-        scale = 1.0
-        print(f"[Draping] v46: partial garment (ratio={height_ratio:.4f}) — "
-              f"authored proportion kept, NOT rescaled to body height")
-    else:
-        print(f"[Draping] v46: ratio={height_ratio:.4f} is outside "
-              f"[{UNIT_SANITY_LO}, {UNIT_SANITY_HI}] — treating as a unit "
-              f"error and rescaling by {scale:.4f}")
+    # v47: if the garment already arrives fitted to this body, do nothing.
+    # See _is_prefitted for the why. This is the bug that shredded every
+    # La Fam garment: alignment drove a correctly-placed tee 9.5 cm into the
+    # chest and the SDF retarget tore it apart climbing back out.
+    if _is_prefitted(body_verts, garment_verts):
+        print("[Draping] v47: garment already fitted to this body — "
+              "IDENTITY transform, no scale, no translation")
+        return garment_verts.copy(), 1.0, np.zeros(3)
 
     aligned = garment_verts.copy()
     aligned *= scale
@@ -1996,9 +1961,20 @@ def pygarment_drape(
     # Side effect: S pants end up ~4 cm above the floor instead of at
     # the floor, but the user prefers correct sleeves to floor-touching
     # pants on the smallest size.
+    # v47.1: a pre-fitted garment is already at the right height. v45.11's
+    # shoulder-align exists to correct feet-matching, which we did not do —
+    # letting it run shifted the blue tee down 3.2 cm and the longsleeve
+    # 2.5 cm, re-introducing 20-28 mm of body penetration and the exact
+    # shredding v47 removed. It only fires on garments carrying a Sleeves_*
+    # material, which is why the black tee (FABRIC_1_* only) escaped it.
+    _prefit = _is_prefitted(body_verts, garment_verts)
+    if _prefit:
+        print("[Draping] v47.1: pre-fitted garment — skipping v45.11 shoulder-align")
     try:
-        sleeve_orig_idx: list = []
+        sleeve_orig_idx: list = [] if not _prefit else None
         active_mtl = None
+        if _prefit:
+            raise StopIteration("prefitted")
         with open(garment_obj, "r", encoding="utf-8", errors="replace") as _f:
             for _line in _f:
                 _s = _line.strip()
@@ -2028,6 +2004,8 @@ def pygarment_drape(
                   f"target={target_shoulder_y*100:.1f}cm shift={shoulder_shift*100:.2f}cm")
         else:
             print(f"[Draping] v45.11 shoulder-align: no Sleeves_* verts found, skipping")
+    except StopIteration:
+        pass
     except Exception as _e:
         print(f"[Draping] v45.11 shoulder-align failed: {_e}; using feet-align only")
 
