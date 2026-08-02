@@ -792,6 +792,45 @@ def align_meshes(
     height_ratio = garm_h / body_h
     print(f"[Draping] Alignment: body_h={body_h:.4f} garment_h={garm_h:.4f} ratio={height_ratio:.4f}")
 
+    # v47: IF THE GARMENT ALREADY ARRIVES FITTED TO THIS BODY, DO NOTHING.
+    #
+    # This is the bug that shredded every La Fam garment. CLO3D can export a
+    # garment either (a) sitting at the origin, needing alignment, or (b) in
+    # world coordinates already draped on the target avatar. Ramin's exports
+    # are type (a) — raw Y [0.002, 1.835] on a 1.8 m body — so align_meshes
+    # was written for that and applied unconditionally.
+    #
+    # La Fam's exports are type (b). The tee arrives at Y [0.972, 1.553],
+    # Z [-0.127, 0.176] against a body at Y [0, 1.8], Z [-0.122, 0.173]:
+    # already on the torso, 1 of 4052 verts inside the body, 0.1 mm max
+    # penetration. Perfect. align_meshes then drove it 9.5 cm DOWN
+    # (dy=-0.0955), leaving 934/4052 verts up to 74 mm INSIDE the body. The
+    # SDF retarget then hurled those 934 verts back out, which is what tore
+    # the shoulders and sleeve caps apart — the shredding was our own
+    # alignment being undone, not a simulation failure.
+    #
+    # Detection: a pre-fitted garment hugs the body surface. Sample the
+    # garment against the body and check both that most of it is close AND
+    # that it lies within the body's vertical span. A garment dumped at the
+    # origin fails the first test by metres.
+    try:
+        from scipy.spatial import cKDTree as _KD
+        _tree = _KD(body_verts)
+        _sample = garment_verts if len(garment_verts) <= 20000 else garment_verts[
+            np.random.default_rng(0).choice(len(garment_verts), 20000, replace=False)]
+        _d, _ = _tree.query(_sample, k=1)
+        _near_frac = float((_d < 0.05).mean())
+        _within_y = (garm_min_y >= body_min_y - 0.05) and (garm_max_y <= body_max_y + 0.05)
+        if _near_frac >= 0.60 and _within_y:
+            print(f"[Draping] v47: garment already fitted to this body "
+                  f"({_near_frac*100:.0f}% of verts within 50mm, Y inside body span) "
+                  f"— IDENTITY transform, no scale, no translation")
+            return garment_verts.copy(), 1.0, np.zeros(3)
+        print(f"[Draping] v47: not pre-fitted ({_near_frac*100:.0f}% within 50mm, "
+              f"y_inside={_within_y}) — running alignment")
+    except Exception as _e:
+        print(f"[Draping] v47 pre-fit check skipped: {_e}")
+
     # v46: STOP STRETCHING PARTIAL GARMENTS TO BODY HEIGHT.
     #
     # `scale = body_h / garm_h` assumed every garment spans the whole body.
@@ -3270,6 +3309,24 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
+    "drape-handler 2026-08-02/v47-respect-pre-fitted-garments "
+    "(v47 fixes the shredded shoulders. CLO3D exports a garment either at the "
+    "ORIGIN, needing alignment, or in WORLD COORDINATES already draped on the "
+    "target avatar. Ramin's exports are the first kind (raw Y [0.002, 1.835] "
+    "on a 1.8 m body), so align_meshes was built for that and applied to "
+    "everything. La Fam's are the second kind: the diamond tee arrives at "
+    "Y [0.972, 1.553], Z [-0.127, 0.176] against a body at Y [0, 1.8], "
+    "Z [-0.122, 0.173] — already on the torso, 1 of 4052 verts inside the "
+    "body, 0.1 mm max penetration. align_meshes then drove it 9.5 cm DOWN, "
+    "leaving 934/4052 verts up to 74 mm INSIDE the body, and the SDF retarget "
+    "hurled them back out. That was the tearing at the shoulders and sleeve "
+    "caps: our own misalignment being violently undone, not a sim failure. "
+    "v47 detects a pre-fitted garment (>=60% of verts within 50 mm of the "
+    "body AND Y within the body span) and returns an IDENTITY transform. "
+    "Measured after the fix: tee 1/4052 verts inside at 0.1 mm, longsleeve "
+    "0/35837. A garment dropped at the origin still fails the check and takes "
+    "the normal alignment path, so legacy uploads are unaffected. "
+    "PREVIOUS v46 BANNER FOLLOWS: "
     "drape-handler 2026-08-02/v46-partial-garment-support "
     "(v46 makes the pipeline work for SINGLE garments, not just Ramin-style "
     "full-body tracksuits. Every assumption below was tuned on garments that "
