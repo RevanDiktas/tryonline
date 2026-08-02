@@ -236,7 +236,7 @@ export default function GarmentsPage() {
 
     setUploadingSize(`${uploadTarget.garmentId}-${uploadTarget.size}`);
     try {
-      await garmentApi.uploadGlb(uploadTarget.garmentId, uploadTarget.size, file);
+      await garmentApi.uploadMesh(uploadTarget.garmentId, uploadTarget.size, file);
       if (brandId) await loadGarments(brandId);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Upload failed');
@@ -393,7 +393,7 @@ export default function GarmentsPage() {
 
   return (
     <div className={`min-h-screen transition-colors ${dark ? 'bg-black text-white' : 'bg-gray-50 text-black'}`}>
-      <input type="file" ref={fileInputRef} accept=".glb" className="hidden" onChange={handleFileSelected} />
+      <input type="file" ref={fileInputRef} accept=".glb,.obj,model/gltf-binary,model/obj" className="hidden" onChange={handleFileSelected} />
 
       {/* Header */}
       <header className={`border-b px-6 py-3 ${dark ? 'bg-black/95 border-white/10' : 'bg-white border-gray-200'}`}>
@@ -597,7 +597,11 @@ export default function GarmentsPage() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {sizesOf(g.id).map((size) => {
-                      const hasFile = !!(g.sizes && g.sizes[size]);
+                      // GLB (viewer) and OBJ (drape sim) are stored separately; a size can have either or both.
+                      const hasGlb = !!(g.sizes && g.sizes[size]);
+                      const hasObj = !!(g.obj_sizes && g.obj_sizes[size]);
+                      const hasFile = hasGlb || hasObj;
+                      const formats = [hasGlb && 'GLB', hasObj && 'OBJ'].filter(Boolean).join(' + ');
                       const isUploading = uploadingSize === `${g.id}-${size}`;
                       return (
                         <button
@@ -634,7 +638,7 @@ export default function GarmentsPage() {
                       );
                     })}
                   </div>
-                  <p className={`text-xs mt-2 ${dark ? 'text-white/25' : 'text-gray-400'}`}>Click a size to upload or replace a .glb file</p>
+                  <p className={`text-xs mt-2 ${dark ? 'text-white/25' : 'text-gray-400'}`}>Click a size to upload or replace a mesh — .glb for the 3D viewer, .obj for cloth draping. Both can be stored per size.</p>
                 </div>
 
                 {/* Size Chart */}

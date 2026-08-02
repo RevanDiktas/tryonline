@@ -615,6 +615,7 @@ export interface Garment {
   shopify_product_handle?: string | null;
   fit_type: string;
   sizes: Record<string, string>;
+  obj_sizes?: Record<string, string>;
   size_chart: Record<string, Record<string, number>>;
   thumbnail_url: string | null;
   is_active: boolean;
@@ -666,7 +667,18 @@ export const garmentApi = {
     return fetchApi(`/api/garments/${garmentId}/sync`, { method: 'POST' });
   },
 
-  async uploadGlb(garmentId: string, size: string, file: File): Promise<{ url: string }> {
+  /**
+   * Upload a mesh for one size. Routed by extension: .glb backs the 3D viewer
+   * (garments.sizes), .obj backs the Newton drape sim (garments.obj_sizes).
+   * The two live side by side — uploading one never clears the other.
+   */
+  async uploadMesh(garmentId: string, size: string, file: File): Promise<{ url: string }> {
+    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+    if (ext !== '.glb' && ext !== '.obj') {
+      throw new Error(`Unsupported file type "${ext || file.name}". Upload a .glb or .obj file.`);
+    }
+    const endpoint = ext === '.obj' ? 'upload-obj' : 'upload';
+
     const base = getBase();
     const formData = new FormData();
     formData.append('size', size);
@@ -674,7 +686,7 @@ export const garmentApi = {
     const tkn = await getAccessToken();
     const hdrs: Record<string, string> = {};
     if (tkn) hdrs['Authorization'] = `Bearer ${tkn}`;
-    const res = await fetch(`${base}/api/garments/${garmentId}/upload`, {
+    const res = await fetch(`${base}/api/garments/${garmentId}/${endpoint}`, {
       method: 'POST',
       body: formData,
       headers: hdrs,
