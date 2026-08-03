@@ -112,6 +112,18 @@ async def root():
     }
 
 
+@app.get("/version")
+async def version():
+    """Which commit is actually serving. Railway injects the git SHA at build
+    time; without this there is no way to tell a finished deploy from a stale
+    container still answering 200 on /health."""
+    return {
+        "commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", "unknown")[:12],
+        "branch": os.getenv("RAILWAY_GIT_BRANCH", "unknown"),
+        "deployment_id": os.getenv("RAILWAY_DEPLOYMENT_ID", "unknown"),
+    }
+
+
 @app.get("/routes")
 async def list_routes():
     """Debug: list all registered routes. Only available when DEBUG=true."""
