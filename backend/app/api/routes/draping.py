@@ -14,6 +14,7 @@ import base64
 import os
 from typing import Optional, Any
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Request
 from pydantic import BaseModel
 
@@ -551,11 +552,21 @@ def _persist_drape_result(job: dict, output: dict) -> None:
     """Upload GLB, upsert draped_meshes, mark drape_jobs completed.
     Idempotent: re-running with the same job/output is a no-op (storage upsert,
     DB upsert)."""
+    # The handler returns the GLB one of two ways. Given a Supabase service key
+    # it uploads to the draped-artifacts bucket and sends back a URL; otherwise
+    # it base64-inlines the bytes. The inline form is capped by RunPod at ~20MB
+    # and silently dropped above that, so the URL is the path that scales.
     glb_b64 = output.get("draped_glb_base64") or ""
-    if not glb_b64:
-        raise ValueError("No draped_glb_base64 in RunPod output")
-
-    glb_bytes = base64.b64decode(glb_b64)
+    glb_url = output.get("draped_glb_url") or ""
+    if glb_b64:
+        glb_bytes = base64.b64decode(glb_b64)
+    elif glb_url:
+        with httpx.Client(timeout=300.0, follow_redirects=True) as client:
+            r = client.get(glb_url)
+            r.raise_for_status()
+            glb_bytes = r.content
+    else:
+        raise ValueError("No draped_glb_base64 or draped_glb_url in RunPod output")
     garment_id = job["garment_id"]
     size = job["size"]
     body_hash = job["body_hash"]

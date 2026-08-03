@@ -89,6 +89,14 @@ def _build_runpod_payload(job: dict) -> Optional[dict]:
             # Without it a t-shirt's hem is matched to the avatar's feet.
             # Full-body garments ignore this and keep feet-matching.
             "category": g.data[0].get("category"),
+            # Without a service key the handler base64-inlines the OBJ, GLB and
+            # every texture into its HTTP response. RunPod rejects any output
+            # over ~20MB with a 400 on job-done but still reports the job
+            # COMPLETED, so the callback sees `output: {}` and retries until
+            # the job burns its attempts. Measured on the La Fam jeans: ~22MB,
+            # 220s of good simulation discarded three times over. With the key
+            # the handler uploads to draped-artifacts and returns short URLs.
+            "supabase_service_key": settings.supabase_service_key,
             "simulation_mode": "swift",
             "garment_id": garment_id,
             "size": size,
