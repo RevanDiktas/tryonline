@@ -21,6 +21,9 @@ interface FitResult {
 interface TryOnViewerProps {
   avatarUrl?: string
   garmentUrls?: Record<string, string>
+  /** The other half of the outfit, already resolved to one size. Held fixed while
+   *  the shopper cycles sizes on the primary garment. */
+  companionUrl?: string
   userMeasurements?: {
     chest: number
     waist: number
@@ -92,19 +95,50 @@ const AVATAR_Z_OFFSET = -0.010
 // Exported so the AvatarHero on the marketing site can reuse the same logic
 // (and benefit from drei's per-URL GLB cache).
 // ---------------------------------------------------------------------------
-export function AlignedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; garmentUrl: string }) {
+/** A garment GLB is either a "combined" full-body model (its own height is the
+ *  body's height) or a single piece draped onto the body (a tee is ~0.58 m
+ *  against a 1.8 m avatar). Only the first kind may be normalised to
+ *  TARGET_HEIGHT — doing that to a tee stretches it ~3.2x, the same failure the
+ *  draping handler's align_meshes has. Anything under this ratio is treated as a
+ *  separate piece and scaled by the avatar's factor, preserving real proportions. */
+const COMBINED_MODEL_HEIGHT_RATIO = 0.85
+
+function garmentScaleFor(rawGarment: number, rawAvatar: number, avatarScale: number): number {
+  if (rawGarment <= 1e-9) return GARMENT_CLEARANCE
+  const isCombined = rawAvatar > 1e-9 && rawGarment / rawAvatar >= COMBINED_MODEL_HEIGHT_RATIO
+  // Combined: normalise to the target and add clearance so it does not z-fight the body.
+  // Separate piece: it was draped in the avatar's own frame, so it just needs the
+  // avatar's scale — stretching it to full height is what breaks it.
+  return isCombined ? (TARGET_HEIGHT / rawGarment) * GARMENT_CLEARANCE : avatarScale
+}
+
+export function AlignedScene({
+  avatarUrl,
+  garmentUrl,
+  companionUrl,
+}: { avatarUrl: string; garmentUrl: string; companionUrl?: string }) {
   const avatarGltf = useGLTF(avatarUrl)
   const garmentGltf = useGLTF(garmentUrl)
+  // Hooks cannot be conditional. drei caches per URL, so falling back to the
+  // garment URL is a free no-op lookup when there is no companion; the extra
+  // <primitive> is simply not rendered in that case.
+  const companionGltf = useGLTF(companionUrl || garmentUrl)
+  const hasCompanion = !!companionUrl && companionUrl !== garmentUrl
   const groupRef = useRef<THREE.Group>(null)
 
   useEffect(() => {
     const avatar = avatarGltf.scene
     const garment = garmentGltf.scene
+    const companion = hasCompanion ? companionGltf.scene : null
 
     avatar.scale.setScalar(1)
     avatar.position.set(0, 0, AVATAR_Z_OFFSET)
     garment.scale.setScalar(1)
     garment.position.set(0, 0, 0)
+    if (companion) {
+      companion.scale.setScalar(1)
+      companion.position.set(0, 0, 0)
+    }
 
     avatar.traverse((child) => {
       if (child instanceof THREE.Mesh) {
@@ -112,7 +146,7 @@ export function AlignedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; gar
         child.receiveShadow = true
       }
     })
-    garment.traverse((child) => {
+    const dressMesh = (root: THREE.Object3D) => root.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.castShadow = true
         if (child.material) {
@@ -122,15 +156,20 @@ export function AlignedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; gar
         }
       }
     })
+    dressMesh(garment)
+    if (companion) dressMesh(companion)
 
     const rawA = computeBindHeight(avatar)
     const rawG = computeBindHeight(garment)
 
     const sA = rawA > 1e-9 ? TARGET_HEIGHT / rawA : 1
-    const sG = rawG > 1e-9 ? (TARGET_HEIGHT / rawG) * GARMENT_CLEARANCE : GARMENT_CLEARANCE
+    const sG = garmentScaleFor(rawG, rawA, sA)
 
     avatar.scale.setScalar(sA)
     garment.scale.setScalar(sG)
+    if (companion) {
+      companion.scale.setScalar(garmentScaleFor(computeBindHeight(companion), rawA, sA))
+    }
 
     if (groupRef.current) {
       groupRef.current.updateMatrixWorld(true)
@@ -139,18 +178,25 @@ export function AlignedScene({ avatarUrl, garmentUrl }: { avatarUrl: string; gar
     const boxA = geometryWorldBounds(avatar)
     const boxG = geometryWorldBounds(garment)
     if (!boxA.isEmpty() && !boxG.isEmpty()) {
-      garment.position.set(0, boxA.min.y - boxG.min.y, GARMENT_Z_PUSHBACK)
+      // Combined models get floor-aligned to the avatar. A draped piece is already
+      // positioned on the body in its own frame, so moving it would pull it off.
+      const isCombined = rawA > 1e-9 && rawG / rawA >= COMBINED_MODEL_HEIGHT_RATIO
+      garment.position.set(0, isCombined ? boxA.min.y - boxG.min.y : 0, GARMENT_Z_PUSHBACK)
+    }
+    if (companion) {
+      companion.position.set(0, 0, GARMENT_Z_PUSHBACK)
     }
 
     if (groupRef.current) {
       groupRef.current.updateMatrixWorld(true)
     }
-  }, [avatarGltf, garmentGltf, avatarUrl, garmentUrl])
+  }, [avatarGltf, garmentGltf, companionGltf, hasCompanion, avatarUrl, garmentUrl, companionUrl])
 
   return (
     <group ref={groupRef} position={[0, -0.9, 0]}>
       <primitive object={avatarGltf.scene} />
       <primitive object={garmentGltf.scene} />
+      {hasCompanion && <primitive object={companionGltf.scene} />}
     </group>
   )
 }
@@ -288,6 +334,7 @@ function SizeButton({
 export default function TryOnViewer({
   avatarUrl,
   garmentUrls,
+  companionUrl,
   userMeasurements = { chest: 98, waist: 82, hips: 96, height: 178 },
   sizeChart = {
     XS: { chest: 88, waist: 72, hips: 86 },
@@ -321,8 +368,9 @@ export default function TryOnViewer({
     const urls: string[] = []
     if (avatarUrl) urls.push(avatarUrl)
     if (garmentUrls) urls.push(...Object.values(garmentUrls).filter(Boolean))
+    if (companionUrl) urls.push(companionUrl)
     urls.forEach((url) => useGLTF.preload(url))
-  }, [avatarUrl, garmentUrls])
+  }, [avatarUrl, garmentUrls, companionUrl])
 
   const getChart = (size: string) =>
     sizeChart[size] ?? sizeChart[size.toLowerCase()] ?? sizeChart[size.toUpperCase()]
@@ -446,7 +494,11 @@ export default function TryOnViewer({
 
           <Suspense fallback={null}>
             {avatarUrl && activeGarmentUrl ? (
-              <AlignedScene avatarUrl={avatarUrl} garmentUrl={activeGarmentUrl} />
+              <AlignedScene
+                avatarUrl={avatarUrl}
+                garmentUrl={activeGarmentUrl}
+                companionUrl={companionUrl}
+              />
             ) : (
               <>
                 <PlaceholderAvatar />

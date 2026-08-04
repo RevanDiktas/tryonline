@@ -986,6 +986,12 @@
     let drapingAvailable = false;
     let serverGarmentId = null;
     let drapingPollTimers = {};
+    /* Outfit pairing: the other half of the look (jeans under a top, a tee over the
+       jeans). Rendered alongside the primary so the avatar is never half-dressed.
+       Its size is resolved once from the shopper's measurements and then held —
+       the size selector only ever drives the primary garment. */
+    let companionConfig = null;
+    let companionSize = null;
 
     // Fetch user data (avatar, measurements) when user_id present
     // 1) Try same-origin /api/avatar/:id (Next.js rewrites to backend).
@@ -1080,10 +1086,18 @@
         if (!r.ok) return null;
         const d = await r.json();
         const base = window.location.origin;
-        const urls = {};
-        for (const [k, v] of Object.entries(d.model_urls || {})) {
-          urls[k] = (v && v.startsWith('http')) ? v : (base + (v.startsWith('/') ? v : '/' + v));
+        /** Storage paths come back relative on some deploys; GLTFLoader needs absolute. */
+        function absolutise(map) {
+          const out = {};
+          for (const [k, v] of Object.entries(map || {})) {
+            if (!v) continue;
+            out[k] = String(v).startsWith('http')
+              ? v
+              : (base + (String(v).startsWith('/') ? v : '/' + v));
+          }
+          return out;
         }
+        const urls = absolutise(d.model_urls);
         return {
           modelUrls: urls,
           sizeChart: d.size_chart || {},
@@ -1094,6 +1108,16 @@
           hasObj: !!d.has_obj,
           garmentId: d.garment_id || null,
           drapingAvailable: !!d.draping_available,
+          companion: d.companion ? {
+            garmentId: d.companion.garment_id || null,
+            name: d.companion.name || null,
+            category: d.companion.category || 'bottoms',
+            fitType: d.companion.fit_type || 'regular',
+            // Companion URLs get the same relative→absolute treatment as the primary.
+            modelUrls: absolutise(d.companion.model_urls || {}),
+            drapedUrls: absolutise(d.companion.draped_urls || {}),
+            sizeChart: d.companion.size_chart || {},
+          } : null,
         };
       } catch (e) {
         console.warn('[TryOn] Fetch product config failed:', e);
@@ -1224,6 +1248,7 @@
       drapedUrls = productConfig.drapedUrls || {};
       drapingAvailable = !!productConfig.drapingAvailable;
       serverGarmentId = productConfig.garmentId || null;
+      companionConfig = productConfig.companion || null;
       console.log('[TryOn] Garment from Supabase:', Object.keys(modelPaths));
       if (drapingAvailable) {
         console.log('[TryOn] Draping available. Cached:', Object.keys(drapedUrls));
@@ -1244,6 +1269,7 @@
     const modelCache = {};
     let avatarCache = null;
     const garmentCache = {};
+    let companionCache = null;   // single mesh — the companion never switches size
     /** Mirrors AvatarHero: combined avatar+garment fit to 1.8m, feet at FLOOR_Y so camera framing is consistent. */
     const TRYON_TARGET_HEIGHT = 1.8;
     const TRYON_FLOOR_Y = -0.9;
@@ -1300,6 +1326,62 @@
         config.country
       );
       return (rec && rec.recommendedSize) || available[0];
+    }
+
+    /* Same recommender, but for a garment that isn't the one driving the UI.
+       recommendSize() reads the module-level sizeChart/category/fitType globals;
+       the companion has its own, so take them as arguments instead. The engine
+       already accepts everything as parameters — this is only a re-binding, not
+       a second sizing implementation. */
+    function recommendSizeFor(chart, category, fitType, available, preferredFit) {
+      if (!available || !available.length) return null;
+      var hasChart = chart && Object.keys(chart).length > 0;
+      try {
+        var rec = engineRecommendSize(
+          userMeasurements || {},
+          chart || {},
+          preferredFit || 'regular',
+          category || 'tops',
+          fitType || 'regular',
+          hasChart ? 'flat' : 'circumference',
+          currentGender(),
+          available,
+          config.country
+        );
+        var picked = rec && rec.recommendedSize;
+        if (picked && available.indexOf(picked) !== -1) return picked;
+      } catch (e) {
+        console.warn('[TryOn] Companion size recommendation failed:', e);
+      }
+      return available.indexOf('m') !== -1 ? 'm' : available[0];
+    }
+
+    /** Which single size of the companion to show, and where to load it from.
+        Prefers the draped mesh (fitted to this body); falls back to the base GLB. */
+    function resolveCompanion() {
+      if (!companionConfig) return null;
+      var draped = companionConfig.drapedUrls || {};
+      var base = companionConfig.modelUrls || {};
+      /* Order by size, not alphabetically — 'l','m','s','xl','xs','xxl' would make
+         available[0] the L. Uses the companion's own size system, which may differ
+         from the primary's (numeric bottoms under a lettered top). */
+      var available = Object.keys(base).filter(function (s) { return !!base[s]; });
+      if (!available.length) return null;
+      var csys = inferSizeSystem(available, currentGender());
+      available.sort(function (a, b) { return sizeToOrdinal(a, csys) - sizeToOrdinal(b, csys); });
+      var size = recommendSizeFor(
+        companionConfig.sizeChart,
+        companionConfig.category,
+        companionConfig.fitType,
+        available,
+        config.preferredFit || 'regular'
+      );
+      companionSize = size;
+      var url = draped[size] || base[size];
+      if (!url) return null;
+      console.log('[TryOn] Companion:', companionConfig.name || companionConfig.garmentId,
+        '| size', size, draped[size] ? '(DRAPED)' : '(base GLB)');
+      return { size: size, url: url, isDraped: !!draped[size] };
     }
 
     // Fit blurb RELATIVE to the recommended size (so the recommended size never reads as
@@ -1434,12 +1516,37 @@
       const tryGarmentOnly = !!config.tryGarmentOnly;
       const useStackAvatar = modelType === 'garment_only' && avatarUrl && !tryGarmentOnly;
       const nG = Object.keys(modelPaths).length;
+      /* The companion only makes sense stacked on the avatar; in garment-only debug
+         mode there is no body to dress. Resolve it before counting — onPreloadDone()
+         compares against this total, so an uncounted load leaves the viewer stuck
+         on "Preloading…" forever. */
+      companionCache = null;
+      const companion = useStackAvatar ? resolveCompanion() : null;
+      const nC = companion ? 1 : 0;
       if (modelType === 'garment_only' && tryGarmentOnly) {
         preloadTotalExpected = nG;
       } else if (useStackAvatar) {
-        preloadTotalExpected = 1 + nG;
+        preloadTotalExpected = 1 + nG + nC;
       } else {
         preloadTotalExpected = nG;
+      }
+      if (companion) {
+        gltfLoader.load(companion.url, (gltf) => {
+          refreshSkinnedMeshes(gltf.scene);
+          const cb = geometryWorldBounds(gltf.scene);
+          const cs = cb.getSize(new THREE.Vector3());
+          console.log('[TryOn] Companion loaded', companion.size,
+            companion.isDraped ? '(DRAPED)' : '', '| bbox:',
+            cs.x.toFixed(3), cs.y.toFixed(3), cs.z.toFixed(3));
+          companionCache = gltf.scene;
+          onPreloadDone();
+        }, undefined, (err) => {
+          /* Losing the companion must not block the primary garment: count the
+             slot as done and render the shopper's actual product alone. */
+          console.error('[TryOn] Companion load failed:', companion.url, err);
+          companionCache = null;
+          onPreloadDone();
+        });
       }
       const firstSize = (currentSize && modelPaths[currentSize]) ? currentSize : Object.keys(modelPaths)[0];
       console.log('[TryOn] Preload:', useStackAvatar ? 'avatar+garments' : (tryGarmentOnly ? 'GARMENT ONLY (debug)' : 'combined'),
@@ -1521,10 +1628,45 @@
     // ============================================
     function requestDrapingForMissingSizes() {
       if (!drapingAvailable || !config.userId || !serverGarmentId) return;
+      /* A shopper whose avatar predates this garment has no cached companion drape
+         and would otherwise wear the undraped base mesh forever. Queue just the one
+         size we actually show. */
+      if (companionConfig && companionConfig.garmentId && companionSize
+          && !(companionConfig.drapedUrls || {})[companionSize]) {
+        requestDrapingForGarment(companionConfig.garmentId, companionSize);
+      }
       var sizes = Object.keys(modelPaths);
       sizes.forEach(function(size) {
         if (drapedUrls[size]) return;
         requestDrapingForSize(size);
+      });
+    }
+
+    /* Warm the companion's drape for this body. Fire-and-forget: if the sim is
+       already cached we swap it in now, otherwise the job is queued and the
+       shopper sees the base mesh this visit and the fitted one on the next.
+       Deliberately does NOT poll — the companion is context, not the product
+       being bought, and a second poll loop would compete with the primary's. */
+    function requestDrapingForGarment(garmentId, size) {
+      fetch(config.apiUrl + '/api/draping/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ garment_id: garmentId, size: size, user_id: config.userId }),
+      }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data && data.cached && data.draped_url) {
+          console.log('[TryOn] Companion drape was cached:', data.draped_url);
+          gltfLoader.load(data.draped_url, function(gltf) {
+            refreshSkinnedMeshes(gltf.scene);
+            companionCache = gltf.scene;
+            if (currentSize) displayModel(currentSize);
+          }, undefined, function(err) {
+            console.warn('[TryOn] Companion drape swap failed:', err);
+          });
+        } else {
+          console.log('[TryOn] Companion drape queued for', size);
+        }
+      }).catch(function(e) {
+        console.warn('[TryOn] Companion draping request failed:', e);
       });
     }
 
@@ -2196,6 +2338,23 @@
         refreshSkinnedMeshes(garmentRoot);
         prepareGarment(garmentRoot);
         group.add(garmentRoot);
+        /* The other half of the outfit. Draped against the same body as the primary,
+           so it already shares this coordinate frame — it needs the identical
+           normalisation the primary gets, and nothing more. Size never changes here;
+           that is what keeps the jeans still while the shopper cycles tee sizes. */
+        if (companionCache) {
+          detachFromParent(companionCache);
+          companionCache.position.set(0, 0, 0);
+          companionCache.rotation.set(0, 0, 0);
+          companionCache.scale.set(1, 1, 1);
+          resetSkinnedBindPose(companionCache);
+          refreshSkinnedMeshes(companionCache);
+          fixDegenerateNodeScales(companionCache);
+          companionCache.scale.setScalar(metersScaleFor(companionCache));
+          refreshSkinnedMeshes(companionCache);
+          prepareGarment(companionCache);
+          group.add(companionCache);
+        }
         group.updateMatrixWorld(true);
         const gBox = geometryWorldBounds(garmentRoot);
         const gSize = gBox.getSize(new THREE.Vector3());

@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { api, type SavedItem } from '@/lib/api';
 import type { FitPassport } from '@/lib/supabase-auth';
+import { recommendSize, type GarmentCategory } from '@/lib/sizeRecommendation';
 
 const TryOnViewer = dynamic(() => import('@/components/TryOnViewer'), { ssr: false });
 
@@ -24,6 +25,14 @@ export default function DashboardTryOnModal({ item, passport, dark, onClose }: D
     draped_urls?: Record<string, string> | null;
     garment_id?: string | null;
     draping_available?: boolean;
+    companion?: {
+      garment_id?: string | null;
+      name?: string | null;
+      category?: string;
+      model_urls?: Record<string, string>;
+      draped_urls?: Record<string, string> | null;
+      size_chart?: Record<string, Record<string, number>>;
+    } | null;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +94,41 @@ export default function DashboardTryOnModal({ item, passport, dark, onClose }: D
       }
     : undefined;
 
+  /* The other half of the outfit, resolved to a single size so the avatar is never
+     half-dressed. Recommended from the shopper's own measurements against the
+     companion's chart — same engine the primary uses — and deliberately NOT tied to
+     the size selector, so cycling sizes on the product leaves this piece alone. */
+  const companionUrl = useMemo(() => {
+    const c = garmentConfig?.companion;
+    if (!c) return undefined;
+    const base = c.model_urls || {};
+    const draped = c.draped_urls || {};
+    const available = Object.keys(base).filter((s) => !!base[s]).sort();
+    if (!available.length) return undefined;
+    const chart = c.size_chart || {};
+    let size = available.includes('m') ? 'm' : available[0];
+    if (userMeasurements) {
+      try {
+        const rec = recommendSize(
+          userMeasurements,
+          chart,
+          'regular',
+          (c.category as GarmentCategory) || 'bottoms',
+          'regular',
+          Object.keys(chart).length ? 'flat' : 'circumference',
+          passport?.gender === 'male' || passport?.gender === 'female' ? passport.gender : 'unisex',
+          available,
+        );
+        if (rec?.recommendedSize && available.includes(rec.recommendedSize)) {
+          size = rec.recommendedSize;
+        }
+      } catch {
+        /* fall through to the default size — a companion is context, never a blocker */
+      }
+    }
+    return draped[size] || base[size] || undefined;
+  }, [garmentConfig, userMeasurements, passport?.gender]);
+
   const productUrl = (() => {
     const domain = item.shop_domain?.replace(/\/$/, '');
     const handle = item.product_id;
@@ -144,6 +188,7 @@ export default function DashboardTryOnModal({ item, passport, dark, onClose }: D
             <TryOnViewer
               avatarUrl={avatarUrl}
               garmentUrls={garmentConfig.model_urls}
+              companionUrl={companionUrl}
               sizeChart={garmentConfig.size_chart}
               // Real merchant charts are flat (tech-pack). Fall back to circumference only
               // when there is no real chart (TryOnViewer uses its circumference demo then).
