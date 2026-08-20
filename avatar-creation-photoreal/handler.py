@@ -90,6 +90,10 @@ APOSE_SHOULDER_RAD = 45.0 * 3.141592653589793 / 180.0  # 45 deg
 
 PHOTOREAL_BUILD = os.environ.get("PHOTOREAL_BUILD", "unknown")
 
+# Coordinate frame of the emitted OBJ/GLB artifacts. The drape pipeline and
+# every CLO3D garment are floor-relative, so the body must be too.
+FRAME_CONVENTION = "feet_at_origin_y0_mm"
+
 # Lazy singletons: heavy model loads happen on the first avatar request, not at
 # worker boot, so the cold-start selftest stays cheap.
 _POSE_ESTIMATOR = None
@@ -370,6 +374,35 @@ def _skin_rgb_placeholder() -> tuple:
 # ---------------------------------------------------------------------------
 # Artifact writers (self-contained; identical to the live LHM endpoint)
 # ---------------------------------------------------------------------------
+def _zero_to_floor(verts_mm):
+    """Translate a vertex array so its lowest point sits at Y=0.
+
+    Returns (verts, offset_mm) where offset_mm is the Y value that was
+    subtracted, so the SMPL-X native (pelvis-centred) frame is recoverable.
+
+    WHY THIS EXISTS. SMPL-X emits pelvis-centred vertices; every garment in
+    the drape pipeline is authored floor-relative. Ship the body pelvis-centred
+    and the drape handler's `_is_prefitted` check fails BOTH of its conditions
+    (no garment vertex lands within 50 mm of a body vertex, and the garment's
+    Y span is not inside the body's), so `align_meshes` falls through to its
+    rescale branch and multiplies the garment by `body_h / garm_h`. Measured at
+    1.771307x on La Fam's jeans. It is silent: a garment that is far too large
+    never intersects the body, so `body_collisions` and `residual_inside` both
+    report 0 and every metric looks clean.
+
+    Y only. X and Z are deliberately untouched: `align_meshes` does its own
+    torso-filtered XZ centering and shifting them here would fight it.
+
+    See docs/progress/2026-08-03_STATUS_REPORT.md and the drape handler's
+    `_is_prefitted` (v47).
+    """
+    import numpy as np
+    v = np.asarray(verts_mm, dtype=np.float32).copy()
+    offset = float(v[:, 1].min())
+    v[:, 1] -= offset
+    return v, offset
+
+
 def _write_obj_no_mtl(verts_mm, faces, obj_path):
     with open(obj_path, "w") as f:
         f.write("# SMPL-X, mm\n")
@@ -673,8 +706,22 @@ def cmd_avatar_photoreal(inp: dict, started: float) -> dict:
             verts_apose_m, verts_tpose_m, faces, smplx_params = _build_smplx_mesh_pair(
                 beta_np=beta_np, gender=gender, device=device,
             )
-            verts_apose_mm = (verts_apose_m * 1000.0).astype(np.float32)
-            verts_tpose_mm = (verts_tpose_m * 1000.0).astype(np.float32)
+            # Meters -> mm, then drop each mesh onto the floor. Measurements
+            # below still run on the untranslated `verts_tpose_m`, so the
+            # measurement path is bit-for-bit what it was (a rigid translation
+            # is measurement-invariant anyway, but keeping it untouched means
+            # this change cannot move a single reported number).
+            verts_apose_mm, feet_offset_apose = _zero_to_floor(verts_apose_m * 1000.0)
+            verts_tpose_mm, feet_offset_tpose = _zero_to_floor(verts_tpose_m * 1000.0)
+            smplx_params["apose_feet_offset_mm"] = np.float32(feet_offset_apose)
+            smplx_params["tpose_feet_offset_mm"] = np.float32(feet_offset_tpose)
+            smplx_params["frame_convention"] = FRAME_CONVENTION
+            print(
+                f"[Photoreal] floor frame: apose offset {feet_offset_apose:.1f} mm, "
+                f"tpose offset {feet_offset_tpose:.1f} mm, "
+                f"apose Y [{verts_apose_mm[:, 1].min():.1f} .. "
+                f"{verts_apose_mm[:, 1].max():.1f}] mm"
+            )
         except Exception as e:
             return {"error": f"SMPL-X forward pass failed: {e}",
                     "traceback": traceback.format_exc()[-3000:]}
@@ -739,6 +786,22 @@ def cmd_avatar_photoreal(inp: dict, started: float) -> dict:
             "beta_shape": list(np.asarray(beta_np).shape),
             "is_full_body": bool(getattr(shape_pose, "is_full_body", False)),
             "pose_convention": smplx_params["pose_convention"],
+            "frame_convention": FRAME_CONVENTION,
+            # Read back off the arrays that were actually written, not off what
+            # we intended. A pelvis-centred body is the failure this endpoint
+            # shipped before, and it is invisible downstream.
+            "frame_check": {
+                "apose_y_min_mm": round(float(verts_apose_mm[:, 1].min()), 3),
+                "apose_y_max_mm": round(float(verts_apose_mm[:, 1].max()), 3),
+                "tpose_y_min_mm": round(float(verts_tpose_mm[:, 1].min()), 3),
+                "tpose_y_max_mm": round(float(verts_tpose_mm[:, 1].max()), 3),
+                "apose_feet_offset_mm": round(float(feet_offset_apose), 3),
+                "tpose_feet_offset_mm": round(float(feet_offset_tpose), 3),
+                "feet_on_floor": bool(
+                    abs(float(verts_apose_mm[:, 1].min())) < 1e-3
+                    and abs(float(verts_tpose_mm[:, 1].min())) < 1e-3
+                ),
+            },
             "measurements_error": measurements_error,
             "measurements_raw": (measurements_block or {}).get("raw_cm"),
             "measurements_labeled": (measurements_block or {}).get("labeled_cm"),
