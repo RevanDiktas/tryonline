@@ -917,6 +917,146 @@ def align_meshes(
     return aligned, scale, translation
 
 
+def _belt_bottoms(
+    body_verts: np.ndarray,
+    garment_verts: np.ndarray,
+    category: "str | None" = None,
+) -> np.ndarray:
+    """v48: hold a bottoms garment up at the waist, as a belt would.
+
+    Since v36 there is no physics sim, so nothing holds trousers up: they sit
+    wherever CLO3D exported them. La Fam's jeans dip at the front (~0.97 m on a
+    1.80 m body) and the larger sizes hang ~3 cm lower still, while the tees
+    end at ~0.99 m. That left 1.4-5.8 cm of bare skin between tee and jeans at
+    the front. The retarget only pushes cloth OUT of the body, so it can never
+    close that gap.
+
+    Two steps, both pure functions of vertex position, so CLO3D seam
+    duplicates stay coincident and the later weld is unaffected:
+
+      1. Lift: per angle around the body, raise the waistband so its top
+         reaches WAIST_FRAC of body height. The lift fades to zero at the
+         knee (smoothstep), so hems stay where they were exported.
+      2. Cinch: move the top WAISTBAND_DEPTH of the garment radially inward
+         so its inner surface sits BELT_EASE off the body. This is a shift,
+         not a scale, so layer thickness (waistband, belt loops, fly) is kept.
+
+    The retarget that runs next still resolves any penetration this creates.
+    Full-body garments (height >= 0.8 of body) and non-bottoms are returned
+    unchanged.
+    """
+    WAIST_FRAC = 0.575      # waist line, fraction of body height (~1.035 m on 1.80 m)
+    KNEE_FRAC = 0.28        # lift fades to zero here
+    WAISTBAND_DEPTH = 0.08  # m below the waistband top that the cinch reaches
+    BELT_EASE = 0.008       # m between waistband inner surface and skin
+    N_BINS = 36             # 10-degree angular bins
+
+    cat = (category or "").strip().lower()
+    if cat != "bottoms":
+        return garment_verts
+    body_min_y, body_max_y = float(body_verts[:, 1].min()), float(body_verts[:, 1].max())
+    body_h = body_max_y - body_min_y
+    garm_h = float(garment_verts[:, 1].max() - garment_verts[:, 1].min())
+    # Offsets below are in metres; geometric_drape does not normalise units.
+    if not (0.5 < body_h < 3.0) or garm_h / body_h >= 0.8:
+        return garment_verts
+
+    try:
+        waist_y = body_min_y + WAIST_FRAC * body_h
+        knee_y = body_min_y + KNEE_FRAC * body_h
+        v = garment_verts.copy()
+        g_top = float(v[:, 1].max())
+
+        # Axis: centre of the garment's own upper band. The body cannot be used
+        # here because A-pose hands hang at hip height and skew any body centre.
+        upper = v[v[:, 1] > g_top - 0.15]
+        cx = 0.5 * (upper[:, 0].min() + upper[:, 0].max())
+        cz = 0.5 * (upper[:, 2].min() + upper[:, 2].max())
+
+        def _angle_bin(pts: np.ndarray) -> np.ndarray:
+            ang = np.arctan2(pts[:, 0] - cx, pts[:, 2] - cz)  # 0 = front (+Z)
+            return ((ang + np.pi) / (2 * np.pi) * N_BINS).astype(np.int64) % N_BINS
+
+        def _circular_fill_smooth(vals: np.ndarray) -> np.ndarray:
+            # Fill empty bins from neighbours, then a 3-tap circular smooth so
+            # adjacent angles never get a step in lift or cinch.
+            vals = vals.copy()
+            ok = np.isfinite(vals)
+            if not ok.any():
+                return np.zeros_like(vals)
+            idx = np.arange(N_BINS)
+            vals[~ok] = np.interp(idx[~ok], idx[ok], vals[ok], period=N_BINS)
+            return (np.roll(vals, 1) + 2 * vals + np.roll(vals, -1)) / 4.0
+
+        def _per_vertex(bin_vals: np.ndarray, pts: np.ndarray) -> np.ndarray:
+            # Linear interpolation between bin centres, circular.
+            ang = np.arctan2(pts[:, 0] - cx, pts[:, 2] - cz)
+            pos = (ang + np.pi) / (2 * np.pi) * N_BINS - 0.5
+            centres = np.arange(N_BINS, dtype=np.float64)
+            return np.interp(pos, centres, bin_vals, period=N_BINS)
+
+        # --- 1. Lift -----------------------------------------------------
+        above_knee = v[:, 1] > knee_y
+        b = _angle_bin(v[above_knee])
+        top = np.full(N_BINS, np.nan)
+        for i in range(N_BINS):
+            sel = v[above_knee][b == i, 1]
+            if len(sel):
+                top[i] = sel.max()
+        top = _circular_fill_smooth(top)
+        lift_bins = np.maximum(0.0, waist_y - top)
+
+        top_v = _per_vertex(top, v)
+        lift_v = _per_vertex(lift_bins, v)
+        span = np.maximum(top_v - knee_y, 1e-3)
+        t = np.clip((v[:, 1] - knee_y) / span, 0.0, 1.0)
+        w = t * t * (3.0 - 2.0 * t)  # smoothstep: monotone, so no fold-over
+        v[:, 1] += lift_v * w
+        print(f"[Draping] v48 belt lift: waist_y={waist_y:.3f} "
+              f"top=[{top.min():.3f},{top.max():.3f}] "
+              f"lift=[{lift_bins.min()*100:.1f},{lift_bins.max()*100:.1f}]cm")
+
+        # --- 2. Cinch ----------------------------------------------------
+        new_top_v = top_v + lift_v  # waistband top per vertex, post-lift
+        band = v[:, 1] > new_top_v - 0.03
+        band_pts = v[band]
+        bb = _angle_bin(band_pts)
+        r_band = np.hypot(band_pts[:, 0] - cx, band_pts[:, 2] - cz)
+
+        body_slab = body_verts[np.abs(body_verts[:, 1] - (waist_y - 0.015)) < 0.015]
+        if len(body_slab) < 50:
+            print("[Draping] v48 belt: body slab too sparse, lift only")
+            return v
+        sb = _angle_bin(body_slab)
+        r_body_all = np.hypot(body_slab[:, 0] - cx, body_slab[:, 2] - cz)
+
+        shift = np.full(N_BINS, np.nan)
+        for i in range(N_BINS):
+            rb = r_body_all[sb == i]
+            rg = r_band[bb == i]
+            if len(rb) and len(rg):
+                # Torso surface is the nearest body hit along this angle; arms
+                # hanging beside the waist in A-pose are further out, so min
+                # ignores them.
+                shift[i] = max(0.0, float(np.percentile(rg, 5)) - (float(rb.min()) + BELT_EASE))
+        shift = _circular_fill_smooth(shift)
+
+        shift_v = _per_vertex(shift, v)
+        depth = np.clip((v[:, 1] - (new_top_v - WAISTBAND_DEPTH)) / WAISTBAND_DEPTH, 0.0, 1.0)
+        cw = depth * depth * (3.0 - 2.0 * depth)
+        r = np.hypot(v[:, 0] - cx, v[:, 2] - cz)
+        dr = np.minimum(shift_v * cw, np.maximum(r - 1e-3, 0.0))
+        scale_r = np.where(r > 1e-6, (r - dr) / np.maximum(r, 1e-6), 1.0)
+        v[:, 0] = cx + (v[:, 0] - cx) * scale_r
+        v[:, 2] = cz + (v[:, 2] - cz) * scale_r
+        print(f"[Draping] v48 belt cinch: shift=[{shift.min()*100:.1f},{shift.max()*100:.1f}]cm "
+              f"ease={BELT_EASE*1000:.0f}mm depth={WAISTBAND_DEPTH*100:.0f}cm")
+        return v
+    except Exception as e:
+        print(f"[Draping] v48 belt failed: {e}; garment left as aligned")
+        return garment_verts
+
+
 def load_obj_faces(obj_path: Path) -> np.ndarray:
     """Parse OBJ file and return triangle face indices as (M,3) int32 array."""
     faces = []
@@ -2009,6 +2149,12 @@ def pygarment_drape(
     except Exception as _e:
         print(f"[Draping] v45.11 shoulder-align failed: {_e}; using feet-align only")
 
+    # v48: hold bottoms up at the waist. After every Y shift above so the
+    # waist line is measured where the garment will actually sit; before the
+    # weld and retarget so they see the belted shape. The un-translate at the
+    # end removes only `translation`, so the lift and cinch ship in the output.
+    aligned_verts = _belt_bottoms(body_verts, aligned_verts, category=category)
+
     # Weld CLO3D seam-split verts at 1mm tol. v18.7 change: we now FEED the
     # welded mesh to PyGarment (not the original). Previously we wrote the
     # pre-weld mesh, which meant each seam had two separate vertex indices in
@@ -2510,6 +2656,9 @@ def geometric_drape(
     aligned_verts, scale, translation = align_meshes(
         body_verts, garment_verts, category=category
     )
+    # v48: same waist belt as the pygarment path, before rest lengths are taken
+    # so the springs hold the belted shape rather than pulling back to the sag.
+    aligned_verts = _belt_bottoms(body_verts, aligned_verts, category=category)
 
     thickness = fabric_config.get("thickness", 0.006)
     offset = max(thickness, 0.006)
@@ -3287,6 +3436,18 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
+    "drape-handler 2026-09-28/v48-belt-bottoms-at-the-waist "
+    "(v48 holds trousers up. With no physics sim since v36, nothing kept a "
+    "bottoms garment at the waist: La Fam's jeans sat where CLO3D exported "
+    "them, dipping to ~0.97 m at the front (XL/XXL ~0.94 m) under tees ending "
+    "at ~0.99 m, leaving 1.4-5.8 cm of bare skin. _belt_bottoms lifts the "
+    "waistband per angle to 0.575 of body height, fading to zero at the knee "
+    "so hems stay put, then shifts the top 8 cm radially in to 8 mm off the "
+    "body. category=bottoms and height ratio < 0.8 only; Ramin's full-body "
+    "garments and all tops are untouched. Measured locally on the test avatar, "
+    "jeans S/M/XL/XXL vs black tee S-XXL: worst overlap now +2.8 to +8.3 cm, "
+    "vertex counts equal source, residual_inside=0. "
+    "PREVIOUS v47 BANNER FOLLOWS: "
     "drape-handler 2026-08-02/v47-respect-pre-fitted-garments "
     "(v47 fixes the shredded shoulders. CLO3D exports a garment either at the "
     "ORIGIN, needing alignment, or in WORLD COORDINATES already draped on the "
