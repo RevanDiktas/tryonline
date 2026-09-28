@@ -766,10 +766,6 @@ def _retarget_garment_to_body(
     return verts, stats_out
 
 
-# Height of the CLO3D avatar La Fam's fits are authored on (feet at y=0).
-AUTHORING_BODY_H = 1.80
-
-
 def _is_prefitted(body_verts: np.ndarray, garment_verts: np.ndarray) -> bool:
     """True when the garment already arrives draped on this body.
 
@@ -827,27 +823,6 @@ def align_meshes(
         print("[Draping] v47: garment already fitted to this body — "
               "IDENTITY transform, no scale, no translation")
         return garment_verts.copy(), 1.0, np.zeros(3)
-
-    # v49: the same pre-fitted garment on a body in another frame or height.
-    # CLO3D fits are authored on a feet-at-floor 1.80 m avatar. Avatars since
-    # 2026-05-22 are pelvis-centred (feet at y~-1.3) and keep the shopper's
-    # real height (1.65-1.81 m), so the raw check above fails and the garment
-    # fell through to `aligned *= scale` below: jeans 1.61x, tees ~2.8x.
-    # Map authoring floor -> this body's floor and stretch Y by the height
-    # ratio, so every landmark (shoulder, hem, waist) keeps its fraction of
-    # body height. X/Z are untouched; the retarget fits girth.
-    mapped = garment_verts.copy()
-    mapped[:, 1] = body_min_y + mapped[:, 1] * (body_h / AUTHORING_BODY_H)
-    if _is_prefitted(body_verts, mapped):
-        print(f"[Draping] v49: pre-fitted on the {AUTHORING_BODY_H:.2f} m authoring "
-              f"avatar — mapped to this body (floor {body_min_y:+.3f}, "
-              f"y-stretch {body_h / AUTHORING_BODY_H:.4f}), no uniform scale")
-        return mapped, 1.0, np.zeros(3)
-
-    # v49: never scale a partial garment to full body height. The v46 notes
-    # assumed this; the code still scaled unconditionally.
-    if height_ratio < 0.8:
-        scale = 1.0
 
     aligned = garment_verts.copy()
     aligned *= scale
@@ -2132,9 +2107,7 @@ def pygarment_drape(
     # 2.5 cm, re-introducing 20-28 mm of body penetration and the exact
     # shredding v47 removed. It only fires on garments carrying a Sleeves_*
     # material, which is why the black tee (FABRIC_1_* only) escaped it.
-    # v49: align_meshes returns scale 1 and zero translation exactly when it
-    # found the garment pre-fitted, raw or via the authoring-avatar mapping.
-    _prefit = align_scale == 1.0 and not np.any(translation)
+    _prefit = _is_prefitted(body_verts, garment_verts)
     if _prefit:
         print("[Draping] v47.1: pre-fitted garment — skipping v45.11 shoulder-align")
     try:
@@ -2338,13 +2311,12 @@ def pygarment_drape(
     if SKIP_NEWTON_SIM:
         # Un-weld each cleaned-OBJ vert to its welded canonical position.
         final_verts_m = welded_verts[orig_to_welded]
-        # v49: stay in the BODY's frame; only restore the garment's units.
-        # The PDP widget stacks avatar and drape with no offset between them,
-        # so the drape must share the avatar's frame. Undoing the alignment
-        # put it back in the garment's authoring frame, which only coincided
-        # with the avatar for feet-at-floor 1.80 m bodies. On the pelvis-
-        # centred avatars every shopper has had since 2026-05-22 it left each
-        # garment floating ~1.2 m above the body.
+        # Reverse alignment + unit normalization to land back in the input
+        # OBJ's original coordinate frame and units.
+        if align_scale != 1.0:
+            final_verts_m = (final_verts_m - translation) / align_scale
+        else:
+            final_verts_m = final_verts_m - translation
         if garment_unit_scale != 1.0:
             final_verts_out = final_verts_m / garment_unit_scale
         else:
@@ -2373,7 +2345,11 @@ def pygarment_drape(
             try:
                 frame_arrays = []
                 for welded_frame in captured_welded:
-                    frame_m = welded_frame[orig_to_welded]  # v49: body frame
+                    frame_m = welded_frame[orig_to_welded]
+                    if align_scale != 1.0:
+                        frame_m = (frame_m - translation) / align_scale
+                    else:
+                        frame_m = frame_m - translation
                     if garment_unit_scale != 1.0:
                         frame_out = frame_m / garment_unit_scale
                     else:
@@ -2583,7 +2559,12 @@ def pygarment_drape(
         # seamlessly stitched when rendered.
         final_verts_m = welded_draped_m[orig_to_welded]
 
-        # v49: stay in the body's frame (see the SKIP path). Restore garment unit (mm if input was mm).
+        # Undo alignment translation (align_scale is almost always 1.0 for us).
+        if align_scale != 1.0:
+            final_verts_m = (final_verts_m - translation) / align_scale
+        else:
+            final_verts_m = final_verts_m - translation
+        # Restore original garment unit (mm if input was mm).
         if garment_unit_scale != 1.0:
             final_verts_out = final_verts_m / garment_unit_scale
         else:
@@ -2770,8 +2751,7 @@ def geometric_drape(
     print(f"[Draping] Final: {final_penetrating} verts within half-offset of body")
 
     # Undo alignment to restore original garment coordinate space
-    # v49: body frame, matching the pygarment path.
-    final_verts = new_verts
+    final_verts = (new_verts - translation) / scale if scale != 1.0 else new_verts - translation
 
     write_obj_with_new_verts(garment_obj, final_verts, output_obj)
 
@@ -3456,13 +3436,6 @@ def runpod_handler(event):
 
 
 HANDLER_BUILD = (
-    "drape-handler 2026-09-28/v49-drape-in-the-avatars-frame "
-    "(v49: output stays in the body frame, because the PDP widget stacks avatar and drape with no offset. "
-    "Undoing alignment returned garments to the CLO3D authoring frame, which left every garment floating "
-    "~1.2 m high on the pelvis-centred avatars made since 2026-05-22. Pre-fitted garments are also "
-    "recognised on bodies of another frame/height by mapping the 1.80 m authoring floor to the body floor "
-    "with a Y stretch, and partial garments are never uniformly scaled. Feet-at-floor 1.80 m avatars: "
-    "output bit-identical to v48. PREVIOUS BANNER FOLLOWS: "
     "drape-handler 2026-09-28/v48-belt-bottoms-at-the-waist "
     "(v48 holds trousers up. With no physics sim since v36, nothing kept a "
     "bottoms garment at the waist: La Fam's jeans sat where CLO3D exported "
