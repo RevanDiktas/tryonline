@@ -245,6 +245,24 @@ RUN test -f /workspace/LHM/inference.sh \
     && echo "LHM REPO + BAKED ARTIFACTS SMOKE TEST PASSED"
 
 # ----------------------------------------------------------------------------
+# LHM's pose estimator crashes with "SMPLXOutput.__init__() missing ... 'ratio'"
+# whenever it does NOT find exactly one person (sideways photo, mirror selfie
+# with a reflection): that branch omits the required `ratio` field, even at the
+# pinned SHA. Give it ratio=0.0 so it returns its own message and the handler
+# reports "no human detected" / "more than one human detected" cleanly.
+# ----------------------------------------------------------------------------
+RUN sed -i 's/^                is_full_body=False,$/                is_full_body=False,\n                ratio=0.0,/' \
+        /workspace/LHM/engine/pose_estimation/pose_estimator.py \
+    && grep -q '^                ratio=0.0,$' /workspace/LHM/engine/pose_estimation/pose_estimator.py \
+    && python -c "import ast; ast.parse(open('/workspace/LHM/engine/pose_estimation/pose_estimator.py').read())" \
+    && echo "pose_estimator no-human branch patched"
+
+# YuNet face landmarks (OpenCV, ~230 KB) for cheek-based skin colour. Outside
+# pretrained_models/ because the handler stitches that tree to the network volume.
+COPY avatar-creation-lhm/models/face_detection_yunet_2023mar.onnx /workspace/models/yunet/face_detection_yunet_2023mar.onnx
+RUN python -c "import cv2; cv2.FaceDetectorYN.create('/workspace/models/yunet/face_detection_yunet_2023mar.onnx', '', (320, 320)); print('YuNet OK, cv2', cv2.__version__)"
+
+# ----------------------------------------------------------------------------
 # Copy our serverless handler last so we can iterate on it without rebuilding
 # the (slow) pip+model layers above.
 #
