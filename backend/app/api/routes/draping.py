@@ -29,21 +29,24 @@ supabase = SupabaseService()
 CALLBACK_TOKEN = os.getenv("DRAPE_CALLBACK_TOKEN", "")
 
 
-def _body_hash_from_user(user_id: str) -> Optional[str]:
-    """
-    Per-user body hash from fit passport. Each shopper gets their own
-    cache row. Auto-invalidates when measurements change.
-    """
-    from app.services.body_clustering import compute_body_hash
-    try:
-        r = supabase.client.table("fit_passports").select(
-            "chest,waist,hips,height,weight,gender,inseam,shoulder_width,arm_length,neck,thigh,torso_length"
-        ).eq("user_id", user_id).limit(1).execute()
-        if not r.data:
-            return None
-        return compute_body_hash(user_id, r.data[0])
-    except Exception:
-        return None
+def _body_identity(user_id: str):
+    """Per-user, per-avatar body identity (see body_clustering): `.body_hash` is the
+    write key, `.lookup_hashes` the read keys (new first, legacy measurement hash as a
+    fallback while rows are migrated). Measurement edits don't change it."""
+    from app.services.body_clustering import body_identity_for_user
+    ident = body_identity_for_user(user_id)
+    return ident if ident and ident.body_hash else None
+
+
+def _cached_drape_url(garment_id: str, size: str, lookup_hashes: list) -> Optional[str]:
+    """draped_glb_url for this garment+size under the preferred available body hash."""
+    from app.services.body_clustering import pick_by_hash_preference
+    r = supabase.client.table("draped_meshes").select("size,body_hash,draped_glb_url").eq(
+        "garment_id", garment_id
+    ).eq("size", size).in_("body_hash", lookup_hashes).execute()
+    rows = [row for row in (r.data or []) if row.get("draped_glb_url")]
+    best = pick_by_hash_preference(rows, lookup_hashes).get(size)
+    return best["draped_glb_url"] if best else None
 
 
 def _get_garment_draping_info(garment_id: str, size: str) -> Optional[dict]:
@@ -76,9 +79,11 @@ def _get_user_body_files(user_id: str) -> Optional[dict]:
         ).eq("user_id", user_id).limit(1).execute()
         if not r.data:
             return None
+        from app.services.body_clustering import body_mesh_path
         passport = r.data[0]
         pf = passport.get("pipeline_files") or {}
-        body_obj_url = pf.get("tpose_mesh") or pf.get("apose_mesh") or pf.get("original_mesh")
+        # Same body file as the queue (drape_dispatcher): A-pose, the pose the widget shows.
+        body_obj_url = body_mesh_path(passport)
         smpl_params_url = pf.get("smpl_params")
         if not body_obj_url:
             return None
@@ -306,25 +311,23 @@ async def request_draping(body: DrapingRequest, background_tasks: BackgroundTask
     Returns immediately with a request_id. Draping runs in background.
     If a cached result exists, returns it immediately.
     """
-    body_hash = _body_hash_from_user(body.user_id)
-    if not body_hash:
+    ident = _body_identity(body.user_id)
+    if not ident:
         raise HTTPException(status_code=400, detail="User has no body data (fit passport required)")
+    body_hash = ident.body_hash
 
     garment_info = _get_garment_draping_info(body.garment_id, body.size)
     if not garment_info:
         raise HTTPException(status_code=404, detail="No OBJ mesh for this garment+size")
 
-    # Check cache first
+    # Check cache first (new hash, then legacy while rows are migrated)
     try:
-        cached = supabase.client.table("draped_meshes").select("draped_glb_url").eq(
-            "garment_id", body.garment_id
-        ).eq("size", body.size).eq("body_hash", body_hash).limit(1).execute()
-
-        if cached.data and cached.data[0].get("draped_glb_url"):
+        url = _cached_drape_url(body.garment_id, body.size, ident.lookup_hashes)
+        if url:
             return DrapingResponse(
                 request_id="cached",
                 status="completed",
-                draped_url=cached.data[0]["draped_glb_url"],
+                draped_url=url,
                 cached=True,
             )
     except Exception:
@@ -433,24 +436,17 @@ async def check_draping_cache(
     user_id: str = Query(...),
 ):
     """Quick check: does a draped mesh exist for this garment+size+user?"""
-    body_hash = _body_hash_from_user(user_id)
-    if not body_hash:
+    ident = _body_identity(user_id)
+    if not ident:
         return DrapingCheckResponse(has_cached=False, has_obj=False)
 
     garment_info = _get_garment_draping_info(garment_id, size)
     has_obj = garment_info is not None
 
     try:
-        cached = supabase.client.table("draped_meshes").select("draped_glb_url").eq(
-            "garment_id", garment_id
-        ).eq("size", size).eq("body_hash", body_hash).limit(1).execute()
-
-        if cached.data and cached.data[0].get("draped_glb_url"):
-            return DrapingCheckResponse(
-                has_cached=True,
-                draped_url=cached.data[0]["draped_glb_url"],
-                has_obj=has_obj,
-            )
+        url = _cached_drape_url(garment_id, size, ident.lookup_hashes)
+        if url:
+            return DrapingCheckResponse(has_cached=True, draped_url=url, has_obj=has_obj)
     except Exception:
         pass
 

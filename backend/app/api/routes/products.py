@@ -79,32 +79,30 @@ def _find_garment_row(product_id: str, brand_id: Optional[str]) -> Optional[dict
     return None
 
 
-def _body_hash_from_user(user_id: str) -> Optional[str]:
-    """Compute per-user body hash from fit passport for draping cache lookup."""
-    from app.services.body_clustering import compute_body_hash
-    try:
-        r = supabase_service.client.table("fit_passports").select(
-            "chest,waist,hips,height,weight,gender,inseam,shoulder_width,arm_length,neck,thigh,torso_length"
-        ).eq("user_id", user_id).limit(1).execute()
-        if not r.data:
-            return None
-        return compute_body_hash(user_id, r.data[0])
-    except Exception:
-        return None
+def _body_lookup_hashes(user_id: str) -> Optional[list[str]]:
+    """Draped-mesh read keys for this user's current avatar, preferred first: the
+    avatar-based hash, then the legacy measurement hash while rows are migrated.
+    Measurement edits don't change the preferred one (see body_clustering)."""
+    from app.services.body_clustering import body_identity_for_user
+    ident = body_identity_for_user(user_id)
+    return ident.lookup_hashes if ident and ident.body_hash else None
 
 
-def _get_draped_urls(garment_id: str, body_hash: str, sizes: list[str]) -> dict[str, str]:
-    """Check draped_meshes cache for all sizes of this garment+body."""
+def _get_draped_urls(garment_id: str, body_hashes: list[str], sizes: list[str]) -> dict[str, str]:
+    """Check draped_meshes cache for all sizes of this garment+body. Per size, the row
+    under the most preferred body hash wins."""
+    from app.services.body_clustering import pick_by_hash_preference
     draped = {}
     try:
         r = supabase_service.client.table("draped_meshes").select(
-            "size,draped_glb_url"
-        ).eq("garment_id", garment_id).eq("body_hash", body_hash).execute()
-        for row in r.data or []:
-            s = row.get("size", "").lower()
-            url = row.get("draped_glb_url", "")
-            if s and url:
-                draped[s] = url
+            "size,body_hash,draped_glb_url"
+        ).eq("garment_id", garment_id).in_("body_hash", body_hashes).execute()
+        rows = [
+            {**row, "size": (row.get("size") or "").lower()}
+            for row in (r.data or []) if row.get("size") and row.get("draped_glb_url")
+        ]
+        for s, row in pick_by_hash_preference(rows, body_hashes).items():
+            draped[s] = row["draped_glb_url"]
     except Exception:
         pass
     return draped
@@ -113,7 +111,7 @@ def _get_draped_urls(garment_id: str, body_hash: str, sizes: list[str]) -> dict[
 def _build_garment_meshes(
     row: dict[str, Any],
     storage_base: str,
-    body_hash: Optional[str],
+    body_hashes: Optional[list[str]],
 ) -> tuple[dict[str, str], dict[str, dict[str, float]], bool, Optional[dict[str, str]]]:
     """Resolve one garment row into (model_urls, size_chart, has_obj, draped_urls).
 
@@ -148,8 +146,8 @@ def _build_garment_meshes(
 
     draped_urls: Optional[dict[str, str]] = None
     garment_id = str(row.get("id") or "")
-    if body_hash and garment_id and has_obj:
-        draped_urls = _get_draped_urls(garment_id, body_hash, list(model_urls.keys())) or None
+    if body_hashes and garment_id and has_obj:
+        draped_urls = _get_draped_urls(garment_id, body_hashes, list(model_urls.keys())) or None
 
     return model_urls, size_chart_out, has_obj, draped_urls
 
@@ -185,7 +183,7 @@ class TryonConfigResponse(BaseModel):
 def _resolve_companion(
     row: dict[str, Any],
     storage_base: str,
-    body_hash: Optional[str],
+    body_hashes: Optional[list[str]],
 ) -> Optional[CompanionConfig]:
     """Load the paired garment so the avatar is never half-dressed.
 
@@ -209,7 +207,7 @@ def _resolve_companion(
             return None
         crow = r.data[0]
         model_urls, size_chart, _has_obj, draped_urls = _build_garment_meshes(
-            crow, storage_base, body_hash
+            crow, storage_base, body_hashes
         )
         if not model_urls:
             print(f"[products] companion {companion_id} has no model URLs — skipping")
@@ -256,16 +254,16 @@ async def get_tryon_config(
         garment_id = str(row.get("id") or "")
 
         # One passport lookup, shared by both halves of the outfit.
-        body_hash = _body_hash_from_user(user_id) if user_id else None
+        body_hashes = _body_lookup_hashes(user_id) if user_id else None
 
         model_urls, size_chart_out, has_obj, draped_urls = _build_garment_meshes(
-            row, storage_base, body_hash
+            row, storage_base, body_hashes
         )
 
         if not model_urls:
             raise HTTPException(status_code=404, detail="No model URLs for this garment")
 
-        companion = _resolve_companion(row, storage_base, body_hash)
+        companion = _resolve_companion(row, storage_base, body_hashes)
 
         return TryonConfigResponse(
             product_id=product_id,

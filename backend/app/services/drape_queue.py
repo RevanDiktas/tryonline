@@ -23,7 +23,12 @@ from typing import Iterable, Optional
 import httpx
 
 from app.config import get_settings
-from app.services.body_clustering import compute_body_hash
+from app.services.body_clustering import (
+    PASSPORT_BODY_COLUMNS,
+    avatar_version,
+    compute_body_hash,
+    compute_legacy_body_hash,
+)
 from app.services.supabase import supabase_service
 
 settings = get_settings()
@@ -99,8 +104,7 @@ def compute_garment_content_hash(garment_id: str) -> Optional[str]:
 
 def _get_passport(user_id: str) -> Optional[dict]:
     r = supabase_service.client.table("fit_passports").select(
-        "user_id,chest,waist,hips,height,weight,gender,inseam,"
-        "shoulder_width,arm_length,neck,thigh,torso_length,pipeline_files,status"
+        PASSPORT_BODY_COLUMNS + ",status"
     ).eq("user_id", user_id).limit(1).execute()
     if not r.data:
         return None
@@ -118,6 +122,102 @@ def _list_active_garments(brand_ids: Optional[Iterable[str]] = None) -> list[dic
         q = q.in_("brand_id", ids)
     r = q.execute()
     return r.data or []
+
+
+# Job statuses that mean "work for this row is still pending"; anything else is terminal.
+_IN_FLIGHT = ("queued", "dispatched", "running")
+
+
+def _enqueue_one(
+    user_id: str, garment_id: str, size: str, body_hash: str, version: str,
+    priority: int, counts: dict, passport: Optional[dict] = None,
+) -> None:
+    """Make sure one (user, garment, size, version) is draped for `body_hash`.
+
+    - a draped_meshes row for this body_hash + version exists -> cached, nothing to do
+    - no job row yet                                          -> insert a queued job
+    - a job row exists (idx_drape_jobs_unique is (user, garment, size, version) and does
+      NOT include body_hash, so there is at most one):
+        * same body_hash and still in flight                  -> already queued
+        * same body_hash and completed but no cached mesh     -> reset (mesh was deleted)
+        * same body_hash and failed                           -> leave it (no retry storm)
+        * DIFFERENT body_hash (avatar regenerated)            -> stale: reset to queued
+          with the new hash. Before this, the duplicate insert was counted as "already
+          queued" and a regenerated avatar was silently never re-draped.
+
+    Transition (until scripts/migrate_body_hash.py has run): a drape cached under the
+    user's LEGACY measurement hash by a job that finished after the current avatar was
+    built is this avatar's drape. Count it as cached instead of resetting it, so a garment
+    upload or backfill between deploy and migration doesn't re-drape everyone.
+    """
+    legacy = compute_legacy_body_hash(user_id, passport) if passport else None
+    hashes = [body_hash] + ([legacy] if legacy and legacy != body_hash else [])
+    cached = supabase_service.client.table("draped_meshes").select("id,body_hash").eq(
+        "garment_id", garment_id
+    ).eq("size", size).in_("body_hash", hashes).eq(
+        "garment_version_hash", version
+    ).execute()
+    cached_hashes = {row.get("body_hash") for row in (cached.data or [])}
+    if body_hash in cached_hashes:
+        counts["skipped_already_cached"] += 1
+        return
+
+    existing = supabase_service.client.table("drape_jobs").select(
+        "id,status,body_hash,completed_at"
+    ).eq("user_id", user_id).eq("garment_id", garment_id).eq("size", size).eq(
+        "garment_version_hash", version
+    ).limit(1).execute()
+    job = existing.data[0] if existing.data else None
+
+    if (job and legacy and legacy in cached_hashes and job.get("body_hash") == legacy
+            and job.get("status") == "completed"
+            and avatar_version({"processing_completed_at": job.get("completed_at")})
+            >= avatar_version(passport)):
+        counts["skipped_already_cached"] += 1
+        return
+
+    if job is None:
+        try:
+            supabase_service.client.table("drape_jobs").insert({
+                "user_id": user_id,
+                "garment_id": garment_id,
+                "size": size,
+                "body_hash": body_hash,
+                "garment_version_hash": version,
+                "priority": priority,
+                "status": "queued",
+            }).execute()
+            counts["enqueued"] += 1
+        except Exception as e:
+            msg = str(e).lower()
+            if "duplicate" in msg or "23505" in msg or "unique" in msg:
+                counts["skipped_already_queued"] += 1  # raced with another enqueue
+            else:
+                print(f"[drape_queue] enqueue failed user={user_id} garment={garment_id} size={size}: {e}")
+        return
+
+    same_body = job.get("body_hash") == body_hash
+    status = job.get("status")
+    if same_body and status in _IN_FLIGHT:
+        counts["skipped_already_queued"] += 1
+        return
+    if same_body and status == "failed":
+        counts["skipped_already_queued"] += 1
+        return
+
+    supabase_service.client.table("drape_jobs").update({
+        "status": "queued",
+        "body_hash": body_hash,
+        "priority": priority,
+        "attempts": 0,
+        "runpod_job_id": None,
+        "draped_mesh_id": None,
+        "error_message": None,
+        "dispatched_at": None,
+        "completed_at": None,
+    }).eq("id", job["id"]).execute()
+    counts["enqueued"] += 1
+    counts["reset_stale"] = counts.get("reset_stale", 0) + 1
 
 
 def enqueue_full_drape(
@@ -146,6 +246,9 @@ def enqueue_full_drape(
         return counts
 
     body_hash = compute_body_hash(user_id, passport)
+    if not body_hash:  # no avatar mesh yet: nothing to drape against
+        counts["skipped_no_passport"] = 1
+        return counts
     garments = _list_active_garments(brand_ids)
 
     for g in garments:
@@ -163,33 +266,7 @@ def enqueue_full_drape(
         for size, path in obj_sizes.items():
             if not path:
                 continue
-
-            cached = supabase_service.client.table("draped_meshes").select("id").eq(
-                "garment_id", garment_id
-            ).eq("size", size).eq("body_hash", body_hash).eq(
-                "garment_version_hash", version
-            ).limit(1).execute()
-            if cached.data:
-                counts["skipped_already_cached"] += 1
-                continue
-
-            try:
-                supabase_service.client.table("drape_jobs").insert({
-                    "user_id": user_id,
-                    "garment_id": garment_id,
-                    "size": size,
-                    "body_hash": body_hash,
-                    "garment_version_hash": version,
-                    "priority": priority,
-                    "status": "queued",
-                }).execute()
-                counts["enqueued"] += 1
-            except Exception as e:
-                msg = str(e).lower()
-                if "duplicate" in msg or "23505" in msg or "unique" in msg:
-                    counts["skipped_already_queued"] += 1
-                else:
-                    print(f"[drape_queue] enqueue failed user={user_id} garment={garment_id} size={size}: {e}")
+            _enqueue_one(user_id, garment_id, size, body_hash, version, priority, counts, passport)
 
     return counts
 
@@ -239,34 +316,13 @@ def enqueue_for_garment(
             counts["skipped_no_passport"] += 1
             continue
         body_hash = compute_body_hash(uid, passport)
+        if not body_hash:
+            counts["skipped_no_passport"] += 1
+            continue
 
         for size, path in obj_sizes.items():
             if not path:
                 continue
-            cached = supabase_service.client.table("draped_meshes").select("id").eq(
-                "garment_id", garment_id
-            ).eq("size", size).eq("body_hash", body_hash).eq(
-                "garment_version_hash", version
-            ).limit(1).execute()
-            if cached.data:
-                counts["skipped_already_cached"] += 1
-                continue
-            try:
-                supabase_service.client.table("drape_jobs").insert({
-                    "user_id": uid,
-                    "garment_id": garment_id,
-                    "size": size,
-                    "body_hash": body_hash,
-                    "garment_version_hash": version,
-                    "priority": priority,
-                    "status": "queued",
-                }).execute()
-                counts["enqueued"] += 1
-            except Exception as e:
-                msg = str(e).lower()
-                if "duplicate" in msg or "23505" in msg or "unique" in msg:
-                    counts["skipped_already_queued"] += 1
-                else:
-                    print(f"[drape_queue] enqueue failed user={uid} garment={garment_id} size={size}: {e}")
+            _enqueue_one(uid, garment_id, size, body_hash, version, priority, counts, passport)
 
     return counts

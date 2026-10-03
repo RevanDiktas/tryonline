@@ -63,8 +63,9 @@ def _build_runpod_payload(job: dict) -> Optional[dict]:
     ).eq("user_id", user_id).limit(1).execute()
     if not fp.data:
         return None
+    from app.services.body_clustering import body_mesh_path
     pf = fp.data[0].get("pipeline_files") or {}
-    body_obj = pf.get("apose_mesh") or pf.get("tpose_mesh") or pf.get("original_mesh")
+    body_obj = body_mesh_path(fp.data[0])  # same file the body hash identifies
     if not body_obj:
         return None
 
