@@ -507,7 +507,6 @@ def _common_inference(
         img_path = image_dir / "input.png"
         try:
             _download_to(img_path, image_url)
-            _normalize_image_orientation(img_path)
         except Exception as e:
             return _err(command, f"failed to download image: {e}", started)
 
@@ -1314,211 +1313,6 @@ def _sample_face_median_color_v2(face_detector, image_path: str,
         return (210, 175, 145)
 
 
-YUNET_MODEL_PATH = Path("/workspace/models/yunet/face_detection_yunet_2023mar.onnx")
-
-
-def _normalize_image_orientation(image_path: Path) -> bool:
-    """Apply the EXIF Orientation tag and re-save upright, in place.
-
-    iPhone gallery photos are stored sideways (e.g. 4032x3024) with a tag saying
-    "rotate 90". PIL's Image.open ignores that tag, so LHM's pose estimator and the
-    face detector saw the shopper lying on their side: Multi-HMR found no person
-    (and LHM's no-human branch then crashed), and the face box landed on clothing,
-    which painted the whole avatar the colour of the t-shirt. Returns True if the
-    image was rotated.
-    """
-    from PIL import Image, ImageOps
-    with Image.open(image_path) as im:
-        orientation = im.getexif().get(0x0112, 1)
-        if orientation in (None, 1):
-            return False
-        upright = ImageOps.exif_transpose(im).convert("RGB")
-    upright.save(image_path, format="PNG")
-    print(f"[orientation] applied EXIF orientation {orientation} -> {upright.size}")
-    return True
-
-
-def _sample_cheek_skin_color(rgb, out_debug_path: Path | None = None):
-    """Face landmarks -> two upper-cheek patches -> fair skin filter -> median RGB.
-
-    Returns ((r, g, b), info), or (None, info) when no face/landmarks are found.
-
-    YuNet (OpenCV, no extra deps) gives eye, nose and mouth landmarks. The patches
-    sit below each eye and above nose-tip level, pushed slightly outward, so the
-    mouth/chin (where mirror selfies put the phone and hand) is never sampled, and
-    neither are eyes, brows, hair, ears or the background. The filter only drops
-    what can't be skin under any skin tone: near-black (phone, hair, shadow),
-    blown highlights and non-skin hues. It then keeps the middle half by
-    lightness, so no brightness floor biases against darker skin.
-    """
-    import numpy as np
-    import cv2
-
-    info = {"method": "cheek_landmarks"}
-    if not YUNET_MODEL_PATH.exists():
-        info["error"] = f"YuNet model missing at {YUNET_MODEL_PATH}"
-        return None, info
-    H, W = rgb.shape[:2]
-    scale = min(1.0, 1280.0 / max(H, W))
-    small = (cv2.resize(rgb, (int(W * scale), int(H * scale)), interpolation=cv2.INTER_AREA)
-             if scale < 1 else rgb)
-    bgr = cv2.cvtColor(small, cv2.COLOR_RGB2BGR)
-    det = cv2.FaceDetectorYN.create(str(YUNET_MODEL_PATH), "", (bgr.shape[1], bgr.shape[0]), 0.6, 0.3, 50)
-    det.setInputSize((bgr.shape[1], bgr.shape[0]))
-    _, faces = det.detect(bgr)
-    if faces is None or len(faces) == 0:
-        info["error"] = "no face found"
-        return None, info
-    # Largest confident face (the shopper, not a poster in the background).
-    f = max(faces, key=lambda r: r[2] * r[3] * r[14]).astype(np.float64)
-    score = float(f[14])
-    f = f / scale
-    re, le, nose = f[4:6], f[6:8], f[8:10]
-    info["face_box"] = [round(float(v)) for v in f[0:4]]
-    info["score"] = round(score, 3)
-
-    iod = float(np.linalg.norm(le - re))
-    if iod < 12:
-        info["error"] = f"face too small (eye distance {iod:.0f}px)"
-        return None, info
-    u = (le - re) / iod
-    v = np.array([-u[1], u[0]])
-    eye_mid = (re + le) / 2
-    if np.dot(nose - eye_mid, v) < 0:
-        v = -v
-    drop = max(float(np.dot(nose - eye_mid, v)), 0.35 * iod)
-    radius = 0.17 * iod
-    centers = [
-        re + v * (0.55 * drop) - u * (0.12 * iod),
-        le + v * (0.55 * drop) + u * (0.12 * iod),
-    ]
-
-    patches = []
-    for c in centers:
-        x0, x1 = int(max(0, c[0] - radius)), int(min(W, c[0] + radius + 1))
-        y0, y1 = int(max(0, c[1] - radius)), int(min(H, c[1] + radius + 1))
-        if x1 <= x0 or y1 <= y0:
-            patches.append(np.zeros((0, 3), dtype=np.uint8))
-            continue
-        yy, xx = np.mgrid[y0:y1, x0:x1]
-        m = (xx - c[0]) ** 2 + (yy - c[1]) ** 2 <= radius ** 2
-        patches.append(rgb[y0:y1, x0:x1][m].reshape(-1, 3))
-
-    def _filter(px):
-        if px.shape[0] == 0:
-            return px
-        hsv = cv2.cvtColor(px.reshape(-1, 1, 3).astype(np.uint8), cv2.COLOR_RGB2HSV).reshape(-1, 3)
-        h, sat, val = hsv[:, 0].astype(int), hsv[:, 1].astype(int), hsv[:, 2].astype(int)
-        px = px[((h <= 35) | (h >= 165)) & (sat >= 25) & (val >= 20) & (val <= 250)]
-        if px.shape[0] < 20:
-            return px
-        lab_l = cv2.cvtColor(px.reshape(-1, 1, 3).astype(np.uint8), cv2.COLOR_RGB2LAB).reshape(-1, 3)[:, 0]
-        lo, hi = np.percentile(lab_l, [25, 75])
-        return px[(lab_l >= lo) & (lab_l <= hi)]
-
-    kept = [_filter(p) for p in patches]
-    info["patch_pixels"] = [int(p.shape[0]) for p in patches]
-    info["patch_kept"] = [int(k.shape[0]) for k in kept]
-    # A patch covered by a phone/hand keeps few pixels: use the clean one(s).
-    usable = [k for k, p in zip(kept, patches)
-              if p.shape[0] and k.shape[0] >= max(30, 0.15 * p.shape[0])]
-    if not usable:
-        info["error"] = "cheek patches had no usable skin pixels"
-        return None, info
-    med = np.median(np.concatenate(usable, axis=0), axis=0).astype(np.uint8)
-    rgb_out = (int(med[0]), int(med[1]), int(med[2]))
-    info["patches_used"] = len(usable)
-
-    if out_debug_path is not None:
-        try:
-            dbg = cv2.cvtColor(rgb.copy(), cv2.COLOR_RGB2BGR)
-            x, y, w, h = [int(v) for v in f[0:4]]
-            t = max(2, int(iod / 40))
-            cv2.rectangle(dbg, (x, y), (x + w, y + h), (255, 200, 0), t)
-            for pt in (re, le, nose, f[10:12], f[12:14]):
-                cv2.circle(dbg, (int(pt[0]), int(pt[1])), t * 2, (0, 255, 255), -1)
-            for c in centers:
-                cv2.circle(dbg, (int(c[0]), int(c[1])), int(radius), (0, 255, 0), t)
-            pad = int(1.2 * max(w, h))
-            cx, cy = x + w // 2, y + h // 2
-            crop = dbg[max(0, cy - pad):cy + pad, max(0, cx - pad):cx + pad].copy()
-            sw = max(1, crop.shape[1] // 4)
-            crop[-sw:, -sw:] = (rgb_out[2], rgb_out[1], rgb_out[0])
-            cv2.imwrite(str(out_debug_path), crop)
-        except Exception as e:
-            info["debug_error"] = f"{type(e).__name__}: {e}"
-    return rgb_out, info
-
-
-def _sample_skin_color(face_detector, image_path: str, out_crop_path: Path | None = None,
-                       out_debug_path: Path | None = None) -> tuple:
-    """Skin RGB for the avatar: cheek landmarks first, then the VGGHeads face-box
-    sampler (_sample_face_median_color_v2) as fallback. Returns (rgb, method, info).
-    """
-    import numpy as np
-    from PIL import Image
-    info: dict = {}
-    try:
-        rgb = np.array(Image.open(image_path).convert("RGB"))
-        cheek_rgb, info = _sample_cheek_skin_color(rgb, out_debug_path)
-        if cheek_rgb is not None:
-            print(f"[skin] cheek landmarks -> {cheek_rgb} {info}")
-            # Keep writing face_crop.png for the existing diagnostics.
-            if out_crop_path is not None and "face_box" in info:
-                x, y, w, h = info["face_box"]
-                Image.fromarray(rgb[max(0, y):y + h, max(0, x):x + w]).save(out_crop_path)
-            return cheek_rgb, "cheek_landmarks", info
-        print(f"[skin] cheek landmarks unavailable ({info.get('error')}); using face-box sampler")
-    except Exception as e:
-        info = {"error": f"{type(e).__name__}: {e}"}
-        print(f"[skin] cheek sampler crashed ({info['error']}); using face-box sampler")
-    rgb_v2 = _sample_face_median_color_v2(face_detector, image_path, out_crop_path=out_crop_path)
-    return rgb_v2, "face_box_v2", info
-
-
-def _srgb_to_linear_u8(rgb_u8):
-    """sRGB 0-255 -> linear 0-255. glTF vertex colours (COLOR_0) are LINEAR; storing
-    the photo's sRGB value as-is makes viewers show a washed-out, wrong tone."""
-    import numpy as np
-    c = np.asarray(rgb_u8, dtype=np.float64) / 255.0
-    lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
-    return np.clip(np.round(lin * 255.0), 0, 255).astype(np.uint8)
-
-
-def _glb_set_skin_material(glb_path) -> None:
-    """Give every primitive a non-metallic skin material, in place.
-
-    trimesh exports vertex-coloured meshes with NO material, and the glTF default
-    material is fully metallic (metallicFactor 1). In three.js a metallic surface
-    with no environment map renders nearly black, which made every avatar look
-    dark regardless of the sampled skin colour.
-    """
-    import json
-    import struct
-    data = Path(glb_path).read_bytes()
-    magic, version, _ = struct.unpack("<III", data[:12])
-    if magic != 0x46546C67:
-        raise ValueError("not a GLB file")
-    json_len, json_type = struct.unpack("<II", data[12:20])
-    gltf = json.loads(data[20:20 + json_len])
-    rest = data[20 + json_len:]
-    gltf["materials"] = [{
-        "name": "skin",
-        "pbrMetallicRoughness": {
-            "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
-            "metallicFactor": 0.0,
-            "roughnessFactor": 0.65,
-        },
-    }]
-    for mesh in gltf.get("meshes", []):
-        for prim in mesh.get("primitives", []):
-            prim["material"] = 0
-    js = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
-    js += b" " * ((4 - len(js) % 4) % 4)
-    out = struct.pack("<II", len(js), json_type) + js + rest
-    Path(glb_path).write_bytes(struct.pack("<III", magic, version, 12 + len(out)) + out)
-
-
 def _write_textured_glb(verts_mm, faces, vertex_colors_rgb, glb_path):
     """Write a GLB with per-vertex color. SMPL-X has 10,475 verts.
 
@@ -1532,11 +1326,10 @@ def _write_textured_glb(verts_mm, faces, vertex_colors_rgb, glb_path):
     arr = np.asarray(vertex_colors_rgb)
     if arr.ndim == 1:
         # Uniform color across all verts
-        lin = _srgb_to_linear_u8(arr[:3])
-        rgba = np.tile(np.array([lin[0], lin[1], lin[2], 255], dtype=np.uint8), (n, 1))
+        rgba = np.tile(np.array([arr[0], arr[1], arr[2], 255], dtype=np.uint8), (n, 1))
     else:
         # Per-vertex colors, [N, 3] -> [N, 4] with alpha 255
-        rgba = np.concatenate([_srgb_to_linear_u8(arr[:, :3]), np.full((n, 1), 255, dtype=np.uint8)], axis=1)
+        rgba = np.concatenate([arr.astype(np.uint8), np.full((n, 1), 255, dtype=np.uint8)], axis=1)
     mesh = trimesh.Trimesh(
         vertices=verts_m,
         faces=faces,
@@ -1544,7 +1337,6 @@ def _write_textured_glb(verts_mm, faces, vertex_colors_rgb, glb_path):
         process=False,
     )
     mesh.export(glb_path, file_type="glb")
-    _glb_set_skin_material(glb_path)
 
 
 def _write_obj_no_mtl(verts_mm, faces, obj_path):
@@ -2467,7 +2259,6 @@ def cmd_avatar(inp: dict, started: float) -> dict:
         img_path = tmp_path / "input.png"
         try:
             _download_to(img_path, image_url)
-            image_rotated = _normalize_image_orientation(img_path)
         except Exception as e:
             return _err("avatar", f"failed to download image: {e}", started)
 
@@ -2524,10 +2315,8 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             face_detector = _get_face_detector()
         except Exception as e:
             face_detector_error = f"{type(e).__name__}: {e}"
-        skin_debug_path = tmp_path / "skin_debug.png"
-        skin_rgb_diag, skin_method, skin_info = _sample_skin_color(
+        skin_rgb_diag = _sample_face_median_color_v2(
             face_detector, str(img_path), out_crop_path=face_crop_path,
-            out_debug_path=skin_debug_path,
         )
         import numpy as np
         vertex_colors = np.tile(
@@ -2597,8 +2386,6 @@ def cmd_avatar(inp: dict, started: float) -> dict:
         ]
         if face_crop_path.exists():
             artifacts.append(_collect_artifact(face_crop_path, remote_subdir))
-        if skin_debug_path.exists():
-            artifacts.append(_collect_artifact(skin_debug_path, remote_subdir))
 
         result = {
             "image_url": image_url,
@@ -2609,9 +2396,6 @@ def cmd_avatar(inp: dict, started: float) -> dict:
             "is_full_body": bool(shape_pose.is_full_body),
             "body_ratio": float(getattr(shape_pose, "ratio", 0.0)),
             "skin_rgb": list(skin_rgb_diag),
-            "skin_method": skin_method,
-            "skin_info": skin_info,
-            "image_rotated": image_rotated,
             "face_detector_error": face_detector_error,
             "measurements": (measurements_block or {}).get("standardized_cm"),
             "measurements_raw": (measurements_block or {}).get("raw_cm"),
@@ -2709,7 +2493,6 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
         img_path = tmp_path / "input.png"
         try:
             _download_to(img_path, image_url)
-            image_rotated = _normalize_image_orientation(img_path)
         except Exception as e:
             return {"error": f"failed to download image: {e}"}
 
@@ -2759,10 +2542,8 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
             face_detector = _get_face_detector()
         except Exception as e:
             face_detector_error = f"{type(e).__name__}: {e}"
-        skin_debug_path = tmp_path / "skin_debug.png"
-        skin_rgb_diag, skin_method, skin_info = _sample_skin_color(
+        skin_rgb_diag = _sample_face_median_color_v2(
             face_detector, str(img_path), out_crop_path=face_crop_path,
-            out_debug_path=skin_debug_path,
         )
         import numpy as np
         vertex_colors = np.tile(
@@ -2828,9 +2609,6 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
             "file_sizes": file_sizes,
             "processing_time_seconds": round(_now() - started, 2),
             "skin_rgb": list(skin_rgb_diag),
-            "skin_method": skin_method,
-            "skin_info": skin_info,
-            "image_rotated": image_rotated,
             "beta_shape": list(beta_np.shape),
             "is_full_body": bool(shape_pose.is_full_body),
             "body_ratio": float(getattr(shape_pose, "ratio", 0.0)),
