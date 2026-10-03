@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _widget_states: dict[str, dict] = {}
-_STATE_TTL = 300  # 5 minutes
+_STATE_TTL = 3600  # 1 hour: a link_state is completed at sign-up, then read after onboarding
 
 
 def _cleanup() -> None:
