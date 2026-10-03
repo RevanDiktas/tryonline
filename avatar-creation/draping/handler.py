@@ -178,26 +178,45 @@ def _encode_url_path(url: str) -> str:
     ))
 
 
-def download_file(url: str, dest: Path) -> bool:
-    """Download a file from URL to local path."""
-    try:
-        if url.startswith("file://"):
+def download_file(url: str, dest: Path, attempts: int = 3) -> bool:
+    """Download a file from URL to local path, retrying transient failures.
+
+    Workers intermittently fail single fetches from Supabase. Without a retry a
+    garment OBJ fails the job outright, and a missed MTL silently ships an
+    untextured (grey) drape that then gets cached as a success.
+    """
+    if url.startswith("file://"):
+        try:
             shutil.copy(url[7:], dest)
             return True
-        url = _encode_url_path(url)
-        if USE_HTTPX:
-            with httpx.Client(timeout=120.0) as client:
-                r = client.get(url)
+        except Exception as e:
+            print(f"[Draping] Download failed {url}: {e}")
+            return False
+    url = _encode_url_path(url)
+    for attempt in range(1, attempts + 1):
+        status = None
+        try:
+            if USE_HTTPX:
+                with httpx.Client(timeout=60.0) as client:
+                    r = client.get(url)
+                    status = r.status_code
+                    r.raise_for_status()
+                    dest.write_bytes(r.content)
+            else:
+                r = requests.get(url, timeout=60)
+                status = r.status_code
                 r.raise_for_status()
                 dest.write_bytes(r.content)
-        else:
-            r = requests.get(url, timeout=120)
-            r.raise_for_status()
-            dest.write_bytes(r.content)
-        return True
-    except Exception as e:
-        print(f"[Draping] Download failed {url}: {e}")
-        return False
+            return True
+        except Exception as e:
+            print(f"[Draping] Download failed {url} (attempt {attempt}/{attempts}): {e}")
+            # A definite client error (404 for an optional .glb guess or texture) won't
+            # change on retry; only network errors, 408, 429 and 5xx are worth another go.
+            if status is not None and 400 <= status < 500 and status not in (408, 429):
+                return False
+            if attempt < attempts:
+                time.sleep(1.5 * attempt)
+    return False
 
 
 def _weld_duplicate_vertices(verts: np.ndarray, faces: np.ndarray, tol: float = 1.0e-3) -> tuple:
@@ -397,6 +416,55 @@ def write_obj_with_new_verts(original_obj: Path, new_verts: np.ndarray, output_o
                 lines_out.append(line)
     with open(output_obj, "w") as f:
         f.writelines(lines_out)
+
+
+# Garments (and every drape we ship) are authored on a reference body that stands
+# feet-at-0, 1.8 m tall. The 13 avatars that always draped well were exactly that.
+# LHM avatars (since 2026-05-22) arrive in SMPL-X's pelvis-centred frame (feet at
+# about -1.3 m) at whatever height the mesh came out. Against those, _is_prefitted
+# fails, align_meshes blows the garment up 1.7-2.9x, it never touches the body, the
+# belt never lifts the jeans, and the "drape" ships nearly unchanged with skin
+# showing through. The widget shows the avatar with the same normalisation.
+REFERENCE_BODY_HEIGHT_M = 1.8
+
+
+def _normalize_body_frame(verts_m: np.ndarray, target_height_m: float = 1.8) -> tuple:
+    """Body verts in metres -> feet at y=0, uniformly scaled to target_height_m
+    (REFERENCE_BODY_HEIGHT_M). Returns (verts, feet_offset_m, scale). The garment is
+    never touched."""
+    y_min = float(verts_m[:, 1].min())
+    height = float(verts_m[:, 1].max()) - y_min
+    if height <= 1e-6:
+        raise ValueError("body has no height")
+    scale = target_height_m / height
+    out = verts_m.astype(np.float64).copy()
+    out[:, 1] -= y_min
+    out *= scale
+    return out, y_min, scale
+
+
+def _normalize_body_obj(body_obj: Path) -> dict:
+    """Rewrite the downloaded body OBJ in place into the reference frame, in the file's
+    own units, so every consumer (PyGarment, geometric fallback, sim staging) sees the
+    same body. Returns a frame_check record for the response."""
+    raw = load_obj_vertices(body_obj)
+    if len(raw) == 0:
+        raise ValueError("body OBJ has no vertices")
+    raw_h = float(raw[:, 1].max() - raw[:, 1].min())
+    # mm vs m. (_normalize_to_meters uses > 50; both agree on the 1800 mm / 1.8 m this
+    # writes, and a cm body read as mm is still corrected by the 1.8 m rescale.)
+    unit = 0.001 if raw_h > 100 else 1.0
+    norm_m, offset_m, scale = _normalize_body_frame(raw * unit, REFERENCE_BODY_HEIGHT_M)
+    write_obj_with_new_verts(body_obj, norm_m / unit, body_obj)
+    check = {
+        "frame": "feet0_1800",
+        "source_y_min_m": round(offset_m, 4),
+        "source_height_m": round(raw_h * unit, 4),
+        "body_scale": round(scale, 6),
+        "was_pelvis_centred": bool(offset_m < -0.5),
+    }
+    print(f"[Draping] Body frame normalised: {check}")
+    return check
 
 
 def compute_body_normals(body_verts: np.ndarray, body_obj: Path) -> np.ndarray:
@@ -3100,6 +3168,10 @@ def handler(event: dict) -> dict:
         print("[Draping] Downloading input files...")
         if not download_file(body_obj_url, body_obj):
             return {"error": "Failed to download body OBJ", "success": False}
+        try:
+            frame_check = _normalize_body_obj(body_obj)
+        except Exception as e:
+            return {"error": f"Body OBJ unusable (frame normalisation failed): {e}", "success": False}
         if not download_file(garment_obj_url, garment_obj):
             return {"error": "Failed to download garment OBJ", "success": False}
 
@@ -3182,6 +3254,14 @@ def handler(event: dict) -> dict:
                                     print(f"[Draping] Texture missing on Supabase: {tex_name} "
                                           f"(upload it to {url_dir}/)")
                 break  # first MTL candidate that works wins
+
+        # The OBJ names a material library but none arrived: shipping now would cache a
+        # grey, untextured drape as a success. Fail so the queue retries the job.
+        if mtl_name_in_obj and not any(garment_obj.parent.glob("*.mtl")):
+            return {
+                "error": f"Garment MTL '{mtl_name_in_obj}' could not be downloaded from {url_dir}/",
+                "success": False,
+            }
 
         if garment_glb_url:
             download_file(garment_glb_url, garment_glb)
@@ -3416,6 +3496,7 @@ def handler(event: dict) -> dict:
             "user_id": user_id,
             "sim_stats": sim_stats_out,
             "success": True,
+            "frame_check": frame_check,
         }
         if upload_ok:
             response.update(upload_urls)
