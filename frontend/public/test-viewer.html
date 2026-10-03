@@ -174,31 +174,29 @@
       color: #333;
     }
 
-    /* Close button — the ONE close control for every widget state (loading, sign-in,
-       onboarding, error, viewer). Lives at body level, fixed to the viewport corner, so it
-       never sits inside the transformed popup and is never duplicated per state. */
+    /* Close button: the ONE close control for every widget state (loading, sign-in,
+       onboarding, error, viewer). setUiState() moves this single element into whichever card
+       is showing, so it always sits on that card's top-right corner, close to what the
+       shopper is looking at, and is never duplicated per state. */
     .close-btn {
-      position: fixed;
-      top: max(12px, env(safe-area-inset-top));
-      right: max(12px, env(safe-area-inset-right));
-      z-index: 1000;
-      width: 40px;
-      height: 40px;
-      background: rgba(255, 255, 255, 0.92);
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 5;
+      width: 32px;
+      height: 32px;
+      background: rgba(0, 0, 0, 0.06);
       color: #1a1a1a;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
       border: none;
       border-radius: 50%;
       display: none;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      font-size: 18px;
-      font-weight: 300;
+      font-size: 15px;
+      font-weight: 400;
       line-height: 1;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
-      transition: transform 0.2s, background 0.2s;
+      transition: background 0.15s, transform 0.15s;
     }
     body.tryon-x-on .close-btn { display: flex; }
 
@@ -210,9 +208,20 @@
     }
 
     .close-btn:hover {
-      background: white;
-      transform: scale(1.08);
+      background: rgba(0, 0, 0, 0.12);
+      transform: scale(1.06);
     }
+    /* In the viewer the ✕ sits at the right end of the glass header. */
+    .popup-header { position: relative; padding-right: 56px; }
+    .popup-header .close-btn { top: 50%; margin-top: -16px; right: 12px; background: rgba(255, 255, 255, 0.7); }
+    .popup-header .close-btn:hover { background: #fff; }
+    .popup-user-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .popup-signout {
+      background: none; border: none; padding: 0; cursor: pointer;
+      font: inherit; font-size: 11px; color: #444; text-decoration: underline; text-underline-offset: 2px;
+      white-space: nowrap;
+    }
+    .popup-signout:hover { color: #000; }
 
     /* Main content */
     .popup-content {
@@ -528,11 +537,7 @@
         font-size: 11px;
       }
 
-      .close-btn {
-        width: 36px;
-        height: 36px;
-        font-size: 16px;
-      }
+      .popup-header { padding-right: 52px; }
 
       .controls-hint {
         font-size: 9px;
@@ -766,7 +771,7 @@
   </div>
   <style>
   .tryon-boot{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;padding:20px;}
-  .tryon-boot-inner{background:#fff;border-radius:14px;padding:22px 28px;display:flex;flex-direction:column;align-items:center;gap:12px;box-shadow:0 12px 40px rgba(0,0,0,0.15);}
+  .tryon-boot-inner{position:relative;background:#fff;border-radius:14px;padding:26px 52px;display:flex;flex-direction:column;align-items:center;gap:12px;box-shadow:0 12px 40px rgba(0,0,0,0.15);}
   .tryon-boot-text{font-size:13px;color:#555;}
   .tryon-login-gate{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:20px;}
   .tryon-login-gate-inner{background:#fff;border-radius:14px;padding:28px 24px 20px;width:100%;max-width:340px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,0.15);position:relative;}
@@ -794,10 +799,11 @@
   /* Embedded: the iframe is full-viewport (the block re-parents it to <body>), so a light dim
      separates the card from a busy product page. */
   body.open-direct .tryon-login-gate{background:rgba(0,0,0,0.28);}
+  .tryon-login-gate-inner .close-btn,.tryon-error-state-inner .close-btn{top:12px;right:12px;}
   .tryon-login-gate-btn:focus-visible,.tryon-login-gate-social:focus-visible,.tryon-gate-link:focus-visible,.close-btn:focus-visible{outline:2px solid #0a0a0a;outline-offset:2px;}
   .tryon-error-state{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;padding:20px;}
   body.open-direct .tryon-error-state{background:rgba(0,0,0,0.28);}
-  .tryon-error-state-inner{background:#fff;border-radius:16px;padding:32px;max-width:360px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
+  .tryon-error-state-inner{position:relative;background:#fff;border-radius:16px;padding:32px;max-width:360px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
   .tryon-error-state-inner h3{font-size:16px;margin-bottom:12px;color:#1a1a1a;}
   .tryon-error-state-inner p{color:#555;font-size:14px;}
   .tryon-error-state-inner a.tryon-error-signin,.tryon-error-state-inner button.tryon-error-signin{display:inline-block;margin-top:8px;color:#0a0a0a;font:inherit;font-weight:500;text-decoration:underline;background:none;border:none;cursor:pointer;}
@@ -810,7 +816,10 @@
       <div class="popup-glass">
         <div class="popup-header">
           <div class="popup-logo">TRYON</div>
-          <div class="popup-user" id="popup-user-name">—</div>
+          <div class="popup-user-wrap">
+            <div class="popup-user" id="popup-user-name">—</div>
+            <button type="button" class="popup-signout" id="popup-signout">Sign out</button>
+          </div>
         </div>
 
         <div class="popup-content">
@@ -1845,6 +1854,13 @@
       overlay.classList.toggle('active', next === 'viewer');
       document.documentElement.classList.toggle('tryon-ghost', next === 'closed' && config.openDirect);
       document.body.classList.toggle('tryon-x-on', next !== 'closed');
+      var host = {
+        booting: bootEl && bootEl.querySelector('.tryon-boot-inner'),
+        gate: loginGate && loginGate.querySelector('.tryon-login-gate-inner'),
+        error: errorEl && errorEl.querySelector('.tryon-error-state-inner'),
+        viewer: overlay.querySelector('.popup-header'),
+      }[next];
+      if (host && closeBtn.parentElement !== host) host.appendChild(closeBtn);
       return true;
     }
 
@@ -1964,11 +1980,27 @@
     var recheckBtn = document.getElementById('tryon-gate-recheck');
     if (recheckBtn) recheckBtn.addEventListener('click', function() { recheckAvatar(true); });
 
-    var switchBtn = document.getElementById('tryon-gate-switch');
-    if (switchBtn) switchBtn.addEventListener('click', function() {
+    // Sign out of the widget. The account is remembered in this iframe's own storage (per store),
+    // and tryon.global keeps its own session too, so a plain re-sign-in would silently come back
+    // as the same person. Flag the next sign-in to drop that session and show Google's account
+    // picker, then reload clean (drops the previous shopper's avatar scene as well).
+    const SWITCH_KEY = 'tryon_switch_account';
+    function wantsAccountSwitch() {
+      try { return localStorage.getItem(SWITCH_KEY) === '1'; } catch (e) { return false; }
+    }
+    function signOutWidget() {
+      track('widget_signed_out');
       forgetUser();
-      setGateStep('signin');
-    });
+      clearLinkToken();
+      try { localStorage.setItem(SWITCH_KEY, '1'); } catch (e) {}
+      var u = new URL(window.location.href);
+      ['user_id', 'display_name', 'start_closed'].forEach(function(k) { u.searchParams.delete(k); });
+      navigateWidget(u.toString());
+    }
+    var switchBtn = document.getElementById('tryon-gate-switch');
+    if (switchBtn) switchBtn.addEventListener('click', signOutWidget);
+    var signOutBtn = document.getElementById('popup-signout');
+    if (signOutBtn) signOutBtn.addEventListener('click', signOutWidget);
 
     // Signed in, waiting on the avatar from the other tab: check again when the shopper comes back.
     let recheckInFlight = false;
@@ -2025,7 +2057,8 @@
           var url = origin + '/widget-signin?return=' + encodeURIComponent(window.location.href)
             + '&widget_state=' + encodeURIComponent(token)
             + '&show_form=1'
-            + (config.returnUrl ? '&store_return=' + encodeURIComponent(config.returnUrl) : '');
+            + (config.returnUrl ? '&store_return=' + encodeURIComponent(config.returnUrl) : '')
+            + (wantsAccountSwitch() ? '&switch_account=1' : '');
           openSigninPopup(url, token);
           return;
         }
@@ -2048,6 +2081,7 @@
     }
 
     function reloadWithUser(userId, displayName) {
+      try { localStorage.removeItem('tryon_switch_account'); } catch (e) {}
       // Persist durably so future visits skip the gate (the URL param is ephemeral).
       try { localStorage.setItem('tryon_user_id', userId); } catch (e) {}
       try { sessionStorage.setItem('tryon_user_id', userId); } catch (e) {}
@@ -2137,7 +2171,8 @@
       var origin = window.location.origin || 'https://tryon.global';
       var url = origin + '/widget-signin?return=' + encodeURIComponent(window.location.href)
         + '&provider=' + encodeURIComponent(provider)
-        + '&widget_state=' + encodeURIComponent(token);
+        + '&widget_state=' + encodeURIComponent(token)
+        + (wantsAccountSwitch() ? '&switch_account=1' : '');
       openSigninPopup(url, token);
     }
 
@@ -2171,6 +2206,8 @@
     function setHeaderName() {
       var el = document.getElementById('popup-user-name');
       if (el) el.textContent = (config.displayName || 'User').trim().toUpperCase() || '—';
+      var so = document.getElementById('popup-signout');
+      if (so) so.hidden = !config.userId;
     }
 
     async function openViewer() {

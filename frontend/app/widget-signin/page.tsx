@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { login, getCurrentUser, signInWithSocial } from '@/lib/supabase-auth';
+import { login, logout, getCurrentUser, signInWithSocial } from '@/lib/supabase-auth';
 import { isValidLinkState } from '@/lib/widgetReturn';
 
 const SUPABASE_CONFIGURED =
@@ -22,6 +22,9 @@ export default function WidgetSignInPage() {
   const returnUrl = searchParams.get('return');
   const showForm = searchParams.get('show_form') === '1';
   const providerParam = searchParams.get('provider') as 'google' | 'apple' | null;
+  // The shopper pressed "Sign out" in the widget: don't silently reuse this browser's
+  // tryon.global session, let them pick (or type) a different account.
+  const switchAccount = searchParams.get('switch_account') === '1';
   const widgetState = searchParams.get('widget_state');
 
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -75,6 +78,7 @@ export default function WidgetSignInPage() {
     const { url, error } = await signInWithSocial(provider, {
       widgetReturn: returnUrl || undefined,
       widgetState: widgetState || undefined,
+      selectAccount: switchAccount,
     });
     if (error || !url) {
       setErrors({ form: error || 'Failed to start sign-in' });
@@ -89,6 +93,9 @@ export default function WidgetSignInPage() {
       if (!SUPABASE_CONFIGURED) {
         setChecking(false);
         return;
+      }
+      if (switchAccount) {
+        try { await logout(); } catch (_) { /* already signed out */ }
       }
       if (showForm) {
         setChecking(false);
@@ -129,7 +136,7 @@ export default function WidgetSignInPage() {
       setChecking(false);
     };
     run();
-  }, [returnUrl, isPopup, router, showForm, providerParam]);
+  }, [returnUrl, isPopup, router, showForm, providerParam, switchAccount]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

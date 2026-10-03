@@ -185,7 +185,7 @@ export async function signup(options: SignupOptions): Promise<{ user: User | nul
 
 export async function signInWithSocial(
   provider: 'google' | 'apple',
-  opts?: { widgetReturn?: string; widgetState?: string },
+  opts?: { widgetReturn?: string; widgetState?: string; selectAccount?: boolean },
 ): Promise<{ url: string | null; error: string | null }> {
   let redirectTo = `${window.location.origin}/auth/callback`;
   const params: string[] = [];
@@ -197,6 +197,8 @@ export async function signInWithSocial(
     options: {
       redirectTo,
       skipBrowserRedirect: true,
+      // Switching accounts: make Google show its account picker instead of reusing the last one.
+      ...(opts?.selectAccount && provider === 'google' ? { queryParams: { prompt: 'select_account' } } : {}),
     },
   });
   if (error) return { url: null, error: error.message };
