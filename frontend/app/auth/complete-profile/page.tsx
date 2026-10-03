@@ -9,6 +9,7 @@ import {
   hasFitPassport,
   type User,
 } from '@/lib/supabase-auth';
+import { shopperHomePath } from '@/lib/widgetReturn';
 
 const countryCodes = [
   { code: '+31', country: 'Netherlands', abbr: 'NL' },
@@ -122,7 +123,7 @@ function CompleteProfileInner() {
     });
 
     const hasFP = await hasFitPassport(user!.id);
-    router.replace(hasFP ? '/dashboard' : '/onboarding');
+    router.replace(shopperHomePath(hasFP));
   };
 
   if (loading) {

@@ -853,27 +853,40 @@ export function OnboardingComplete({
   dark = false,
   measurements,
   onOpenDashboard,
+  onBackToStore,
+  brand,
 }: {
   dark?: boolean;
   measurements: CompleteMeasurement[];
   onOpenDashboard: () => void;
+  /** Set when the shopper arrived from a store's TryOn widget. */
+  onBackToStore?: () => void;
+  brand?: string;
 }) {
   const mobile = useIsMobile();
   return (
     <ThemeShell dark={dark}>
       <TopBar mobile={mobile} current={4} darkBg={dark} />
       <ProgressStrip current={4} mobile={mobile} />
-      <CompleteBody mobile={mobile} measurements={measurements} onOpenDashboard={onOpenDashboard} />
+      <CompleteBody
+        mobile={mobile}
+        measurements={measurements}
+        onOpenDashboard={onOpenDashboard}
+        onBackToStore={onBackToStore}
+        brand={brand}
+      />
     </ThemeShell>
   );
 }
 
 function CompleteBody({
-  mobile, measurements, onOpenDashboard,
+  mobile, measurements, onOpenDashboard, onBackToStore, brand,
 }: {
   mobile: boolean;
   measurements: CompleteMeasurement[];
   onOpenDashboard: () => void;
+  onBackToStore?: () => void;
+  brand?: string;
 }) {
   const C = useC();
   return (
@@ -942,7 +955,14 @@ function CompleteBody({
               }}>One passport. Use these measurements at every Tryon-enabled brand. Update them any time.</span>
             </div>
           )}
-          <Primary onClick={onOpenDashboard}>Open dashboard →</Primary>
+          {onBackToStore ? (
+            <div style={{ display: 'grid', gap: mobile ? 8 : 10 }}>
+              <Primary onClick={onBackToStore}>Back to {brand || 'the store'} to try it on →</Primary>
+              <Ghost onClick={onOpenDashboard}>Open dashboard</Ghost>
+            </div>
+          ) : (
+            <Primary onClick={onOpenDashboard}>Open dashboard →</Primary>
+          )}
         </div>
       </div>
     </div>

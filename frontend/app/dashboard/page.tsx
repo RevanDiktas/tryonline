@@ -134,9 +134,19 @@ function DashboardPage() {
         router.push('/brand');
         return;
       }
-      setUser(currentUser);
-
       const fitPassport = await getFitPassport(currentUser.id);
+
+      // No avatar and none being generated: the dashboard would only show
+      // height-based defaults, so send the shopper through onboarding instead.
+      const hasAvatar = !!(fitPassport?.avatarUrl
+        || (fitPassport?.pipeline_files && Object.keys(fitPassport.pipeline_files).length > 0));
+      const inFlight = fitPassport?.status === 'processing' || fitPassport?.status === 'completed';
+      if (!hasAvatar && !inFlight) {
+        router.replace('/onboarding');
+        return;
+      }
+
+      setUser(currentUser);
       setPassport(fitPassport);
 
       if (fitPassport && !fitPassport.avatarUrl) {

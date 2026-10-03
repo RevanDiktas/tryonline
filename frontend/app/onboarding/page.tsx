@@ -20,6 +20,15 @@ import {
   type CompleteMeasurement,
 } from '@/components/redesign/OnboardingSteps';
 import { CameraCapture } from '@/components/redesign/CameraCapture';
+import {
+  captureWidgetReturn,
+  clearWidgetReturn,
+  completeWidgetLink,
+  getWidgetReturn,
+  goBackToStore,
+  widgetReturnQuery,
+  type WidgetReturn,
+} from '@/lib/widgetReturn';
 
 type Step = 'info' | 'photo' | 'processing' | 'complete';
 
@@ -42,7 +51,9 @@ export default function OnboardingPage() {
   const dark = theme === 'dark';
 
   const [step, setStep] = useState<Step>('info');
+  const [checking, setChecking] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [widgetReturn, setWidgetReturn] = useState<WidgetReturn | null>(null);
 
   const [measure, setMeasure] = useState<MeasureValues>({ height: '', weight: '', body: 'male' });
   const [measureLoading, setMeasureLoading] = useState(false);
@@ -62,16 +73,43 @@ export default function OnboardingPage() {
   useEffect(() => {
     (async () => {
       try {
+        captureWidgetReturn(new URLSearchParams(window.location.search));
+        const handoff = getWidgetReturn();
+        setWidgetReturn(handoff);
+
         const user = await getCurrentUser();
         if (!user) {
-          router.push('/signup');
+          router.push(`/signup${widgetReturnQuery()}`);
           return;
         }
         setCurrentUser(user);
+        await completeWidgetLink(user);
         const existing = await getFitPassport(user.id);
-        if (existing && existing.avatarUrl) router.push('/dashboard');
+        if (existing && existing.avatarUrl) {
+          if (!handoff) {
+            router.push('/dashboard');
+            return;
+          }
+          // Came from the store widget and already has an avatar: skip
+          // straight to the ready step with its "Back to {brand}" button.
+          setMeasurementsResult({
+            height: existing.height,
+            chest: existing.chest ?? undefined,
+            waist: existing.waist ?? undefined,
+            hips: existing.hips ?? undefined,
+            inseam: existing.inseam ?? undefined,
+            shoulder_width: existing.shoulder_width ?? undefined,
+            arm_length: existing.arm_length ?? undefined,
+            neck: existing.neck ?? undefined,
+            thigh: existing.thigh ?? undefined,
+            torso_length: existing.torso_length ?? undefined,
+          });
+          setStep('complete');
+        }
+        setChecking(false);
       } catch (e) {
         console.error('Auth check failed:', e);
+        setChecking(false);
       }
     })();
   }, [router]);
@@ -187,6 +225,8 @@ export default function OnboardingPage() {
 
       setMeasurementsResult(m ? { height: m.height ?? heightNum, ...m } : { height: heightNum });
       setStep('complete');
+      // Avatar ready: refresh the widget sign-in so the store tab finds it on return.
+      void completeWidgetLink(currentUser);
     } catch (e) {
       console.error('Avatar creation error:', e);
       setPhotoError('Failed to create avatar. Please try again.');
@@ -195,6 +235,10 @@ export default function OnboardingPage() {
       setPhotoLoading(false);
     }
   };
+
+  if (checking) {
+    return <div className="min-h-screen" style={{ background: dark ? '#000' : '#fff' }} />;
+  }
 
   if (step === 'info') {
     return (
@@ -261,7 +305,16 @@ export default function OnboardingPage() {
     <OnboardingComplete
       dark={dark}
       measurements={completeMeasurements}
-      onOpenDashboard={() => router.push('/dashboard')}
+      onOpenDashboard={() => {
+        // Leaving the widget flow for the dashboard ends the hand-off.
+        if (widgetReturn) {
+          clearWidgetReturn();
+          setWidgetReturn(null);
+        }
+        router.push('/dashboard');
+      }}
+      onBackToStore={widgetReturn ? () => goBackToStore(widgetReturn, currentUser) : undefined}
+      brand={widgetReturn?.brand}
     />
   );
 }

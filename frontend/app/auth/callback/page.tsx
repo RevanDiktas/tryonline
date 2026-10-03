@@ -14,6 +14,7 @@ import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ensureUserProfile, isProfileComplete, hasFitPassport, getSession } from '@/lib/supabase-auth';
+import { completeWidgetLink, shopperHomePath } from '@/lib/widgetReturn';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,15 +76,20 @@ function AuthCallbackInner() {
         }
       }
 
+      // Account exists: sign the PDP widget in (link_state from /signup or
+      // /login), then keep this tab on the normal onboarding route.
+      await completeWidgetLink(user);
+      if (cancelled) return;
+
       if (!isProfileComplete(user)) {
         router.replace('/auth/complete-profile');
         return;
       }
       const hasFP = await hasFitPassport(user.id);
-      if (hasFP) {
-        router.replace(user.user_type === 'brand' ? '/brand' : '/dashboard');
+      if (user.user_type === 'brand' && hasFP) {
+        router.replace('/brand');
       } else {
-        router.replace('/onboarding');
+        router.replace(shopperHomePath(hasFP));
       }
     };
 

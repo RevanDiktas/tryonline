@@ -15,6 +15,8 @@
   assign product_image_enc = product.featured_image | image_url: width: 400 | url_encode
   assign product_price_enc = product.price | money_without_currency | strip | url_encode
   assign brand_name_enc = shop.name | url_encode
+  # Exact product page, so tryon.global can send a shopper back here after sign-up/onboarding.
+  assign return_url_enc = shop.url | append: product.url | url_encode
   # Shopper country (ISO 3166-1 alpha-2) -> regional body-size bands. Prefer the customer's saved
   # address, fall back to the storefront's selected market/country.
   assign country_code = ''
@@ -23,7 +25,7 @@
   elsif localization.country.iso_code != blank
     assign country_code = localization.country.iso_code
   endif
-  assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&product_name=' | append: product_name_enc | append: '&product_image=' | append: product_image_enc | append: '&product_price=' | append: product_price_enc | append: '&brand_name=' | append: brand_name_enc | append: '&country=' | append: country_code | append: '&open=1&v=30'
+  assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&product_name=' | append: product_name_enc | append: '&product_image=' | append: product_image_enc | append: '&product_price=' | append: product_price_enc | append: '&brand_name=' | append: brand_name_enc | append: '&country=' | append: country_code | append: '&return_url=' | append: return_url_enc | append: '&open=1&v=31'
 
   assign btn_bg = block.settings.button_background
   assign btn_fg = block.settings.button_text_color
@@ -81,13 +83,22 @@
     style="display:none;position:fixed;inset:0;width:100%;height:100%;z-index:999999;border:none;background:transparent;"
   ></iframe>
 
+  {%- comment -%}
+    Fallback close + spinner: only shown until the widget iframe answers TRYON_READY. After that
+    the widget owns the single ✕, so the shopper never sees two close buttons.
+  {%- endcomment -%}
   <button
     id="tryon-close-{{ block.id }}"
+    type="button"
     aria-label="Close TryOn"
-    style="display:none;position:fixed;top:12px;right:12px;z-index:1000000;width:44px;height:44px;border-radius:50%;border:none;background:rgba(0,0,0,0.6);color:#fff;font-size:22px;line-height:1;cursor:pointer;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:background 0.15s;"
-    onmouseover="this.style.background='rgba(0,0,0,0.85)'"
-    onmouseout="this.style.background='rgba(0,0,0,0.6)'"
+    style="display:none;position:fixed;top:12px;right:12px;z-index:1000000;width:40px;height:40px;border-radius:50%;border:none;background:rgba(255,255,255,0.92);color:#1a1a1a;font-size:18px;line-height:1;cursor:pointer;box-shadow:0 4px 15px rgba(0,0,0,0.15);"
   >&#x2715;</button>
+  <div
+    id="tryon-spinner-{{ block.id }}"
+    aria-hidden="true"
+    style="display:none;position:fixed;top:50%;left:50%;width:36px;height:36px;margin:-18px 0 0 -18px;z-index:999998;border-radius:50%;border:3px solid rgba(0,0,0,0.12);border-top-color:#111;animation:tryon-spin-{{ block.id }} 0.8s linear infinite;"
+  ></div>
+  <style>@keyframes tryon-spin-{{ block.id }} { to { transform: rotate(360deg); } }</style>
 
   <script>
     (function() {
@@ -196,49 +207,104 @@
           .catch(function() {});
       }
 
+      var spinner = document.getElementById('tryon-spinner-{{ block.id }}');
+      var widgetReady = false;
+      var isOpen = false;
+      var fallbackTimer = null;
+
+      function focusWidget() {
+        try { iframe.focus({ preventScroll: true }); } catch (e) {}
+      }
+
+      function postToWidget(type) {
+        try { iframe.contentWindow.postMessage({ type: type }, '*'); } catch (e) {}
+      }
+
       btn.addEventListener('click', function() {
+        if (isOpen) return;
+        isOpen = true;
         // Re-parent iframe + close button to <body> so position:fixed escapes any ancestor
         // with transform/filter/will-change/contain (some Shopify themes apply these on the
         // product info column, which traps fixed-position children inside the column box).
         if (iframe.parentElement !== document.body) document.body.appendChild(iframe);
         if (closeBtn && closeBtn.parentElement !== document.body) document.body.appendChild(closeBtn);
+        if (spinner && spinner.parentElement !== document.body) document.body.appendChild(spinner);
         // Lazy-load src once, then keep iframe alive across open/close cycles.
         // Resetting src='' on every close destroyed the iframe's WebGL context, and
         // Chrome blocks new contexts after ~16 — testers hit "Web page caused context loss".
-        if (!iframe.getAttribute('src')) iframe.src = src;
+        if (!iframe.getAttribute('src')) {
+          iframe.src = src;
+        } else if (widgetReady) {
+          // Widget ghosts itself on close; tell it to come back in the right state.
+          postToWidget('TRYON_OPEN');
+        }
         iframe.style.display = 'block';
-        if (closeBtn) closeBtn.style.display = 'block';
         document.body.style.overflow = 'hidden';
+        // Hand keyboard focus to the widget so Esc / Tab work inside it, but only once it's
+        // loaded; before that, focus stays here so the host's Esc handler still closes.
+        if (widgetReady) focusWidget();
+        else armFallback();
       });
 
-      function close() {
+      // Until the widget answers TRYON_READY: spinner now, and after 4s the fallback ✕ so the
+      // shopper is never stuck under a full-screen layer (slow network, blocked, mid-reload).
+      function armFallback() {
+        if (spinner) spinner.style.display = 'block';
+        clearTimeout(fallbackTimer);
+        fallbackTimer = setTimeout(function() {
+          if (isOpen && !widgetReady && closeBtn) closeBtn.style.display = 'flex';
+        }, 4000);
+      }
+
+      function close(fromWidget) {
+        if (!isOpen) return;
+        isOpen = false;
+        clearTimeout(fallbackTimer);
         iframe.style.display = 'none';
         if (closeBtn) closeBtn.style.display = 'none';
+        if (spinner) spinner.style.display = 'none';
         // Do NOT reset iframe.src — keep WebGL context alive for subsequent opens.
         document.body.style.overflow = '';
+        if (!fromWidget && widgetReady) postToWidget('TRYON_HIDE');
+        try { btn.focus({ preventScroll: true }); } catch (e) {}
       }
 
       if (closeBtn) {
         closeBtn.addEventListener('click', function(e) {
           e.stopPropagation();
-          close();
+          close(false);
         });
       }
 
       document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && iframe.style.display === 'block') close();
+        if (e.key === 'Escape' && isOpen) close(false);
       });
 
       window.addEventListener('message', function(e) {
         if (!e.data) return;
-        if (e.data.type === 'TRYON_CLOSE') {
-          close();
+        var fromWidget = e.source === iframe.contentWindow;
+        if (e.data.type === 'TRYON_READY' && fromWidget) {
+          widgetReady = true;
+          clearTimeout(fallbackTimer);
+          if (closeBtn) closeBtn.style.display = 'none';
+          if (spinner) spinner.style.display = 'none';
+          // Sync the (re)loaded widget with the host: hidden → HIDE, shown → OPEN. A reload can
+          // swallow an earlier TRYON_OPEN, and the widget ignores OPEN when already open.
+          postToWidget(isOpen ? 'TRYON_OPEN' : 'TRYON_HIDE');
+          if (isOpen) focusWidget();
         }
-        if (e.data.type === 'TRYON_ADD_TO_CART' && e.data.payload) {
+        if (e.data.type === 'TRYON_RELOADING' && fromWidget) {
+          widgetReady = false;
+          if (isOpen) armFallback();
+        }
+        if (e.data.type === 'TRYON_CLOSE' && fromWidget) {
+          close(true);
+        }
+        if (e.data.type === 'TRYON_ADD_TO_CART' && e.data.payload && fromWidget) {
           if (!window.__tryonCartMessageBound) {
             tryonAddToCart(e.data.payload);
           }
-          close();
+          close(true);
         }
         if (e.data.type === 'TRYON_ADD_TO_WISHLIST' && e.data.payload) {
           console.log('[TryOn] Wishlist action:', e.data.payload.action || 'add', e.data.payload.productId);

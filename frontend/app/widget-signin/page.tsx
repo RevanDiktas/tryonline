@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { login, getCurrentUser, signInWithSocial } from '@/lib/supabase-auth';
+import { isValidLinkState } from '@/lib/widgetReturn';
 
 const SUPABASE_CONFIGURED =
   typeof process.env.NEXT_PUBLIC_SUPABASE_URL === 'string' &&
@@ -30,6 +31,18 @@ export default function WidgetSignInPage() {
   const [checking, setChecking] = useState(true);
 
   const isPopup = typeof window !== 'undefined' && !!window.opener;
+
+  const signupHref = (() => {
+    const q = new URLSearchParams({ from: 'widget' });
+    // store_return is the product page; `return` here is the widget's own URL.
+    const storeReturn = searchParams.get('store_return');
+    try {
+      if (storeReturn && new URL(storeReturn).protocol === 'https:') q.set('return', storeReturn);
+    } catch { /* not a URL - drop it */ }
+    // Signing up from this popup must still sign in the widget polling widget_state.
+    if (isValidLinkState(widgetState)) q.set('link_state', widgetState);
+    return `/signup?${q.toString()}`;
+  })();
   const isIframeReturn = typeof window !== 'undefined' && !!returnUrl;
 
   const completeWidgetState = async (userId: string, displayName: string) => {
@@ -41,6 +54,19 @@ export default function WidgetSignInPage() {
         body: JSON.stringify({ user_id: userId, display_name: displayName }),
       });
     } catch (_) { /* best-effort */ }
+  };
+
+  // widget_state is completed for the widget to poll. In a popup we then close;
+  // inside an iframe (popup-blocked fallback) window.close() is a no-op, so
+  // send the frame back to the widget with the user instead.
+  const finishWidgetState = async (userId: string, displayName: string) => {
+    await completeWidgetState(userId, displayName);
+    if (window.self !== window.top && returnUrl) {
+      const sep = returnUrl.includes('?') ? '&' : '?';
+      window.location.href = returnUrl + sep + 'user_id=' + encodeURIComponent(userId) + '&display_name=' + encodeURIComponent(displayName);
+      return;
+    }
+    setTimeout(() => { try { window.close(); } catch (_) {} }, 400);
   };
 
   const handleSocialLogin = async (provider: 'google' | 'apple') => {
@@ -74,8 +100,7 @@ export default function WidgetSignInPage() {
           const displayName = user.name || user.email?.split('@')[0] || 'User';
 
           if (widgetState) {
-            await completeWidgetState(user.id, displayName);
-            setTimeout(() => { try { window.close(); } catch (_) {} }, 400);
+            await finishWidgetState(user.id, displayName);
             return;
           }
           if (isPopup && window.opener) {
@@ -127,8 +152,7 @@ export default function WidgetSignInPage() {
       }
       if (user && widgetState) {
         const displayName = user.name || user.email?.split('@')[0] || 'User';
-        await completeWidgetState(user.id, displayName);
-        setTimeout(() => { try { window.close(); } catch (_) {} }, 400);
+        await finishWidgetState(user.id, displayName);
         return;
       }
       if (user && isPopup && window.opener) {
@@ -250,7 +274,6 @@ export default function WidgetSignInPage() {
           {errors.form && (
             <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
               <p className="text-red-700 text-sm font-medium">{errors.form}</p>
-              <p className="text-red-600 text-xs mt-1">Check email/password, or Supabase Auth → URL Configuration (Redirect URLs).</p>
             </div>
           )}
           <button
@@ -261,7 +284,11 @@ export default function WidgetSignInPage() {
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
-        <p className="text-center text-gray-500 text-xs mt-4">
+        <p className="text-center text-gray-500 text-sm mt-4">
+          New here?{' '}
+          <a href={signupHref} className="text-black font-medium underline">Create an account</a>
+        </p>
+        <p className="text-center text-gray-500 text-xs mt-2">
           After signing in, the try-on will open.
         </p>
       </div>

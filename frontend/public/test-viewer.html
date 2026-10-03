@@ -174,25 +174,39 @@
       color: #333;
     }
 
-    /* Close button */
+    /* Close button — the ONE close control for every widget state (loading, sign-in,
+       onboarding, error, viewer). Lives at body level, fixed to the viewport corner, so it
+       never sits inside the transformed popup and is never duplicated per state. */
     .close-btn {
-      position: absolute;
-      top: -48px;
-      right: 0;
+      position: fixed;
+      top: max(12px, env(safe-area-inset-top));
+      right: max(12px, env(safe-area-inset-right));
+      z-index: 1000;
       width: 40px;
       height: 40px;
-      background: rgba(255, 255, 255, 0.9);
+      background: rgba(255, 255, 255, 0.92);
+      color: #1a1a1a;
       backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       border: none;
       border-radius: 50%;
-      display: flex;
+      display: none;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       font-size: 18px;
       font-weight: 300;
+      line-height: 1;
       box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
-      transition: all 0.2s;
+      transition: transform 0.2s, background 0.2s;
+    }
+    body.tryon-x-on .close-btn { display: flex; }
+
+    /* Closed: the iframe stays alive (WebGL) but is invisible and click-through. */
+    html.tryon-ghost, html.tryon-ghost body {
+      visibility: hidden !important;
+      background: transparent !important;
+      pointer-events: none !important;
     }
 
     .close-btn:hover {
@@ -515,9 +529,6 @@
       }
 
       .close-btn {
-        top: -52px;
-        right: 50%;
-        transform: translateX(50%);
         width: 36px;
         height: 36px;
         font-size: 16px;
@@ -642,7 +653,14 @@
         productImageUrl: p.get('product_image') ? decodeURIComponent(p.get('product_image')) : null,
         productPrice: p.get('product_price') ? decodeURIComponent(p.get('product_price')) : null,
         brandName: p.get('brand_name') ? decodeURIComponent(p.get('brand_name')) : null,
+        // Where "Back to store" sends the shopper after sign-up/onboarding on tryon.global. The block
+        // passes the exact product URL; older block versions fall back to the referrer (store origin).
+        returnUrl: tryonHttpsUrl(p.get('return_url')) || tryonHttpsUrl(document.referrer) || null,
       };
+      function tryonHttpsUrl(v) {
+        if (!v) return null;
+        try { var u = new URL(v); return u.protocol === 'https:' ? u.toString() : null; } catch (e) { return null; }
+      }
     })();
   </script>
   <!-- Preload status -->
@@ -676,62 +694,118 @@
   })();
   </script>
 
-  <!-- Login gate: shown when open=1 and no session (store PDP). Sign in to get size & avatar. -->
+  <!-- The single close control for every state. Shown/hidden by setUiState(). -->
+  <button class="close-btn" id="close-tryon" type="button" aria-label="Close try-on">&#x2715;</button>
+
+  <!-- Boot: shown the moment the widget opens, until sign-in / viewer / error takes over. -->
+  <div class="tryon-boot" id="tryon-boot" style="display:none;">
+    <div class="tryon-boot-inner"><div class="loader"></div><div class="tryon-boot-text">Loading try-on&hellip;</div></div>
+  </div>
+
+  <!-- Gate: sign in OR create an account, then (if needed) create the avatar. One card, several steps. -->
   <div class="tryon-login-gate" id="tryon-login-gate" style="display:none;">
-    <div class="tryon-login-gate-inner">
-      <button class="tryon-login-gate-close" id="tryon-login-gate-close" aria-label="Close">&times;</button>
+    <div class="tryon-login-gate-inner" role="dialog" aria-modal="true" aria-labelledby="tryon-gate-title">
       <div class="tryon-login-gate-logo">TRYON</div>
-      <p class="tryon-login-gate-text">Sign in to get your size and try on with your avatar.</p>
-      <a href="#" class="tryon-login-gate-btn" id="tryon-signin-btn" role="button">Sign in</a>
-      <div class="tryon-login-gate-divider"><span>or</span></div>
-      <a href="#" class="tryon-login-gate-social tryon-login-gate-google" id="tryon-google-btn" role="button">
-        <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-        Continue with Google
-      </a>
-      <a href="#" class="tryon-login-gate-social tryon-login-gate-apple" id="tryon-apple-btn" role="button">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
-        Continue with Apple
-      </a>
-      <p class="tryon-login-gate-hint">Sign in here, then the try-on will open.</p>
+
+      <div class="tryon-gate-step" data-step="choose">
+        <h2 class="tryon-gate-title" id="tryon-gate-title">Try it on yourself</h2>
+        <p class="tryon-login-gate-text">See how it fits on your own 3D avatar and get your size<span class="tryon-gate-brand"></span>.</p>
+        <button type="button" class="tryon-login-gate-btn" id="tryon-gate-signin">Sign in</button>
+        <a href="#" target="_blank" rel="noopener" class="tryon-login-gate-btn tryon-login-gate-btn--ghost" id="tryon-gate-signup">Create a free account</a>
+        <p class="tryon-login-gate-hint">New here? Creating your avatar takes about 2 minutes and one photo.</p>
+      </div>
+
+      <div class="tryon-gate-step" data-step="signin" hidden>
+        <h2 class="tryon-gate-title">Sign in</h2>
+        <a href="#" class="tryon-login-gate-social tryon-login-gate-google" id="tryon-google-btn" role="button">
+          <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+          Continue with Google
+        </a>
+        <a href="#" class="tryon-login-gate-social tryon-login-gate-apple" id="tryon-apple-btn" role="button">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
+          Continue with Apple
+        </a>
+        <div class="tryon-login-gate-divider"><span>or</span></div>
+        <a href="#" class="tryon-login-gate-btn" id="tryon-signin-btn" role="button">Continue with email</a>
+        <p class="tryon-gate-waiting-note" id="tryon-signin-waiting" hidden>Finish signing in in the window that opened. This screen updates by itself.</p>
+        <div class="tryon-gate-links">
+          <button type="button" class="tryon-gate-link" data-goto="choose">&larr; Back</button>
+          <a href="#" target="_blank" rel="noopener" class="tryon-gate-link" id="tryon-gate-signup-2">No account? Create one</a>
+        </div>
+      </div>
+
+      <div class="tryon-gate-step" data-step="signup-wait" hidden>
+        <h2 class="tryon-gate-title">Finish in the new tab</h2>
+        <p class="tryon-login-gate-text">Create your account and avatar on tryon.global. Come back to this tab when you're done and the try-on opens by itself.</p>
+        <a href="#" target="_blank" rel="noopener" class="tryon-login-gate-btn tryon-login-gate-btn--ghost" id="tryon-gate-signup-again">Open the sign-up page again</a>
+        <div class="tryon-gate-links">
+          <button type="button" class="tryon-gate-link" data-goto="choose">&larr; Back</button>
+          <button type="button" class="tryon-gate-link" data-goto="signin">I already have an account</button>
+        </div>
+      </div>
+
+      <div class="tryon-gate-step" data-step="avatar" hidden>
+        <h2 class="tryon-gate-title">One step left: your avatar</h2>
+        <p class="tryon-login-gate-text">You're signed in<span class="tryon-gate-name"></span>. Create your avatar (about 2 minutes, one photo) and you can try this on.</p>
+        <a href="#" target="_blank" rel="noopener" class="tryon-login-gate-btn" id="tryon-gate-onboard">Create my avatar</a>
+        <button type="button" class="tryon-login-gate-btn tryon-login-gate-btn--ghost" id="tryon-gate-recheck">I've finished, open the try-on</button>
+        <p class="tryon-gate-waiting-note" id="tryon-gate-recheck-note" hidden></p>
+        <div class="tryon-gate-links">
+          <button type="button" class="tryon-gate-link" id="tryon-gate-switch">Use a different account</button>
+        </div>
+      </div>
     </div>
   </div>
   <!-- Error state: avatar or product not available from Supabase (no demo GLBs). -->
   <div class="tryon-error-state" id="tryon-error-state" style="display:none;">
-    <div class="tryon-error-state-inner">
+    <div class="tryon-error-state-inner" role="alertdialog" aria-labelledby="tryon-error-title">
       <h3 id="tryon-error-title">Try-on unavailable</h3>
       <p id="tryon-error-message"></p>
       <p id="tryon-error-signin-wrap" style="display:none;margin-top:16px;"></p>
     </div>
   </div>
   <style>
+  .tryon-boot{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .tryon-boot-inner{background:#fff;border-radius:14px;padding:22px 28px;display:flex;flex-direction:column;align-items:center;gap:12px;box-shadow:0 12px 40px rgba(0,0,0,0.15);}
+  .tryon-boot-text{font-size:13px;color:#555;}
   .tryon-login-gate{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:20px;}
-  .tryon-login-gate-inner{background:#fff;border-radius:12px;padding:24px;max-width:300px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,0.15);position:relative;}
-  .tryon-login-gate-close{position:absolute;top:8px;right:8px;width:28px;height:28px;border:none;background:none;font-size:20px;color:#999;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:50%;transition:background 0.15s,color 0.15s;}
-  .tryon-login-gate-close:hover{background:#f0f0f0;color:#333;}
-  .tryon-login-gate-logo{font-size:16px;font-weight:600;letter-spacing:0.08em;margin-bottom:12px;}
-  .tryon-login-gate-text{color:#333;font-size:14px;line-height:1.45;margin-bottom:18px;}
-  .tryon-login-gate-btn{display:inline-block;text-decoration:none;padding:12px 22px;background:#0a0a0a;color:#fff;border:none;font-size:13px;font-weight:500;border-radius:8px;cursor:pointer;width:100%;box-sizing:border-box;}
+  .tryon-login-gate-inner{background:#fff;border-radius:14px;padding:28px 24px 20px;width:100%;max-width:340px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,0.15);position:relative;}
+  .tryon-login-gate-logo{font-size:12px;font-weight:600;letter-spacing:0.12em;color:#888;margin-bottom:14px;}
+  .tryon-gate-title{font-size:19px;font-weight:600;color:#111;margin-bottom:8px;letter-spacing:-0.01em;}
+  .tryon-login-gate-text{color:#444;font-size:14px;line-height:1.5;margin-bottom:20px;}
+  .tryon-login-gate-btn{display:flex;align-items:center;justify-content:center;text-decoration:none;padding:13px 22px;background:#0a0a0a;color:#fff;border:1px solid #0a0a0a;font:inherit;font-size:14px;font-weight:500;border-radius:10px;cursor:pointer;width:100%;box-sizing:border-box;margin-bottom:10px;transition:opacity 0.15s,background 0.15s;}
   .tryon-login-gate-btn:hover{opacity:0.9;}
-  .tryon-login-gate-divider{display:flex;align-items:center;gap:10px;margin:14px 0;color:#999;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;}
+  .tryon-login-gate-btn--ghost{background:#fff;color:#0a0a0a;border-color:#d4d4d4;}
+  .tryon-login-gate-btn--ghost:hover{background:#f6f6f6;opacity:1;}
+  .tryon-login-gate-btn[aria-busy="true"]{opacity:0.6;pointer-events:none;}
+  .tryon-login-gate-divider{display:flex;align-items:center;gap:10px;margin:8px 0 14px;color:#999;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;}
   .tryon-login-gate-divider::before,.tryon-login-gate-divider::after{content:'';flex:1;border-top:1px solid #e5e5e5;}
-  .tryon-login-gate-social{display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;padding:10px 16px;border:1px solid #e0e0e0;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;width:100%;box-sizing:border-box;transition:background 0.15s;margin-bottom:8px;}
+  .tryon-login-gate-social{display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;padding:12px 16px;border:1px solid #e0e0e0;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer;width:100%;box-sizing:border-box;transition:background 0.15s;margin-bottom:10px;}
   .tryon-login-gate-google{background:#fff;color:#333;}
   .tryon-login-gate-google:hover{background:#f8f8f8;}
   .tryon-login-gate-apple{background:#000;color:#fff;border-color:#000;}
   .tryon-login-gate-apple:hover{opacity:0.9;}
-  .tryon-login-gate-hint{color:#666;font-size:11px;margin-top:12px;}
-  body.open-direct .tryon-login-gate{background:transparent;}
+  .tryon-login-gate-hint{color:#777;font-size:12px;line-height:1.45;margin-top:6px;}
+  .tryon-gate-waiting-note{color:#555;font-size:12px;line-height:1.45;margin:4px 0 8px;}
+  .tryon-gate-links{display:flex;justify-content:space-between;gap:12px;margin-top:10px;flex-wrap:wrap;}
+  .tryon-gate-link{background:none;border:none;padding:4px 0;font:inherit;font-size:12px;color:#444;text-decoration:underline;text-underline-offset:2px;cursor:pointer;}
+  .tryon-gate-link:hover{color:#000;}
+  .tryon-gate-links .tryon-gate-link:only-child{margin:0 auto;}
+  /* Embedded: the iframe is full-viewport (the block re-parents it to <body>), so a light dim
+     separates the card from a busy product page. */
+  body.open-direct .tryon-login-gate{background:rgba(0,0,0,0.28);}
+  .tryon-login-gate-btn:focus-visible,.tryon-login-gate-social:focus-visible,.tryon-gate-link:focus-visible,.close-btn:focus-visible{outline:2px solid #0a0a0a;outline-offset:2px;}
   .tryon-error-state{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;padding:20px;}
+  body.open-direct .tryon-error-state{background:rgba(0,0,0,0.28);}
   .tryon-error-state-inner{background:#fff;border-radius:16px;padding:32px;max-width:360px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
   .tryon-error-state-inner h3{font-size:16px;margin-bottom:12px;color:#1a1a1a;}
   .tryon-error-state-inner p{color:#555;font-size:14px;}
-  .tryon-error-state-inner a.tryon-error-signin{display:inline-block;margin-top:8px;color:#0a0a0a;font-weight:500;text-decoration:underline;}
+  .tryon-error-state-inner a.tryon-error-signin,.tryon-error-state-inner button.tryon-error-signin{display:inline-block;margin-top:8px;color:#0a0a0a;font:inherit;font-weight:500;text-decoration:underline;background:none;border:none;cursor:pointer;}
   </style>
 
   <!-- TryOn Overlay -->
   <div class="overlay" id="overlay">
     <div class="tryon-popup">
-      <button class="close-btn" id="close-tryon">✕</button>
 
       <div class="popup-glass">
         <div class="popup-header">
@@ -1126,16 +1200,15 @@
     }
 
     function showErrorState(title, message) {
-      const el = document.getElementById('tryon-error-state');
       const titleEl = document.getElementById('tryon-error-title');
       const msgEl = document.getElementById('tryon-error-message');
       const signinWrap = document.getElementById('tryon-error-signin-wrap');
-      if (el && titleEl && msgEl) {
+      if (titleEl && msgEl) {
         titleEl.textContent = title;
         msgEl.textContent = message;
         if (signinWrap) { signinWrap.style.display = 'none'; signinWrap.innerHTML = ''; }
-        el.style.display = 'flex';
       }
+      setUiState('error');
     }
     function isMobileDevice() {
       if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
@@ -1143,46 +1216,16 @@
       var touchOrNarrow = (typeof window.innerWidth !== 'undefined' && window.innerWidth < 768);
       return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile/i.test(ua) || touchOrNarrow;
     }
-    function bindErrorSigninLinksInIframe() {
-      var isInIframe = typeof window !== 'undefined' && window.self !== window.top;
-      if (!isInIframe) return;
-      var wrap = document.getElementById('tryon-error-signin-wrap');
-      if (!wrap) return;
-      wrap.querySelectorAll('a.tryon-error-signin').forEach(function(a) {
-        a.addEventListener('click', function(e) {
-          e.preventDefault();
-          var href = a.getAttribute('href');
-          if (!href || href === '#') return;
-          var token = generateStateToken();
-          var url = href + (href.indexOf('?') >= 0 ? '&' : '?') + 'widget_state=' + encodeURIComponent(token);
-          var w = 500, h = 650;
-          var left = (screen.width - w) / 2;
-          var top = (screen.height - h) / 2;
-          var popup = window.open(url, 'tryon-signin', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',scrollbars=yes');
-          pollWidgetState(token);
-          if (!popup || popup.closed) window.location.href = url;
-        });
-      });
-    }
+    // "Sign in again" goes back to the gate's sign-in step instead of a bare /widget-signin page.
     function showErrorStateSignInLink() {
       const signinWrap = document.getElementById('tryon-error-signin-wrap');
-      if (!signinWrap || typeof buildWidgetSignInUrl !== 'function') return;
-      const url = buildWidgetSignInUrl(false);
-      signinWrap.innerHTML = '<a href="' + url + '" class="tryon-error-signin" id="tryon-error-signin-link">Sign in again</a>';
-      signinWrap.style.display = 'block';
-      bindErrorSigninLinksInIframe();
-    }
-    function showErrorStateAvatarNotReady() {
-      const signinWrap = document.getElementById('tryon-error-signin-wrap');
       if (!signinWrap) return;
-      var base = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : 'https://tryonline.vercel.app';
-      signinWrap.innerHTML = '<a href="' + base + '/dashboard" class="tryon-error-signin" id="tryon-error-signin-link">Complete your fit passport</a> &middot; <a href="#" class="tryon-error-signin" id="tryon-error-signin-again">Sign in again</a>';
+      signinWrap.innerHTML = '<button type="button" class="tryon-error-signin" id="tryon-error-signin-again">Sign in again</button>';
       signinWrap.style.display = 'block';
-      var again = document.getElementById('tryon-error-signin-again');
-      if (again && typeof buildWidgetSignInUrl === 'function') {
-        again.href = buildWidgetSignInUrl(false);
-      }
-      bindErrorSigninLinksInIframe();
+      document.getElementById('tryon-error-signin-again').addEventListener('click', function() {
+        forgetUser();
+        showLoginGate('signin');
+      });
     }
 
     // Initialize: fetch user + product from API only (no demo fallbacks). Then preload or show error.
@@ -1200,8 +1243,8 @@
           return false;
         }
         if (userData._avatarNotFound) {
-          showErrorState('Avatar not ready', 'Complete your fit passport in your account, then try again.');
-          showErrorStateAvatarNotReady();
+          // Signed in but no avatar yet: the most common dead end. Walk them into onboarding.
+          showLoginGate('avatar');
           return false;
         }
         if (!userData.avatarUrl) {
@@ -1771,66 +1814,225 @@
       }
     }
 
-    // When open=1 (e.g. from store PDP), hide fake PDP and either show login gate or open viewer
+    // ============================================
+    // WIDGET LIFECYCLE
+    // One state at a time: 'booting' | 'gate' | 'error' | 'viewer' | 'closed'.
+    // The Shopify block keeps this iframe alive between opens (WebGL), so closing
+    // ghosts the document and the block's TRYON_OPEN brings it back.
+    // ============================================
     const pdpBg = document.getElementById('pdp-background');
     const loginGate = document.getElementById('tryon-login-gate');
+    const bootEl = document.getElementById('tryon-boot');
+    const errorEl = document.getElementById('tryon-error-state');
     const signinBtn = document.getElementById('tryon-signin-btn');
+    const inIframe = typeof window !== 'undefined' && window.self !== window.top;
     if (config.openDirect && pdpBg) pdpBg.style.display = 'none';
+
+    let uiState = 'closed';
+    let gateStep = 'choose';
+    let viewerEverOpened = false;
+    let flowGen = 0;
+
+    // Leaving 'closed' only happens through 'booting', i.e. an explicit open. Async work that
+    // finishes after the shopper closed (auth check, avatar fetch, re-check) can't resurface
+    // UI inside the hidden iframe, which would show up as a phantom open later.
+    function setUiState(next) {
+      if (uiState === 'closed' && next !== 'closed' && next !== 'booting') return false;
+      uiState = next;
+      if (bootEl) bootEl.style.display = next === 'booting' ? 'flex' : 'none';
+      if (loginGate) loginGate.style.display = next === 'gate' ? 'flex' : 'none';
+      if (errorEl) errorEl.style.display = next === 'error' ? 'flex' : 'none';
+      overlay.classList.toggle('active', next === 'viewer');
+      document.documentElement.classList.toggle('tryon-ghost', next === 'closed' && config.openDirect);
+      document.body.classList.toggle('tryon-x-on', next !== 'closed');
+      return true;
+    }
+
+    function postToParent(msg) {
+      if (!inIframe) return;
+      try { window.parent.postMessage(msg, '*'); } catch (e) {}
+    }
+
+    function buildSiteUrl(path, extra) {
+      var origin = window.location.origin || 'https://tryon.global';
+      var u = new URL(path, origin);
+      u.searchParams.set('from', 'widget');
+      if (config.returnUrl) u.searchParams.set('return', config.returnUrl);
+      if (config.brandName) u.searchParams.set('brand', config.brandName);
+      Object.keys(extra || {}).forEach(function(k) { if (extra[k]) u.searchParams.set(k, extra[k]); });
+      return u.toString();
+    }
 
     function buildWidgetSignInUrl(popup) {
       var u = new URL(window.location.href);
       u.searchParams.set('open', '1');
-      var url = (window.location.origin || 'https://tryonline.vercel.app') + '/widget-signin?return=' + encodeURIComponent(u.toString());
+      var url = (window.location.origin || 'https://tryon.global') + '/widget-signin?return=' + encodeURIComponent(u.toString());
       if (popup) url += '&popup=1';
       if (inIframe && isMobileDevice()) url += '&show_form=1';
       return url;
     }
-    function showLoginGate() {
-      if (loginGate) loginGate.style.display = 'flex';
-      var btn = document.getElementById('tryon-signin-btn');
-      if (btn) btn.href = buildWidgetSignInUrl(false);
+
+    function setGateStep(step) {
+      gateStep = step;
+      if (!loginGate) return;
+      loginGate.querySelectorAll('.tryon-gate-step').forEach(function(el) {
+        el.hidden = el.dataset.step !== step;
+      });
+      var brandEl = loginGate.querySelector('.tryon-gate-brand');
+      if (brandEl) brandEl.textContent = config.brandName ? ' at ' + config.brandName : '';
+      var nameEl = loginGate.querySelector('.tryon-gate-name');
+      if (nameEl) nameEl.textContent = config.displayName ? ' as ' + config.displayName : '';
+      if (step === 'choose' || step === 'signin' || step === 'signup-wait') {
+        var signupHref = buildSiteUrl('/signup', { link_state: getLinkToken() });
+        ['tryon-gate-signup', 'tryon-gate-signup-2', 'tryon-gate-signup-again'].forEach(function(id) {
+          var a = document.getElementById(id);
+          if (a) a.href = signupHref;
+        });
+      }
+      if (step === 'avatar') {
+        var onboard = document.getElementById('tryon-gate-onboard');
+        if (onboard) onboard.href = buildSiteUrl('/onboarding');
+        var note = document.getElementById('tryon-gate-recheck-note');
+        if (note) note.hidden = true;
+      }
+      if (step !== 'signin') {
+        var waiting = document.getElementById('tryon-signin-waiting');
+        if (waiting) waiting.hidden = true;
+      }
+      // Move focus into the new step so keyboard and screen-reader users land in it.
+      var first = loginGate.querySelector('.tryon-gate-step:not([hidden]) a, .tryon-gate-step:not([hidden]) button');
+      if (first && uiState === 'gate') { try { first.focus({ preventScroll: true }); } catch (e) {} }
     }
-    function hideLoginGate() {
-      if (loginGate) loginGate.style.display = 'none';
+
+    function showLoginGate(step) {
+      if (!setUiState('gate')) return;
+      setGateStep(step || 'choose');
     }
-    var inIframe = typeof window !== 'undefined' && window.self !== window.top;
+
+    function forgetUser() {
+      config.userId = null;
+      config.displayName = null;
+      ['tryon_user_id', 'tryon_user_name'].forEach(function(k) {
+        try { localStorage.removeItem(k); } catch (e) {}
+        try { sessionStorage.removeItem(k); } catch (e) {}
+      });
+      try {
+        var u = new URL(window.location.href);
+        u.searchParams.delete('user_id');
+        u.searchParams.delete('display_name');
+        history.replaceState(null, '', u.toString());
+      } catch (e) {}
+    }
+
+    // Step navigation inside the gate card.
+    if (loginGate) {
+      loginGate.querySelectorAll('[data-goto]').forEach(function(el) {
+        el.addEventListener('click', function() { setGateStep(el.dataset.goto); });
+      });
+      // Click on the backdrop (outside the card) closes, same as the ✕.
+      loginGate.addEventListener('click', function(e) { if (e.target === loginGate) closeWidget(); });
+    }
+    if (errorEl) errorEl.addEventListener('click', function(e) { if (e.target === errorEl) closeWidget(); });
+    if (bootEl) bootEl.addEventListener('click', function(e) { if (e.target === bootEl) closeWidget(); });
+
+    var gateSigninBtn = document.getElementById('tryon-gate-signin');
+    if (gateSigninBtn) gateSigninBtn.addEventListener('click', function() { setGateStep('signin'); });
+
+    // Sign-up happens on tryon.global in a NEW TAB (a top-level page: camera access, real cookies).
+    // The link_state token lets the new tab sign this iframe in as soon as the account exists,
+    // so the shopper comes back to the "create your avatar" step instead of the sign-in step.
+    ['tryon-gate-signup', 'tryon-gate-signup-2', 'tryon-gate-signup-again'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      // auxclick covers middle-click; long-press "open in new tab" works because href is set eagerly.
+      function onOpenSignup(e) {
+        if (e.type === 'auxclick' && e.button !== 1) return;
+        el.href = buildSiteUrl('/signup', { link_state: getLinkToken() });
+        pollWidgetState(getLinkToken(), LINK_TOKEN_TTL_MS);
+        track('widget_signup_clicked');
+        // target=_blank anchor: the browser opens the tab natively, never popup-blocked.
+        // Swap the card after the tab opens.
+        setTimeout(function() { setGateStep('signup-wait'); }, 0);
+      }
+      el.addEventListener('click', onOpenSignup);
+      el.addEventListener('auxclick', onOpenSignup);
+    });
+
+    var onboardBtn = document.getElementById('tryon-gate-onboard');
+    if (onboardBtn) onboardBtn.addEventListener('click', function() { track('widget_onboarding_clicked'); });
+
+    var recheckBtn = document.getElementById('tryon-gate-recheck');
+    if (recheckBtn) recheckBtn.addEventListener('click', function() { recheckAvatar(true); });
+
+    var switchBtn = document.getElementById('tryon-gate-switch');
+    if (switchBtn) switchBtn.addEventListener('click', function() {
+      forgetUser();
+      setGateStep('signin');
+    });
+
+    // Signed in, waiting on the avatar from the other tab: check again when the shopper comes back.
+    let recheckInFlight = false;
+    async function recheckAvatar(fromButton) {
+      if (recheckInFlight || !config.userId) return;
+      recheckInFlight = true;
+      var note = document.getElementById('tryon-gate-recheck-note');
+      if (fromButton && recheckBtn) recheckBtn.setAttribute('aria-busy', 'true');
+      try {
+        var ok = await initConfig();
+        if (ok && uiState !== 'closed') { openViewer(); return; }
+        if (fromButton && note && uiState === 'gate' && gateStep === 'avatar') {
+          note.textContent = 'Your avatar isn’t ready yet. It can take a few minutes after you finish.';
+          note.hidden = false;
+        }
+      } finally {
+        recheckInFlight = false;
+        if (recheckBtn) recheckBtn.removeAttribute('aria-busy');
+      }
+    }
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden && uiState === 'gate' && gateStep === 'avatar') recheckAvatar(false);
+    });
+
+    function openSigninPopup(url, token) {
+      var w = 500, h = 650;
+      var left = (screen.width - w) / 2;
+      var top = (screen.height - h) / 2;
+      var popup = window.open(url, 'tryon-signin', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',scrollbars=yes');
+      pollWidgetState(token);
+      if (!popup || popup.closed) {
+        // Navigate this iframe instead. Drop widget_state so /widget-signin takes its `return`
+        // branch (redirect back here with user_id) rather than completing the state + window.close(),
+        // which is a no-op inside an iframe and would strand the shopper on a blank page.
+        console.warn('[TryOn] Popup blocked, falling back to redirect');
+        stopWidgetStatePoll(token);
+        var fallback = new URL(url);
+        fallback.searchParams.delete('widget_state');
+        navigateWidget(fallback.toString());
+        return;
+      }
+      var waiting = document.getElementById('tryon-signin-waiting');
+      if (waiting) waiting.hidden = false;
+    }
+
     if (signinBtn) {
       signinBtn.href = buildWidgetSignInUrl(false);
       signinBtn.addEventListener('click', function(e) {
         e.preventDefault();
         if (inIframe) {
-          // Open email/password sign-in in a popup + poll for completion.
-          // This keeps the user on the PDP and avoids iframe navigation issues.
+          // Email/password sign-in in a popup + poll for completion, keeping the shopper on the PDP.
           var token = generateStateToken();
           var origin = window.location.origin || 'https://tryon.global';
-          var returnUrl = window.location.href;
-          var url = origin + '/widget-signin?return=' + encodeURIComponent(returnUrl)
+          var url = origin + '/widget-signin?return=' + encodeURIComponent(window.location.href)
             + '&widget_state=' + encodeURIComponent(token)
-            + '&show_form=1';
-          var w = 500, h = 650;
-          var left = (screen.width - w) / 2;
-          var top = (screen.height - h) / 2;
-          var popup = window.open(url, 'tryon-signin', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',scrollbars=yes');
-          pollWidgetState(token);
-          if (!popup || popup.closed) {
-            window.location.href = url;
-          }
+            + '&show_form=1'
+            + (config.returnUrl ? '&store_return=' + encodeURIComponent(config.returnUrl) : '');
+          openSigninPopup(url, token);
           return;
         }
         window.location.href = buildWidgetSignInUrl(false);
       });
     }
-    // Close button on login gate
-    var loginGateClose = document.getElementById('tryon-login-gate-close');
-    if (loginGateClose) {
-      loginGateClose.addEventListener('click', function() {
-        hideLoginGate();
-        // In iframe, tell parent to close the iframe
-        if (inIframe) {
-          try { window.parent.postMessage({ type: 'TRYON_CLOSE' }, '*'); } catch(e) {}
-        }
-      });
-    }
+
     // Social sign-in: open a popup for Google/Apple OAuth.
     // Google's COOP headers nullify window.opener after navigating through
     // their OAuth page, so we can't use postMessage.  BroadcastChannel is
@@ -1839,8 +2041,6 @@
     // token, and the iframe polls for it.
     var googleBtn = document.getElementById('tryon-google-btn');
     var appleBtn = document.getElementById('tryon-apple-btn');
-    var _widgetStatePollTimer = null;
-    var _widgetStateVisHandler = null;
 
     function generateStateToken() {
       if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -1858,50 +2058,87 @@
       var u = new URL(window.location.href);
       u.searchParams.set('user_id', userId);
       if (displayName) u.searchParams.set('display_name', displayName);
-      window.location.href = u.toString();
+      // If the shopper closed the widget meanwhile, reload closed; the next TRYON_OPEN resumes.
+      if (uiState === 'closed') u.searchParams.set('start_closed', '1');
+      else u.searchParams.delete('start_closed');
+      navigateWidget(u.toString());
     }
 
-    function pollWidgetState(token) {
-      if (_widgetStatePollTimer) clearInterval(_widgetStatePollTimer);
+    // Any navigation of this document leaves a gap with no widget ✕; tell the host first so it
+    // shows its spinner + fallback ✕ until the next TRYON_READY.
+    function navigateWidget(url) {
+      postToParent({ type: 'TRYON_RELOADING' });
+      window.location.href = url;
+    }
+
+    // One sign-up link token per store (iframe storage is partitioned per store), reused by every
+    // "create account" link and resumed on later page loads. The shopper may finish in the FIRST
+    // tab they opened, so the token must not rotate per click.
+    const LINK_TOKEN_KEY = 'tryon_link_token';
+    const LINK_TOKEN_TTL_MS = 60 * 60 * 1000;
+    let linkToken = null;
+    function readLinkToken() {
+      try {
+        var raw = localStorage.getItem(LINK_TOKEN_KEY);
+        if (!raw) return null;
+        var v = JSON.parse(raw);
+        if (v && v.t && Date.now() - v.ts < LINK_TOKEN_TTL_MS) return v;
+        localStorage.removeItem(LINK_TOKEN_KEY);
+      } catch (e) {}
+      return null;
+    }
+    function getLinkToken() {
+      if (linkToken) return linkToken;
+      var stored = readLinkToken();
+      linkToken = stored ? stored.t : generateStateToken();
+      if (!stored) { try { localStorage.setItem(LINK_TOKEN_KEY, JSON.stringify({ t: linkToken, ts: Date.now() })); } catch (e) {} }
+      return linkToken;
+    }
+    function clearLinkToken() {
+      linkToken = null;
+      try { localStorage.removeItem(LINK_TOKEN_KEY); } catch (e) {}
+    }
+
+    // Several polls can run at once: the sign-up link token AND a sign-in popup token.
+    const widgetStatePolls = {};
+    function stopWidgetStatePoll(token) {
+      var p = widgetStatePolls[token];
+      if (!p) return;
+      clearInterval(p.interval);
+      clearTimeout(p.stop);
+      document.removeEventListener('visibilitychange', p.onVis);
+      delete widgetStatePolls[token];
+    }
+    function pollWidgetState(token, maxMs) {
+      if (widgetStatePolls[token]) return;
       var apiBase = config.apiUrl || '';
       var pollUrl = apiBase + '/api/auth/widget-state/' + encodeURIComponent(token);
-
       function checkState() {
         fetch(pollUrl).then(function(r) { return r.json(); }).then(function(data) {
-          if (data && data.user_id) {
-            if (_widgetStatePollTimer) clearInterval(_widgetStatePollTimer);
-            if (_widgetStateVisHandler) document.removeEventListener('visibilitychange', _widgetStateVisHandler);
+          if (data && data.user_id && widgetStatePolls[token]) {
+            Object.keys(widgetStatePolls).forEach(stopWidgetStatePoll);
+            if (token === linkToken) clearLinkToken();
             reloadWithUser(data.user_id, data.display_name);
           }
         }).catch(function() {});
       }
-
-      _widgetStatePollTimer = setInterval(checkState, 2000);
-      setTimeout(function() { if (_widgetStatePollTimer) clearInterval(_widgetStatePollTimer); }, 5 * 60 * 1000);
-
-      _widgetStateVisHandler = function() { if (!document.hidden) checkState(); };
-      document.addEventListener('visibilitychange', _widgetStateVisHandler);
+      var onVis = function() { if (!document.hidden) checkState(); };
+      widgetStatePolls[token] = {
+        interval: setInterval(checkState, 2000),
+        stop: setTimeout(function() { stopWidgetStatePoll(token); }, maxMs || 5 * 60 * 1000),
+        onVis: onVis,
+      };
+      document.addEventListener('visibilitychange', onVis);
+      checkState();
     }
 
     function openSocialSignIn(provider) {
       var token = generateStateToken();
       var origin = window.location.origin || 'https://tryon.global';
-      var returnUrl = window.location.href;
-      var url = origin + '/widget-signin?return=' + encodeURIComponent(returnUrl)
+      var url = origin + '/widget-signin?return=' + encodeURIComponent(window.location.href)
         + '&provider=' + encodeURIComponent(provider)
         + '&widget_state=' + encodeURIComponent(token);
-
-      var w = 500, h = 650;
-      var left = (screen.width - w) / 2;
-      var top = (screen.height - h) / 2;
-      var popup = window.open(url, 'tryon-signin', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',scrollbars=yes');
-
-      pollWidgetState(token);
-
-      if (!popup || popup.closed) {
-        console.warn('[TryOn] Popup blocked, falling back to redirect');
-        window.location.href = url;
-      }
+      openSigninPopup(url, token);
     }
 
     if (googleBtn) {
@@ -1917,13 +2154,17 @@
       });
     }
 
-    // Legacy postMessage handler (still works if window.opener is available)
     window.addEventListener('message', function(event) {
-      if (event.data && event.data.type === 'TRYON_USER_ID' && event.data.user_id) {
-        try {
-          if (event.data.display_name) sessionStorage.setItem('tryon_user_name', event.data.display_name);
-        } catch (e) {}
+      if (!event.data) return;
+      // Legacy sign-in handoff (still works if window.opener is available)
+      if (event.data.type === 'TRYON_USER_ID' && event.data.user_id) {
         reloadWithUser(event.data.user_id, event.data.display_name);
+        return;
+      }
+      // Host (Shopify block) lifecycle. Only trust our own parent frame.
+      if (inIframe && event.source === window.parent) {
+        if (event.data.type === 'TRYON_OPEN') reopenWidget();
+        if (event.data.type === 'TRYON_HIDE') closeWidget({ fromHost: true });
       }
     });
 
@@ -1934,7 +2175,8 @@
 
     async function openViewer() {
       setHeaderName();
-      overlay.classList.add('active');
+      if (!setUiState('viewer')) return;
+      viewerEverOpened = true;
       renderSizeButtons();
       updateSizeSelectorVisibility();
       currentSize = resolveCurrentSizeForOpen();
@@ -1951,40 +2193,74 @@
       });
     }
 
-    // Start: when open=1, check session first so returning users don't have to log in again.
-    // In iframe, /auth/me often returns 401 (cookies not sent), so we show login gate; after sign-in
-    // via widget-signin popup we get user_id via postMessage and reload with user_id in URL.
-    if (config.openDirect) {
+    // Decide what the shopper sees: viewer if signed in with an avatar, otherwise the gate.
+    // In a third-party iframe /auth/me usually 401s (partitioned cookies), so the gate is the
+    // common path; after sign-in the poll reloads this page with user_id.
+    async function startFlow() {
+      // A reopen always starts a fresh flow; an older in-flight flow notices and stops.
+      const gen = ++flowGen;
+      const stale = function() { return gen !== flowGen || uiState === 'closed'; };
+      setUiState('booting');
       if (!config.userId) {
-        var authGateShown = false;
-        function showGateOnce() {
-          if (!authGateShown) { authGateShown = true; showLoginGate(); }
+        var me = null;
+        try {
+          var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          var t = ctrl ? setTimeout(function() { ctrl.abort(); }, 5000) : null;
+          var r = await fetch('/auth/me', { credentials: 'include', signal: ctrl ? ctrl.signal : undefined });
+          if (t) clearTimeout(t);
+          me = r.ok ? await r.json() : null;
+        } catch (e) { me = null; }
+        if (stale()) return;
+        if (!me || !me.user_id) {
+          showLoginGate('choose');
+          // Shopper started sign-up earlier (maybe in another tab, or before iOS reloaded this
+          // page): keep listening for that account so this iframe signs in by itself.
+          var pending = readLinkToken();
+          if (pending) { linkToken = pending.t; pollWidgetState(pending.t, LINK_TOKEN_TTL_MS - (Date.now() - pending.ts)); }
+          return;
         }
-        var authTimeout = setTimeout(showGateOnce, 8000);
-        fetch('/auth/me', { credentials: 'include' })
-          .then(function(r) { return r.ok ? r.json() : null; })
-          .then(function(data) {
-            clearTimeout(authTimeout);
-            if (data && data.user_id) {
-              config.userId = data.user_id;
-              if (data.name) {
-                config.displayName = data.name;
-                try { localStorage.setItem('tryon_user_name', data.name); } catch (e) {}
-                try { sessionStorage.setItem('tryon_user_name', data.name); } catch (e) {}
-              }
-              try { localStorage.setItem('tryon_user_id', data.user_id); } catch (e) {}
-              try { sessionStorage.setItem('tryon_user_id', data.user_id); } catch (e) {}
-              initConfig().then(function(ok) { if (ok) openViewer(); });
-            } else {
-              showGateOnce();
-            }
-          })
-          .catch(function() {
-            clearTimeout(authTimeout);
-            showGateOnce();
-          });
+        config.userId = me.user_id;
+        try { localStorage.setItem('tryon_user_id', me.user_id); } catch (e) {}
+        try { sessionStorage.setItem('tryon_user_id', me.user_id); } catch (e) {}
+        if (me.name) {
+          config.displayName = me.name;
+          try { localStorage.setItem('tryon_user_name', me.name); } catch (e) {}
+          try { sessionStorage.setItem('tryon_user_name', me.name); } catch (e) {}
+        }
+      }
+      var ok = await initConfig();
+      if (ok && !stale()) openViewer();
+    }
+
+    // TRYON_OPEN from the host after a close: come back in the right state.
+    function reopenWidget() {
+      if (uiState !== 'closed') return;
+      if (viewerEverOpened) { setUiState('booting'); openViewer(); return; }
+      // Mid sign-up / onboarding: resume that step (and re-check the avatar right away).
+      if (gateStep === 'avatar' && config.userId) { setUiState('booting'); showLoginGate('avatar'); recheckAvatar(false); return; }
+      if ((gateStep === 'signup-wait' || gateStep === 'signin') && !config.userId) { setUiState('booting'); showLoginGate(gateStep); return; }
+      startFlow();
+    }
+
+    function closeWidget(opts) {
+      if (uiState === 'closed') return;
+      if (uiState === 'viewer') {
+        track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
+      }
+      setUiState('closed');
+      if (!(opts && opts.fromHost)) postToParent({ type: 'TRYON_CLOSE' });
+    }
+    // Kept for callers that predate the state machine.
+    const closeViewer = closeWidget;
+
+    if (config.openDirect) {
+      // Handshake: lets the host hide its fallback ✕ and spinner once we're alive.
+      postToParent({ type: 'TRYON_READY' });
+      if (new URLSearchParams(location.search).get('start_closed') === '1') {
+        // Signed in while closed: the next TRYON_OPEN runs startFlow (viewer or avatar step).
+        setUiState('closed');
       } else {
-        initConfig().then(function(ok) { if (ok) openViewer(); });
+        startFlow();
       }
     } else {
       initConfig().then(function() {});
@@ -1994,24 +2270,14 @@
     // EVENT LISTENERS
     // ============================================
 
-    function closeViewer() {
-      track('tryon_ended', { dwell_seconds: tryonStartTime ? Math.round((Date.now() - tryonStartTime) / 1000) : 0 });
-      overlay.classList.remove('active');
-      // Make the entire page invisible + click-through so the iframe is a ghost
-      document.documentElement.style.cssText = 'visibility:hidden!important;background:transparent!important;pointer-events:none!important;';
-      document.body.style.cssText = 'visibility:hidden!important;background:transparent!important;pointer-events:none!important;';
-      // Tell parent to remove iframe (multiple methods for reliability)
-      try { window.parent.postMessage({ type: 'TRYON_CLOSE' }, '*'); } catch(e) {}
-    }
-
-    openBtn.addEventListener('click', () => openViewer());
+    openBtn.addEventListener('click', () => { setUiState('booting'); openViewer(); });
 
     overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) closeViewer();
+      if (e.target === overlay) closeWidget();
     });
 
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && overlay.classList.contains('active')) closeViewer();
+      if (e.key === 'Escape' && uiState !== 'closed') closeWidget();
     });
 
     addToCartBtn.addEventListener('click', () => {
@@ -2038,7 +2304,7 @@
       }
     });
 
-    closeBtn.addEventListener('click', () => closeViewer());
+    closeBtn.addEventListener('click', () => closeWidget());
 
     // --- Wishlist heart button ---
     function getSupabaseAccessToken() {

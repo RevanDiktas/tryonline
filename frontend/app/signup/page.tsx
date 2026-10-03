@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
 import { signup, signInWithSocial } from '@/lib/supabase-auth';
@@ -8,6 +8,7 @@ import { registerBrand } from '@/lib/api';
 import { isShopifyMode } from '@/lib/app-mode';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
+import { captureWidgetReturn, completeWidgetLink, widgetReturnQuery } from '@/lib/widgetReturn';
 import {
   AuthSignUp, type SignUpData,
   AuthBrandSignUp, type BrandSignUpData,
@@ -37,13 +38,22 @@ function SignupContent() {
     return <BrandBookACallView dark={dark} />;
   }
 
-  return <ShopperSignupView dark={dark} router={router} />;
+  return <ShopperSignupView dark={dark} router={router} searchParams={searchParams} />;
 }
 
 /* ───────── Shopper signup ───────── */
-function ShopperSignupView({ dark, router }: { dark: boolean; router: ReturnType<typeof useRouter> }) {
+function ShopperSignupView({
+  dark, router, searchParams,
+}: {
+  dark: boolean;
+  router: ReturnType<typeof useRouter>;
+  searchParams: ReturnType<typeof useSearchParams>;
+}) {
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Widget hand-off (?from=widget&return=…): persist before any OAuth redirect.
+  useEffect(() => { captureWidgetReturn(searchParams); }, [searchParams]);
 
   const handleSubmit = async (f: SignUpData) => {
     setFormError(null);
@@ -76,6 +86,7 @@ function ShopperSignupView({ dark, router }: { dark: boolean; router: ReturnType
 
       if (error) { setFormError(error); return; }
       if (!user) { setFormError('Signup failed. Please try again.'); return; }
+      await completeWidgetLink(user);
       router.push('/onboarding');
     } catch {
       setFormError('Something went wrong. Please try again.');
@@ -99,7 +110,7 @@ function ShopperSignupView({ dark, router }: { dark: boolean; router: ReturnType
       onSubmit={handleSubmit}
       onGoogle={() => handleSocial('google')}
       onApple={() => handleSocial('apple')}
-      onSignInClick={() => router.push('/login')}
+      onSignInClick={() => router.push(`/login${widgetReturnQuery()}`)}
     />
   );
 }
