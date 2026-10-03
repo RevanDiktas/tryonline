@@ -315,6 +315,25 @@
       display: none !important;
     }
 
+    /* Sold out in the store: still viewable on the avatar, struck through, can't be bought. */
+    .size-btn.sold-out {
+      color: rgba(0, 0, 0, 0.38);
+      background-color: rgba(255, 255, 255, 0.25);
+      background-image: linear-gradient(to top right, transparent calc(50% - 0.75px), rgba(0, 0, 0, 0.35) 50%, transparent calc(50% + 0.75px));
+    }
+    .size-btn.sold-out.active {
+      color: rgba(255, 255, 255, 0.75);
+      background-color: #555;
+      border-color: #555;
+      background-image: linear-gradient(to top right, transparent calc(50% - 0.75px), rgba(255, 255, 255, 0.6) 50%, transparent calc(50% + 0.75px));
+    }
+    .add-to-cart-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .fit-oos { display: block; margin-top: 8px; font-style: normal; }
+    .fit-oos-try {
+      margin-left: 6px; padding: 0; background: none; border: none; cursor: pointer;
+      font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; color: inherit;
+    }
+
     /* Fit description */
     .fit-section {
       border-top: 1px solid rgba(0, 0, 0, 0.08);
@@ -1328,6 +1347,59 @@
     let viewerSceneReady = false;
     let viewerPreloadComplete = false;
     let currentSize = 'm';
+
+    // Store stock, sent by the Shopify block (TRYON_STOCK) for the variant selected on the page.
+    // Sizes are the store's labels; normalise them to the widget's model keys.
+    let soldOutSizes = new Set();
+    let soldOutTrackedFor = null;
+    const STORE_SIZE_ALIASES = {
+      'extra small': 'xs', 'x-small': 'xs', 'xsmall': 'xs', 'small': 's', 'medium': 'm', 'large': 'l',
+      'extra large': 'xl', 'x-large': 'xl', 'xlarge': 'xl', '2xl': 'xxl', 'xx-large': 'xxl', 'xxlarge': 'xxl',
+      '3xl': 'xxxl', 'xxx-large': 'xxxl',
+    };
+    function normSizeKey(size) {
+      var k = String(size || '').toLowerCase().trim();
+      return STORE_SIZE_ALIASES[k] || k;
+    }
+    function isSoldOut(size) { return soldOutSizes.has(normSizeKey(size)); }
+    function sizeLabel(size) { return /^\d+$/.test(size) ? size : String(size).toUpperCase(); }
+    // Nearest size the store can actually sell; on a tie prefer the larger (too big beats too tight).
+    function closestInStock(size) {
+      var sys = currentSystem();
+      var target = sizeToOrdinal(size, sys);
+      var best = null, bestD = Infinity, bestOrd = -Infinity;
+      sortedAvailableSizes().forEach(function(s) {
+        if (isSoldOut(s)) return;
+        var o = sizeToOrdinal(s, sys);
+        var d = Math.abs(o - target);
+        if (d < bestD || (d === bestD && o > bestOrd)) { best = s; bestD = d; bestOrd = o; }
+      });
+      return best;
+    }
+    function soldOutNote() {
+      if (!isSoldOut(recommendedSize)) return '';
+      var alt = closestInStock(recommendedSize);
+      if (!alt) return '<span class="fit-oos">THIS ITEM IS SOLD OUT IN EVERY SIZE RIGHT NOW.</span>';
+      var lead = 'YOUR BEST FIT, ' + sizeLabel(recommendedSize) + ', IS SOLD OUT. ' + sizeLabel(alt) + ' IS THE CLOSEST IN STOCK.';
+      if (currentSize === alt) return '<span class="fit-oos">' + lead + '</span>';
+      return '<span class="fit-oos">' + lead + '<button type="button" class="fit-oos-try" data-size="' + alt + '">TRY ' + sizeLabel(alt) + '</button></span>';
+    }
+    // One place that syncs chips, fit copy and the cart button with the selection + stock.
+    function refreshSizeUi() {
+      sizeButtons.forEach(function(b) {
+        var out = isSoldOut(b.dataset.size);
+        b.classList.toggle('sold-out', out);
+        b.setAttribute('aria-label', sizeLabel(b.dataset.size) + (out ? ', sold out' : ''));
+      });
+      fitText.innerHTML = fitDescription(currentSize) + soldOutNote();
+      var out = isSoldOut(currentSize);
+      addToCartBtn.disabled = out;
+      addToCartBtn.textContent = out ? 'SOLD OUT' : 'ADD TO CART';
+      if (uiState === 'viewer' && isSoldOut(recommendedSize) && soldOutTrackedFor !== recommendedSize) {
+        soldOutTrackedFor = recommendedSize;
+        track('sold_out_size_viewed', { size: recommendedSize, closest_in_stock: closestInStock(recommendedSize) });
+      }
+    }
     let currentModel = null;
     let scene, camera, renderer, controls, loader;
     let initialized = false;
@@ -2198,6 +2270,10 @@
       }
       // Host (Shopify block) lifecycle. Only trust our own parent frame.
       if (inIframe && event.source === window.parent) {
+        if (event.data.type === 'TRYON_STOCK' && Array.isArray(event.data.soldOut)) {
+          soldOutSizes = new Set(event.data.soldOut.map(normSizeKey));
+          if (uiState === 'viewer') refreshSizeUi();
+        }
         if (event.data.type === 'TRYON_OPEN') reopenWidget();
         if (event.data.type === 'TRYON_HIDE') closeWidget({ fromHost: true });
       }
@@ -2221,7 +2297,7 @@
         if (b.hidden) return;
         b.classList.toggle('active', b.dataset.size === currentSize);
       });
-      fitText.innerHTML = fitDescription(currentSize);
+      refreshSizeUi();
       sessionId = await createTryonSession();
       track('widget_opened');
       tryonStartTime = Date.now();
@@ -2318,6 +2394,7 @@
     });
 
     addToCartBtn.addEventListener('click', () => {
+      if (isSoldOut(currentSize)) return;
       track('add_to_cart', { size: currentSize });
       if (window.parent !== window) {
         try {
@@ -2460,6 +2537,13 @@
       }
     });
 
+    fitText.addEventListener('click', function(e) {
+      var t = e.target.closest('.fit-oos-try');
+      if (!t || !sizeSelectorEl) return;
+      var chip = sizeSelectorEl.querySelector('.size-btn[data-size="' + t.dataset.size + '"]');
+      if (chip) chip.click();
+    });
+
     // Size button clicks - INSTANT switching. Delegated on the container so it works for the
     // dynamically-rendered chips (letters or numeric/EU) built by renderSizeButtons().
     if (sizeSelectorEl) {
@@ -2475,8 +2559,8 @@
 
         sizeButtons.forEach(b => { if (!b.hidden) b.classList.remove('active'); });
         btn.classList.add('active');
-        fitText.innerHTML = fitDescription(size);
         currentSize = size;
+        refreshSizeUi();
 
         track('size_selected', { size: size });
 

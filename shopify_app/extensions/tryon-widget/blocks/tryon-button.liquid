@@ -27,6 +27,19 @@
   endif
   assign widget_url = widget_base | append: '/test-viewer.html?shop=' | append: shop_domain | append: '&product_id=' | append: product_id | append: '&variant_id=' | append: variant_id | append: '&product_name=' | append: product_name_enc | append: '&product_image=' | append: product_image_enc | append: '&product_price=' | append: product_price_enc | append: '&brand_name=' | append: brand_name_enc | append: '&country=' | append: country_code | append: '&return_url=' | append: return_url_enc | append: '&open=1&v=31'
 
+  # Which product option is the size? Don't assume option1: colour often comes first.
+  assign size_pos = -1
+  for opt in product.options_with_values
+    assign opt_name = opt.name | downcase
+    if opt_name contains 'size' or opt_name contains 'maat' or opt_name contains 'taille' or opt_name contains 'talla' or opt_name contains 'größe' or opt_name contains 'grösse' or opt_name contains 'groesse'
+      assign size_pos = forloop.index0
+      break
+    endif
+  endfor
+  if size_pos == -1 and product.options.size == 1
+    assign size_pos = 0
+  endif
+
   assign btn_bg = block.settings.button_background
   assign btn_fg = block.settings.button_text_color
   assign btn_radius = block.settings.corner_radius | default: 6
@@ -110,12 +123,45 @@
       if (!btn || !iframe) return;
       var src = iframe.getAttribute('data-tryon-src');
 
+      // Size → variant and stock, for the variant currently selected on the product page, so the
+      // widget shows exactly what this store can sell (and colour switches are respected).
+      var VARIANTS = {{ product.variants | json }};
+      var SIZE_POS = {{ size_pos }};
+      var INITIAL_VARIANT_ID = {{ variant_id }};
       var sizeMap = {};
-      {% for v in product.variants %}
-        sizeMap['{{ v.option1 | downcase | strip }}'] = {{ v.id }};
-      {% endfor %}
       window.__tryonSizeVariantMap = sizeMap;
-      window.__tryonFallbackVariantId = {{ variant_id }};
+      window.__tryonFallbackVariantId = INITIAL_VARIANT_ID;
+
+      function selectedVariantId() {
+        var fromUrl = parseInt(new URLSearchParams(window.location.search).get('variant'), 10);
+        if (fromUrl) return fromUrl;
+        var input = document.querySelector('form[action*="/cart/add"] [name="id"]');
+        var fromForm = input ? parseInt(input.value, 10) : NaN;
+        return fromForm || INITIAL_VARIANT_ID;
+      }
+
+      // Rebuild sizeMap in place (tryon-cart.js reads the same object) and list sold-out sizes.
+      function syncStock() {
+        var selId = selectedVariantId();
+        var base = null;
+        for (var i = 0; i < VARIANTS.length; i++) { if (VARIANTS[i].id === selId) { base = VARIANTS[i]; break; } }
+        base = base || VARIANTS[0];
+        Object.keys(sizeMap).forEach(function(k) { delete sizeMap[k]; });
+        if (!base || SIZE_POS < 0) return [];
+        window.__tryonFallbackVariantId = base.id;
+        var anyAvailable = {};
+        VARIANTS.forEach(function(v) {
+          for (var j = 0; j < v.options.length; j++) {
+            if (j !== SIZE_POS && v.options[j] !== base.options[j]) return;
+          }
+          var key = String(v.options[SIZE_POS] || '').toLowerCase().trim();
+          if (!key) return;
+          if (sizeMap[key] == null || v.available) sizeMap[key] = v.id;
+          anyAvailable[key] = anyAvailable[key] || !!v.available;
+        });
+        return Object.keys(anyAvailable).filter(function(k) { return !anyAvailable[k]; });
+      }
+      syncStock();
 
       var SIZE_ALIASES = {xs:['xs','extra small'],s:['s','small'],m:['m','medium'],l:['l','large'],xl:['xl','extra large']};
 
@@ -133,6 +179,7 @@
 
       function tryonAddToCart(payload) {
         var size = (payload.size || '').toLowerCase().trim();
+        syncStock();
         var vid = resolveVariant(size);
         if (!vid || isNaN(vid)) {
           console.warn('[TryOn] No variant for size "' + size + '" — map keys:', Object.keys(sizeMap).join(', '));
@@ -216,8 +263,12 @@
         try { iframe.focus({ preventScroll: true }); } catch (e) {}
       }
 
-      function postToWidget(type) {
-        try { iframe.contentWindow.postMessage({ type: type }, '*'); } catch (e) {}
+      function postToWidget(msg) {
+        if (typeof msg === 'string') msg = { type: msg };
+        try { iframe.contentWindow.postMessage(msg, '*'); } catch (e) {}
+      }
+      function sendStock() {
+        postToWidget({ type: 'TRYON_STOCK', soldOut: syncStock() });
       }
 
       btn.addEventListener('click', function() {
@@ -235,7 +286,8 @@
         if (!iframe.getAttribute('src')) {
           iframe.src = src;
         } else if (widgetReady) {
-          // Widget ghosts itself on close; tell it to come back in the right state.
+          // Stock first (the shopper may have switched colour), then bring the widget back.
+          sendStock();
           postToWidget('TRYON_OPEN');
         }
         iframe.style.display = 'block';
@@ -290,6 +342,7 @@
           if (spinner) spinner.style.display = 'none';
           // Sync the (re)loaded widget with the host: hidden → HIDE, shown → OPEN. A reload can
           // swallow an earlier TRYON_OPEN, and the widget ignores OPEN when already open.
+          sendStock();
           postToWidget(isOpen ? 'TRYON_OPEN' : 'TRYON_HIDE');
           if (isOpen) focusWidget();
         }
