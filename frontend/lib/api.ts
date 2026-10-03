@@ -324,8 +324,12 @@ export interface TimeSeriesPoint {
   atc_rate?: number | null;
   return_rate?: number | null;
 }
+export type TimeGranularity = 'day' | 'week' | 'month';
+
 export interface TimeSeriesResponse {
+  /** One point per bucket (named `weeks` for history; week_start is the bucket start date). */
   weeks: TimeSeriesPoint[];
+  granularity?: TimeGranularity;
 }
 
 // --- Fit-to-Purchase Correlation ---

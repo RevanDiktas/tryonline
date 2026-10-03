@@ -17,6 +17,7 @@ import {
   LineChart,
   Line,
 } from 'recharts';
+import { formatBucket } from '@/lib/dateBuckets';
 
 const CHART_COLORS = {
   tryon: '#0ea5e9',
@@ -590,17 +591,22 @@ export function TimeSeriesChart({
   weeks,
   metrics,
   dark,
+  granularity = 'week',
 }: {
   weeks: TimeSeriesPoint[];
   metrics: TimeSeriesMetric[];
   dark?: boolean;
+  granularity?: 'day' | 'week' | 'month';
 }) {
   if (!weeks.length) return null;
 
   const chartData = weeks.map((w) => ({
     ...w,
-    week: w.week_start.slice(5),
+    week: formatBucket(w.week_start, granularity),
+    bucketLabel: formatBucket(w.week_start, granularity, true),
   }));
+  // Dots stay readable up to ~2 months of daily points; beyond that the line carries it.
+  const showDots = chartData.length <= 62;
 
   const tt = tooltipStyle(dark);
 
@@ -609,7 +615,7 @@ export function TimeSeriesChart({
       <ResponsiveContainer width="100%" height="100%" minHeight={180} initialDimension={{ width: 600, height: 200 }}>
         <LineChart data={chartData} margin={{ top: 4, right: 24, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} vertical={false} />
-          <XAxis dataKey="week" tick={tickStyle(dark)} axisLine={false} tickLine={false} />
+          <XAxis dataKey="week" tick={tickStyle(dark)} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={18} />
           <YAxis tick={tickStyle(dark)} axisLine={false} tickLine={false} allowDecimals />
           <Tooltip
             contentStyle={tt.contentStyle}
@@ -617,7 +623,7 @@ export function TimeSeriesChart({
             itemStyle={tt.itemStyle}
             cursor={{ stroke: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }}
             isAnimationActive={false}
-            labelFormatter={(label) => `Week ${label}`}
+            labelFormatter={(label, payload) => (payload && payload[0] && (payload[0].payload as { bucketLabel?: string }).bucketLabel) || String(label)}
           />
           <Legend wrapperStyle={legendStyle(dark)} />
           {metrics.map((m) => {
@@ -630,7 +636,7 @@ export function TimeSeriesChart({
                 stroke={cfg.color}
                 strokeWidth={2}
                 name={cfg.label}
-                dot={{ r: 3, fill: cfg.color, strokeWidth: 0 }}
+                dot={showDots ? { r: 3, fill: cfg.color, strokeWidth: 0 } : false}
                 activeDot={{ r: 5, fill: cfg.color, strokeWidth: 2, stroke: dark ? '#000' : '#fff' }}
                 isAnimationActive={false}
                 connectNulls

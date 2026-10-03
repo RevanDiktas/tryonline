@@ -10,6 +10,7 @@ import { getCurrentUser, logout, type User } from '@/lib/supabase-auth';
 import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse, type DwellMetrics, type DeviceMetricsResponse, type FitConfidenceResponse, type RepeatVisitorsResponse, type BodyShapeInsightsResponse, type ReturnMetricsData, type CohortComparisonData, type ReturnRiskResponse, type TimeSeriesResponse, type FitPurchaseCorrelationResponse } from '@/lib/api';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
+import { formatBucket } from '@/lib/dateBuckets';
 
 const CHART_HEIGHT = 200;
 
@@ -117,6 +118,32 @@ function LoadingSpinner({ dark }: { dark: boolean }) {
   );
 }
 
+// Dashboard date ranges. Both ends are inclusive calendar days in the brand's local time:
+// "1 month" on 3 Oct = 4 Sep .. 3 Oct. The backend caps spans at 366 days.
+type MetricsRange = '1d' | '7d' | '1m' | '3m' | '6m' | '1y';
+const RANGE_OPTIONS: { id: MetricsRange; label: string; short: string }[] = [
+  { id: '1d', label: 'Today', short: '1D' },
+  { id: '7d', label: 'Last 7 days', short: '1W' },
+  { id: '1m', label: 'Last month', short: '1M' },
+  { id: '3m', label: 'Last 3 months', short: '3M' },
+  { id: '6m', label: 'Last 6 months', short: '6M' },
+  { id: '1y', label: 'Last year', short: '1Y' },
+];
+const isMetricsRange = (v: string | null): v is MetricsRange => RANGE_OPTIONS.some((o) => o.id === v);
+const localIsoDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function rangeDates(range: MetricsRange, today = new Date()): { start: string; end: string } {
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const start = new Date(end);
+  if (range === '7d') start.setDate(start.getDate() - 6);
+  else if (range !== '1d') {
+    const months = range === '1m' ? 1 : range === '3m' ? 3 : range === '6m' ? 6 : 12;
+    start.setMonth(start.getMonth() - months);
+    start.setDate(start.getDate() + 1);
+  }
+  return { start: localIsoDate(start), end: localIsoDate(end) };
+}
+
 const fmtPct = (v: number | null | undefined) => v != null ? `${(v * 100).toFixed(1)}%` : '-';
 const fmtEur = (v: number | null | undefined) => v != null ? `€${v.toFixed(2)}` : '-';
 const fmtHours = (v: number | null | undefined) => v != null ? `${v.toFixed(0)}h` : '-';
@@ -151,7 +178,19 @@ export default function BrandDashboardPage() {
   const [fitPurchaseCorrelation, setFitPurchaseCorrelation] = useState<FitPurchaseCorrelationResponse | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [metricsRange, setMetricsRange] = useState<'7d' | '30d'>('30d');
+  // Range lives in the URL (?range=3m) so a view can be bookmarked or shared.
+  const [metricsRange, setMetricsRangeState] = useState<MetricsRange>(() => {
+    const r = searchParams.get('range');
+    return isMetricsRange(r) ? r : '1m';
+  });
+  const setMetricsRange = useCallback((r: MetricsRange) => {
+    setMetricsRangeState(r);
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set('range', r);
+      window.history.replaceState(null, '', u.toString());
+    } catch {}
+  }, []);
   const [metricsShop, setMetricsShop] = useState('');
   const [brandShop, setBrandShop] = useState<string | null>(null);
   const [hasGarments, setHasGarments] = useState(true);
@@ -172,15 +211,7 @@ export default function BrandDashboardPage() {
     const fetchId = ++fetchIdRef.current;
     setMetricsLoading(true);
     setFetchError(null);
-    const end = new Date();
-    const days = metricsRange === '7d' ? 7 : 30;
-    const start = new Date();
-    start.setDate(start.getDate() - days);
-    const params: { start: string; end: string; shop: string } = {
-      start: start.toISOString().slice(0, 10),
-      end: end.toISOString().slice(0, 10),
-      shop: metricsShop,
-    };
+    const params: { start: string; end: string; shop: string } = { ...rangeDates(metricsRange), shop: metricsShop };
     const calls = [
       () => api.getAnalyticsMetrics(params),
       () => api.getFitMetrics(params),
@@ -301,6 +332,8 @@ export default function BrandDashboardPage() {
     { id: 'engagement', label: 'Engagement' },
   ];
 
+  const tsGranularity: 'day' | 'week' | 'month' = timeSeries?.granularity ?? 'week';
+
   const panelClass = dark
     ? 'rounded-2xl bg-white/[0.03] backdrop-blur-sm transition-all duration-300'
     : 'rounded-2xl bg-black/[0.03] backdrop-blur-sm transition-all duration-300';
@@ -371,11 +404,11 @@ export default function BrandDashboardPage() {
                 id="metrics-range-mobile"
                 name="metrics-range"
                 value={metricsRange}
-                onChange={(e) => setMetricsRange(e.target.value as '7d' | '30d')}
+                onChange={(e) => setMetricsRange(e.target.value as MetricsRange)}
+                aria-label="Date range"
                 className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
               >
-                <option value="7d">7d</option>
-                <option value="30d">30d</option>
+                {RANGE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             </div>
           </nav>
@@ -394,11 +427,11 @@ export default function BrandDashboardPage() {
               id="metrics-range-desktop"
               name="metrics-range"
               value={metricsRange}
-              onChange={(e) => setMetricsRange(e.target.value as '7d' | '30d')}
+              onChange={(e) => setMetricsRange(e.target.value as MetricsRange)}
+              aria-label="Date range"
               className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
             >
-              <option value="7d">7d</option>
-              <option value="30d">30d</option>
+              {RANGE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
             <button
               onClick={toggleTheme}
@@ -495,22 +528,25 @@ export default function BrandDashboardPage() {
                 </div>
 
                 {/* Weekly Trends */}
+                {timeSeries && timeSeries.weeks.length <= 1 && (
+                  <p className={`text-[11px] ${labelCl}`}>Trend charts appear for ranges longer than a day.</p>
+                )}
                 {timeSeries && timeSeries.weeks.length > 1 && (
                   <div className="space-y-4">
-                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>Weekly trends</p>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>{tsGranularity === 'day' ? 'Daily' : tsGranularity === 'month' ? 'Monthly' : 'Weekly'} trends</p>
                     <div className={`${panelClass} p-5`}>
                       <p className={`text-[9px] font-semibold uppercase tracking-[0.2em] mb-3 ${labelCl}`}>Rates</p>
-                      <TimeSeriesChart weeks={timeSeries.weeks} metrics={['conversion_rate', 'atc_rate']} dark={dark} />
+                      <TimeSeriesChart weeks={timeSeries.weeks} metrics={['conversion_rate', 'atc_rate']} dark={dark} granularity={tsGranularity} />
                     </div>
                     <div className={`${panelClass} p-5`}>
                       <p className={`text-[9px] font-semibold uppercase tracking-[0.2em] mb-3 ${labelCl}`}>Volume</p>
-                      <TimeSeriesChart weeks={timeSeries.weeks} metrics={['tryons', 'add_to_carts', 'purchases']} dark={dark} />
+                      <TimeSeriesChart weeks={timeSeries.weeks} metrics={['tryons', 'add_to_carts', 'purchases']} dark={dark} granularity={tsGranularity} />
                     </div>
                     <div className={`${panelClass} overflow-hidden`}>
                       <table className="w-full text-left text-[11px]">
                         <thead>
                           <tr className={tableHeaderClass}>
-                            <th className="px-4 py-2 font-semibold">Week</th>
+                            <th className="px-4 py-2 font-semibold">{tsGranularity === 'day' ? 'Day' : tsGranularity === 'month' ? 'Month' : 'Week of'}</th>
                             <th className="px-4 py-2 font-semibold text-right">Opens</th>
                             <th className="px-4 py-2 font-semibold text-right">Try-Ons</th>
                             <th className="px-4 py-2 font-semibold text-right">ATC</th>
@@ -521,9 +557,9 @@ export default function BrandDashboardPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {timeSeries.weeks.map((w) => (
+                          {[...timeSeries.weeks].reverse().map((w) => (
                             <tr key={w.week_start} className={rowHover}>
-                              <td className={`px-4 py-2 ${borderCl}`}>{w.week_start}</td>
+                              <td className={`px-4 py-2 ${borderCl}`}>{formatBucket(w.week_start, tsGranularity, true)}</td>
                               <td className={`px-4 py-2 text-right ${borderCl}`}>{w.widget_opens}</td>
                               <td className={`px-4 py-2 text-right ${borderCl}`}>{w.tryons}</td>
                               <td className={`px-4 py-2 text-right ${borderCl}`}>{w.add_to_carts}</td>

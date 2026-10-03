@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from slowapi import Limiter
-from slowapi.util import get_remote_address
+from app.api.rate_limit import client_key
 from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
@@ -73,7 +73,9 @@ app.add_middleware(
 )
 
 # Rate limiter (in-memory; suitable for single-instance Railway deploy)
-limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
+# Note: default_limits only apply with SlowAPIMiddleware, which is not installed; routes opt in
+# via @limiter.limit, and /api/analytics uses rate_limit.analytics_rate_limit.
+limiter = Limiter(key_func=client_key, default_limits=["120/minute"])
 app.state.limiter = limiter
 
 

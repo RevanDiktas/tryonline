@@ -10,17 +10,18 @@ import logging
 import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, NamedTuple, Optional
+from typing import Any, Callable, NamedTuple, Optional
 
 from cachetools import TTLCache
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.api.deps import get_brand_shop
+from app.api.rate_limit import analytics_rate_limit
 from app.services.supabase import supabase_service
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(analytics_rate_limit)])
 
 _cache: TTLCache = TTLCache(maxsize=256, ttl=60)
 
@@ -28,6 +29,54 @@ _cache: TTLCache = TTLCache(maxsize=256, ttl=60)
 def _cache_key(prefix: str, **kwargs: Any) -> str:
     raw = json.dumps({"_": prefix, **kwargs}, sort_keys=True, default=str)
     return hashlib.md5(raw.encode()).hexdigest()
+
+# PostgREST caps every response at the project's max-rows (1000 on Supabase), silently.
+PAGE_SIZE = 1000
+# Safety valve so one request can't pull an unbounded table into memory.
+MAX_FETCH_ROWS = 250_000
+IN_CHUNK = 100
+
+
+def fetch_all(make_query: Callable[[], Any], page_size: int = PAGE_SIZE) -> list[dict]:
+    """Run a select to completion, page by page, in a stable (created_at, id) order.
+    `make_query` must return a FRESH builder each call: postgrest-py's .range() appends
+    params, so one builder can't be re-ranged. Stops on an empty page rather than a short
+    one, so a server max-rows lower than page_size can't truncate the result."""
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        batch = (
+            make_query()
+            .order("created_at")
+            .order("id")
+            .range(offset, offset + page_size - 1)
+            .execute()
+        ).data or []
+        if not batch:
+            return rows
+        rows.extend(batch)
+        offset += len(batch)
+        if len(rows) >= MAX_FETCH_ROWS:
+            logger.warning("fetch_all hit MAX_FETCH_ROWS=%d; result truncated", MAX_FETCH_ROWS)
+            return rows
+
+
+def fetch_events(columns: str, shop: str, start_ts: str, end_ts: str, **eq: Any) -> list[dict]:
+    """All analytics_events rows for ONE shop in [start_ts, end_ts]. The shop filter is built
+    in here so no caller can query without it; extra **eq filters only narrow further."""
+    def make():
+        q = (
+            supabase_service.client.table("analytics_events")
+            .select(columns)
+            .eq("shop_domain", shop)
+            .gte("created_at", start_ts)
+            .lte("created_at", end_ts)
+        )
+        for col, val in eq.items():
+            q = q.eq(col, val)
+        return q
+    return fetch_all(make)
+
 
 # Longest window a dashboard query may span (inclusive days). 1y + a leap day.
 MAX_RANGE_DAYS = 366
@@ -64,6 +113,58 @@ def parse_range(start: Optional[str], end: Optional[str], default_days: int) -> 
     start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
     end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
     return DateRange(start_d, end_d, start_ts, end_ts)
+
+
+# --- Time buckets for trend charts -------------------------------------------------------
+
+GRANULARITY_PATTERN = "^(day|week|month)$"
+
+
+def default_granularity(start_d, end_d) -> str:
+    """day up to 31 days, week up to 186 days (~6 months), month beyond."""
+    days = (end_d - start_d).days + 1
+    if days <= 31:
+        return "day"
+    if days <= 186:
+        return "week"
+    return "month"
+
+
+def _period_start(d, granularity: str):
+    if granularity == "week":
+        return d - timedelta(days=d.weekday())  # Monday
+    if granularity == "month":
+        return d.replace(day=1)
+    return d
+
+
+def _next_period(period_start, granularity: str):
+    if granularity == "week":
+        return period_start + timedelta(days=7)
+    if granularity == "month":
+        return (period_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return period_start + timedelta(days=1)
+
+
+def bucket_ranges(start_d, end_d, granularity: str) -> list[tuple[Any, Any]]:
+    """Every bucket covering [start_d, end_d], each clipped to the range: (first_day, last_day).
+    A range starting mid-week/month gets a partial first bucket labelled start_d."""
+    out = []
+    p = _period_start(start_d, granularity)
+    while p <= end_d:
+        nxt = _next_period(p, granularity)
+        out.append((max(p, start_d), min(nxt - timedelta(days=1), end_d)))
+        p = nxt
+    return out
+
+
+def bucket_key(created_at: str, granularity: str, start_d) -> Optional[str]:
+    """Clipped bucket start (YYYY-MM-DD, UTC) for an event timestamp, or None if unparseable."""
+    try:
+        d = datetime.fromisoformat(created_at.replace("Z", "+00:00")).astimezone(timezone.utc).date()
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return max(_period_start(d, granularity), start_d).isoformat()
 
 
 # Ordinal map for letter sizes (Category B — size up/down, MASE)
@@ -110,17 +211,8 @@ async def analytics_debug(
     end_extended = end_d + timedelta(days=ATTRIBUTION_WINDOW_DAYS)
     end_ts_extended = datetime.combine(end_extended, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,shop_domain,created_at")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts_extended)
-    )
-    q = q.eq("shop_domain", shop)
-
     try:
-        r = q.execute()
-        events = r.data or []
+        events = fetch_events("event_type,session_id,shop_domain,created_at", shop, start_ts, end_ts_extended)
         by_type = defaultdict(int)
         for e in events:
             by_type[e.get("event_type", "?")] += 1
@@ -173,16 +265,7 @@ async def get_metrics(
     end_extended = end_d + timedelta(days=ATTRIBUTION_WINDOW_DAYS)
     end_ts_extended = datetime.combine(end_extended, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,event_data,created_at")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts_extended)
-    )
-    q = q.eq("shop_domain", shop)
-
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,event_data,created_at", shop, start_ts, end_ts_extended)
 
     # Cohort: sessions where tryon_started in [start, end]; first_tryon_ts per session
     session_first_tryon: dict[str, str] = {}
@@ -356,18 +439,10 @@ async def get_metrics_by_product(
     end_extended = end_d + timedelta(days=ATTRIBUTION_WINDOW_DAYS)
     end_ts_extended = datetime.combine(end_extended, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,event_data,created_at,product_id")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts_extended)
+    extra = {"product_id": product_id} if product_id else {}
+    events = fetch_events(
+        "event_type,session_id,event_data,created_at,product_id", shop, start_ts, end_ts_extended, **extra
     )
-    q = q.eq("shop_domain", shop)
-    if product_id:
-        q = q.eq("product_id", product_id)
-
-    r = q.execute()
-    events = r.data or []
 
     # Cohort: (session_id, product_id) -> first tryon ts. Product from tryon_started.
     session_product_first_tryon: dict[tuple[str, str], str] = {}
@@ -494,15 +569,7 @@ async def get_fit_metrics(
         return _cache[key]
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,event_data")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,event_data", shop, start_ts, end_ts)
 
     dist_rec: dict[str, int] = {}
     dist_sel: dict[str, int] = {}
@@ -610,6 +677,7 @@ SIZE_ALIASES = {"large": "l", "medium": "m", "small": "s", "extra small": "xs", 
 # --- Category C: Trend & Demand Forecasting ---
 
 class VelocityResponse(BaseModel):
+    # Trailing windows ending at `end`: 7d = [end-6, end], 30d = [end-29, end].
     tryon_velocity_7d: int
     tryon_velocity_30d: int
     purchase_velocity_7d: int
@@ -636,7 +704,8 @@ class AtRiskProductsResponse(BaseModel):
 
 
 class ExplorationTrendPoint(BaseModel):
-    week_start: str  # YYYY-MM-DD (Monday)
+    week_start: str  # bucket start YYYY-MM-DD (kept for the frontend; may be day/week/month)
+    bucket_end: Optional[str] = None  # last day in the bucket, clipped to the range
     avg_sizes_per_session: float
     sessions_count: int
     total_size_events: int
@@ -644,6 +713,7 @@ class ExplorationTrendPoint(BaseModel):
 
 class ExplorationTrendResponse(BaseModel):
     data: list[ExplorationTrendPoint]
+    granularity: str = "week"
 
 
 class SizeStressItem(BaseModel):
@@ -688,24 +758,20 @@ async def get_velocity(
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("velocity", start=start, end=end, shop=shop)
+    # start is validated but otherwise unused: both windows trail `end`, whatever range the
+    # dashboard has selected, so the "7d"/"30d" cards mean what they say.
+    _, end_d, _, end_ts = parse_range(start, end, 30)
+    key = _cache_key("velocity", end=end_d.isoformat(), shop=shop)
     if key in _cache:
         return _cache[key]
-    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,created_at")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    def _day_start(d) -> str:
+        return datetime.combine(d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
 
-    # Rolling window: 7d = last 7 days of range, 30d = full range
-    end_dt = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc)
-    cutoff_7d = (end_dt - timedelta(days=7)).isoformat()
+    cutoff_7d = _day_start(end_d - timedelta(days=6))    # [end-6, end] = 7 days inclusive
+    cutoff_30d = _day_start(end_d - timedelta(days=29))  # [end-29, end] = 30 days inclusive
+
+    events = fetch_events("event_type,session_id,created_at", shop, cutoff_30d, end_ts)
 
     tryons_7d = sum(1 for e in events if e.get("event_type") == "tryon_started" and (e.get("created_at") or "") >= cutoff_7d)
     tryons_30d = sum(1 for e in events if e.get("event_type") == "tryon_started")
@@ -745,15 +811,7 @@ async def get_at_risk_products(
         return _cache[key]
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,product_id,session_id,event_data")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,product_id,session_id,event_data", shop, start_ts, end_ts)
 
     # Pass 1: session_id -> product_id from tryon_started; count tryons per product
     session_to_product: dict[str, str] = {}
@@ -835,21 +893,15 @@ async def get_exploration_trend(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
+    granularity: Optional[str] = Query(None, pattern=GRANULARITY_PATTERN, description="day|week|month; default by span"),
 ):
-    key = _cache_key("exploration_trend", start=start, end=end, shop=shop)
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 90)
+    gran = granularity or default_granularity(start_d, end_d)
+    key = _cache_key("exploration_trend", start=start_d, end=end_d, shop=shop, granularity=gran)
     if key in _cache:
         return _cache[key]
-    start_d, end_d, start_ts, end_ts = parse_range(start, end, 90)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,created_at")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,created_at", shop, start_ts, end_ts)
 
     # size_viewed + size_selected = size exploration
     exploration_events = [
@@ -857,36 +909,29 @@ async def get_exploration_trend(
         if e.get("event_type") in ("size_viewed", "size_selected") and e.get("session_id")
     ]
 
-    # Group by ISO week (Monday start)
-    week_to_sessions: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # bucket start -> session -> size events; every bucket present so the chart has no gaps
+    buckets = bucket_ranges(start_d, end_d, gran)
+    bucket_sessions: dict[str, dict[str, int]] = {b0.isoformat(): defaultdict(int) for b0, _ in buckets}
     for e in exploration_events:
-        created = e.get("created_at")
-        if not created:
-            continue
-        try:
-            dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-            # Monday = start of week
-            week_start = dt.date() - timedelta(days=dt.weekday())
-            week_key = week_start.isoformat()
-            sid = e.get("session_id") or ""
-            week_to_sessions[week_key][sid] += 1
-        except (ValueError, TypeError):
-            continue
+        bk = bucket_key(e.get("created_at") or "", gran, start_d)
+        if bk in bucket_sessions:
+            bucket_sessions[bk][e.get("session_id") or ""] += 1
 
     data = []
-    for week_start in sorted(week_to_sessions.keys()):
-        session_counts = week_to_sessions[week_start]
+    for b0, b1 in buckets:
+        session_counts = bucket_sessions[b0.isoformat()]
         total_events = sum(session_counts.values())
         sessions_count = len(session_counts)
         avg_sizes = round(total_events / sessions_count, 2) if sessions_count else 0.0
         data.append(ExplorationTrendPoint(
-            week_start=week_start,
+            week_start=b0.isoformat(),
+            bucket_end=b1.isoformat(),
             avg_sizes_per_session=avg_sizes,
             sessions_count=sessions_count,
             total_size_events=total_events,
         ))
 
-    result = ExplorationTrendResponse(data=data)
+    result = ExplorationTrendResponse(data=data, granularity=gran)
     _cache[key] = result
     return result
 
@@ -904,15 +949,7 @@ async def get_size_stress(
         return _cache[key]
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,product_id,session_id,event_data")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,product_id,session_id,event_data", shop, start_ts, end_ts)
 
     # Build session -> product_id from tryon_started; aggregate views and purchases per (product_id, size)
     key_views_clean: dict[tuple[str, str], int] = defaultdict(int)
@@ -989,15 +1026,7 @@ async def get_regional_size_distribution(
         return _cache[key]
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,event_data,country,city")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,event_data,country,city", shop, start_ts, end_ts)
 
     country_size: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     # country -> city -> size -> count
@@ -1096,15 +1125,7 @@ async def get_dwell_metrics(
 
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,event_data,created_at")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,event_data,created_at", shop, start_ts, end_ts)
 
     session_dwell: dict[str, float] = {}
     conversion_sessions: set[str] = set()
@@ -1196,15 +1217,7 @@ async def get_device_metrics(
 
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,user_agent")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,user_agent", shop, start_ts, end_ts)
 
     device_tryons: dict[str, set[str]] = defaultdict(set)
     device_atc: dict[str, set[str]] = defaultdict(set)
@@ -1269,15 +1282,7 @@ async def get_fit_confidence_by_product(
 
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,product_id,event_data")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,product_id,event_data", shop, start_ts, end_ts)
 
     # session -> product -> recommended size
     session_product_rec: dict[str, dict[str, str]] = defaultdict(dict)
@@ -1381,15 +1386,7 @@ async def get_repeat_visitors(
 
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,user_id,product_id")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,user_id,product_id", shop, start_ts, end_ts)
 
     # user -> set of sessions
     user_sessions: dict[str, set[str]] = defaultdict(set)
@@ -1502,15 +1499,7 @@ async def get_body_shape_insights(
 
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,user_id,product_id,event_data")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,user_id,product_id,event_data", shop, start_ts, end_ts)
 
     # Collect user_ids that have size_recommended events
     user_product_rec: dict[str, dict[str, str]] = defaultdict(dict)
@@ -1547,13 +1536,19 @@ async def get_body_shape_insights(
         return result
 
     # Look up fit_passports for these users
-    fp_q = (
-        supabase_service.client.table("fit_passports")
-        .select("user_id,chest,waist,hips")
-        .in_("user_id", list(relevant_user_ids))
-    )
-    fp_r = fp_q.execute()
-    passports = {fp["user_id"]: fp for fp in (fp_r.data or []) if fp.get("user_id")}
+    # Chunked: .in_() goes in the URL, and hundreds of UUIDs overflow the request line.
+    passports: dict[str, dict] = {}
+    user_ids = sorted(relevant_user_ids)
+    for i in range(0, len(user_ids), IN_CHUNK):
+        fp_r = (
+            supabase_service.client.table("fit_passports")
+            .select("user_id,chest,waist,hips")
+            .in_("user_id", user_ids[i:i + IN_CHUNK])
+            .execute()
+        )
+        for fp in fp_r.data or []:
+            if fp.get("user_id"):
+                passports[fp["user_id"]] = fp
 
     # (product, measurement_group, rec_size, purchased_size) -> count
     insight_counts: dict[tuple[str, str, str, str], int] = defaultdict(int)
@@ -1636,15 +1631,7 @@ async def get_return_metrics(
 
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,product_id,event_data,created_at")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,product_id,event_data,created_at", shop, start_ts, end_ts)
 
     # order_id -> {product_id, purchase_ts, amount}
     purchases_by_order: dict[str, dict] = {}
@@ -1805,15 +1792,7 @@ async def get_cohort_comparison(
 
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,user_id,event_data,created_at")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,user_id,event_data,created_at", shop, start_ts, end_ts)
 
     tryon_users: set[str] = set()
     tryon_sessions: set[str] = set()
@@ -1904,15 +1883,7 @@ async def get_return_risk(
 
     start_d, end_d, start_ts, end_ts = parse_range(None, None, 30)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,user_id,product_id,event_data,created_at")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,user_id,product_id,event_data,created_at", shop, start_ts, end_ts)
 
     # Pre-compute helper structures
     session_rec_size: dict[str, str] = {}
@@ -2035,7 +2006,8 @@ async def get_return_risk(
 # ---------------------------------------------------------------------------
 
 class TimeSeriesPoint(BaseModel):
-    week_start: str  # YYYY-MM-DD (Monday)
+    week_start: str  # bucket start YYYY-MM-DD (kept for the frontend; may be day/week/month)
+    bucket_end: Optional[str] = None  # last day in the bucket, clipped to the range
     widget_opens: int = 0
     tryons: int = 0
     add_to_carts: int = 0
@@ -2048,7 +2020,8 @@ class TimeSeriesPoint(BaseModel):
 
 
 class TimeSeriesResponse(BaseModel):
-    weeks: list[TimeSeriesPoint]
+    weeks: list[TimeSeriesPoint]  # one point per bucket in [start, end], zero-filled
+    granularity: str = "week"
 
 
 @router.get("/time-series", response_model=TimeSeriesResponse)
@@ -2056,42 +2029,35 @@ async def get_time_series(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
+    granularity: Optional[str] = Query(None, pattern=GRANULARITY_PATTERN, description="day|week|month; default by span"),
 ):
-    key = _cache_key("time_series", start=start, end=end, shop=shop)
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 90)
+    gran = granularity or default_granularity(start_d, end_d)
+    key = _cache_key("time_series", start=start_d, end=end_d, shop=shop, granularity=gran)
     if key in _cache:
         return _cache[key]
 
-    start_d, end_d, start_ts, end_ts = parse_range(start, end, 90)
+    events = fetch_events("event_type,session_id,event_data,created_at", shop, start_ts, end_ts)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,event_data,created_at")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
-
-    week_data: dict[str, dict[str, Any]] = defaultdict(lambda: {
-        "widget_opens": 0, "tryon_sessions": set(), "atc_sessions": set(),
-        "purchases": 0, "returns": 0, "revenue": 0.0,
-    })
+    # Zero-filled: one entry per bucket in [start, end], clipped to the range.
+    buckets = bucket_ranges(start_d, end_d, gran)
+    week_data: dict[str, dict[str, Any]] = {
+        b0.isoformat(): {
+            "widget_opens": 0, "tryon_sessions": set(), "atc_sessions": set(),
+            "purchases": 0, "returns": 0, "revenue": 0.0,
+        }
+        for b0, _ in buckets
+    }
 
     for e in events:
-        created = e.get("created_at")
-        if not created:
-            continue
-        try:
-            dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-            week_start = (dt.date() - timedelta(days=dt.weekday())).isoformat()
-        except (ValueError, TypeError):
+        bk = bucket_key(e.get("created_at") or "", gran, start_d)
+        if bk not in week_data:
             continue
 
         etype = e.get("event_type")
         sid = e.get("session_id") or ""
         ed = e.get("event_data") or {}
-        w = week_data[week_start]
+        w = week_data[bk]
 
         if etype == "widget_opened":
             w["widget_opens"] += 1
@@ -2106,7 +2072,8 @@ async def get_time_series(
             w["returns"] += 1
 
     weeks_out: list[TimeSeriesPoint] = []
-    for week_start in sorted(week_data.keys()):
+    for b0, b1 in buckets:
+        week_start = b0.isoformat()
         w = week_data[week_start]
         tryons = len(w["tryon_sessions"])
         atcs = len(w["atc_sessions"])
@@ -2114,6 +2081,7 @@ async def get_time_series(
         returns = w["returns"]
         weeks_out.append(TimeSeriesPoint(
             week_start=week_start,
+            bucket_end=b1.isoformat(),
             widget_opens=w["widget_opens"],
             tryons=tryons,
             add_to_carts=atcs,
@@ -2125,7 +2093,7 @@ async def get_time_series(
             return_rate=round(returns / purchases * 100, 2) if purchases else None,
         ))
 
-    result = TimeSeriesResponse(weeks=weeks_out)
+    result = TimeSeriesResponse(weeks=weeks_out, granularity=gran)
     _cache[key] = result
     return result
 
@@ -2166,15 +2134,7 @@ async def get_fit_purchase_correlation(
 
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 90)
 
-    q = (
-        supabase_service.client.table("analytics_events")
-        .select("event_type,session_id,product_id,event_data,created_at")
-        .gte("created_at", start_ts)
-        .lte("created_at", end_ts)
-    )
-    q = q.eq("shop_domain", shop)
-    r = q.execute()
-    events = r.data or []
+    events = fetch_events("event_type,session_id,product_id,event_data,created_at", shop, start_ts, end_ts)
 
     session_rec: dict[str, str] = {}
     session_sel: dict[str, str] = {}

@@ -3,7 +3,7 @@ Analytics event tracking endpoints — Category A
 """
 from fastapi import APIRouter, HTTPException, Request
 from slowapi import Limiter
-from slowapi.util import get_remote_address
+from app.api.rate_limit import client_key
 
 from app.models.events import (
     AnalyticsEvent,
@@ -14,7 +14,7 @@ from app.models.events import (
 from app.services.supabase import supabase_service
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_key)
 
 
 def _get_client_info(request: Request) -> tuple[str | None, str | None]:

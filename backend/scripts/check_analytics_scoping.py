@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import jwt  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.api import deps  # noqa: E402
+from app.api import deps, rate_limit  # noqa: E402
 from app.api.routes import analytics  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services.supabase import supabase_service  # noqa: E402
@@ -48,9 +48,13 @@ class _Result:
         self.data = data
 
 
+MAX_ROWS = 1000  # like Supabase's PostgREST max-rows: every response is silently capped
+
+
 class FakeQuery:
     def __init__(self, db, table):
         self.db, self.table, self.filters = db, table, []
+        self.orders, self.offset, self.limit_n = [], 0, None
 
     def select(self, *_a, **_k):
         return self
@@ -71,7 +75,16 @@ class FakeQuery:
         self.filters.append(("in", col, list(vals)))
         return self
 
-    def limit(self, *_a):
+    def limit(self, n, *_a, **_k):
+        self.limit_n = n
+        return self
+
+    def order(self, col, desc=False, **_k):
+        self.orders.append(col)
+        return self
+
+    def range(self, start, end, *_a):
+        self.offset, self.limit_n = start, end - start + 1
         return self
 
     def execute(self):
@@ -92,7 +105,10 @@ class FakeQuery:
                     ok = False
             if ok:
                 out.append(dict(row))
-        return _Result(out)
+        for col in reversed(self.orders):
+            out.sort(key=lambda row: str(row.get(col) or ""))
+        n = min(self.limit_n or MAX_ROWS, MAX_ROWS)
+        return _Result(out[self.offset:self.offset + n])
 
 
 class FakeAuth:
@@ -111,10 +127,10 @@ class FakeClient:
                 {"id": "brand-x", "user_id": USER_NO_STORE, "shopify_domain": None},
             ],
             "analytics_events": [
-                *[{"event_type": "widget_opened", "session_id": f"a{i}", "shop_domain": SHOP_A,
-                   "created_at": NOW_ISO, "event_data": {}} for i in range(3)],
-                *[{"event_type": "widget_opened", "session_id": f"b{i}", "shop_domain": SHOP_B,
-                   "created_at": NOW_ISO, "event_data": {}} for i in range(7)],
+                *[{"id": f"ea{i}", "event_type": "widget_opened", "session_id": f"a{i}",
+                   "shop_domain": SHOP_A, "created_at": NOW_ISO, "event_data": {}} for i in range(3)],
+                *[{"id": f"eb{i}", "event_type": "widget_opened", "session_id": f"b{i}",
+                   "shop_domain": SHOP_B, "created_at": NOW_ISO, "event_data": {}} for i in range(7)],
             ],
             "fit_passports": [],
         }
@@ -138,6 +154,7 @@ def token(user_id, secret=TEST_SECRET, exp_s=600):
 def reset():
     analytics._cache.clear()
     deps._brand_scope_cache.clear()
+    rate_limit._storage.reset()
     fake.log.clear()
 
 

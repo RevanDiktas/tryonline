@@ -7,7 +7,7 @@ from datetime import datetime
 import uuid
 
 from slowapi import Limiter
-from slowapi.util import get_remote_address
+from app.api.rate_limit import client_key
 
 from app.models.avatar import (
     AvatarCreateRequest,
@@ -25,7 +25,7 @@ from app.config import get_settings
 settings = get_settings()
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_key)
 
 
 @router.post("/upload-photo")
