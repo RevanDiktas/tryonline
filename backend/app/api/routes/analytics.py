@@ -10,12 +10,13 @@ import logging
 import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from cachetools import TTLCache
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from app.api.deps import get_brand_shop
 from app.services.supabase import supabase_service
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,43 @@ _cache: TTLCache = TTLCache(maxsize=256, ttl=60)
 def _cache_key(prefix: str, **kwargs: Any) -> str:
     raw = json.dumps({"_": prefix, **kwargs}, sort_keys=True, default=str)
     return hashlib.md5(raw.encode()).hexdigest()
+
+# Longest window a dashboard query may span (inclusive days). 1y + a leap day.
+MAX_RANGE_DAYS = 366
+
+
+class DateRange(NamedTuple):
+    start_d: Any  # date
+    end_d: Any    # date
+    start_ts: str  # start_d 00:00:00 UTC, ISO
+    end_ts: str    # end_d 23:59:59.999999 UTC, ISO (end date is inclusive)
+
+
+def _parse_day(value: str, name: str):
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail=f"Invalid {name} date; use YYYY-MM-DD")
+
+
+def parse_range(start: Optional[str], end: Optional[str], default_days: int) -> DateRange:
+    """Shared ?start=&end= handling for every analytics route.
+    No start -> [end (or today UTC) - default_days, end]. Start without end -> that single day.
+    400 on a bad format, start > end, or a span over MAX_RANGE_DAYS."""
+    if start:
+        start_d = _parse_day(start, "start")
+        end_d = _parse_day(end, "end") if end else start_d
+    else:
+        end_d = _parse_day(end, "end") if end else datetime.now(timezone.utc).date()
+        start_d = end_d - timedelta(days=default_days)
+    if start_d > end_d:
+        raise HTTPException(status_code=400, detail="start must be on or before end")
+    if (end_d - start_d).days + 1 > MAX_RANGE_DAYS:
+        raise HTTPException(status_code=400, detail=f"Date range too long (max {MAX_RANGE_DAYS} days)")
+    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
+    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    return DateRange(start_d, end_d, start_ts, end_ts)
+
 
 # Ordinal map for letter sizes (Category B — size up/down, MASE)
 SIZE_ORDINAL_LETTER = {
@@ -57,7 +95,7 @@ ATTRIBUTION_WINDOW_DAYS = 30
 
 @router.get("/debug")
 async def analytics_debug(
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
+    shop: str = Depends(get_brand_shop),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
 ):
@@ -68,14 +106,7 @@ async def analytics_debug(
     from app.config import get_settings
     if not get_settings().debug:
         raise HTTPException(status_code=404, detail="Not found")
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
     end_extended = end_d + timedelta(days=ATTRIBUTION_WINDOW_DAYS)
     end_ts_extended = datetime.combine(end_extended, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
 
@@ -85,8 +116,7 @@ async def analytics_debug(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts_extended)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
+    q = q.eq("shop_domain", shop)
 
     try:
         r = q.execute()
@@ -133,21 +163,12 @@ class MetricsResponse(BaseModel):
 async def get_metrics(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("metrics", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("metrics", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
     # Extend window for conversions: purchases can occur up to 30d after tryon
     end_extended = end_d + timedelta(days=ATTRIBUTION_WINDOW_DAYS)
     end_ts_extended = datetime.combine(end_extended, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
@@ -158,10 +179,7 @@ async def get_metrics(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts_extended)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
 
     r = q.execute()
     events = r.data or []
@@ -328,22 +346,13 @@ class MetricsByProductResponse(BaseModel):
 async def get_metrics_by_product(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
     product_id: Optional[str] = Query(None, description="Filter to single product_id"),
 ):
-    key = _cache_key("metrics_by_product", start=start, end=end, shop=shop, brand_id=brand_id, product_id=product_id)
+    key = _cache_key("metrics_by_product", start=start, end=end, shop=shop, product_id=product_id)
     if key in _cache:
         return _cache[key]
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
     end_extended = end_d + timedelta(days=ATTRIBUTION_WINDOW_DAYS)
     end_ts_extended = datetime.combine(end_extended, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
 
@@ -353,10 +362,7 @@ async def get_metrics_by_product(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts_extended)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     if product_id:
         q = q.eq("product_id", product_id)
 
@@ -481,21 +487,12 @@ class FitMetricsResponse(BaseModel):
 async def get_fit_metrics(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("fit_metrics", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("fit_metrics", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -503,10 +500,7 @@ async def get_fit_metrics(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -692,20 +686,12 @@ class RegionalSizeResponse(BaseModel):
 async def get_velocity(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
+    shop: str = Depends(get_brand_shop),
 ):
     key = _cache_key("velocity", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -713,8 +699,7 @@ async def get_velocity(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -751,22 +736,14 @@ async def get_velocity(
 async def get_at_risk_products(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
+    shop: str = Depends(get_brand_shop),
     min_tryons: int = Query(5, description="Minimum tryons to consider"),
     conversion_threshold: float = Query(0.05, description="Conversion below this flags as at-risk"),
 ):
     key = _cache_key("at_risk", start=start, end=end, shop=shop, min_tryons=min_tryons, threshold=conversion_threshold)
     if key in _cache:
         return _cache[key]
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -774,8 +751,7 @@ async def get_at_risk_products(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -858,20 +834,12 @@ async def get_at_risk_products(
 async def get_exploration_trend(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
+    shop: str = Depends(get_brand_shop),
 ):
     key = _cache_key("exploration_trend", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=90)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 90)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -879,8 +847,7 @@ async def get_exploration_trend(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -928,22 +895,14 @@ async def get_exploration_trend(
 async def get_size_stress(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
+    shop: str = Depends(get_brand_shop),
     min_views: int = Query(10, description="Minimum views to consider"),
     views_to_purchases_ratio: float = Query(5.0, description="Flag if views >= ratio * purchases"),
 ):
     key = _cache_key("size_stress", start=start, end=end, shop=shop, min_views=min_views, ratio=views_to_purchases_ratio)
     if key in _cache:
         return _cache[key]
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -951,8 +910,7 @@ async def get_size_stress(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -1024,21 +982,12 @@ async def get_size_stress(
 async def get_regional_size_distribution(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("regional_size", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("regional_size", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -1046,10 +995,7 @@ async def get_regional_size_distribution(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -1142,22 +1088,13 @@ class DwellMetricsResponse(BaseModel):
 async def get_dwell_metrics(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("dwell_metrics", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("dwell_metrics", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
 
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -1165,10 +1102,7 @@ async def get_dwell_metrics(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -1254,22 +1188,13 @@ def _classify_device(user_agent: str | None) -> str:
 async def get_device_metrics(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("device_metrics", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("device_metrics", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
 
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -1277,10 +1202,7 @@ async def get_device_metrics(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -1339,22 +1261,13 @@ class FitConfidenceResponse(BaseModel):
 async def get_fit_confidence_by_product(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("fit_confidence", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("fit_confidence", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
 
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -1362,10 +1275,7 @@ async def get_fit_confidence_by_product(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -1463,22 +1373,13 @@ class RepeatVisitorsResponse(BaseModel):
 async def get_repeat_visitors(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("repeat_visitors", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("repeat_visitors", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
 
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -1486,10 +1387,7 @@ async def get_repeat_visitors(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -1596,22 +1494,13 @@ def _bucket_measurement(value: float) -> str:
 async def get_body_shape_insights(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("body_shape_insights", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("body_shape_insights", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
 
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -1619,10 +1508,7 @@ async def get_body_shape_insights(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -1742,22 +1628,13 @@ class ReturnMetricsResponse(BaseModel):
 async def get_return_metrics(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("return_metrics", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("return_metrics", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
 
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -1765,10 +1642,7 @@ async def get_return_metrics(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -1923,22 +1797,13 @@ class CohortComparisonResponse(BaseModel):
 async def get_cohort_comparison(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("cohort_comparison", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("cohort_comparison", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
 
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=30)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -1946,10 +1811,7 @@ async def get_cohort_comparison(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -2034,17 +1896,13 @@ class ReturnRiskResponse(BaseModel):
 
 @router.get("/return-risk", response_model=ReturnRiskResponse)
 async def get_return_risk(
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("return_risk", shop=shop, brand_id=brand_id)
+    key = _cache_key("return_risk", shop=shop)
     if key in _cache:
         return _cache[key]
 
-    end_d = datetime.now(timezone.utc).date()
-    start_d = end_d - timedelta(days=30)
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(None, None, 30)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -2052,10 +1910,7 @@ async def get_return_risk(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -2200,22 +2055,13 @@ class TimeSeriesResponse(BaseModel):
 async def get_time_series(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
-    key = _cache_key("time_series", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("time_series", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
 
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=90)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 90)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -2223,10 +2069,7 @@ async def get_time_series(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 
@@ -2310,27 +2153,18 @@ class FitPurchaseCorrelationResponse(BaseModel):
 async def get_fit_purchase_correlation(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    shop: Optional[str] = Query(None, description="Filter by shop_domain"),
-    brand_id: Optional[str] = Query(None, description="Filter by brand_id"),
+    shop: str = Depends(get_brand_shop),
 ):
     """
     Shows the relationship between fit recommendation accuracy and purchase/return outcomes.
     Groups sessions by size deviation (accepted, sized up, sized down) and shows
     purchase rate and return rate for each group.
     """
-    key = _cache_key("fit_purchase_correlation", start=start, end=end, shop=shop, brand_id=brand_id)
+    key = _cache_key("fit_purchase_correlation", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
 
-    if not start:
-        end_d = datetime.now(timezone.utc).date()
-        start_d = end_d - timedelta(days=90)
-    else:
-        start_d = datetime.strptime(start, "%Y-%m-%d").date()
-        end_d = datetime.strptime(end or start, "%Y-%m-%d").date() if end else start_d
-
-    start_ts = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-    end_ts = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, start_ts, end_ts = parse_range(start, end, 90)
 
     q = (
         supabase_service.client.table("analytics_events")
@@ -2338,10 +2172,7 @@ async def get_fit_purchase_correlation(
         .gte("created_at", start_ts)
         .lte("created_at", end_ts)
     )
-    if shop:
-        q = q.eq("shop_domain", shop)
-    if brand_id:
-        q = q.eq("brand_id", brand_id)
+    q = q.eq("shop_domain", shop)
     r = q.execute()
     events = r.data or []
 

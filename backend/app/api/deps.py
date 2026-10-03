@@ -6,8 +6,11 @@ import hashlib
 import hmac
 import logging
 
+from dataclasses import dataclass
+
 import jwt
-from fastapi import Depends, HTTPException, Request
+from cachetools import TTLCache
+from fastapi import Depends, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import get_settings
@@ -62,6 +65,92 @@ def get_current_user_id(
 
     raise HTTPException(status_code=401, detail="Invalid or expired token")
 
+
+
+# ---------------------------------------------------------------------------
+# Brand scoping: which Shopify store(s) the signed-in caller may read.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class BrandScope:
+    shop: str       # canonical "<slug>.myshopify.com"
+    brand_id: str
+
+
+# user_id -> tuple of (canonical shop, brand_id). A dashboard load fires ~18 analytics
+# calls, so cache briefly instead of hitting `brands` 18 times. Failed lookups are not cached.
+_brand_scope_cache: TTLCache = TTLCache(maxsize=1024, ttl=60)
+
+
+def normalize_shop_domain(raw: str | None) -> str:
+    """Lowercase, strip scheme/path/trailing slash, and expand a bare slug to slug.myshopify.com.
+    Matches how brands.shopify_domain and analytics_events.shop_domain are stored."""
+    from app.services.supabase import _canonical_shopify_domain
+
+    s = (raw or "").strip().lower()
+    for prefix in ("https://", "http://"):
+        if s.startswith(prefix):
+            s = s[len(prefix):]
+    s = s.split("/", 1)[0].strip()
+    return _canonical_shopify_domain(s) if s else ""
+
+
+def _brand_scopes_for_user(user_id: str) -> tuple[tuple[str, str], ...]:
+    cached = _brand_scope_cache.get(user_id)
+    if cached is not None:
+        return cached
+    from app.services.supabase import supabase_service
+
+    try:
+        r = (
+            supabase_service.client.table("brands")
+            .select("id,shopify_domain")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        logger.error("Brand lookup failed for user=%s: %s", user_id[:8], exc)
+        raise HTTPException(status_code=503, detail="Could not load your brand. Try again.")
+    rows = r.data or []
+    if not rows:
+        raise HTTPException(status_code=403, detail="No brand account for this user")
+    scopes = tuple(
+        (normalize_shop_domain(row.get("shopify_domain")), str(row["id"]))
+        for row in rows
+        if normalize_shop_domain(row.get("shopify_domain"))
+    )
+    _brand_scope_cache[user_id] = scopes
+    return scopes
+
+
+def get_brand_scope(
+    user_id: str = Depends(get_current_user_id),
+    shop: str | None = Query(None, description="Shopify domain; must be one of the caller's stores"),
+) -> BrandScope:
+    """
+    Resolve the store the caller may read. 401 (no/invalid token) comes from get_current_user_id.
+    - `shop` given and not one of the caller's stores -> 403
+    - `shop` missing/empty -> the caller's only store (400 if they own several)
+    - caller's brand has no shopify_domain -> 403
+    """
+    scopes = _brand_scopes_for_user(user_id)
+    if not scopes:
+        raise HTTPException(status_code=403, detail="No Shopify store linked")
+    requested = normalize_shop_domain(shop)
+    if requested:
+        for domain, brand_id in scopes:
+            if domain == requested:
+                return BrandScope(shop=domain, brand_id=brand_id)
+        raise HTTPException(status_code=403, detail="Not your store")
+    if len(scopes) > 1:
+        raise HTTPException(status_code=400, detail="Several stores linked; pass ?shop=")
+    domain, brand_id = scopes[0]
+    return BrandScope(shop=domain, brand_id=brand_id)
+
+
+def get_brand_shop(scope: BrandScope = Depends(get_brand_scope)) -> str:
+    """Canonical shop_domain the caller may read (see get_brand_scope)."""
+    return scope.shop
 
 def _webhook_hmac_secrets() -> list[str]:
     """Secrets Shopify may use to sign webhooks (primary app, optional pilot app, optional la fam app, optional explicit webhook secret)."""

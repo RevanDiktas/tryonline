@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { TryonLogo } from '@/components/TryonLogo';
@@ -162,18 +162,25 @@ export default function BrandDashboardPage() {
     pauseOAuth: !brandLoaded,
   });
 
+  // Each fetch gets an id; a response is applied only if no newer fetch started since,
+  // so a slow earlier response (other range or shop) can never overwrite fresh data.
+  const fetchIdRef = useRef(0);
+
   const fetchMetrics = useCallback(async () => {
+    // Analytics are always scoped to the brand's own store: never fetch before it's known.
+    if (!metricsShop) return;
+    const fetchId = ++fetchIdRef.current;
     setMetricsLoading(true);
     setFetchError(null);
     const end = new Date();
     const days = metricsRange === '7d' ? 7 : 30;
     const start = new Date();
     start.setDate(start.getDate() - days);
-    const params: { start: string; end: string; shop?: string } = {
+    const params: { start: string; end: string; shop: string } = {
       start: start.toISOString().slice(0, 10),
       end: end.toISOString().slice(0, 10),
+      shop: metricsShop,
     };
-    if (metricsShop) params.shop = metricsShop;
     const calls = [
       () => api.getAnalyticsMetrics(params),
       () => api.getFitMetrics(params),
@@ -190,36 +197,45 @@ export default function BrandDashboardPage() {
       () => api.getBodyShapeInsights(params),
       () => api.getReturnMetrics(params),
       () => api.getCohortComparison(params),
-      () => api.getReturnRisk({ shop: metricsShop || undefined }),
+      () => api.getReturnRisk({ shop: metricsShop }),
       () => api.getTimeSeries(params),
       () => api.getFitPurchaseCorrelation(params),
     ];
     const results = await Promise.allSettled(calls.map((fn) => fn()));
-    const failures = results.filter((r) => r.status === 'rejected');
-    if (failures.length > 0 && failures.length === results.length) {
-      setFetchError('Backend unreachable.');
+    if (fetchId !== fetchIdRef.current) return; // superseded by a newer range/shop
+    const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failures.length > 0) {
+      const reason = String(failures[0].reason?.message || failures[0].reason || '');
+      if (/authori[sz]ation|401|403|not.*your|no shopify store/i.test(reason)) {
+        setFetchError('You are not signed in to this store. Please sign in again.');
+      } else if (failures.length === results.length) {
+        setFetchError('Backend unreachable.');
+      } else {
+        setFetchError(`Some sections could not load (${failures.length} of ${results.length}). Try Refresh.`);
+      }
     }
+    // A failed section is cleared rather than left showing the previous range's numbers.
     const val = (i: number) => results[i]?.status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<unknown>).value : null;
-    if (val(0)) setMetrics(val(0) as AnalyticsMetrics);
-    if (val(1)) setFitMetrics(val(1) as FitMetrics);
-    if (val(2)) setVelocity(val(2) as VelocityMetrics);
-    if (val(3)) setAtRisk(val(3) as AtRiskProductsResponse);
+    setMetrics(val(0) as AnalyticsMetrics | null);
+    setFitMetrics(val(1) as FitMetrics | null);
+    setVelocity(val(2) as VelocityMetrics | null);
+    setAtRisk(val(3) as AtRiskProductsResponse | null);
     const et = val(4);
-    if (et && typeof et === 'object' && 'data' in (et as Record<string, unknown>)) setExplorationTrend(((et as Record<string, unknown>).data as ExplorationTrendPoint[]) || []);
+    setExplorationTrend(et && typeof et === 'object' && 'data' in (et as Record<string, unknown>) ? (((et as Record<string, unknown>).data as ExplorationTrendPoint[]) || []) : []);
     const ss = val(5);
-    if (ss && typeof ss === 'object' && 'items' in (ss as Record<string, unknown>)) setSizeStress(((ss as Record<string, unknown>).items as SizeStressItem[]) || []);
-    if (val(6)) setRegionalSize(val(6) as RegionalSizeData);
-    if (val(7)) setMetricsByProduct(val(7) as MetricsByProductResponse);
-    if (val(8)) setDwellMetrics(val(8) as DwellMetrics);
-    if (val(9)) setDeviceMetrics(val(9) as DeviceMetricsResponse);
-    if (val(10)) setFitConfidence(val(10) as FitConfidenceResponse);
-    if (val(11)) setRepeatVisitors(val(11) as RepeatVisitorsResponse);
-    if (val(12)) setBodyShapeInsights(val(12) as BodyShapeInsightsResponse);
-    if (val(13)) setReturnMetrics(val(13) as ReturnMetricsData);
-    if (val(14)) setCohortComparison(val(14) as CohortComparisonData);
-    if (val(15)) setReturnRisk(val(15) as ReturnRiskResponse);
-    if (val(16)) setTimeSeries(val(16) as TimeSeriesResponse);
-    if (val(17)) setFitPurchaseCorrelation(val(17) as FitPurchaseCorrelationResponse);
+    setSizeStress(ss && typeof ss === 'object' && 'items' in (ss as Record<string, unknown>) ? (((ss as Record<string, unknown>).items as SizeStressItem[]) || []) : []);
+    setRegionalSize(val(6) as RegionalSizeData | null);
+    setMetricsByProduct(val(7) as MetricsByProductResponse | null);
+    setDwellMetrics(val(8) as DwellMetrics | null);
+    setDeviceMetrics(val(9) as DeviceMetricsResponse | null);
+    setFitConfidence(val(10) as FitConfidenceResponse | null);
+    setRepeatVisitors(val(11) as RepeatVisitorsResponse | null);
+    setBodyShapeInsights(val(12) as BodyShapeInsightsResponse | null);
+    setReturnMetrics(val(13) as ReturnMetricsData | null);
+    setCohortComparison(val(14) as CohortComparisonData | null);
+    setReturnRisk(val(15) as ReturnRiskResponse | null);
+    setTimeSeries(val(16) as TimeSeriesResponse | null);
+    setFitPurchaseCorrelation(val(17) as FitPurchaseCorrelationResponse | null);
     setMetricsLoading(false);
   }, [metricsRange, metricsShop]);
 
@@ -348,7 +364,7 @@ export default function BrandDashboardPage() {
                 onChange={(e) => setMetricsShop(e.target.value)}
                 className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
               >
-                <option value="">All shops</option>
+                {!brandShop && <option value="">No store linked</option>}
                 {brandShop && <option value={brandShop}>{brandShop}</option>}
               </select>
               <select
@@ -371,7 +387,7 @@ export default function BrandDashboardPage() {
               onChange={(e) => setMetricsShop(e.target.value)}
               className={`text-[10px] px-2 py-1 rounded border focus:outline-none ${dark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}
             >
-              <option value="">All shops</option>
+              {!brandShop && <option value="">No store linked</option>}
               {brandShop && <option value={brandShop}>{brandShop}</option>}
             </select>
             <select
@@ -445,6 +461,11 @@ export default function BrandDashboardPage() {
           </div>
         )}
 
+        {brandLoaded && !brandShop && (
+          <div className={`mb-5 p-4 rounded-xl text-sm ${dark ? 'bg-white/[0.03] text-white/70' : 'bg-black/[0.03] text-black/70'}`}>
+            No Shopify store is linked to this brand yet, so there are no analytics to show. Install the Tryon app on your store to connect it.
+          </div>
+        )}
         {fetchError && (
           <div className={`mb-5 p-4 rounded-xl text-sm flex items-center justify-between ${dark ? 'bg-white/[0.03] text-white/70' : 'bg-black/[0.03] text-black/70'}`}>
             <span>{fetchError}</span>
