@@ -103,13 +103,14 @@ const AVATAR_Z_OFFSET = -0.010
  *  separate piece and scaled by the avatar's factor, preserving real proportions. */
 const COMBINED_MODEL_HEIGHT_RATIO = 0.85
 
-function garmentScaleFor(rawGarment: number, rawAvatar: number, avatarScale: number): number {
+function garmentScaleFor(rawGarment: number, rawAvatar: number): number {
   if (rawGarment <= 1e-9) return GARMENT_CLEARANCE
   const isCombined = rawAvatar > 1e-9 && rawGarment / rawAvatar >= COMBINED_MODEL_HEIGHT_RATIO
   // Combined: normalise to the target and add clearance so it does not z-fight the body.
-  // Separate piece: it was draped in the avatar's own frame, so it just needs the
-  // avatar's scale — stretching it to full height is what breaks it.
-  return isCombined ? (TARGET_HEIGHT / rawGarment) * GARMENT_CLEARANCE : avatarScale
+  // Separate piece (tee, jeans, their drapes): authored feet-at-0 on a TARGET_HEIGHT body,
+  // so it only needs converting to metres. Never borrow the avatar's scale: avatars come
+  // in mm or m and in two frames, and stretching a piece to full height breaks it.
+  return isCombined ? (TARGET_HEIGHT / rawGarment) * GARMENT_CLEARANCE : (rawGarment > 100 ? 0.001 : 1)
 }
 
 export function AlignedScene({
@@ -163,16 +164,27 @@ export function AlignedScene({
     const rawG = computeBindHeight(garment)
 
     const sA = rawA > 1e-9 ? TARGET_HEIGHT / rawA : 1
-    const sG = garmentScaleFor(rawG, rawA, sA)
+    const sG = garmentScaleFor(rawG, rawA)
 
     avatar.scale.setScalar(sA)
     garment.scale.setScalar(sG)
     if (companion) {
-      companion.scale.setScalar(garmentScaleFor(computeBindHeight(companion), rawA, sA))
+      companion.scale.setScalar(garmentScaleFor(computeBindHeight(companion), rawA))
     }
 
     if (groupRef.current) {
       groupRef.current.updateMatrixWorld(true)
+    }
+
+    // Put the avatar in the garment frame: feet on y=0. LHM avatars (since 2026-05-22) are
+    // pelvis-centred (feet ~-1.3 m); without this their clothes float above the head.
+    // Bounds are in world space and this scene sits inside a group offset by -0.9 m,
+    // so measure the feet relative to that group, not the world.
+    const avatarFloor = geometryWorldBounds(avatar)
+    if (!avatarFloor.isEmpty()) {
+      const parentY = avatar.parent ? avatar.parent.getWorldPosition(new THREE.Vector3()).y : 0
+      avatar.position.y -= avatarFloor.min.y - parentY
+      avatar.updateMatrixWorld(true)
     }
 
     const boxA = geometryWorldBounds(avatar)
