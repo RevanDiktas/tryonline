@@ -2,7 +2,7 @@
  * TryOn Cart — Shopify theme app extension asset
  * Listens for TRYON_ADD_TO_CART from the widget iframe; resolves the correct
  * variant for the selected size via __tryonSizeVariantMap (set by Liquid block),
- * adds item to cart with tryon_session_id, and refreshes the cart UI.
+ * adds item to cart with _tryon_session_id, and refreshes the cart UI.
  *
  * Bound once per page: the same file may load from the Try On block schema and/or
  * the optional "TryOn cart" app embed — avoid duplicate listeners (double add).
@@ -10,7 +10,7 @@
 (function () {
   if (window.__tryonCartMessageBound) return;
   window.__tryonCartMessageBound = true;
-  var ATTR_KEY = 'tryon_session_id';
+  var ATTR_KEY = '_tryon_session_id';
   var lastAddKey = '';
   var lastAddTime = 0;
   var DEBOUNCE_MS = 2000;

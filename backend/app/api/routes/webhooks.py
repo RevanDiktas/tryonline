@@ -15,8 +15,11 @@ from app.config import get_settings
 router = APIRouter()
 settings = get_settings()
 
-# Attribute name from cart (theme must use this key)
-TRYON_SESSION_ATTR = "tryon_session_id"
+# Cart line property carrying the try-on session. The leading underscore hides
+# it from the shopper in cart and checkout; the bare name is what blocks
+# deployed before 2026-10-04 write, so carts made on those still attribute.
+TRYON_SESSION_ATTR = "_tryon_session_id"
+TRYON_SESSION_ATTRS = (TRYON_SESSION_ATTR, "tryon_session_id")
 
 # Compliance webhook topics (Shopify mandatory for App Store)
 COMPLIANCE_TOPICS = {"customers/data_request", "customers/redact", "shop/redact"}
@@ -35,17 +38,44 @@ def _get_session_id_from_order(order: dict[str, Any]) -> str | None:
     # Cart attributes → order.note_attributes
     attrs = order.get("note_attributes") or []
     for a in attrs:
-        if isinstance(a, dict) and a.get("name") == TRYON_SESSION_ATTR:
+        if isinstance(a, dict) and a.get("name") in TRYON_SESSION_ATTRS:
             v = a.get("value")
             return str(v) if v else None
     # Fallback: line item properties (if theme put it there)
     for item in order.get("line_items") or []:
         props = item.get("properties") or []
         for p in props:
-            if isinstance(p, dict) and p.get("name") == TRYON_SESSION_ATTR:
+            if isinstance(p, dict) and p.get("name") in TRYON_SESSION_ATTRS:
                 v = p.get("value")
                 return str(v) if v else None
     return None
+
+
+def _tryon_variant_id(order: dict[str, Any]) -> str | None:
+    """Variant of the line the widget added (the one carrying the session)."""
+    for li in order.get("line_items") or []:
+        for p in li.get("properties") or []:
+            if isinstance(p, dict) and p.get("name") in TRYON_SESSION_ATTRS and p.get("value"):
+                return str(li.get("variant_id") or "") or None
+    return None
+
+
+def _order_client_context(order: dict[str, Any]) -> dict[str, str | None]:
+    """Device and location Shopify recorded for the order. Country is the full
+    name (e.g. "Netherlands"), matching what widget events store."""
+    cd = order.get("client_details") or {}
+    addr = (
+        order.get("shipping_address")
+        or order.get("billing_address")
+        or (order.get("customer") or {}).get("default_address")
+        or {}
+    )
+    return {
+        "user_agent": cd.get("user_agent") or None,
+        "ip_address": cd.get("browser_ip") or None,
+        "country": addr.get("country") or None,
+        "city": addr.get("city") or None,
+    }
 
 
 def _detect_bracketing(order: dict[str, Any]) -> tuple[bool, int]:
@@ -73,7 +103,7 @@ def _get_line_items_with_tryon(order: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(p, dict):
                 n = p.get("name") or ""
                 v = p.get("value")
-                if n == TRYON_SESSION_ATTR and v:
+                if n in TRYON_SESSION_ATTRS and v:
                     sid = str(v)
                 elif n == TRYON_SIZE_ATTR and v:
                     size = str(v).strip() or None
@@ -82,7 +112,14 @@ def _get_line_items_with_tryon(order: dict[str, Any]) -> list[dict[str, Any]]:
         if sid:
             qty = int(li.get("quantity", 1) or 1)
             price = float(li.get("price", 0) or 0) * qty
-            items.append({"session_id": sid, "size": size or (str(li.get("variant_title") or "").strip()) or None, "quantity": qty, "price": price})
+            items.append({
+                "session_id": sid,
+                "size": size or (str(li.get("variant_title") or "").strip()) or None,
+                "quantity": qty,
+                "price": price,
+                "product_id": str(li.get("product_id") or ""),
+                "variant_id": str(li.get("variant_id") or ""),
+            })
     return items
 
 
@@ -145,6 +182,7 @@ async def shopify_orders_paid(request: Request):
             for li in raw_line_items
         ]
 
+    client = _order_client_context(order)
     event_id = await supabase_service.track_purchase(
         order_id=order_id,
         session_id=session_id,
@@ -152,6 +190,8 @@ async def shopify_orders_paid(request: Request):
         amount=total_price,
         currency=currency,
         event_data=event_data,
+        variant_id=_tryon_variant_id(order),
+        **client,
     )
 
     if event_id is None and session_id:
@@ -265,19 +305,17 @@ async def shopify_refunds_created(request: Request):
         if tr.get("kind") == "refund":
             total_refunded = max(total_refunded, float(tr.get("amount", 0) or 0))
 
-    session_id: str | None = None
-    try:
-        r = supabase_service.client.table("analytics_events") \
-            .select("session_id") \
-            .eq("event_type", "purchase") \
-            .execute()
-        for row in r.data or []:
-            ed = row.get("event_data") or {}
-            if str(ed.get("order_id", "")) == order_id:
-                session_id = row.get("session_id")
-                break
-    except Exception:
-        pass
+    if supabase_service.return_exists(shop_domain, refund_id):
+        return Response(status_code=200, content="OK")  # Shopify retry
+
+    # A return belongs to whoever made the order: copy the purchase's session,
+    # shopper, product, device and location so return rates join to try-ons.
+    purchase: dict[str, Any] = {}
+    if order_id:
+        try:
+            purchase = supabase_service.find_purchase_for_order(shop_domain, order_id) or {}
+        except Exception as e:
+            print(f"[refunds] purchase lookup failed shop={shop_domain} order={order_id}: {e}")
 
     event_data: dict[str, Any] = {
         "refund_id": refund_id,
@@ -287,11 +325,23 @@ async def shopify_refunds_created(request: Request):
         "items": returned_products,
     }
 
-    event_id = await supabase_service.track_event(
-        event_type="return",
-        session_id=session_id,
-        shop_domain=shop_domain,
-        event_data=event_data,
-    )
+    try:
+        await supabase_service.track_event(
+            event_type="return",
+            user_id=purchase.get("user_id"),
+            session_id=purchase.get("session_id"),
+            shop_domain=shop_domain,
+            product_id=purchase.get("product_id"),
+            variant_id=purchase.get("variant_id"),
+            country=purchase.get("country"),
+            city=purchase.get("city"),
+            user_agent=purchase.get("user_agent"),
+            ip_address=purchase.get("ip_address"),
+            event_data=event_data,
+        )
+    except Exception as e:
+        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
+            return Response(status_code=200, content="OK")  # lost a retry race
+        raise
 
     return Response(status_code=200, content="OK")

@@ -188,7 +188,7 @@
 
         var sizeUp = size === 'xs' ? 'XS' : size === 'xl' ? 'XL' : size.length ? size.charAt(0).toUpperCase() + size.slice(1) : '';
         var props = { _tryon_size: size, Size: sizeUp };
-        if (payload.session_id) props.tryon_session_id = payload.session_id;
+        if (payload.session_id) props._tryon_session_id = payload.session_id;
 
         var body = { items: [{ id: Number(vid), quantity: 1, properties: props }] };
 

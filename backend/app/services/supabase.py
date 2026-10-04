@@ -810,6 +810,52 @@ class SupabaseService:
         except Exception:
             pass
 
+    def get_session_context(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Who/what/where of a try-on session, for stamping onto the order and
+        refund events Shopify sends later: user_id from tryon_sessions, plus
+        product, variant, device and location from the session's own widget
+        events (newest non-empty value wins). Returns None when no such session
+        exists, so callers never write a dangling session_id."""
+        try:
+            s = self.client.table("tryon_sessions").select("user_id").eq("id", session_id).limit(1).execute()
+        except Exception:
+            return None  # malformed id (not a UUID) is as good as unknown
+        if not s.data:
+            return None
+        ctx: Dict[str, Any] = {"user_id": s.data[0].get("user_id")}
+        fields = ("product_id", "variant_id", "country", "city", "user_agent", "ip_address")
+        try:
+            r = self.client.table("analytics_events").select(",".join(fields)).eq(
+                "session_id", session_id
+            ).order("created_at", desc=True).limit(50).execute()
+            for row in r.data or []:
+                for f in fields:
+                    if ctx.get(f) is None and row.get(f):
+                        ctx[f] = row[f]
+        except Exception as e:
+            print(f"[track_purchase] session context lookup failed for {session_id}: {e}")
+        return ctx
+
+    def find_purchase_for_order(self, shop_domain: Optional[str], order_id: str) -> Optional[Dict[str, Any]]:
+        """The purchase event for one Shopify order (unique per order_id)."""
+        q = self.client.table("analytics_events").select(
+            "session_id,user_id,product_id,variant_id,country,city,user_agent,ip_address"
+        ).eq("event_type", "purchase").eq("event_data->>order_id", order_id)
+        if shop_domain:
+            q = q.eq("shop_domain", shop_domain)
+        r = q.limit(1).execute()
+        return r.data[0] if r.data else None
+
+    def return_exists(self, shop_domain: Optional[str], refund_id: str) -> bool:
+        """Shopify retries webhooks; a refund must be counted once."""
+        q = self.client.table("analytics_events").select("id").eq(
+            "event_type", "return"
+        ).eq("event_data->>refund_id", refund_id)
+        if shop_domain:
+            q = q.eq("shop_domain", shop_domain)
+        r = q.limit(1).execute()
+        return bool(r.data)
+
     async def track_purchase(
         self,
         order_id: str,
@@ -818,10 +864,18 @@ class SupabaseService:
         amount: float = 0,
         currency: str = "USD",
         event_data: Optional[Dict[str, Any]] = None,
+        variant_id: Optional[str] = None,
+        country: Optional[str] = None,
+        city: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
     ) -> Optional[str]:
         """
         Insert purchase event. Idempotent by order_id.
-        Enriches with brand_id (from shop_domain) and user_id (from tryon_sessions).
+        Enriches with brand_id (from shop_domain). An order that came through
+        the widget takes user, product, device and location from its try-on
+        session, so it lines up with the session's other events. A store order
+        without a session keeps the order's own device and shipping country.
         Returns event_id or None if duplicate (already processed).
         """
         payload = event_data or {}
@@ -832,13 +886,22 @@ class SupabaseService:
         brand_id = self._resolve_brand_id(shop_domain) if shop_domain else None
 
         user_id: Optional[str] = None
+        product_id: Optional[str] = None
         if session_id:
-            try:
-                r = self.client.table("tryon_sessions").select("user_id").eq("id", session_id).single().execute()
-                if r.data and r.data.get("user_id"):
-                    user_id = str(r.data["user_id"])
-            except Exception:
-                pass
+            ctx = self.get_session_context(session_id)
+            if ctx is None:
+                # analytics_events.session_id references tryon_sessions; an unknown
+                # id would fail the insert and Shopify would retry forever.
+                payload["unmatched_tryon_session_id"] = session_id
+                session_id = None
+            else:
+                user_id = str(ctx["user_id"]) if ctx.get("user_id") else None
+                product_id = ctx.get("product_id")
+                variant_id = variant_id or ctx.get("variant_id")
+                country = ctx.get("country") or country
+                city = ctx.get("city") or city
+                user_agent = ctx.get("user_agent") or user_agent
+                ip_address = ctx.get("ip_address") or ip_address
 
         row = {
             "event_type": "purchase",
@@ -846,6 +909,12 @@ class SupabaseService:
             "session_id": session_id,
             "brand_id": brand_id,
             "shop_domain": shop_domain,
+            "product_id": product_id,
+            "variant_id": variant_id,
+            "country": country,
+            "city": city,
+            "user_agent": user_agent,
+            "ip_address": ip_address,
             "event_data": payload,
         }
         row = {k: v for k, v in row.items() if v is not None}
