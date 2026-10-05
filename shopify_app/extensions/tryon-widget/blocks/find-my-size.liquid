@@ -79,6 +79,7 @@
       "productId": {{ product.handle | json }},
       "productName": {{ product.title | json }},
       "productType": {{ product.type | json }},
+      "productImage": {{ product.featured_image | image_url: width: 400 | json }},
       "brandName": {{ shop.name | json }},
       "returnUrl": {{ shop.url | append: product.url | json }},
       "guest": {{ block.settings.allow_guest | json }},
@@ -107,7 +108,7 @@
       if (!btn || !cfg || cfg.sizePos < 0) return;
 
       var KNOWN_KEY = 'tryon_size_known';
-      var VERSION = '1';
+      var VERSION = '2';
       var iframe = null;
       var ready = false;
       var isOpen = false;
@@ -150,9 +151,21 @@
         if (!iframe || !iframe.contentWindow) return;
         try { iframe.contentWindow.postMessage(payload ? { type: type, payload: payload } : { type: type }, '*'); } catch (e) {}
       }
+      // The picture of what the shopper is looking at: the selected colour's own image when
+      // the variant has one, else the product's main image.
+      function imageNow() {
+        var selId = selectedVariantId();
+        for (var i = 0; i < cfg.variants.length; i++) {
+          var v = cfg.variants[i];
+          if (v.id === selId && v.featured_image && v.featured_image.src) return v.featured_image.src;
+        }
+        return cfg.productImage || '';
+      }
+
       function sendProduct() {
         post('TRYON_SIZE_PRODUCT', {
           sizes: sizesNow().map(function (s) { return { label: s.label, available: s.available }; }),
+          image: imageNow(),
           hasTryon: hasTryonBlock()
         });
       }
@@ -184,7 +197,8 @@
         var p = new URLSearchParams({
           shop: cfg.shop, product_id: cfg.productId, product_name: cfg.productName || '',
           product_type: cfg.productType || '', variant_id: String(selectedVariantId() || ''),
-          country: cfg.country || '', brand_name: cfg.brandName || '', return_url: cfg.returnUrl || '', v: VERSION
+          country: cfg.country || '', brand_name: cfg.brandName || '', return_url: cfg.returnUrl || '',
+          product_image: imageNow(), v: VERSION
         });
         if (cfg.guest) p.set('guest', '1');
         if (cfg.look === 'store') {
