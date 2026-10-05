@@ -287,6 +287,29 @@ def _ensure_lhm_data(log: list[str] | None = None) -> None:
         _stitch_volume_into_lhm_root(log=log)
 
 
+# The production avatar command needs only these two trees out of LHM_prior_model.tar.
+# Dockerfile.runpod bakes them into the image, so a fresh worker can start measuring
+# without first fetching (or stitching in) the multi-GB tarballs.
+BAKED_MODEL_PATHS = [
+    LHM_ROOT / "pretrained_models" / "human_model_files",
+    LHM_ROOT / "pretrained_models" / "gagatracker" / "vgghead" / "vgg_heads_l.trcd",
+]
+_DATA_ENSURED = False
+
+
+def _baked_models_ready() -> bool:
+    """True when the models the production command uses are on the image's own disk."""
+    try:
+        for path in BAKED_MODEL_PATHS:
+            if path.is_symlink() or not path.exists():
+                return False
+            if path.is_dir() and not any(path.iterdir()):
+                return False
+        return True
+    except OSError:
+        return False
+
+
 def _stitch_volume_into_lhm_root(log: list[str] | None = None) -> None:
     """Make /workspace/LHM/<x> point to /runpod-volume/lhm-data/<x>.
 
@@ -2709,11 +2732,36 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
         timings[name] = round(now - _clock[0], 2)
         _clock[0] = now
 
-    try:
-        _ensure_lhm_data()
-    except Exception as e:
-        return {"error": f"LHM data bootstrap failed: {e}"}
+    # Fast path: models baked into the image. Otherwise (or if anything below fails to
+    # load from the baked copy) fall back to the full data bootstrap, as before.
+    global _DATA_ENSURED, _POSE_ESTIMATOR, _FACE_DETECTOR
+    data_source = "baked" if _baked_models_ready() else "bootstrap"
+    if data_source == "bootstrap" and not _DATA_ENSURED:
+        try:
+            _ensure_lhm_data()
+            _DATA_ENSURED = True
+        except Exception as e:
+            return {"error": f"LHM data bootstrap failed: {e}"}
     lap("data_check")
+
+    def recover(what: str) -> bool:
+        """Baked copy was not enough: run the full bootstrap once, then the caller retries."""
+        global _DATA_ENSURED, _POSE_ESTIMATOR, _FACE_DETECTOR
+        nonlocal data_source
+        if _DATA_ENSURED:
+            return False
+        print(f"[LHM Handler] {what} failed on baked models; running full data bootstrap")
+        try:
+            _ensure_lhm_data()
+        except Exception as e:
+            print(f"[LHM Handler] data bootstrap failed: {e}")
+            return False
+        _DATA_ENSURED = True
+        _POSE_ESTIMATOR = None
+        _FACE_DETECTOR = None
+        data_source = "bootstrap_after_baked_failed"
+        lap("data_recover")
+        return True
 
     with tempfile.TemporaryDirectory(prefix="lhm_avatar_prod_") as tmp:
         tmp_path = Path(tmp)
@@ -2727,7 +2775,12 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
 
         # 1) Pose estimation -> SMPL-X beta
         try:
-            pose_estimator = _get_pose_estimator()
+            try:
+                pose_estimator = _get_pose_estimator()
+            except Exception:
+                if not recover("pose estimator load"):
+                    raise
+                pose_estimator = _get_pose_estimator()
             lap("pose_model_load")
         except Exception as e:
             return {
@@ -2735,7 +2788,13 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
                 "traceback": traceback.format_exc()[-3000:],
             }
         try:
-            shape_pose = pose_estimator(str(img_path))
+            try:
+                shape_pose = pose_estimator(str(img_path))
+            except Exception:
+                if not recover("pose estimation"):
+                    raise
+                pose_estimator = _get_pose_estimator()
+                shape_pose = pose_estimator(str(img_path))
         except Exception as e:
             return {
                 "error": f"pose estimation crashed: {e}",
@@ -2754,9 +2813,16 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
             import torch
             import numpy as np
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            verts_apose_m, verts_tpose_m, faces, smplx_params = _build_smplx_mesh_pair(
-                beta_np=beta_np, gender=gender, device=device,
-            )
+            try:
+                verts_apose_m, verts_tpose_m, faces, smplx_params = _build_smplx_mesh_pair(
+                    beta_np=beta_np, gender=gender, device=device,
+                )
+            except Exception:
+                if not recover("SMPL-X mesh build"):
+                    raise
+                verts_apose_m, verts_tpose_m, faces, smplx_params = _build_smplx_mesh_pair(
+                    beta_np=beta_np, gender=gender, device=device,
+                )
             verts_apose_mm = (verts_apose_m * 1000.0).astype(np.float32)
             verts_tpose_mm = (verts_tpose_m * 1000.0).astype(np.float32)
         except Exception as e:
@@ -2772,7 +2838,12 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
         face_detector = None
         face_detector_error = None
         try:
-            face_detector = _get_face_detector()
+            try:
+                face_detector = _get_face_detector()
+            except Exception:
+                if not recover("face detector load"):
+                    raise
+                face_detector = _get_face_detector()
         except Exception as e:
             face_detector_error = f"{type(e).__name__}: {e}"
         lap("face_model_load")
@@ -2841,6 +2912,7 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
         # missing. We still pass a height fallback to keep DB updates resilient
         # when measurements_error is set.
         lap("encode")
+        timings["data_source"] = data_source
         print(f"[LHM Handler] timings {timings} total={round(_now() - started, 2)}s")
         meas_standardized = (measurements_block or {}).get("standardized_cm") or {}
         if not meas_standardized and height_cm:
@@ -2852,6 +2924,7 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
             "file_sizes": file_sizes,
             "processing_time_seconds": round(_now() - started, 2),
             "timings": timings,
+            "data_source": data_source,
             "skin_rgb": list(skin_rgb_diag),
             "skin_method": skin_method,
             "skin_info": skin_info,
