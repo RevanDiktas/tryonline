@@ -23,6 +23,11 @@ const nextConfig = {
         source: '/test-viewer.html',
         headers: [{ key: 'Content-Security-Policy', value: 'frame-ancestors *' }],
       },
+      {
+        // The size finder is framed by any store that installs the "Find my size" block.
+        source: '/size-finder.html',
+        headers: [{ key: 'Content-Security-Policy', value: 'frame-ancestors *' }],
+      },
     ];
   },
 };

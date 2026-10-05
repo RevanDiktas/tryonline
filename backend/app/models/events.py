@@ -23,6 +23,13 @@ class EventType(str, Enum):
     tryon_ended = "tryon_ended"
     tryon_size_changed = "tryon_size_changed"
 
+    # Size finder (size without an avatar): opened, and the shopper got a size.
+    # Its recommendation, size picks and add-to-cart reuse the events below with
+    # metadata.source = "size_finder". It never sends tryon_started, so its sessions
+    # stay out of the try-on cohort.
+    size_finder_opened = "size_finder_opened"
+    size_finder_completed = "size_finder_completed"
+
     # Size events (Category B)
     size_recommended = "size_recommended"
     size_viewed = "size_viewed"
