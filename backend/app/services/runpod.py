@@ -107,8 +107,11 @@ class RunPodService:
                 if error:
                     print(f"[RunPod] Job {job_id} error: {error}")
                 
+                # RunPod's own clock: time waiting for a worker, and time the worker ran (ms).
+                timing = {"queue_ms": data.get("delayTime"), "gpu_ms": data.get("executionTime")}
+
                 if status != "COMPLETED" or not output:
-                    return {"status": status, "output": output, "error": error}
+                    return {"status": status, "output": output, "error": error, "timing": timing}
                 
                 # Pipeline error (handler returned {"error": "..."})
                 if output.get("error"):
@@ -135,7 +138,7 @@ class RunPodService:
                 
                 print(f"[RunPod] Decoded {len(processed_output['files_bytes'])} files, measurements: {len(processed_output['measurements'])} values")
                 
-                return {"status": "COMPLETED", "output": processed_output, "error": None}
+                return {"status": "COMPLETED", "output": processed_output, "error": None, "timing": timing}
         except Exception as e:
             print(f"[RunPod] get_job_status exception: {e}")
             import traceback
