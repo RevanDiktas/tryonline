@@ -161,6 +161,16 @@ def drape_scope_for_shop(shop_domain: str | None) -> list[str] | None:
     return [brand_id]
 
 
+POLL_SECONDS = 2
+MAX_BUILD_SECONDS = 600
+
+
+def advance(job: dict, floor: int, cap: int, message: str) -> None:
+    """Move the progress bar forward one step. It never goes backwards."""
+    job["progress"] = max(job["progress"], min(max(job["progress"] + 1, floor), cap))
+    job["message"] = message
+
+
 async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
     """
     Background task to process avatar creation
@@ -179,8 +189,7 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
         print(f"[Avatar]   Photo URL: {request.photo_url[:100]}...")
         
         jobs[job_id]["status"] = ProcessingStatus.processing
-        jobs[job_id]["progress"] = 10
-        jobs[job_id]["message"] = "Preparing photo for GPU..."
+        advance(jobs[job_id], 5, 5, "Starting...")
         
         # photos bucket is PRIVATE — public URLs return 400.
         # We MUST create a signed URL for RunPod to download the photo.
@@ -212,7 +221,6 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
         
         print(f"[Avatar] Final photo URL for RunPod: {photo_url[:120]}...")
         
-        jobs[job_id]["message"] = "Submitting job to RunPod..."
         print(f"[Avatar] 📤 Submitting job to RunPod...")
         
         # Check if using mock service
@@ -247,30 +255,27 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
         print(f"[Avatar] ✅ Job submitted to RunPod: {runpod_job_id}")
         
         jobs[job_id]["runpod_job_id"] = runpod_job_id
-        jobs[job_id]["progress"] = 20
-        jobs[job_id]["message"] = "Processing on GPU..."
+        advance(jobs[job_id], 10, 10, "Starting...")
         
         import asyncio
-        max_attempts = 120  # 10 minutes with 5 second intervals
+        import time
+        submitted = time.monotonic()
+        max_attempts = MAX_BUILD_SECONDS // POLL_SECONDS
         
         for attempt in range(max_attempts):
-            await asyncio.sleep(5)
+            await asyncio.sleep(POLL_SECONDS)
             
             print(f"[Avatar] Poll #{attempt+1}/{max_attempts} for RunPod job {runpod_job_id}")
             status_result = await runpod_service.get_job_status(runpod_job_id)
             runpod_status = status_result.get("status", "")
             
             if runpod_status == "IN_QUEUE":
-                if attempt < 12:
-                    jobs[job_id]["progress"] = min(10 + attempt * 2, 30)
-                    jobs[job_id]["message"] = "Preparing your avatar..."
-                else:
-                    jobs[job_id]["progress"] = 30
-                    jobs[job_id]["message"] = "Our servers are busy right now. Hang tight..."
+                busy = time.monotonic() - submitted > 60
+                advance(jobs[job_id], 10, 30, "Our servers are busy right now. Hang tight..." if busy else "Starting...")
             elif runpod_status == "IN_PROGRESS":
-                jobs[job_id]["progress"] = min(50 + attempt, 90)
-                jobs[job_id]["message"] = "Creating your avatar and extracting measurements..."
+                advance(jobs[job_id], 30, 90, "Getting your measurements...")
             elif runpod_status == "COMPLETED":
+                gpu_done = time.monotonic()
                 output = status_result.get("output", {})
                 # RunPod marks job COMPLETED even when handler returns {"error": "..."}
                 if output.get("error"):
@@ -308,8 +313,7 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 print(f"[Avatar] Converted {len(measurements)} measurements to integers")
                 
                 # Upload all pipeline files to Supabase storage
-                jobs[job_id]["progress"] = 95
-                jobs[job_id]["message"] = "Saving your avatar files..."
+                advance(jobs[job_id], 95, 95, "Almost done...")
                 
                 files_bytes = output.get("files_bytes", {})
                 
@@ -433,7 +437,19 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 
                 jobs[job_id]["status"] = ProcessingStatus.completed
                 jobs[job_id]["progress"] = 100
-                jobs[job_id]["message"] = "Avatar created successfully!"
+                jobs[job_id]["message"] = "Done"
+                # Where the time went, in seconds: waiting for a GPU worker, the worker running
+                # (model loading included), the pipeline itself, and saving the files here.
+                rp = status_result.get("timing") or {}
+                secs = lambda ms: round(ms / 1000, 1) if isinstance(ms, (int, float)) else None
+                jobs[job_id]["timing"] = {
+                    "queue": secs(rp.get("queue_ms")),
+                    "gpu": secs(rp.get("gpu_ms")),
+                    "pipeline": output.get("processing_time"),
+                    "save": round(time.monotonic() - gpu_done, 1),
+                    "total": round(time.monotonic() - submitted, 1),
+                }
+                print(f"[Avatar] TIMING {job_id}: {jobs[job_id]['timing']}")
                 jobs[job_id]["avatar_url"] = avatar_url
                 jobs[job_id]["measurements"] = measurements
                 jobs[job_id]["completed_at"] = datetime.utcnow()
@@ -503,6 +519,7 @@ async def get_avatar_status(job_id: str):
         started_at=job.get("started_at"),
         completed_at=job.get("completed_at"),
         error=job.get("error"),
+        timing=job.get("timing"),
     )
 
 
