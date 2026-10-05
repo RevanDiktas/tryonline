@@ -281,7 +281,7 @@
       <h1>Getting your measurements</h1>
       <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><i id="bar-fill"></i></div>
       <p class="stage"><span id="stage" aria-live="polite">Starting…</span></p>
-      <p class="lede">This usually takes a few minutes, sometimes up to ten. You can close this and keep shopping: your size will be waiting next to the size picker.</p>
+      <p class="lede">This can take around 2 minutes. You can close this and keep shopping: your size will be waiting next to the size picker.</p>
       <button class="ghost" type="button" id="keep-shopping">Keep shopping</button>
     </section>
 
@@ -673,7 +673,7 @@ $('onboard').addEventListener('click', () => { const t = linkToken(); $('onboard
 $('recheck').addEventListener('click', async () => {
   await loadPassport();
   if (bodyState === 'ready' || bodyState === 'building') { await route(true); return; }
-  $('nomeas-note').textContent = 'Not ready yet. Measuring can take up to ten minutes after you send your photo.'; $('nomeas-note').hidden = false;
+  $('nomeas-note').textContent = 'Not ready yet. Measuring can take around 2 minutes after you send your photo.'; $('nomeas-note').hidden = false;
 });
 document.querySelectorAll('[data-signout]').forEach((b) => b.addEventListener('click', () => { forgetUser(); bodyState = 'signedout'; show('gate'); }));
 document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => show(b.dataset.go)));
