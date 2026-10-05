@@ -788,7 +788,12 @@
       <p id="tryon-error-signin-wrap" style="display:none;margin-top:16px;"></p>
     </div>
   </div>
+  <!-- Onboarding: the "Find my size" card (size-finder.html?flow=tryon) in a frame. One sign-up,
+       details, photo and build for both buttons; it hands back to the viewer once the avatar is ready. -->
+  <div class="tryon-onboard" id="tryon-onboard" style="display:none;"></div>
   <style>
+  .tryon-onboard{position:fixed;inset:0;z-index:60;}
+  .tryon-onboard iframe{display:block;width:100%;height:100%;border:0;background:transparent;}
   .tryon-boot{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;padding:20px;}
   .tryon-boot-inner{position:relative;background:#fff;border-radius:14px;padding:26px 52px;display:flex;flex-direction:column;align-items:center;gap:12px;box-shadow:0 12px 40px rgba(0,0,0,0.15);}
   .tryon-boot-text{font-size:13px;color:#555;}
@@ -1123,6 +1128,7 @@
        the size selector only ever drives the primary garment. */
     let companionConfig = null;
     let companionSize = null;
+    let onboardProduct = null;   // this product's try-on config, kept for the onboarding card's sizes
 
     // Fetch user data (avatar, measurements) when user_id present
     // 1) Try same-origin /api/avatar/:id (Next.js rewrites to backend).
@@ -1131,6 +1137,8 @@
       var m = d.measurements || {};
       return {
         avatarUrl: d.avatar_url || null,
+        // The passport row exists from the moment a build starts; only 'completed' has an avatar.
+        status: (d.status || '').toString().toLowerCase(),
         gender: (d.gender || m.gender || '').toString().toLowerCase(),
         measurements: {
           chest: m.chest || 102,
@@ -1281,7 +1289,7 @@
       signinWrap.style.display = 'block';
       document.getElementById('tryon-error-signin-again').addEventListener('click', function() {
         forgetUser();
-        showLoginGate('signin');
+        showOnboarding();
       });
     }
 
@@ -1292,6 +1300,7 @@
         fetchUserData(),
         fetchProductConfig()
       ]);
+      onboardProduct = productConfig;
       // Require avatar from Supabase when user_id is present
       if (config.userId) {
         if (userData._authRequired) {
@@ -1299,9 +1308,10 @@
           showErrorStateSignInLink();
           return false;
         }
-        if (userData._avatarNotFound) {
-          // Signed in but no avatar yet: the most common dead end. Walk them into onboarding.
-          showLoginGate('avatar');
+        if (userData._avatarNotFound || (userData.status && userData.status !== 'completed')) {
+          // Signed in, no finished avatar yet (none, still building, or failed): the onboarding
+          // card picks up from wherever this shopper is.
+          showOnboarding();
           return false;
         }
         if (!userData.avatarUrl) {
@@ -1926,7 +1936,7 @@
 
     // ============================================
     // WIDGET LIFECYCLE
-    // One state at a time: 'booting' | 'gate' | 'error' | 'viewer' | 'closed'.
+    // One state at a time: 'booting' | 'onboard' | 'gate' | 'error' | 'viewer' | 'closed'.
     // The Shopify block keeps this iframe alive between opens (WebGL), so closing
     // ghosts the document and the block's TRYON_OPEN brings it back.
     // ============================================
@@ -1934,6 +1944,7 @@
     const loginGate = document.getElementById('tryon-login-gate');
     const bootEl = document.getElementById('tryon-boot');
     const errorEl = document.getElementById('tryon-error-state');
+    const onboardEl = document.getElementById('tryon-onboard');
     const signinBtn = document.getElementById('tryon-signin-btn');
     const inIframe = typeof window !== 'undefined' && window.self !== window.top;
     if (config.openDirect && pdpBg) pdpBg.style.display = 'none';
@@ -1952,6 +1963,9 @@
       if (bootEl) bootEl.style.display = next === 'booting' ? 'flex' : 'none';
       if (loginGate) loginGate.style.display = next === 'gate' ? 'flex' : 'none';
       if (errorEl) errorEl.style.display = next === 'error' ? 'flex' : 'none';
+      if (onboardEl) onboardEl.style.display = next === 'onboard' ? 'block' : 'none';
+      // The onboarding card has its own close button.
+      closeBtn.style.visibility = next === 'onboard' ? 'hidden' : '';
       overlay.classList.toggle('active', next === 'viewer');
       document.documentElement.classList.toggle('tryon-ghost', next === 'closed' && config.openDirect);
       document.body.classList.toggle('tryon-x-on', next !== 'closed');
@@ -2025,6 +2039,96 @@
       if (!setUiState('gate')) return;
       setGateStep(step || 'choose');
     }
+
+    // ---- Onboarding: the same card as the "Find my size" block (size-finder.html, flow=tryon) ----
+    // Account, details, photo and build happen there, with the size as the first payoff; its
+    // "See it on you" hands back here once the avatar is ready. The frame stays loaded while the
+    // widget is closed, so a build in flight keeps being watched.
+    let onboardFrame = null;
+    let onboardReady = false;
+    let onboardLast = false;   // the shopper was last in onboarding: a reopen goes back there
+    function onboardSrc() {
+      var p = new URLSearchParams({
+        flow: 'tryon', api_url: config.apiUrl || '', shop: config.shopDomain || '',
+        product_id: config.productId || '', product_name: config.productName || '',
+        variant_id: config.variantId || '', brand_name: config.brandName || '',
+        country: config.country || '', product_image: config.productImageUrl || '',
+        return_url: config.returnUrl || '',
+      });
+      return '/size-finder.html?' + p.toString();
+    }
+    function postOnboard(type, payload) {
+      if (!onboardFrame || !onboardFrame.contentWindow) return;
+      try { onboardFrame.contentWindow.postMessage(payload ? { type: type, payload: payload } : { type: type }, window.location.origin); } catch (e) {}
+    }
+    // The sizes this product has a 3D garment for, in size order, with the store's stock.
+    function sendOnboardProduct() {
+      var urls = (onboardProduct && onboardProduct.modelUrls) || {};
+      var labels = Object.keys(urls).filter(function(s) { return urls[s] && String(urls[s]).trim(); });
+      var sys = inferSizeSystem(labels, 'unisex');
+      labels.sort(function(a, b) { return sizeToOrdinal(a, sys) - sizeToOrdinal(b, sys); });
+      postOnboard('TRYON_SIZE_PRODUCT', {
+        sizes: labels.map(function(s) { return { label: s, available: !isSoldOut(s) }; }),
+        image: config.productImageUrl || undefined,
+        hasTryon: true,
+      });
+    }
+    function showOnboarding() {
+      if (!setUiState('onboard')) return;
+      onboardLast = true;
+      // Signed out, initConfig has not run: fetch the product's sizes for the card here.
+      if (!onboardProduct) {
+        fetchProductConfig().then(function(p) {
+          if (p && !onboardProduct) { onboardProduct = p; if (onboardReady) sendOnboardProduct(); }
+        });
+      }
+      if (!onboardFrame) {
+        onboardReady = false;
+        onboardFrame = document.createElement('iframe');
+        onboardFrame.title = 'Create your Tryon account';
+        onboardFrame.setAttribute('allowtransparency', 'true');
+        onboardEl.appendChild(onboardFrame);
+        onboardFrame.src = onboardSrc();
+        return;   // TRYON_SIZE_READY sends the product and opens it
+      }
+      if (onboardReady) { sendOnboardProduct(); postOnboard('TRYON_SIZE_OPEN'); }
+    }
+    // The onboarding card says the avatar is ready: load it and open the viewer.
+    async function finishOnboarding() {
+      onboardLast = false;
+      config.userId = tryonStored('tryon_user_id') || config.userId;
+      config.displayName = tryonStored('tryon_user_name') || config.displayName;
+      if (!setUiState('booting')) return;
+      var ok = await initConfig();
+      if (ok && uiState !== 'closed') openViewer();
+    }
+    function tryonStored(key) {
+      try { var v = localStorage.getItem(key); if (v) return v; } catch (e) {}
+      try { return sessionStorage.getItem(key); } catch (e) { return null; }
+    }
+    window.addEventListener('message', function(event) {
+      if (!onboardFrame || event.source !== onboardFrame.contentWindow || !event.data) return;
+      var d = event.data;
+      if (d.type === 'TRYON_SIZE_READY') {
+        onboardReady = true;
+        sendOnboardProduct();
+        // Also after the card reloads itself (sign-in fallback) while it is showing.
+        if (uiState === 'onboard') postOnboard('TRYON_SIZE_OPEN');
+      }
+      if (d.type === 'TRYON_SIZE_ACCOUNT') {
+        config.userId = tryonStored('tryon_user_id') || config.userId;
+        config.displayName = tryonStored('tryon_user_name') || config.displayName;
+      }
+      if (d.type === 'TRYON_SIZE_OPEN_TRYON') finishOnboarding();
+      if (d.type === 'TRYON_SIZE_ADD_TO_CART' && d.payload) {
+        // The card has tracked add_to_cart already; the store's cart is the block's job.
+        postToParent({
+          type: 'TRYON_ADD_TO_CART',
+          payload: { productId: config.productId, variantId: config.variantId, size: d.payload.size, shop: config.shopDomain, session_id: d.payload.session_id || sessionId },
+        });
+      }
+      if (d.type === 'TRYON_SIZE_CLOSE' && uiState === 'onboard') closeWidget();
+    });
 
     function forgetUser() {
       config.userId = null;
@@ -2319,6 +2423,7 @@
       setHeaderName();
       if (!setUiState('viewer')) return;
       viewerEverOpened = true;
+      onboardLast = false;
       renderSizeButtons();
       updateSizeSelectorVisibility();
       currentSize = resolveCurrentSizeForOpen();
@@ -2354,7 +2459,7 @@
         } catch (e) { me = null; }
         if (stale()) return;
         if (!me || !me.user_id) {
-          showLoginGate('choose');
+          showOnboarding();
           // Shopper started sign-up earlier (maybe in another tab, or before iOS reloaded this
           // page): keep listening for that account so this iframe signs in by itself.
           var pending = readLinkToken();
@@ -2378,6 +2483,8 @@
     function reopenWidget() {
       if (uiState !== 'closed') return;
       if (viewerEverOpened) { setUiState('booting'); openViewer(); return; }
+      // Mid onboarding (or a build in flight): back to the card, which picks up where it was.
+      if (onboardLast) { setUiState('booting'); showOnboarding(); return; }
       // Mid sign-up / onboarding: resume that step (and re-check the avatar right away).
       if (gateStep === 'avatar' && config.userId) { setUiState('booting'); showLoginGate('avatar'); recheckAvatar(false); return; }
       if ((gateStep === 'signup-wait' || gateStep === 'signin') && !config.userId) { setUiState('booting'); showLoginGate(gateStep); return; }
@@ -2496,7 +2603,7 @@
 
     wishlistBtn.addEventListener('click', () => {
       if (!config.userId) {
-        showLoginGate();
+        showOnboarding();
         return;
       }
       const newState = !isWishlisted;

@@ -117,6 +117,7 @@
   .primary { border: 1px solid var(--btn-bg); background: var(--btn-bg); color: var(--btn-fg); }
   .ghost { border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent); background: var(--paper); color: var(--ink); }
   .primary:hover { opacity: .9; } .ghost:hover { background: var(--soft); }
+  .flow-tryon #tryon + #add { margin-top: 10px; }
   .primary[disabled], .primary[aria-busy="true"], .ghost[disabled] { opacity: .5; cursor: default; pointer-events: none; }
   .stack { display: grid; gap: 10px; }
   .error { min-height: 18px; margin: 0 0 8px; font-size: 13px; color: #b3261e; }
@@ -434,6 +435,9 @@ let bodyState = 'unknown';                       // unknown | ready | none | bui
 let guest = null;
 let mode = 'account';                            // account | guest
 let silent = q.get('silent') === '1';
+// 'tryon': opened by the Try On widget for a shopper without an avatar. Same steps; the size
+// comes first, then "See it on you" hands back to the widget's 3D viewer.
+const flow = q.get('flow') === 'tryon' ? 'tryon' : 'size';
 let sessionId = null;                            // analytics session (tryon_sessions row)
 let sessionPromise = null;
 let last = null;
@@ -462,6 +466,15 @@ $('item-img').addEventListener('error', () => { $('item').hidden = true; documen
 setItemImage(q.get('product_image'));
 if (silent) document.body.classList.add('silent');
 $('guest-line').hidden = !cfg.guestAllowed;
+if (flow === 'tryon') {
+  document.querySelector('#gate h1').textContent = 'Try it on yourself';
+  document.querySelector('#gate .lede').textContent = 'One photo gives us your measurements. You get your size, then see this on your own 3D body.';
+  $('tryon').textContent = 'See it on you';
+  $('tryon').className = 'primary';
+  $('add').className = 'ghost';
+  $('add').before($('tryon'));
+  document.body.classList.add('flow-tryon');
+}
 
 // ---- host messaging ----
 const post = (type, payload) => { if (inFrame) window.parent.postMessage(payload ? { type, payload } : { type }, '*'); };
@@ -879,7 +892,7 @@ async function track(eventType, metadata) {
     body: JSON.stringify({ event_type: eventType, session_id: sessionId || undefined, user_id: userId || undefined, shop_domain: cfg.shop,
       country: geo.country || undefined, city: geo.city || undefined,
       product_id: cfg.productId, variant_id: cfg.variantId || undefined, preferred_fit: fit,
-      metadata: { source: 'size_finder', basis: mode === 'guest' ? 'estimate' : 'measured', ...(metadata || {}) } }),
+      metadata: { source: flow === 'tryon' ? 'tryon_onboarding' : 'size_finder', basis: mode === 'guest' ? 'estimate' : 'measured', ...(metadata || {}) } }),
   }).catch(() => {});
 }
 
@@ -984,7 +997,7 @@ $('add').addEventListener('click', () => {
   post('TRYON_SIZE_ADD_TO_CART', { size: picked, session_id: sessionId });
   hide(true);
 });
-$('tryon').addEventListener('click', () => { post('TRYON_SIZE_OPEN_TRYON'); hide(true); });
+$('tryon').addEventListener('click', () => { post('TRYON_SIZE_OPEN_TRYON'); hide(flow !== 'tryon'); });
 $('edit').addEventListener('click', () => show('form'));
 
 // Decide what the shopper sees. `fresh` = a visible open or a new step (tracked once).
