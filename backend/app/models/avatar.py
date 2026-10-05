@@ -68,7 +68,6 @@ class AvatarStatusResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
-    timing: Optional[dict] = None   # seconds per stage, once the build has finished
 
 
 class Measurements(BaseModel):
