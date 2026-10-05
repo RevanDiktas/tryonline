@@ -152,7 +152,7 @@ def token(user_id, secret=TEST_SECRET, exp_s=600):
 
 
 def reset():
-    analytics._cache.clear()
+    analytics.clear_caches()
     deps._brand_scope_cache.clear()
     rate_limit._storage.reset()
     fake.log.clear()
@@ -251,9 +251,10 @@ reset()
 for path in ROUTES:
     r = get(path, **RANGE)
     check(f"{path} no token -> 401", r.status_code == 401, r.text)
-reset()
 for path in ROUTES:
-    fake.log.clear()
+    # Reset per route: cohort routes share one cached event scan, and this check is about
+    # the scan each route runs on its own.
+    reset()
     r = get(path, user=USER_A, **RANGE)
     ev_queries = [f for t, f in fake.log if t == "analytics_events"]
     scoped = bool(ev_queries) and all(("eq", "shop_domain", SHOP_A) in f for f in ev_queries)
@@ -268,6 +269,23 @@ for path in ROUTES:
     get(path, user=USER_A, **RANGE)
 brand_queries = sum(1 for t, _ in fake.log if t == "brands")
 check("18 calls -> 1 brands lookup (60s cache)", brand_queries == 1, f"brands queries={brand_queries}")
+
+# Cohort routes share one event scan per range: a dashboard load does not rescan the
+# table once per card.
+COHORT_ROUTES = [
+    "/api/analytics/metrics", "/api/analytics/metrics-by-product", "/api/analytics/at-risk-products",
+    "/api/analytics/device-metrics", "/api/analytics/return-metrics", "/api/analytics/cohort-comparison",
+    "/api/analytics/time-series",
+]
+reset()
+get(COHORT_ROUTES[0], user=USER_A, **RANGE)
+first_route_scans = sum(1 for t, _ in fake.log if t == "analytics_events")
+for path in COHORT_ROUTES[1:]:
+    get(path, user=USER_A, **RANGE)
+scans = sum(1 for t, _ in fake.log if t == "analytics_events")
+check(f"{len(COHORT_ROUTES)} cohort routes, same range -> one shared event scan",
+      first_route_scans >= 1 and scans == first_route_scans,
+      f"first route ran {first_route_scans} queries, all routes {scans}")
 
 # /debug: auth first, then 404 while DEBUG is off.
 r = get("/api/analytics/debug")

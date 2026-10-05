@@ -515,7 +515,10 @@ export default function BrandDashboardPage() {
               <>
                 {/* Full Funnel Overview */}
                 <div className={`${panelClass} p-5`}>
-                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-4 ${labelCl}`}>Full funnel overview</p>
+                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-1 ${labelCl}`}>Full funnel overview</p>
+                  <p className={`text-xs mb-4 ${dark ? 'text-white/40' : 'text-black/40'}`}>
+                    Try-on sessions only. Each session counts once per step; a purchase is an order paid within {metrics.attribution_window_days ?? 30} days of the try-on. Store orders that did not come through the widget are under Returns &amp; Risk.
+                  </p>
                   <div style={{ height: CHART_HEIGHT }}>
                     <FullFunnelChart
                       widgetOpens={metrics.widget_opens ?? 0}
@@ -581,7 +584,7 @@ export default function BrandDashboardPage() {
                   <MetricCell label="Tryons" value={metrics.tryons_started} dark={dark} />
                   <MetricCell label="ATC" value={metrics.add_to_carts} dark={dark} />
                   <MetricCell label="Purchases" value={metrics.purchases} dark={dark} />
-                  <MetricCell label="Sessions" value={metrics.unique_sessions} dark={dark} />
+                  <MetricCell label="Widget Sessions" value={metrics.unique_sessions} dark={dark} />
                   <MetricCell label="Open→Tryon %" value={fmtPct(metrics.open_to_tryon_rate)} dark={dark} />
                   <MetricCell label="ATC %" value={fmtPct(metrics.tryon_atc_rate)} highlight dark={dark} />
                   <MetricCell label="Purchase %" value={fmtPct(metrics.tryon_purchase_rate)} highlight dark={dark} />
@@ -1014,9 +1017,11 @@ export default function BrandDashboardPage() {
               <LoadingSpinner dark={dark} />
             ) : returnMetrics ? (
               <>
-                {/* Key metrics */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <MetricCell label="Total Returns" value={returnMetrics.total_returns ?? 0} dark={dark} />
+                {/* Key metrics: store-wide, every order paid in the range */}
+                <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${labelCl}`}>All store orders</p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <MetricCell label="Orders" value={returnMetrics.total_purchases ?? 0} dark={dark} />
+                  <MetricCell label="Returned Orders" value={returnMetrics.total_returns ?? 0} dark={dark} />
                   <MetricCell label="Return Rate" value={fmtPct(returnMetrics.return_rate)} highlight dark={dark} />
                   <MetricCell label="Revenue Lost" value={fmtEur(returnMetrics.revenue_lost)} dark={dark} />
                   <MetricCell label="Avg Days to Return" value={returnMetrics.avg_days_to_return != null ? `${Number(returnMetrics.avg_days_to_return).toFixed(1)}d` : '-'} dark={dark} />
@@ -1028,23 +1033,33 @@ export default function BrandDashboardPage() {
                     <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-4 ${labelCl}`}>Tryon cohort vs baseline</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-3">
-                        <p className={`text-xs font-semibold ${dark ? 'text-white/70' : 'text-black/70'}`}>Tryon Users</p>
+                        <p className={`text-xs font-semibold ${dark ? 'text-white/70' : 'text-black/70'}`}>Try-on orders</p>
                         <div className="grid grid-cols-2 gap-3">
-                          <MetricCell label="Count" value={cohortComparison.tryon_users_count ?? '-'} dark={dark} />
-                          <MetricCell label="Purchases" value={cohortComparison.tryon_purchases ?? '-'} dark={dark} />
+                          <MetricCell label="Try-on sessions" value={cohortComparison.tryon_sessions ?? '-'} dark={dark} />
+                          <MetricCell label="Orders" value={cohortComparison.tryon_purchases ?? '-'} dark={dark} />
                           <MetricCell label="AOV" value={fmtEur(cohortComparison.tryon_aov)} dark={dark} />
                           <MetricCell label="Conv Rate" value={fmtPct(cohortComparison.tryon_conversion_rate)} highlight dark={dark} />
                           <MetricCell label="Bracket Rate" value={fmtPct(cohortComparison.tryon_bracket_rate)} dark={dark} />
                           <MetricCell label="Return Rate" value={fmtPct(cohortComparison.tryon_return_rate)} dark={dark} />
                         </div>
                       </div>
-                      <div className={`flex flex-col justify-center px-5 py-4 rounded-xl ${dark ? 'bg-white/[0.03]' : 'bg-black/[0.03]'}`}>
-                        <p className={`text-xs font-semibold mb-2 ${dark ? 'text-white/70' : 'text-black/70'}`}>Shopify Store Baseline</p>
-                        <p className={`text-xs leading-relaxed ${dark ? 'text-white/40' : 'text-black/40'}`}>
-                          Compare against your Shopify store baseline. The Tryon cohort metrics on the left are attributed to shoppers who used the virtual try-on widget before purchasing.
-                        </p>
+                      <div className="space-y-3">
+                        <p className={`text-xs font-semibold ${dark ? 'text-white/70' : 'text-black/70'}`}>Store orders without try-on</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <MetricCell label="Orders" value={cohortComparison.baseline_orders ?? '-'} dark={dark} />
+                          <MetricCell label="Returned" value={cohortComparison.baseline_returns ?? '-'} dark={dark} />
+                          <MetricCell label="AOV" value={fmtEur(cohortComparison.baseline_aov)} dark={dark} />
+                          <MetricCell label="Conv Rate" value="-" dark={dark} />
+                          <MetricCell label="Bracket Rate" value={fmtPct(cohortComparison.baseline_bracket_rate)} dark={dark} />
+                          <MetricCell label="Return Rate" value={fmtPct(cohortComparison.baseline_return_rate)} dark={dark} />
+                        </div>
                       </div>
                     </div>
+                    <p className={`text-xs leading-relaxed mt-4 ${dark ? 'text-white/40' : 'text-black/40'}`}>
+                      An order counts for a try-on when it is paid within {cohortComparison.attribution_window_days ?? 30} days of it. The store side has no conversion rate because store visits are not tracked.
+                      {cohortComparison.comparable === false && ` With fewer than ${cohortComparison.min_orders_for_comparison ?? 20} orders on a side, the two columns are not yet a fair comparison.`}
+                      {' '}<Link href="/brand/cohorts" className="underline">Open the cohort view</Link>
+                    </p>
                   </div>
                 )}
 

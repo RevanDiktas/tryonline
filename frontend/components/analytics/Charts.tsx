@@ -283,15 +283,15 @@ export function FullFunnelChart({
   purchases: number;
   dark?: boolean;
 }) {
+  // Every step is a measured count of distinct sessions (purchases: distinct orders).
   const steps = [
     { name: 'Widget Opens', value: widgetOpens },
     { name: 'Try-On Start', value: tryons },
-    { name: 'Size Selected', value: Math.round((tryons + atc) / 2) },
     { name: 'Add to Cart', value: atc },
     { name: 'Purchase', value: purchases },
   ];
 
-  const gradient = ['#3b82f6', '#6366f1', '#8b5cf6', '#22c55e', '#10b981'];
+  const gradient = ['#3b82f6', '#6366f1', '#22c55e', '#10b981'];
   const maxVal = Math.max(...steps.map((s) => s.value), 1);
   const tt = tooltipStyle(dark);
 

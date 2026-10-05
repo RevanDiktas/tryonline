@@ -15,6 +15,8 @@
  * - return/brand: once the shopper has an avatar we offer "Back to {brand}".
  */
 
+import { getAccessToken } from './supabase-auth';
+
 const STORAGE_KEY = 'tryon_widget_return';
 const MAX_BRAND_LENGTH = 60;
 // Widget tokens are UUIDs; accept any URL-safe token so the path segment stays clean.
@@ -124,11 +126,23 @@ export async function completeWidgetLink(user: LinkUser): Promise<void> {
   try {
     await fetch(`/api/auth/widget-state/${linkState}/complete`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await widgetStateHeaders(),
       body: JSON.stringify({ user_id: user.id, display_name: displayName }),
       keepalive: true,
     });
   } catch { /* best-effort */ }
+}
+
+/** Headers for POST /api/auth/widget-state/{token}/complete. The bearer token proves
+ *  this page is signed in as the user it names; the backend only hands the widget a
+ *  widget token for a completion proven this way. */
+export async function widgetStateHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  try {
+    const token = await getAccessToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  } catch { /* no session yet - the backend treats the call as unproven */ }
+  return headers;
 }
 
 /** Where a signed-in shopper goes next. A pending hand-off always lands on

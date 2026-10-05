@@ -67,6 +67,81 @@ def get_current_user_id(
 
 
 
+def get_optional_user_id(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> str | None:
+    """The signed-in user, or None when the request carries no bearer token. A token that
+    is present but invalid is still a 401: a caller who tried to prove who they are and
+    failed must not be treated as anonymous."""
+    if not credentials or not credentials.credentials:
+        return None
+    return get_current_user_id(credentials)
+
+
+def authorize_user_access(
+    user_id: str,
+    bearer_user_id: str | None,
+    widget_token: str | None,
+    what: str,
+) -> None:
+    """Allow a request that names `user_id` only when the caller has shown they are that
+    shopper: a tryon.global session for them, or a widget token issued for them.
+
+    - a widget token for a DIFFERENT user          -> 403, always
+    - no proof, WIDGET_AUTH_REQUIRED on            -> 401
+    - no proof, WIDGET_AUTH_REQUIRED off (default) -> allowed and logged, so widgets
+      deployed before the token existed keep working during the rollout
+    - a tryon.global session for a DIFFERENT user  -> 403 once the flag is on. While it is
+      off this is allowed and logged like "no proof": pages on tryon.global send the
+      browser's session with every call, including ones that name the user_id from the
+      URL (/embed?user_id=...), and those must not start failing mid-rollout.
+    """
+    from app.services import widget_token as wt
+
+    required = get_settings().widget_auth_required
+    if bearer_user_id is not None:
+        if bearer_user_id == user_id:
+            return
+        if required:
+            raise HTTPException(status_code=403, detail="Access denied")
+        logger.warning(
+            "Session for another user accepted for %s (user=%s, session=%s); WIDGET_AUTH_REQUIRED is off",
+            what, user_id[:8], bearer_user_id[:8],
+        )
+        return
+    if widget_token:
+        token_user = wt.verify(widget_token)
+        if token_user is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired widget token")
+        if token_user != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        return
+    if required:
+        raise HTTPException(status_code=401, detail="Authorization required")
+    logger.warning("Unproven user_id accepted for %s (user=%s); WIDGET_AUTH_REQUIRED is off", what, user_id[:8])
+
+
+class UserAccess:
+    """Dependency for routes with a `user_id` in the path or query:
+
+        @router.get("/{user_id}")
+        async def get_avatar(user_id: str, _: None = Depends(UserAccess("avatar"))): ...
+    """
+
+    def __init__(self, what: str):
+        self.what = what
+
+    def __call__(
+        self,
+        request: Request,
+        bearer_user_id: str | None = Depends(get_optional_user_id),
+    ) -> None:
+        user_id = request.path_params.get("user_id") or request.query_params.get("user_id")
+        if not user_id:
+            return
+        authorize_user_access(user_id, bearer_user_id, request.headers.get("x-widget-token"), self.what)
+
+
 # ---------------------------------------------------------------------------
 # Brand scoping: which Shopify store(s) the signed-in caller may read.
 # ---------------------------------------------------------------------------

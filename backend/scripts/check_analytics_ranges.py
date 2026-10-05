@@ -135,7 +135,7 @@ def ev(event_type, day, hour=12, **extra):
 
 def set_events(rows):
     fake.tables["analytics_events"] = rows
-    analytics._cache.clear()
+    analytics.clear_caches()
     deps._brand_scope_cache.clear()
     rate_limit._storage.reset()
     fake.log.clear()
@@ -166,7 +166,7 @@ rows = [ev("widget_opened", END - timedelta(days=i % 300), hour=i % 24) for i in
 set_events(rows)
 r = get("/api/analytics/metrics", **span(366))
 check("/metrics counts all 2500 events across pages (not 1000)",
-      r.status_code == 200 and r.json()["widget_opens"] == 2500, r.text[:200])
+      r.status_code == 200 and r.json()["widget_opens"] == 2500, r.text[:200])  # 2500 sessions
 pages = [off for t, _, off in fake.log if t == "analytics_events"]
 check("paged at offsets 0,1000,2000,2500 (empty page ends it)", pages == [0, 1000, 2000, 2500], str(pages))
 
@@ -234,19 +234,28 @@ check("invalid granularity -> 422", r.status_code == 422, str(r.status_code))
 
 # --------------------------------------------------------------------------- 3. velocity
 
+# A purchase counts only for the try-on session that led to it (same definitions as
+# /metrics): s-a and s-c each buy once; the store order with no session is not a try-on
+# purchase; s-d's order comes 31 days after its try-on, outside the attribution window.
 set_events([
-    ev("tryon_started", END), ev("tryon_started", END - timedelta(days=6)),       # in 7d
-    ev("tryon_started", END - timedelta(days=7)), ev("tryon_started", END - timedelta(days=29)),  # in 30d only
-    ev("tryon_started", END - timedelta(days=30)),                                 # outside both
-    ev("purchase", END - timedelta(days=2)), ev("purchase", END - timedelta(days=20)),
+    ev("tryon_started", END, session_id="s-a"),                                   # in 7d
+    ev("tryon_started", END - timedelta(days=6), session_id="s-b"),               # in 7d
+    ev("tryon_started", END - timedelta(days=7), session_id="s-c"),               # in 30d only
+    ev("tryon_started", END - timedelta(days=29), session_id="s-d"),              # in 30d only
+    ev("tryon_started", END - timedelta(days=30), session_id="s-e"),              # outside both
+    ev("purchase", END, hour=13, session_id="s-a", event_data={"order_id": "o1", "amount": 50}),
+    ev("purchase", END - timedelta(days=5), session_id="s-c", event_data={"order_id": "o2", "amount": 60}),
+    ev("purchase", END - timedelta(days=2), session_id=None, event_data={"order_id": "o3", "amount": 70}),
+    ev("purchase", END + timedelta(days=2), session_id="s-d", event_data={"order_id": "o4", "amount": 80}),
+    ev("purchase", END - timedelta(days=3), session_id="s-e", event_data={"order_id": "o5", "amount": 90}),
 ])
 for days in (1, 7, 31, 366):
     r = get("/api/analytics/velocity", **span(days))
     b = r.json() if r.status_code == 200 else {}
-    check(f"velocity with {days}d range: tryons 7d=2 30d=4, purchases 7d=1 30d=2",
+    check(f"velocity with {days}d range: tryons 7d=2 30d=4, try-on purchases 7d=1 30d=2",
           (b.get("tryon_velocity_7d"), b.get("tryon_velocity_30d"),
            b.get("purchase_velocity_7d"), b.get("purchase_velocity_30d")) == (2, 4, 1, 2), str(b))
-    analytics._cache.clear()
+    analytics.clear_caches()
 
 # --------------------------------------------------------------------------- 4. rate limit
 

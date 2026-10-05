@@ -4,17 +4,19 @@ Wishlist / Closet CRUD — endpoints for managing saved items.
 Auth strategy:
   - Dashboard (tryon.global, first-party): JWT via Authorization header
   - Widget iframe (third-party on Shopify PDP): user_id in body/query param
-    (third-party storage partitioning blocks localStorage access to the JWT)
+    (third-party storage partitioning blocks localStorage access to the JWT),
+    with the widget token for that user in X-Widget-Token. While
+    WIDGET_AUTH_REQUIRED is off a missing token is still accepted (and logged).
   Both paths verify the user exists before accepting writes.
 """
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
-from app.api.deps import get_current_user_id
+from app.api.deps import authorize_user_access, get_current_user_id
 from app.services.supabase import supabase_service
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,7 @@ _optional_bearer = HTTPBearer(auto_error=False)
 def _resolve_user_id(
     credentials: HTTPAuthorizationCredentials | None,
     fallback_user_id: str | None,
+    widget_token: str | None = None,
 ) -> str:
     """Resolve user_id from JWT token (preferred) or fallback user_id param.
     Validates that the user exists in the DB for the fallback path."""
@@ -38,6 +41,7 @@ def _resolve_user_id(
     # Fallback: explicit user_id (widget iframe path)
     if fallback_user_id and fallback_user_id.strip():
         uid = fallback_user_id.strip()
+        authorize_user_access(uid, None, widget_token, "wishlist")
         try:
             r = supabase_service.client.table("users").select("id").eq("id", uid).limit(1).execute()
             if r.data and len(r.data) > 0:
@@ -86,10 +90,11 @@ async def list_saved_items(
 async def add_to_wishlist(
     body: WishlistAddPayload,
     credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
+    x_widget_token: Optional[str] = Header(None),
 ):
     """Add a product to the user's wishlist.
     Accepts JWT auth OR user_id in body (for widget iframe)."""
-    user_id = _resolve_user_id(credentials, body.user_id)
+    user_id = _resolve_user_id(credentials, body.user_id, x_widget_token)
 
     row = {
         "user_id": user_id,
@@ -155,10 +160,11 @@ async def get_wishlist_status(
     shop: str = Query(..., description="Shop domain"),
     uid: Optional[str] = Query(None, alias="user_id", description="User ID (widget fallback)"),
     credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
+    x_widget_token: Optional[str] = Header(None),
 ):
     """Check whether a product is in the user's wishlist.
     Accepts JWT auth OR user_id query param (for widget iframe)."""
-    user_id = _resolve_user_id(credentials, uid)
+    user_id = _resolve_user_id(credentials, uid, x_widget_token)
 
     try:
         r = (

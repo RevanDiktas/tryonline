@@ -18,6 +18,14 @@ from pydantic import BaseModel
 
 from app.api.deps import get_brand_shop
 from app.api.rate_limit import analytics_rate_limit
+from app.services.analytics_cohort import (
+    ATTRIBUTION_WINDOW_DAYS,
+    COHORT_COLUMNS,
+    Cohort,
+    build_cohort,
+    chosen_sizes,
+    parse_ts,
+)
 from app.services.supabase import supabase_service
 
 logger = logging.getLogger(__name__)
@@ -168,12 +176,16 @@ def bucket_key(created_at: str, granularity: str, start_d) -> Optional[str]:
 
 
 # Ordinal map for letter sizes (Category B — size up/down, MASE)
+# Each size is its own step: XS and XXS (or XL and XXL) sharing a rank hid real size-ups.
 SIZE_ORDINAL_LETTER = {
-    "xs": 0, "xxs": 0, "extra small": 0,
-    "s": 1, "small": 1,
-    "m": 2, "medium": 2,
-    "l": 3, "large": 3,
-    "xl": 4, "xxl": 4, "extra large": 4,
+    "xxs": 0, "2xs": 0,
+    "xs": 1, "extra small": 1,
+    "s": 2, "small": 2,
+    "m": 3, "medium": 3,
+    "l": 4, "large": 4,
+    "xl": 5, "extra large": 5,
+    "xxl": 6, "2xl": 6,
+    "xxxl": 7, "3xl": 7,
 }
 
 
@@ -190,8 +202,53 @@ def _size_to_ordinal(s: str | None) -> int | None:
         return None
 
 
-# Attribution window: purchases/ATC count only if within this many days of tryon
-ATTRIBUTION_WINDOW_DAYS = 30
+# Attribution window and every ROI definition live in analytics_cohort (one definition
+# per metric). Routes below only shape a Cohort into a response.
+_events_cache: TTLCache = TTLCache(maxsize=64, ttl=60)
+
+
+def clear_caches() -> None:
+    """Drop cached responses and cached event scans (tests, and after a data fix)."""
+    _cache.clear()
+    _events_cache.clear()
+
+
+def _r(value: Optional[float], digits: int = 4) -> Optional[float]:
+    return round(value, digits) if value is not None else None
+
+
+def _day_bounds(start_d, end_d) -> tuple[datetime, datetime]:
+    start = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=timezone.utc)
+    end = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=timezone.utc)
+    return start, end
+
+
+def load_cohort_events(shop: str, start_d, end_d) -> list[dict]:
+    """Everything a cohort for [start_d, end_d] needs, for ONE shop: all events from start
+    to end + the attribution window (purchases that follow a late try-on), plus refunds
+    after that up to now (a return can come weeks after the order). Cached for 60s so the
+    ~8 routes one dashboard load builds from the same range share a single scan."""
+    key = _cache_key("cohort_events", shop=shop, start=start_d, end=end_d)
+    cached = _events_cache.get(key)
+    if cached is not None:
+        return cached
+    start, end = _day_bounds(start_d, end_d)
+    end_ext = end + timedelta(days=ATTRIBUTION_WINDOW_DAYS)
+    events = fetch_events(COHORT_COLUMNS, shop, start.isoformat(), end_ext.isoformat())
+    now = datetime.now(timezone.utc)
+    if end_ext < now:
+        late_from = (end_ext + timedelta(microseconds=1)).isoformat()
+        events = events + fetch_events(COHORT_COLUMNS, shop, late_from, now.isoformat(), event_type="return")
+    _events_cache[key] = events
+    return events
+
+
+def load_cohort(shop: str, start_d, end_d) -> tuple[Cohort, list[dict]]:
+    """The try-on cohort for [start_d, end_d] (inclusive UTC days) and the events it was
+    built from."""
+    events = load_cohort_events(shop, start_d, end_d)
+    start, end = _day_bounds(start_d, end_d)
+    return build_cohort(events, start, end, ATTRIBUTION_WINDOW_DAYS), events
 
 
 @router.get("/debug")
@@ -230,9 +287,11 @@ async def analytics_debug(
 
 
 class MetricsResponse(BaseModel):
+    # Definitions: app/services/analytics_cohort.py. Counts are distinct sessions / orders.
     tryons_started: int
     add_to_carts: int
     purchases: int
+    purchase_sessions: int = 0
     tryon_atc_rate: Optional[float] = None
     tryon_purchase_rate: Optional[float] = None
     revenue_attributed: float
@@ -249,6 +308,7 @@ class MetricsResponse(BaseModel):
     revenue_lost_to_returns: float = 0.0
     bracket_orders: int = 0
     bracket_rate: Optional[float] = None
+    attribution_window_days: int = ATTRIBUTION_WINDOW_DAYS
 
 
 @router.get("/metrics", response_model=MetricsResponse)
@@ -260,149 +320,40 @@ async def get_metrics(
     key = _cache_key("metrics", start=start, end=end, shop=shop)
     if key in _cache:
         return _cache[key]
-    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
-    # Extend window for conversions: purchases can occur up to 30d after tryon
-    end_extended = end_d + timedelta(days=ATTRIBUTION_WINDOW_DAYS)
-    end_ts_extended = datetime.combine(end_extended, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, _, _ = parse_range(start, end, 30)
+    c, _events = load_cohort(shop, start_d, end_d)
 
-    events = fetch_events("event_type,session_id,event_data,created_at", shop, start_ts, end_ts_extended)
-
-    # Cohort: sessions where tryon_started in [start, end]; first_tryon_ts per session
-    session_first_tryon: dict[str, str] = {}
-    for e in events:
-        if e.get("event_type") != "tryon_started":
-            continue
-        sid = e.get("session_id")
-        created = e.get("created_at")
-        if not sid or not created:
-            continue
-        if start_ts <= created <= end_ts:
-            if sid not in session_first_tryon or created < session_first_tryon[sid]:
-                session_first_tryon[sid] = created
-
-    cohort_sessions = set(session_first_tryon.keys())
-    tryons = len(cohort_sessions)
-
-    # Conversions: ATC and purchase within attribution window
-    cutoff_ts: dict[str, str] = {}
-    for sid, first in session_first_tryon.items():
-        try:
-            dt = datetime.fromisoformat(first.replace("Z", "+00:00"))
-            cut = dt + timedelta(days=ATTRIBUTION_WINDOW_DAYS)
-            cutoff_ts[sid] = cut.isoformat()
-        except (ValueError, TypeError):
-            cutoff_ts[sid] = ""
-
-    atc_sessions: set[str] = set()
-    order_ids: set[str] = set()
-    revenue = 0.0
-    purchase_count = 0
-
-    for e in events:
-        sid = e.get("session_id")
-        if sid not in cohort_sessions:
-            continue
-        created = e.get("created_at") or ""
-        cutoff = cutoff_ts.get(sid, "")
-        if cutoff and created > cutoff:
-            continue
-
-        if e.get("event_type") == "add_to_cart":
-            atc_sessions.add(sid)
-        elif e.get("event_type") == "purchase":
-            purchase_count += 1
-            ed = e.get("event_data") or {}
-            revenue += float(ed.get("amount", 0) or 0)
-            oid = ed.get("order_id")
-            if oid:
-                order_ids.add(str(oid))
-
-    atcs = len(atc_sessions)
-    purchases = purchase_count
-
-    sessions = len({e["session_id"] for e in events if e.get("session_id") and e.get("session_id") in cohort_sessions})
-    atc_rate = atcs / tryons if tryons else None
-    purchase_rate = purchases / tryons if tryons else None
-    rev_per_tryon = revenue / tryons if tryons else None
-    aov_tryon = revenue / len(order_ids) if order_ids else (revenue / purchase_count if purchase_count else None)
-
-    # --- Enhanced metrics: widget_opens, cart_abandonment, time-to-purchase, returns, brackets ---
-    widget_opens = sum(1 for e in events if e.get("event_type") == "widget_opened")
-    open_to_tryon_rate = (tryons / widget_opens) if widget_opens else None
-    cart_abandonment_rate = (1 - (purchases / atcs)) if atcs > 0 else None
-
-    # Time to purchase: delta between first tryon_started and purchase per session
-    session_tryon_ts: dict[str, datetime] = {}
-    for e in events:
-        if e.get("event_type") == "tryon_started" and e.get("session_id") in cohort_sessions:
-            sid = e["session_id"]
-            try:
-                dt = datetime.fromisoformat(e["created_at"].replace("Z", "+00:00"))
-                if sid not in session_tryon_ts or dt < session_tryon_ts[sid]:
-                    session_tryon_ts[sid] = dt
-            except (ValueError, TypeError, KeyError):
-                pass
-
-    purchase_deltas_hours: list[float] = []
-    same_session_purchases = 0
-    total_purchases_for_ssp = 0
-    return_count = 0
-    revenue_lost_to_returns = 0.0
-    bracket_orders = 0
-
-    for e in events:
-        sid = e.get("session_id")
-        etype = e.get("event_type")
-        ed = e.get("event_data") or {}
-
-        if etype == "purchase" and sid in session_tryon_ts:
-            total_purchases_for_ssp += 1
-            try:
-                purchase_dt = datetime.fromisoformat(e["created_at"].replace("Z", "+00:00"))
-                delta_hours = (purchase_dt - session_tryon_ts[sid]).total_seconds() / 3600
-                purchase_deltas_hours.append(delta_hours)
-                if delta_hours <= 1.0:
-                    same_session_purchases += 1
-            except (ValueError, TypeError, KeyError):
-                pass
-            if ed.get("is_bracketed"):
-                bracket_orders += 1
-
-        if etype == "return" and sid in cohort_sessions:
-            return_count += 1
-            revenue_lost_to_returns += float(ed.get("amount_refunded", 0) or 0)
-
-    avg_time_to_purchase_hours = (
-        round(sum(purchase_deltas_hours) / len(purchase_deltas_hours), 2)
-        if purchase_deltas_hours else None
-    )
+    # Time from a session's first try-on to each of its orders.
+    deltas_hours = [
+        (o.created - c.anchors[o.session_id]).total_seconds() / 3600
+        for o in c.orders.values()
+    ]
+    avg_time_to_purchase_hours = round(sum(deltas_hours) / len(deltas_hours), 2) if deltas_hours else None
     same_session_purchase_rate = (
-        round(same_session_purchases / total_purchases_for_ssp, 4)
-        if total_purchases_for_ssp else None
+        round(sum(1 for d in deltas_hours if d <= 1.0) / len(deltas_hours), 4) if deltas_hours else None
     )
-    return_rate = round(return_count / purchases, 4) if purchases else None
-    bracket_rate = round(bracket_orders / purchases, 4) if purchases else None
 
     result = MetricsResponse(
-        tryons_started=tryons,
-        add_to_carts=atcs,
-        purchases=purchases,
-        tryon_atc_rate=round(atc_rate, 4) if atc_rate is not None else None,
-        tryon_purchase_rate=round(purchase_rate, 4) if purchase_rate is not None else None,
-        revenue_attributed=round(revenue, 2),
-        revenue_per_tryon=round(rev_per_tryon, 2) if rev_per_tryon is not None else None,
-        aov_tryon=round(aov_tryon, 2) if aov_tryon is not None else None,
-        unique_sessions=sessions,
-        widget_opens=widget_opens,
-        open_to_tryon_rate=round(open_to_tryon_rate, 4) if open_to_tryon_rate is not None else None,
-        cart_abandonment_rate=round(cart_abandonment_rate, 4) if cart_abandonment_rate is not None else None,
+        tryons_started=c.tryons,
+        add_to_carts=c.add_to_carts,
+        purchases=c.purchases,
+        purchase_sessions=len(c.purchase_sessions),
+        tryon_atc_rate=_r(c.atc_rate),
+        tryon_purchase_rate=_r(c.purchase_rate),
+        revenue_attributed=round(c.revenue, 2),
+        revenue_per_tryon=_r(c.revenue_per_tryon, 2),
+        aov_tryon=_r(c.aov, 2),
+        unique_sessions=len(c.active_sessions),
+        widget_opens=c.widget_opens,
+        open_to_tryon_rate=_r(c.open_to_tryon_rate),
+        cart_abandonment_rate=_r(c.cart_abandonment_rate),
         avg_time_to_purchase_hours=avg_time_to_purchase_hours,
         same_session_purchase_rate=same_session_purchase_rate,
-        returns=return_count,
-        return_rate=return_rate,
-        revenue_lost_to_returns=round(revenue_lost_to_returns, 2),
-        bracket_orders=bracket_orders,
-        bracket_rate=bracket_rate,
+        returns=c.returned,
+        return_rate=_r(c.return_rate),
+        revenue_lost_to_returns=round(c.revenue_lost, 2),
+        bracket_orders=c.bracket_orders,
+        bracket_rate=_r(c.bracket_rate),
     )
     _cache[key] = result
     return result
@@ -425,6 +376,37 @@ class MetricsByProductResponse(BaseModel):
     attribution_window_days: int = ATTRIBUTION_WINDOW_DAYS
 
 
+def product_breakdown(c: Cohort) -> dict[str, dict[str, Any]]:
+    """Per tried-on product: try-on sessions, add-to-cart sessions, credited orders,
+    converting sessions and revenue. An order is credited to ONE product (see
+    Cohort.order_product), so product rows sum to the cohort's orders and revenue."""
+    out: dict[str, dict[str, Any]] = {}
+
+    def row(pid: str) -> dict[str, Any]:
+        return out.setdefault(pid, {
+            "tryon_sessions": set(), "atc_sessions": set(), "orders": set(),
+            "purchase_sessions": set(), "returned": set(), "revenue": 0.0,
+        })
+
+    for sid, tried in c.session_products.items():
+        for pid in tried:
+            row(pid)["tryon_sessions"].add(sid)
+    for sid, pid in c.atc_products:
+        if pid in c.session_products.get(sid, []):
+            row(pid)["atc_sessions"].add(sid)
+    for o in c.orders.values():
+        pid = c.order_product(o)
+        if not pid:
+            continue
+        r = row(pid)
+        r["orders"].add(o.order_id)
+        r["purchase_sessions"].add(o.session_id)
+        r["revenue"] += o.amount
+        if o.order_id in c.returns:
+            r["returned"].add(o.order_id)
+    return out
+
+
 @router.get("/metrics-by-product", response_model=MetricsByProductResponse)
 async def get_metrics_by_product(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
@@ -435,106 +417,30 @@ async def get_metrics_by_product(
     key = _cache_key("metrics_by_product", start=start, end=end, shop=shop, product_id=product_id)
     if key in _cache:
         return _cache[key]
-    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
-    end_extended = end_d + timedelta(days=ATTRIBUTION_WINDOW_DAYS)
-    end_ts_extended = datetime.combine(end_extended, datetime.max.time()).replace(tzinfo=timezone.utc).isoformat()
+    start_d, end_d, _, _ = parse_range(start, end, 30)
+    c, _events = load_cohort(shop, start_d, end_d)
 
-    extra = {"product_id": product_id} if product_id else {}
-    events = fetch_events(
-        "event_type,session_id,event_data,created_at,product_id", shop, start_ts, end_ts_extended, **extra
-    )
-
-    # Cohort: (session_id, product_id) -> first tryon ts. Product from tryon_started.
-    session_product_first_tryon: dict[tuple[str, str], str] = {}
-    for e in events:
-        if e.get("event_type") != "tryon_started":
-            continue
-        sid = e.get("session_id")
-        pid = (e.get("product_id") or "").strip()
-        created = e.get("created_at")
-        if not sid or not pid or not created or not (start_ts <= created <= end_ts):
-            continue
-        key = (sid, pid)
-        if key not in session_product_first_tryon or created < session_product_first_tryon[key]:
-            session_product_first_tryon[key] = created
-
-    # Build cutoff per (session, product)
-    cutoff_ts: dict[tuple[str, str], str] = {}
-    for (sid, pid), first in session_product_first_tryon.items():
-        try:
-            dt = datetime.fromisoformat(first.replace("Z", "+00:00"))
-            cutoff_ts[(sid, pid)] = (dt + timedelta(days=ATTRIBUTION_WINDOW_DAYS)).isoformat()
-        except (ValueError, TypeError):
-            cutoff_ts[(sid, pid)] = ""
-
-    # Per product: tryons, atc_sessions, purchase_sessions, revenue, order_ids
-    prod_tryons: dict[str, set[str]] = defaultdict(set)
-    prod_atc: dict[str, set[str]] = defaultdict(set)
-    prod_revenue: dict[str, float] = defaultdict(float)
-    prod_orders: dict[str, set[str]] = defaultdict(set)
-    prod_purchase_count: dict[str, int] = defaultdict(int)
-
-    for e in events:
-        sid = e.get("session_id")
-        pid_raw = (e.get("product_id") or "").strip()
-        created = e.get("created_at") or ""
-        etype = e.get("event_type")
-
-        if etype == "tryon_started" and sid and pid_raw and (sid, pid_raw) in session_product_first_tryon:
-            prod_tryons[pid_raw].add(sid)
-
-        if etype == "add_to_cart" and sid and pid_raw:
-            if (sid, pid_raw) not in session_product_first_tryon:
-                continue
-            cutoff = cutoff_ts.get((sid, pid_raw), "")
-            if cutoff and created > cutoff:
-                continue
-            prod_atc[pid_raw].add(sid)
-
-        if etype == "purchase" and sid:
-            # Attribute full order to primary product (first tryon for this session)
-            session_products = [p for (s, p) in session_product_first_tryon if s == sid]
-            if not session_products:
-                continue
-            primary = session_products[0]
-            cutoff = cutoff_ts.get((sid, primary), "")
-            if cutoff and created > cutoff:
-                continue
-            ed = e.get("event_data") or {}
-            amt = float(ed.get("amount", 0) or 0)
-            prod_revenue[primary] += amt
-            prod_purchase_count[primary] += 1
-            oid = ed.get("order_id")
-            if oid:
-                prod_orders[primary].add(str(oid))
-
-    # Build per-product metrics
-    all_products = set(prod_tryons.keys()) | set(prod_atc.keys()) | set(prod_revenue.keys())
     products_out = []
-    for pid in sorted(all_products):
-        tryons = len(prod_tryons.get(pid, set()))
-        atcs = len(prod_atc.get(pid, set()))
-        rev = prod_revenue.get(pid, 0.0)
-        orders = prod_orders.get(pid, set())
-        purch_cnt = prod_purchase_count.get(pid, 0)
-        aov = rev / len(orders) if orders else (rev / purch_cnt if purch_cnt else None)
-        purchases = purch_cnt
-        atc_rate = atcs / tryons if tryons else None
-        purch_rate = purchases / tryons if tryons else None
-        rev_per_tryon = rev / tryons if tryons else None
+    for pid, r in product_breakdown(c).items():
+        if product_id and pid != product_id:
+            continue
+        tryons = len(r["tryon_sessions"])
+        atcs = len(r["atc_sessions"])
+        orders = len(r["orders"])
+        rev = r["revenue"]
         products_out.append(ProductMetrics(
             product_id=pid,
             tryons_started=tryons,
             add_to_carts=atcs,
-            purchases=purch_cnt,
+            purchases=orders,
             revenue_attributed=round(rev, 2),
-            tryon_atc_rate=round(atc_rate, 4) if atc_rate is not None else None,
-            tryon_purchase_rate=round(purch_rate, 4) if purch_rate is not None else None,
-            revenue_per_tryon=round(rev_per_tryon, 2) if rev_per_tryon is not None else None,
-            aov_tryon=round(aov, 2) if aov is not None else None,
+            tryon_atc_rate=round(atcs / tryons, 4) if tryons else None,
+            tryon_purchase_rate=round(len(r["purchase_sessions"]) / tryons, 4) if tryons else None,
+            revenue_per_tryon=round(rev / tryons, 2) if tryons else None,
+            aov_tryon=round(rev / orders, 2) if orders else None,
         ))
 
-    products_out.sort(key=lambda x: (-x.revenue_attributed, -x.tryons_started))
+    products_out.sort(key=lambda x: (-x.revenue_attributed, -x.tryons_started, x.product_id))
 
     result = MetricsByProductResponse(
         products=products_out,
@@ -569,48 +475,41 @@ async def get_fit_metrics(
         return _cache[key]
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    events = fetch_events("event_type,session_id,event_data", shop, start_ts, end_ts)
+    events = fetch_events("event_type,session_id,event_data,created_at", shop, start_ts, end_ts)
 
+    # One recommended and one chosen size per session (see chosen_sizes): the
+    # distributions count sessions, not clicks.
+    session_to_rec, session_to_sel = chosen_sizes(events)
+    session_to_pur: dict[str, str] = {}
     dist_rec: dict[str, int] = {}
     dist_sel: dict[str, int] = {}
     dist_pur: dict[str, int] = {}
-    session_to_rec: dict[str, str] = {}
-    session_to_sel: dict[str, str] = {}
-    session_to_pur: dict[str, str] = {}
 
+    def _size_key(sz: str) -> str:
+        return sz.upper() if len(sz) <= 3 else sz
+
+    for sz in session_to_rec.values():
+        dist_rec[_size_key(sz)] = dist_rec.get(_size_key(sz), 0) + 1
+    for sz in session_to_sel.values():
+        dist_sel[_size_key(sz)] = dist_sel.get(_size_key(sz), 0) + 1
+
+    seen_orders: set[str] = set()
     for e in events:
-        sid = e.get("session_id")
+        if e.get("event_type") != "purchase":
+            continue
         ed = e.get("event_data") or {}
-        etype = e.get("event_type")
-        raw = ed.get("size")
-        size_raw = str(raw).strip() if raw is not None and raw != "" else ""
-
-        if etype == "size_recommended" and size_raw and sid:
-            size_key = size_raw.upper() if len(size_raw) <= 3 else size_raw
-            dist_rec[size_key] = dist_rec.get(size_key, 0) + 1
-            session_to_rec[sid] = size_raw
-
-        elif etype == "size_selected" and size_raw and sid:
-            size_key = size_raw.upper() if len(size_raw) <= 3 else size_raw
-            dist_sel[size_key] = dist_sel.get(size_key, 0) + 1
-            session_to_sel[sid] = size_raw
-
-        elif etype == "add_to_cart" and size_raw and sid:
-            size_key = size_raw.upper() if len(size_raw) <= 3 else size_raw
-            dist_sel[size_key] = dist_sel.get(size_key, 0) + 1
-            if sid not in session_to_sel:
-                session_to_sel[sid] = size_raw
-
-        elif etype == "purchase":
-            items = ed.get("items") or []
-            for it in items:
-                sid_item = it.get("session_id")
-                raw_sz = it.get("size")
-                sz = str(raw_sz).strip() if raw_sz is not None and raw_sz != "" else ""
-                if sid_item and sz:
-                    size_key = sz.upper() if len(sz) <= 3 else sz
-                    dist_pur[size_key] = dist_pur.get(size_key, 0) + 1
-                    session_to_pur[sid_item] = sz
+        oid = str(ed.get("order_id") or "")
+        if oid:
+            if oid in seen_orders:
+                continue
+            seen_orders.add(oid)
+        for it in ed.get("items") or []:
+            sid_item = it.get("session_id")
+            raw_sz = it.get("size")
+            sz = str(raw_sz).strip() if raw_sz is not None and raw_sz != "" else ""
+            if sid_item and sz:
+                dist_pur[_size_key(sz)] = dist_pur.get(_size_key(sz), 0) + 1
+                session_to_pur[sid_item] = sz
 
     sessions_with_rec = len(session_to_rec)
     sessions_with_both = set(session_to_rec.keys()) & set(session_to_pur.keys())
@@ -760,39 +659,27 @@ async def get_velocity(
 ):
     # start is validated but otherwise unused: both windows trail `end`, whatever range the
     # dashboard has selected, so the "7d"/"30d" cards mean what they say.
-    _, end_d, _, end_ts = parse_range(start, end, 30)
+    _, end_d, _, _ = parse_range(start, end, 30)
     key = _cache_key("velocity", end=end_d.isoformat(), shop=shop)
     if key in _cache:
         return _cache[key]
 
-    def _day_start(d) -> str:
-        return datetime.combine(d, datetime.min.time()).replace(tzinfo=timezone.utc).isoformat()
-
-    cutoff_7d = _day_start(end_d - timedelta(days=6))    # [end-6, end] = 7 days inclusive
-    cutoff_30d = _day_start(end_d - timedelta(days=29))  # [end-29, end] = 30 days inclusive
-
-    events = fetch_events("event_type,session_id,created_at", shop, cutoff_30d, end_ts)
-
-    tryons_7d = sum(1 for e in events if e.get("event_type") == "tryon_started" and (e.get("created_at") or "") >= cutoff_7d)
-    tryons_30d = sum(1 for e in events if e.get("event_type") == "tryon_started")
-    purchases_7d = sum(1 for e in events if e.get("event_type") == "purchase" and (e.get("created_at") or "") >= cutoff_7d)
-    purchases_30d = sum(1 for e in events if e.get("event_type") == "purchase")
-
-    tryon_sessions_7d = len({e["session_id"] for e in events if e.get("event_type") == "tryon_started" and e.get("session_id") and (e.get("created_at") or "") >= cutoff_7d})
-    purchase_sessions_7d = len({e["session_id"] for e in events if e.get("event_type") == "purchase" and e.get("session_id") and (e.get("created_at") or "") >= cutoff_7d})
-
-    velocity_ratio_7d = round(purchases_7d / tryons_7d, 4) if tryons_7d else None
-    velocity_ratio_30d = round(purchases_30d / tryons_30d, 4) if tryons_30d else None
+    # Same definitions as /metrics, over trailing windows: [end-29, end] = 30 days
+    # inclusive, [end-6, end] = 7 days inclusive. Both cohorts come from one scan.
+    start_30 = end_d - timedelta(days=29)
+    events = load_cohort_events(shop, start_30, end_d)
+    c30 = build_cohort(events, *_day_bounds(start_30, end_d), ATTRIBUTION_WINDOW_DAYS)
+    c7 = build_cohort(events, *_day_bounds(end_d - timedelta(days=6), end_d), ATTRIBUTION_WINDOW_DAYS)
 
     result = VelocityResponse(
-        tryon_velocity_7d=tryons_7d,
-        tryon_velocity_30d=tryons_30d,
-        purchase_velocity_7d=purchases_7d,
-        purchase_velocity_30d=purchases_30d,
-        tryon_sessions_7d=tryon_sessions_7d,
-        purchase_sessions_7d=purchase_sessions_7d,
-        velocity_ratio_7d=velocity_ratio_7d,
-        velocity_ratio_30d=velocity_ratio_30d,
+        tryon_velocity_7d=c7.tryons,
+        tryon_velocity_30d=c30.tryons,
+        purchase_velocity_7d=c7.purchases,
+        purchase_velocity_30d=c30.purchases,
+        tryon_sessions_7d=c7.tryons,
+        purchase_sessions_7d=len(c7.purchase_sessions),
+        velocity_ratio_7d=round(c7.purchases / c7.tryons, 4) if c7.tryons else None,
+        velocity_ratio_30d=round(c30.purchases / c30.tryons, 4) if c30.tryons else None,
     )
     _cache[key] = result
     return result
@@ -809,55 +696,17 @@ async def get_at_risk_products(
     key = _cache_key("at_risk", start=start, end=end, shop=shop, min_tryons=min_tryons, threshold=conversion_threshold)
     if key in _cache:
         return _cache[key]
-    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
-
-    events = fetch_events("event_type,product_id,session_id,event_data", shop, start_ts, end_ts)
-
-    # Pass 1: session_id -> product_id from tryon_started; count tryons per product
-    session_to_product: dict[str, str] = {}
-    by_product: dict[str, dict[str, int]] = {}
-    for e in events:
-        if e.get("event_type") != "tryon_started":
-            continue
-        sid = e.get("session_id")
-        pid = (e.get("product_id") or "").strip() or "_unknown"
-        if sid and pid != "_unknown":
-            session_to_product[str(sid)] = pid
-        if pid not in by_product:
-            by_product[pid] = {"tryons": 0, "purchases": 0}
-        by_product[pid]["tryons"] += 1
-
-    # Pass 2: attribute purchases to products via session
-    for e in events:
-        if e.get("event_type") != "purchase":
-            continue
-        sid = e.get("session_id")
-        items = (e.get("event_data") or {}).get("items") or []
-        seen_products: set[str] = set()
-        for it in items:
-            sid_item = it.get("session_id")
-            prod = session_to_product.get(str(sid_item or "")) if sid_item else None
-            if not prod and sid:
-                prod = session_to_product.get(str(sid))
-            if prod:
-                seen_products.add(prod)
-        if not seen_products and sid:
-            prod = session_to_product.get(str(sid))
-            if prod:
-                seen_products.add(prod)
-        for p in seen_products:
-            if p not in by_product:
-                by_product[p] = {"tryons": 0, "purchases": 0}
-            by_product[p]["purchases"] += 1
+    start_d, end_d, _, _ = parse_range(start, end, 30)
+    c, _events = load_cohort(shop, start_d, end_d)
 
     at_risk: list[AtRiskProduct] = []
-    for pid, data in by_product.items():
-        tryons = data["tryons"]
-        purchases = data["purchases"]
-        if pid == "_unknown" or tryons < min_tryons:
+    for pid, r in product_breakdown(c).items():
+        tryons = len(r["tryon_sessions"])
+        purchases = len(r["orders"])
+        if tryons < min_tryons:
             continue
-        conversion = (purchases / tryons) if tryons else 0.0
-        ratio = (tryons / purchases) if purchases else float("inf") if tryons else 0.0
+        # Conversion is sessions over sessions, like every other purchase rate.
+        conversion = len(r["purchase_sessions"]) / tryons
 
         if purchases == 0:
             severity = "critical"
@@ -873,11 +722,11 @@ async def get_at_risk_products(
             tryons=tryons,
             purchases=purchases,
             conversion=round(conversion, 4) if purchases else None,
-            ratio=round(ratio, 2) if purchases and ratio != float("inf") else None,
+            ratio=round(tryons / purchases, 2) if purchases else None,
             severity=severity,
         ))
 
-    at_risk.sort(key=lambda x: (-x.tryons, x.purchases))
+    at_risk.sort(key=lambda x: (-x.tryons, x.purchases, x.product_id))
 
     result = AtRiskProductsResponse(
         products=at_risk,
@@ -1105,12 +954,22 @@ def _normalize_size(s: str | None) -> str:
 # Phase 1+: Dwell-Time Aggregation
 # ---------------------------------------------------------------------------
 
+class DwellBucket(BaseModel):
+    label: str
+    sessions: int
+
+
+# (label, upper bound in seconds, exclusive); the last bucket is open-ended.
+DWELL_BUCKETS = [("0 to 10s", 10), ("10 to 20s", 20), ("20 to 30s", 30), ("30 to 60s", 60), ("Over 60s", None)]
+
+
 class DwellMetricsResponse(BaseModel):
     total_sessions: int
     avg_dwell_seconds: Optional[float] = None
     median_dwell_seconds: Optional[float] = None
     p90_dwell_seconds: Optional[float] = None
     dwell_to_conversion: Optional[float] = None
+    histogram: list[DwellBucket] = []
 
 
 @router.get("/dwell-metrics", response_model=DwellMetricsResponse)
@@ -1166,7 +1025,15 @@ async def get_dwell_metrics(
         if above_median else None
     )
 
+    histogram = []
+    lower = 0.0
+    for label, upper in DWELL_BUCKETS:
+        n = sum(1 for d in dwell_values if d >= lower and (upper is None or d < upper))
+        histogram.append(DwellBucket(label=label, sessions=n))
+        lower = upper if upper is not None else lower
+
     result = DwellMetricsResponse(
+        histogram=histogram,
         total_sessions=total_sessions,
         avg_dwell_seconds=avg_dwell,
         median_dwell_seconds=median_dwell,
@@ -1215,36 +1082,37 @@ async def get_device_metrics(
     if key in _cache:
         return _cache[key]
 
-    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
+    start_d, end_d, _, _ = parse_range(start, end, 30)
+    c, events = load_cohort(shop, start_d, end_d)
 
-    events = fetch_events("event_type,session_id,user_agent", shop, start_ts, end_ts)
+    # A session has one device: the one it tried on with. Its add-to-cart and its orders
+    # are counted under that device, so store orders that never touched the widget no
+    # longer show up here as "unknown".
+    def device_of(sid: Optional[str]) -> str:
+        return _classify_device(c.session_user_agent.get(sid or ""))
 
     device_tryons: dict[str, set[str]] = defaultdict(set)
     device_atc: dict[str, set[str]] = defaultdict(set)
-    device_purchases: dict[str, int] = defaultdict(int)
+    device_orders: dict[str, int] = defaultdict(int)
+    device_buyers: dict[str, set[str]] = defaultdict(set)
 
-    for e in events:
-        device = _classify_device(e.get("user_agent"))
-        sid = e.get("session_id") or ""
-        etype = e.get("event_type")
+    for sid in c.anchors:
+        device_tryons[device_of(sid)].add(sid)
+    for sid in c.atc:
+        device_atc[device_of(sid)].add(sid)
+    for o in c.orders.values():
+        device_orders[device_of(o.session_id)] += 1
+        device_buyers[device_of(o.session_id)].add(o.session_id)
 
-        if etype == "tryon_started" and sid:
-            device_tryons[device].add(sid)
-        elif etype == "add_to_cart" and sid:
-            device_atc[device].add(sid)
-        elif etype == "purchase":
-            device_purchases[device] += 1
-
-    all_devices = set(device_tryons) | set(device_atc) | set(device_purchases)
     devices_out: list[DeviceMetrics] = []
-    for device in sorted(all_devices):
-        t = len(device_tryons.get(device, set()))
-        a = len(device_atc.get(device, set()))
-        p = device_purchases.get(device, 0)
-        conv = round(p / t, 4) if t else None
+    for device in sorted(device_tryons):
+        t = len(device_tryons[device])
         devices_out.append(DeviceMetrics(
-            device_type=device, tryons=t, add_to_carts=a,
-            purchases=p, conversion_rate=conv,
+            device_type=device,
+            tryons=t,
+            add_to_carts=len(device_atc.get(device, set())),
+            purchases=device_orders.get(device, 0),
+            conversion_rate=round(len(device_buyers.get(device, set())) / t, 4) if t else None,
         ))
 
     result = DeviceMetricsResponse(devices=devices_out, total_events=len(events))
@@ -1282,29 +1150,16 @@ async def get_fit_confidence_by_product(
 
     start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
 
-    events = fetch_events("event_type,session_id,product_id,event_data", shop, start_ts, end_ts)
+    events = fetch_events("event_type,session_id,product_id,event_data,created_at", shop, start_ts, end_ts)
 
-    # session -> product -> recommended size
+    # (session, product) -> recommended / chosen size, one of each (see chosen_sizes).
+    rec_by_pair, sel_by_pair = chosen_sizes(events, by_product=True)
     session_product_rec: dict[str, dict[str, str]] = defaultdict(dict)
-    # session -> product -> selected/purchased size
     session_product_sel: dict[str, dict[str, str]] = defaultdict(dict)
-
-    for e in events:
-        sid = e.get("session_id")
-        pid = (e.get("product_id") or "").strip()
-        ed = e.get("event_data") or {}
-        etype = e.get("event_type")
-        raw_size = ed.get("size")
-        sz = str(raw_size).strip() if raw_size is not None and raw_size != "" else ""
-
-        if not sid or not pid:
-            continue
-
-        if etype == "size_recommended" and sz:
-            session_product_rec[sid][pid] = sz
-        elif etype in ("size_selected", "add_to_cart") and sz:
-            if pid not in session_product_sel[sid]:
-                session_product_sel[sid][pid] = sz
+    for (sid, pid), sz in rec_by_pair.items():
+        session_product_rec[sid][pid] = sz
+    for (sid, pid), sz in sel_by_pair.items():
+        session_product_sel[sid][pid] = sz
 
     # Aggregate per product
     prod_stats: dict[str, dict[str, int]] = defaultdict(lambda: {
@@ -1609,8 +1464,11 @@ async def get_body_shape_insights(
 # ---------------------------------------------------------------------------
 
 class ReturnMetricsResponse(BaseModel):
-    total_purchases: int
-    total_returns: int
+    # Store-wide: every order paid in the range, widget or not. The try-on cohort's own
+    # return rate is on /metrics and /cohort-comparison.
+    scope: str = "all_store_orders"
+    total_purchases: int   # distinct orders paid in the range
+    total_returns: int     # of those, orders with at least one refund (whenever it came)
     return_rate: Optional[float] = None
     revenue_lost: float
     top_returned_products: list[dict]
@@ -1629,19 +1487,12 @@ async def get_return_metrics(
     if key in _cache:
         return _cache[key]
 
-    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
+    start_d, end_d, _, _ = parse_range(start, end, 30)
+    events = load_cohort_events(shop, start_d, end_d)
+    start_dt, end_dt = _day_bounds(start_d, end_d)
 
-    events = fetch_events("event_type,session_id,product_id,event_data,created_at", shop, start_ts, end_ts)
-
-    # order_id -> {product_id, purchase_ts, amount}
-    purchases_by_order: dict[str, dict] = {}
-    # order_id -> return_ts
-    returns_by_order: dict[str, str] = {}
     # sku key -> {purchases, returns, sku, variant_id, product_id, title} — counts are in units
     sku_counts: dict[str, dict[str, Any]] = {}
-    revenue_lost = 0.0
-    total_purchases = 0
-    total_returns = 0
 
     def _sku_meta(li: dict[str, Any]) -> tuple[str, dict[str, str]]:
         """Group key + display meta for a line item. Shopify variant == one SKU;
@@ -1673,60 +1524,66 @@ async def get_return_metrics(
             if not row.get(k) and meta.get(k):
                 row[k] = meta[k]
 
+    # Orders paid in the range, once each.
+    orders: dict[str, datetime] = {}
     for e in events:
+        if e.get("event_type") != "purchase":
+            continue
+        t = parse_ts(e.get("created_at"))
+        if t is None or not (start_dt <= t <= end_dt):
+            continue
         ed = e.get("event_data") or {}
-        etype = e.get("event_type")
+        oid = str(ed.get("order_id") or f"event:{e.get('id')}")
+        if oid in orders:
+            continue
+        orders[oid] = t
         pid = (e.get("product_id") or "").strip()
+        # Per-SKU sold units from the raw order line items (webhook stores these
+        # in event_data; the top-level product_id column is the try-on handle).
+        line_items = ed.get("line_items") or []
+        if line_items:
+            for li in line_items:
+                _bump_sku(li, "purchases")
+        elif pid:  # legacy events with no line_items payload
+            _bump_sku({"product_id": pid}, "purchases")
 
-        if etype == "purchase":
-            total_purchases += 1
-            oid = ed.get("order_id")
-            if oid:
-                purchases_by_order[str(oid)] = {
-                    "product_id": pid,
-                    "created_at": e.get("created_at"),
-                    "amount": float(ed.get("amount", 0) or 0),
-                }
-            # Per-SKU sold units from the raw order line items (webhook stores these
-            # in event_data; the top-level product_id column is not set for orders/paid).
-            line_items = ed.get("line_items") or []
-            if line_items:
-                for li in line_items:
-                    _bump_sku(li, "purchases")
-            elif pid:  # legacy events with no line_items payload
-                _bump_sku({"product_id": pid}, "purchases")
+    # Refunds on those orders, once each; several refunds on an order are one return.
+    first_refund: dict[str, datetime] = {}
+    seen_refunds: set[str] = set()
+    revenue_lost = 0.0
+    for e in events:
+        if e.get("event_type") != "return":
+            continue
+        ed = e.get("event_data") or {}
+        oid = str(ed.get("order_id") or "")
+        if oid not in orders:
+            continue
+        refund_key = str(ed.get("refund_id") or f"event:{e.get('id')}")
+        if refund_key in seen_refunds:
+            continue
+        seen_refunds.add(refund_key)
+        t = parse_ts(e.get("created_at"))
+        if t is not None and (oid not in first_refund or t < first_refund[oid]):
+            first_refund[oid] = t
+        first_refund.setdefault(oid, orders[oid])
+        revenue_lost += float(ed.get("amount_refunded", 0) or 0)
+        # Per-SKU returned units from refund line items (event_data.items).
+        ret_items = ed.get("items") or []
+        if ret_items:
+            for it in ret_items:
+                _bump_sku(it, "returns")
+        else:  # legacy events with no per-item payload
+            ret_pid = (e.get("product_id") or "").strip() or str(ed.get("product_id", "") or "")
+            if ret_pid:
+                _bump_sku({"product_id": ret_pid}, "returns")
 
-        elif etype == "return":
-            total_returns += 1
-            oid = ed.get("order_id")
-            if oid:
-                returns_by_order[str(oid)] = e.get("created_at", "")
-            revenue_lost += float(ed.get("amount_refunded", 0) or 0)
-            # Per-SKU returned units from refund line items (event_data.items).
-            ret_items = ed.get("items") or []
-            if ret_items:
-                for it in ret_items:
-                    _bump_sku(it, "returns")
-            else:  # legacy events with no per-item payload
-                ret_pid = pid or str(ed.get("product_id", "") or "")
-                if ret_pid:
-                    _bump_sku({"product_id": ret_pid}, "returns")
-
+    total_purchases = len(orders)
+    total_returns = len(first_refund)
     return_rate = round(total_returns / total_purchases, 4) if total_purchases else None
 
-    # Compute avg days to return
-    days_to_return: list[float] = []
-    for oid, return_ts in returns_by_order.items():
-        purchase = purchases_by_order.get(oid)
-        if not purchase or not return_ts or not purchase.get("created_at"):
-            continue
-        try:
-            p_dt = datetime.fromisoformat(purchase["created_at"].replace("Z", "+00:00"))
-            r_dt = datetime.fromisoformat(return_ts.replace("Z", "+00:00"))
-            days_to_return.append((r_dt - p_dt).total_seconds() / 86400)
-        except (ValueError, TypeError):
-            pass
-
+    days_to_return = [
+        (first_refund[oid] - orders[oid]).total_seconds() / 86400 for oid in first_refund
+    ]
     avg_days = round(sum(days_to_return) / len(days_to_return), 2) if days_to_return else None
 
     def _sku_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -1766,18 +1623,39 @@ async def get_return_metrics(
 
 
 # ---------------------------------------------------------------------------
-# Phase 4: A/B Cohort Comparison (TryOn users vs baseline)
+# Phase 4: Cohort Comparison (try-on orders vs the rest of the store)
 # ---------------------------------------------------------------------------
 
+# Below this many orders on either side, a difference between the two groups is noise.
+# The numbers are still returned; `comparable` tells the dashboard not to headline a lift.
+MIN_ORDERS_FOR_COMPARISON = 20
+
+
 class CohortComparisonResponse(BaseModel):
-    tryon_users_count: int
-    tryon_purchases: int
-    tryon_returns: int
+    # Try-on cohort: sessions that tried on in the range, and the orders they led to.
+    tryon_sessions: int = 0
+    tryon_users_count: int             # distinct signed-in shoppers among those sessions
+    tryon_purchases: int               # distinct orders
+    tryon_returns: int                 # of those, orders refunded
+    tryon_revenue: float = 0.0
     tryon_aov: Optional[float] = None
     tryon_return_rate: Optional[float] = None
-    tryon_conversion_rate: Optional[float] = None
+    tryon_conversion_rate: Optional[float] = None  # converting sessions / try-on sessions
     tryon_bracket_rate: Optional[float] = None
-    baseline_note: str = "Compare these TryOn metrics against your Shopify store averages"
+    # Baseline: store orders paid in the range that never touched the widget.
+    baseline_orders: int = 0
+    baseline_returns: int = 0
+    baseline_revenue: float = 0.0
+    baseline_aov: Optional[float] = None
+    baseline_return_rate: Optional[float] = None
+    baseline_bracket_rate: Optional[float] = None
+    attribution_window_days: int = ATTRIBUTION_WINDOW_DAYS
+    min_orders_for_comparison: int = MIN_ORDERS_FOR_COMPARISON
+    comparable: bool = False
+    baseline_note: str = (
+        "Baseline is every store order in the range that did not come through the widget. "
+        "It has no conversion rate: store visits are not tracked."
+    )
 
 
 @router.get("/cohort-comparison", response_model=CohortComparisonResponse)
@@ -1790,66 +1668,29 @@ async def get_cohort_comparison(
     if key in _cache:
         return _cache[key]
 
-    start_d, end_d, start_ts, end_ts = parse_range(start, end, 30)
-
-    events = fetch_events("event_type,session_id,user_id,event_data,created_at", shop, start_ts, end_ts)
-
-    tryon_users: set[str] = set()
-    tryon_sessions: set[str] = set()
-
-    for e in events:
-        if e.get("event_type") == "tryon_started":
-            uid = e.get("user_id")
-            sid = e.get("session_id")
-            if uid:
-                tryon_users.add(uid)
-            if sid:
-                tryon_sessions.add(sid)
-
-    purchases = 0
-    returns = 0
-    revenue = 0.0
-    order_ids: set[str] = set()
-    bracket_orders = 0
-
-    for e in events:
-        sid = e.get("session_id")
-        uid = e.get("user_id")
-        ed = e.get("event_data") or {}
-        etype = e.get("event_type")
-
-        is_tryon_user = (uid and uid in tryon_users) or (sid and sid in tryon_sessions)
-        if not is_tryon_user:
-            continue
-
-        if etype == "purchase":
-            purchases += 1
-            revenue += float(ed.get("amount", 0) or 0)
-            oid = ed.get("order_id")
-            if oid:
-                order_ids.add(str(oid))
-            if ed.get("is_bracketed"):
-                bracket_orders += 1
-
-        elif etype == "return":
-            returns += 1
-
-    tryon_users_count = len(tryon_users) or len(tryon_sessions)
-    tryon_aov = round(revenue / len(order_ids), 2) if order_ids else (
-        round(revenue / purchases, 2) if purchases else None
-    )
-    tryon_return_rate = round(returns / purchases, 4) if purchases else None
-    tryon_conversion_rate = round(purchases / tryon_users_count, 4) if tryon_users_count else None
-    tryon_bracket_rate = round(bracket_orders / purchases, 4) if purchases else None
+    start_d, end_d, _, _ = parse_range(start, end, 30)
+    c, _events = load_cohort(shop, start_d, end_d)
 
     result = CohortComparisonResponse(
-        tryon_users_count=tryon_users_count,
-        tryon_purchases=purchases,
-        tryon_returns=returns,
-        tryon_aov=tryon_aov,
-        tryon_return_rate=tryon_return_rate,
-        tryon_conversion_rate=tryon_conversion_rate,
-        tryon_bracket_rate=tryon_bracket_rate,
+        tryon_sessions=c.tryons,
+        tryon_users_count=len(c.users),
+        tryon_purchases=c.purchases,
+        tryon_returns=c.returned,
+        tryon_revenue=round(c.revenue, 2),
+        tryon_aov=_r(c.aov, 2),
+        tryon_return_rate=_r(c.return_rate),
+        tryon_conversion_rate=_r(c.purchase_rate),
+        tryon_bracket_rate=_r(c.bracket_rate),
+        baseline_orders=len(c.baseline_orders),
+        baseline_returns=len(c.baseline_returns),
+        baseline_revenue=round(c.baseline_revenue, 2),
+        baseline_aov=_r(c.baseline_aov, 2),
+        baseline_return_rate=_r(c.baseline_return_rate),
+        baseline_bracket_rate=_r(c.baseline_bracket_rate),
+        comparable=(
+            c.purchases >= MIN_ORDERS_FOR_COMPARISON
+            and len(c.baseline_orders) >= MIN_ORDERS_FOR_COMPARISON
+        ),
     )
     _cache[key] = result
     return result
@@ -1881,93 +1722,56 @@ async def get_return_risk(
     if key in _cache:
         return _cache[key]
 
-    start_d, end_d, start_ts, end_ts = parse_range(None, None, 30)
+    start_d, end_d, _, _ = parse_range(None, None, 30)
+    c, events = load_cohort(shop, start_d, end_d)
 
-    events = fetch_events("event_type,session_id,user_id,product_id,event_data,created_at", shop, start_ts, end_ts)
-
-    # Pre-compute helper structures
-    session_rec_size: dict[str, str] = {}
-    session_sel_size: dict[str, str] = {}
+    # Only try-on orders are scored: every signal below except bracketing comes from the
+    # try-on session, so a store order without one has nothing to score.
+    session_rec_size, session_sel_size = chosen_sizes(events)
     session_dwell: dict[str, float] = {}
-    session_product: dict[str, str] = {}
     user_sessions: dict[str, set[str]] = defaultdict(set)
-
-    # Historical return counts per product
-    product_purchases: dict[str, int] = defaultdict(int)
-    product_returns: dict[str, int] = defaultdict(int)
-
-    purchase_events: list[dict] = []
 
     for e in events:
         sid = e.get("session_id")
         uid = e.get("user_id")
-        pid = (e.get("product_id") or "").strip()
-        ed = e.get("event_data") or {}
-        etype = e.get("event_type")
-
-        if uid and sid:
+        if not sid or sid not in c.anchors:
+            continue
+        if uid:
             user_sessions[uid].add(sid)
-
-        if etype == "tryon_started" and sid and pid:
-            session_product[sid] = pid
-
-        if etype == "size_recommended" and sid:
-            raw = ed.get("size")
-            if raw:
-                session_rec_size[sid] = str(raw).strip()
-
-        if etype in ("size_selected", "add_to_cart") and sid:
-            raw = ed.get("size")
-            if raw and sid not in session_sel_size:
-                session_sel_size[sid] = str(raw).strip()
-
-        if etype == "tryon_ended" and sid:
-            dwell = ed.get("dwell_seconds")
+        if e.get("event_type") == "tryon_ended":
+            dwell = (e.get("event_data") or {}).get("dwell_seconds")
             if dwell is not None:
                 try:
                     session_dwell[sid] = float(dwell)
                 except (ValueError, TypeError):
                     pass
 
-        if etype == "purchase":
-            purchase_events.append(e)
-            if pid:
-                product_purchases[pid] += 1
-
-        if etype == "return":
-            ret_pid = pid or ed.get("product_id", "")
-            if ret_pid:
-                product_returns[ret_pid] += 1
-
+    # Historical return rate per tried-on product, from this cohort's own orders.
     product_return_rates: dict[str, float] = {}
-    for pid, pcount in product_purchases.items():
-        product_return_rates[pid] = product_returns.get(pid, 0) / pcount if pcount else 0.0
+    for pid, r in product_breakdown(c).items():
+        if r["orders"]:
+            product_return_rates[pid] = len(r["returned"]) / len(r["orders"])
 
     scored_orders: list[OrderReturnRisk] = []
     all_scores: list[float] = []
 
-    for e in purchase_events:
-        sid = e.get("session_id")
-        uid = e.get("user_id")
-        ed = e.get("event_data") or {}
-        oid = ed.get("order_id")
-        if not oid:
-            continue
-
+    for o in c.orders.values():
+        sid = o.session_id
+        uid = o.user_id or c.session_user.get(sid or "")
         score = 0.0
         factors: list[str] = []
-        pid = (e.get("product_id") or "").strip() or session_product.get(sid or "", "")
+        pid = c.order_product(o) or ""
 
-        if ed.get("is_bracketed"):
+        if o.is_bracketed:
             score += 40
             factors.append("bracketed_order")
 
-        if sid and sid in session_rec_size and sid in session_sel_size:
+        if sid in session_rec_size and sid in session_sel_size:
             if _normalize_size(session_rec_size[sid]) != _normalize_size(session_sel_size[sid]):
                 score += 25
                 factors.append("size_mismatch")
 
-        if sid and session_dwell.get(sid, 999) < 30:
+        if session_dwell.get(sid, 999) < 30:
             score += 15
             factors.append("rushed_decision")
 
@@ -1982,14 +1786,14 @@ async def get_return_risk(
         all_scores.append(score)
         if score > 50:
             scored_orders.append(OrderReturnRisk(
-                order_id=str(oid),
+                order_id=o.order_id,
                 session_id=sid,
                 risk_score=score,
                 risk_factors=factors,
                 product_id=pid or None,
             ))
 
-    scored_orders.sort(key=lambda x: -x.risk_score)
+    scored_orders.sort(key=lambda x: (-x.risk_score, x.order_id))
     avg_risk = round(sum(all_scores) / len(all_scores), 2) if all_scores else None
 
     result = ReturnRiskResponse(
@@ -2031,66 +1835,70 @@ async def get_time_series(
     shop: str = Depends(get_brand_shop),
     granularity: Optional[str] = Query(None, pattern=GRANULARITY_PATTERN, description="day|week|month; default by span"),
 ):
-    start_d, end_d, start_ts, end_ts = parse_range(start, end, 90)
+    start_d, end_d, _, _ = parse_range(start, end, 90)
     gran = granularity or default_granularity(start_d, end_d)
     key = _cache_key("time_series", start=start_d, end=end_d, shop=shop, granularity=gran)
     if key in _cache:
         return _cache[key]
 
-    events = fetch_events("event_type,session_id,event_data,created_at", shop, start_ts, end_ts)
+    c, _events = load_cohort(shop, start_d, end_d)
 
     # Zero-filled: one entry per bucket in [start, end], clipped to the range.
     buckets = bucket_ranges(start_d, end_d, gran)
     week_data: dict[str, dict[str, Any]] = {
         b0.isoformat(): {
-            "widget_opens": 0, "tryon_sessions": set(), "atc_sessions": set(),
-            "purchases": 0, "returns": 0, "revenue": 0.0,
+            "opens": 0, "tryons": 0, "atc": 0, "orders": 0, "buyers": set(),
+            "returned": 0, "revenue": 0.0,
         }
         for b0, _ in buckets
     }
 
-    for e in events:
-        bk = bucket_key(e.get("created_at") or "", gran, start_d)
-        if bk not in week_data:
+    def bucket_of(t: datetime) -> Optional[dict[str, Any]]:
+        d = t.astimezone(timezone.utc).date()
+        return week_data.get(max(_period_start(d, gran), start_d).isoformat())
+
+    # A session lives in the bucket of its first try-on, and so does everything it went on
+    # to do. That makes each bucket's rates sessions-over-sessions for the same sessions,
+    # and makes the buckets add up to the /metrics totals for the same range.
+    for sid, t in c.opens.items():
+        w = bucket_of(t)
+        if w is not None:
+            w["opens"] += 1
+    for sid, anchor in c.anchors.items():
+        w = bucket_of(anchor)
+        if w is None:
             continue
-
-        etype = e.get("event_type")
-        sid = e.get("session_id") or ""
-        ed = e.get("event_data") or {}
-        w = week_data[bk]
-
-        if etype == "widget_opened":
-            w["widget_opens"] += 1
-        elif etype == "tryon_started" and sid:
-            w["tryon_sessions"].add(sid)
-        elif etype == "add_to_cart" and sid:
-            w["atc_sessions"].add(sid)
-        elif etype == "purchase":
-            w["purchases"] += 1
-            w["revenue"] += float(ed.get("amount", 0) or 0)
-        elif etype == "return":
-            w["returns"] += 1
+        w["tryons"] += 1
+        if sid in c.atc:
+            w["atc"] += 1
+    for o in c.orders.values():
+        w = bucket_of(c.anchors[o.session_id])
+        if w is None:
+            continue
+        w["orders"] += 1
+        w["buyers"].add(o.session_id)
+        w["revenue"] += o.amount
+        if o.order_id in c.returns:
+            w["returned"] += 1
 
     weeks_out: list[TimeSeriesPoint] = []
     for b0, b1 in buckets:
         week_start = b0.isoformat()
         w = week_data[week_start]
-        tryons = len(w["tryon_sessions"])
-        atcs = len(w["atc_sessions"])
-        purchases = w["purchases"]
-        returns = w["returns"]
+        tryons = w["tryons"]
+        orders = w["orders"]
         weeks_out.append(TimeSeriesPoint(
             week_start=week_start,
             bucket_end=b1.isoformat(),
-            widget_opens=w["widget_opens"],
+            widget_opens=w["opens"],
             tryons=tryons,
-            add_to_carts=atcs,
-            purchases=purchases,
-            returns=returns,
+            add_to_carts=w["atc"],
+            purchases=orders,
+            returns=w["returned"],
             revenue=round(w["revenue"], 2),
-            conversion_rate=round(purchases / tryons * 100, 2) if tryons else None,
-            atc_rate=round(atcs / tryons * 100, 2) if tryons else None,
-            return_rate=round(returns / purchases * 100, 2) if purchases else None,
+            conversion_rate=round(len(w["buyers"]) / tryons * 100, 2) if tryons else None,
+            atc_rate=round(w["atc"] / tryons * 100, 2) if tryons else None,
+            return_rate=round(w["returned"] / orders * 100, 2) if orders else None,
         ))
 
     result = TimeSeriesResponse(weeks=weeks_out, granularity=gran)
@@ -2136,29 +1944,17 @@ async def get_fit_purchase_correlation(
 
     events = fetch_events("event_type,session_id,product_id,event_data,created_at", shop, start_ts, end_ts)
 
-    session_rec: dict[str, str] = {}
-    session_sel: dict[str, str] = {}
+    session_rec, session_sel = chosen_sizes(events)
     session_purchased: set[str] = set()
     session_returned: set[str] = set()
 
     for e in events:
         sid = e.get("session_id")
-        ed = e.get("event_data") or {}
-        etype = e.get("event_type")
-        raw = ed.get("size")
-        sz = str(raw).strip() if raw is not None and raw != "" else ""
-
         if not sid:
             continue
-
-        if etype == "size_recommended" and sz:
-            session_rec[sid] = sz
-        elif etype in ("size_selected", "add_to_cart") and sz:
-            if sid not in session_sel:
-                session_sel[sid] = sz
-        elif etype == "purchase":
+        if e.get("event_type") == "purchase":
             session_purchased.add(sid)
-        elif etype == "return":
+        elif e.get("event_type") == "return":
             session_returned.add(sid)
 
     sessions_with_both = set(session_rec.keys()) & set(session_sel.keys())
