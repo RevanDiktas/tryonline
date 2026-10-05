@@ -257,6 +257,8 @@ for i, (g, s) in enumerate([(ZIP, "s"), (ZIP, "m"), (ZIP, "l")]):
 
 woken = []
 dd.wake_dispatcher = lambda: woken.append(1)
+real_fill_drape_gaps = dq.fill_drape_gaps
+dq.fill_drape_gaps = lambda uid: None      # checked on its own further down
 
 r = client.post("/api/draping/request", json={"garment_id": ZIP, "size": "l", "user_id": SHOPPER, "on_screen": True})
 d = r.json()
@@ -286,12 +288,45 @@ check("missing job: one is added", len(new) == 1 and new[0]["status"] == "queued
 check("missing job: added at priority 0", new and new[0]["priority"] == dq.PRIORITY_ON_SCREEN)
 check("missing job: dispatched before the older fan-out", tick()[:1] == [new[0]["id"]] if new else False)
 
-# A job that used up its attempts is reported, not retried in a loop.
+# A job that used up its attempts is reported, not retried in a loop...
+from datetime import datetime, timedelta, timezone  # noqa: E402
+just_now = datetime.now(timezone.utc).isoformat()
+long_ago = (datetime.now(timezone.utc) - timedelta(seconds=dq.FAILED_RETRY_COOLDOWN_SECONDS + 60)).isoformat()
 fake.reset()
-add_job(SHOPPER, ZIP, "s", status="failed", error_message="sim exploded")
+add_job(SHOPPER, ZIP, "s", status="failed", error_message="sim exploded", updated_at=just_now)
 d = client.post("/api/draping/request", json={"garment_id": ZIP, "size": "s", "user_id": SHOPPER, "on_screen": True}).json()
 check("failed job: /request says failed", d.get("status") == "failed", d)
 check("failed job: not put back in the queue", job("job-a-garment-zip-s")["status"] == "failed")
+# ...but it is not failed for ever: when the shopper opens it again after the cool-down, it gets another go.
+fake.reset()
+add_job(SHOPPER, ZIP, "s", status="failed", error_message="sim exploded", updated_at=long_ago, attempts=3)
+d = client.post("/api/draping/request", json={"garment_id": ZIP, "size": "s", "user_id": SHOPPER, "on_screen": True}).json()
+j = job("job-a-garment-zip-s")
+check("failed long ago: /request queues it again", d.get("status") == "pending" and j["status"] == "queued", (d, j))
+check("failed long ago: retried at the front with a clean slate",
+      j["priority"] == dq.PRIORITY_ON_SCREEN and j["attempts"] == 0 and j["error_message"] is None, j)
+# The background fan-out still leaves failed jobs alone.
+fake.reset()
+add_job(SHOPPER, ZIP, "s", status="failed", error_message="sim exploded", updated_at=long_ago)
+dq.enqueue_full_drape(SHOPPER, priority=10)
+check("fan-out does not retry a failed job", job("job-a-garment-zip-s")["status"] == "failed")
+
+# A shopper with gaps (pre-draped for one garment only): opening an undraped garment queues the rest behind it.
+fake.reset()
+dq.fill_drape_gaps = real_fill_drape_gaps
+dq._gap_checked.clear()
+add_job(SHOPPER, ZIP, "l")
+before = len(fake.tables["drape_jobs"])
+client.post("/api/draping/request", json={"garment_id": ZIP, "size": "l", "user_id": SHOPPER, "on_screen": True})
+mine = [r for r in fake.tables["drape_jobs"] if r["user_id"] == SHOPPER]
+added = [r for r in mine if r["id"] != "job-a-garment-zip-l"]
+check("gaps: the missing garment-sizes are queued", len(added) > 0 and all(r["status"] == "queued" for r in added), len(added))
+check("gaps: they wait behind what is on screen", all(r["priority"] == dq.FILL_GAPS_PRIORITY for r in added)
+      and job("job-a-garment-zip-l")["priority"] == dq.PRIORITY_ON_SCREEN, [(r["size"], r["priority"]) for r in mine])
+n = len(fake.tables["drape_jobs"])
+client.post("/api/draping/request", json={"garment_id": ZIP, "size": "m", "user_id": SHOPPER, "on_screen": False})
+check("gaps: checked once, not on every request", len(fake.tables["drape_jobs"]) == n)
+dq.fill_drape_gaps = lambda uid: None
 
 # Cached drape: answered at once, no job touched.
 fake.reset()

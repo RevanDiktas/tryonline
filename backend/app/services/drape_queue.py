@@ -18,6 +18,7 @@ file. This module just deals with the data layer.
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime, timezone
 from typing import Iterable, Optional
 
 import httpx
@@ -358,6 +359,49 @@ def drape_product_first(user_id: str, shop_domain: Optional[str], product_id: Op
         return []
 
 
+FAILED_RETRY_COOLDOWN_SECONDS = 600
+
+
+def _older_than(ts: Optional[str], seconds: int) -> bool:
+    """True when an ISO timestamp is more than `seconds` ago (or cannot be read)."""
+    if not ts:
+        return True
+    try:
+        then = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if then.tzinfo is None:
+            then = then.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - then).total_seconds() > seconds
+    except Exception:
+        return True
+
+
+# Shoppers whose full fan-out was checked recently by fill_drape_gaps: {user_id: monotonic time}.
+_gap_checked: dict = {}
+GAP_CHECK_EVERY_SECONDS = 3600
+FILL_GAPS_PRIORITY = 50
+
+
+def fill_drape_gaps(user_id: str) -> Optional[dict]:
+    """The shopper opened a garment that was not draped for them yet, so their set has gaps
+    (an avatar made before a store or garment was added, or pre-draped for one store only).
+    Queue everything that is missing, behind whatever they are looking at. At most once an
+    hour per shopper; never raises."""
+    import time as _time
+    now = _time.monotonic()
+    last = _gap_checked.get(user_id)
+    if last is not None and now - last < GAP_CHECK_EVERY_SECONDS:
+        return None
+    _gap_checked[user_id] = now
+    try:
+        counts = enqueue_full_drape(user_id, priority=FILL_GAPS_PRIORITY)
+        if counts.get("enqueued"):
+            print(f"[drape_queue] filled drape gaps for {user_id}: {counts}")
+        return counts
+    except Exception as e:
+        print(f"[drape_queue] fill_drape_gaps failed (non-fatal): {e}")
+        return None
+
+
 def prioritize_drape(user_id: str, garment_id: str, size: str, priority: int) -> Optional[dict]:
     """The try-on is showing this garment: make sure this shopper's drape for it exists and
     is first in line. Uses the same drape_jobs row as the fan-out (one job per user,
@@ -385,11 +429,22 @@ def prioritize_drape(user_id: str, garment_id: str, size: str, priority: int) ->
     _enqueue_one(user_id, garment_id, size, body_hash, version, priority, counts, passport)
 
     r = supabase_service.client.table("drape_jobs").select(
-        "id,status,priority,error_message"
+        "id,status,priority,error_message,body_hash,updated_at"
     ).eq("user_id", user_id).eq("garment_id", garment_id).eq("size", size).eq(
         "garment_version_hash", version
     ).limit(1).execute()
     job = r.data[0] if r.data else None
+    # A drape that failed earlier gets another go when the shopper asks for it again, at
+    # most once per cool-down. The background fan-out never does this (no retry storm),
+    # so without it one failure meant "never draped" for that shopper and size.
+    if (job and job.get("status") == "failed" and job.get("body_hash") == body_hash
+            and _older_than(job.get("updated_at"), FAILED_RETRY_COOLDOWN_SECONDS)):
+        supabase_service.client.table("drape_jobs").update({
+            "status": "queued", "priority": priority, "attempts": 0, "runpod_job_id": None,
+            "error_message": None, "dispatched_at": None, "completed_at": None,
+        }).eq("id", job["id"]).execute()
+        job.update({"status": "queued", "priority": priority, "error_message": None})
+        print(f"[drape_queue] retrying failed drape {job['id']} because the shopper opened it again")
     # Still waiting in our queue behind other work: move it up. (Once handed to RunPod
     # it is already next or running.)
     if job and job.get("status") == "queued" and (job.get("priority") is None or job["priority"] > priority):
