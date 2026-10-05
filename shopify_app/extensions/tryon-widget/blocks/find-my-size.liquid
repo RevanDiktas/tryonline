@@ -1,14 +1,16 @@
 {% comment %}
   TryOn: "Find my size" app block for product pages.
 
-  The fast tier: a size from height, weight and build, with no avatar, no photo and no
-  account. Works on any product that has two or more sizes; the product does not need a 3D
-  garment. Opens tryon.global/size-finder.html in a modal iframe.
+  The size-only tier: the shopper signs in to their Tryon account and gets their size from
+  the measurements on it. No avatar try-on and no 3D garment, so it works on any product
+  that has two or more sizes, in any store with this block: one account, every store.
+  Opens tryon.global/size-finder.html in a modal iframe.
 
   - The button sits in the store's own DOM, so it takes the theme's font and colour.
   - The card is told the store's colours, corner radius and font when it opens.
-  - A shopper who has used it once sees "Your size: L" on every product without clicking.
+  - A signed-in shopper sees "Your size: L" on every product without clicking.
   - If the Try On block is on the same page, the card offers the avatar try-on as a next step.
+  - Optional (off by default): a quick estimate for shoppers without an account.
 
   All Liquid values reach the script through the JSON config below; the script itself has no
   Liquid in it, so it can be read (and tested) as plain JavaScript.
@@ -72,6 +74,9 @@
       "productId": {{ product.handle | json }},
       "productName": {{ product.title | json }},
       "productType": {{ product.type | json }},
+      "brandName": {{ shop.name | json }},
+      "returnUrl": {{ shop.url | append: product.url | json }},
+      "guest": {{ block.settings.allow_guest | json }},
       "variantId": {{ variant.id | json }},
       "country": {{ country_code | json }},
       "sizePos": {{ size_pos }},
@@ -173,8 +178,9 @@
         var p = new URLSearchParams({
           shop: cfg.shop, product_id: cfg.productId, product_name: cfg.productName || '',
           product_type: cfg.productType || '', variant_id: String(selectedVariantId() || ''),
-          country: cfg.country || '', v: VERSION
+          country: cfg.country || '', brand_name: cfg.brandName || '', return_url: cfg.returnUrl || '', v: VERSION
         });
+        if (cfg.guest) p.set('guest', '1');
         var look = storeLook();
         Object.keys(look).forEach(function (k) { if (look[k] !== undefined && look[k] !== '') p.set(k, String(look[k])); });
         if (silent) p.set('silent', '1');
@@ -296,7 +302,8 @@
           clearTimeout(fallbackTimer);
           if (closeBtn) closeBtn.style.display = 'none';
           sendProduct();
-          if (wantOpen) { wantOpen = false; show(); }
+          // isOpen: the card reloaded itself while showing (sign-in fallback); open it again.
+          if (wantOpen || isOpen) { wantOpen = false; show(); }
         }
         if (d.type === 'TRYON_SIZE_RESULT' && d.payload) setResult(d.payload.size);
         if (d.type === 'TRYON_SIZE_CLOSE') close(true);
@@ -340,13 +347,20 @@
   "settings": [
     {
       "type": "paragraph",
-      "content": "A size from height, weight and build. No photo or account needed, and it works on every product with sizes. Place it next to the size picker."
+      "content": "Shoppers sign in to their Tryon account and get their size from their measurements, on every product with sizes. No 3D garment needed. Place it next to the size picker."
     },
     {
       "type": "text",
       "id": "button_label",
       "label": "Label",
-      "default": "Find my size in 30 seconds"
+      "default": "Find my size"
+    },
+    {
+      "type": "checkbox",
+      "id": "allow_guest",
+      "label": "Offer a quick estimate without an account",
+      "info": "From height, weight and build. Less accurate than measured sizes; shown as an estimate.",
+      "default": false
     },
     {
       "type": "text",

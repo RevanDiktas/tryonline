@@ -23,12 +23,17 @@ class EventType(str, Enum):
     tryon_ended = "tryon_ended"
     tryon_size_changed = "tryon_size_changed"
 
-    # Size finder (size without an avatar): opened, and the shopper got a size.
+    # Size finder (size from the account's measurements, no avatar try-on): opened, the
+    # sign-in / sign-up / photo steps, and the shopper got a size.
     # Its recommendation, size picks and add-to-cart reuse the events below with
     # metadata.source = "size_finder". It never sends tryon_started, so its sessions
     # stay out of the try-on cohort.
     size_finder_opened = "size_finder_opened"
     size_finder_completed = "size_finder_completed"
+    size_finder_signin_clicked = "size_finder_signin_clicked"
+    size_finder_signup_clicked = "size_finder_signup_clicked"
+    size_finder_measure_clicked = "size_finder_measure_clicked"
+    size_finder_signed_in = "size_finder_signed_in"
 
     # Size events (Category B)
     size_recommended = "size_recommended"

@@ -6,17 +6,27 @@
 <meta name="robots" content="noindex">
 <title>Find your size</title>
 <!--
-  Size finder: a size without an avatar. Opened in an iframe by the "Find my size" theme
-  block (shopify_app/extensions/tryon-widget/blocks/find-my-size.liquid).
+  Size finder: your size without the avatar try-on. Opened in an iframe by the "Find my size"
+  theme block (shopify_app/extensions/tryon-widget/blocks/find-my-size.liquid).
 
-  The shopper answers six quick things; size-estimator.js turns them into a size for THIS
-  product, with a likelihood per size. No account, no photo, no 3D garment needed.
+  The shopper signs in to their Tryon account once. Their measurements (taken from their
+  photo when they made the account) go through sizing-engine.js against THIS product's
+  sizes. No 3D garment is needed, so it answers on every product with sizes, in every store
+  that has the block: one account, every store.
+
+    not signed in        -> sign in (popup) or create an account (new tab on tryon.global)
+    signed in, no body   -> finish the photo step on tryon.global, then come back
+    signed in, measured  -> the size, straight away, on every later product too
+
+  The account is the same one the Try On widget uses, and so is the stored sign-in
+  (tryon_user_id in this origin's storage), so signing in to either signs in both.
+
+  Optional, off by default (block setting, ?guest=1): a quick estimate from height, weight
+  and build for shoppers without an account (size-estimator.js). It is an estimate, shown
+  with its likelihood, and its answers never leave the browser.
 
   The card is a guest in someone else's store, so it wears the store's colours, corner radius
   and font (passed by the block) instead of bringing its own brand.
-
-  Privacy: the answers stay in this browser (localStorage). Height, weight and age are never
-  sent to the API; only the outcome is (size, likelihood, what the shopper did with it).
 
   Host <-> card messages (all prefixed TRYON_SIZE_ so the try-on block ignores them):
     card -> host  TRYON_SIZE_READY, TRYON_SIZE_CLOSE, TRYON_SIZE_RESULT {size, alternative},
@@ -101,6 +111,24 @@
   .actions { display: grid; gap: 10px; }
   .secondary { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
   [hidden] { display: none !important; }
+
+  /* Account steps */
+  .lede { margin: 0 0 18px; font-size: 15px; max-width: 36ch; }
+  .steps { margin: 0 0 18px; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+  .steps li { padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14px; display: flex; justify-content: space-between; gap: 12px; }
+  .steps li span:last-child { color: var(--mute); white-space: nowrap; }
+  a.primary { text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; }
+  .ghost { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 50px; padding: 12px 16px; border: 1px solid var(--ink); border-radius: var(--btn-radius);
+           background: none; color: inherit; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none; }
+  .ghost:focus-visible, a.primary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .stack { display: grid; gap: 10px; }
+  .wait { margin: 14px 0 0; font-size: 13px; color: var(--mute); }
+  .measured { margin: 0 0 16px; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: var(--radius); }
+  .measured li { padding: 10px 12px; border-left: 1px solid var(--line); font-size: 12px; color: var(--mute); }
+  .measured li:first-child { border-left: 0; }
+  .measured b { display: block; font-size: 17px; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .chip small { display: block; font-size: 10px; font-weight: 400; color: var(--mute); line-height: 1; margin-top: 2px; }
+  .chips.rel .chip { height: 50px; }
 </style>
 </head>
 <body class="closed">
@@ -108,9 +136,38 @@
   <div class="card" role="dialog" aria-modal="true" aria-labelledby="title" id="card" tabindex="-1">
     <button class="close" id="close" type="button" aria-label="Close">&#x2715;</button>
 
-    <form id="form" novalidate>
+    <section id="gate" hidden>
       <h1 id="title">Find your size</h1>
-      <p class="product" id="product-line"></p>
+      <p class="product" data-product></p>
+      <p class="lede">Your Tryon account knows your measurements. Sign in once and get your size here and in every other store that uses Tryon.</p>
+      <div class="stack">
+        <button class="primary" type="button" id="signin">Sign in</button>
+        <a class="ghost" id="signup" target="_blank" rel="noopener">Create my account</a>
+      </div>
+      <p class="wait" id="gate-wait" hidden>Finish in the other window. This card updates by itself.</p>
+      <p class="foot" id="guest-line" hidden><button class="link" type="button" id="guest">Get a quick estimate without an account</button></p>
+    </section>
+
+    <section id="nomeas" hidden>
+      <h1>One photo to go</h1>
+      <p class="product" data-product></p>
+      <p class="lede">You are signed in<span id="nomeas-name"></span>, but we have not measured you yet. It takes one full-body photo.</p>
+      <ul class="steps">
+        <li><span>Take or upload a photo</span><span>1 minute</span></li>
+        <li><span>We measure you from it</span><span>up to 10 minutes</span></li>
+        <li><span>Your size appears here</span><span>every store</span></li>
+      </ul>
+      <div class="stack">
+        <a class="primary" id="onboard" target="_blank" rel="noopener">Measure me</a>
+        <button class="ghost" type="button" id="recheck">I have done this</button>
+      </div>
+      <p class="wait" id="nomeas-note" hidden></p>
+      <p class="foot"><button class="link" type="button" data-signout>Use another account</button></p>
+    </section>
+
+    <form id="form" novalidate hidden>
+      <h1>A quick estimate</h1>
+      <p class="product" data-product></p>
 
       <fieldset>
         <legend>I shop for</legend>
@@ -136,32 +193,32 @@
 
       <div id="shape"></div>
 
-      <fieldset>
-        <legend>How I like it to fit</legend>
-        <div class="seg">
-          <label><input type="radio" name="fit" value="slim">Closer</label>
-          <label><input type="radio" name="fit" value="regular" checked>Regular</label>
-          <label><input type="radio" name="fit" value="loose">Looser</label>
-        </div>
-      </fieldset>
-
       <p class="error" id="error" role="alert"></p>
-      <button class="primary" type="submit">Show my size</button>
-      <p class="foot">Your answers stay on this device. No account, no photo.</p>
+      <button class="primary" type="submit">Show my estimate</button>
+      <p class="foot">These answers stay on this device. <button class="link" type="button" id="back-to-gate">Use my account instead</button></p>
     </form>
 
     <section id="result" hidden>
       <p class="lead" id="result-lead">Your size</p>
       <p class="size" id="result-size"></p>
       <p class="why" id="result-why"></p>
-      <div class="tape" id="tape" aria-hidden="true"></div>
+      <ul class="measured" id="measured" hidden></ul>
+      <div class="tape" id="tape" aria-hidden="true" hidden></div>
       <div class="chips" id="chips" role="group" aria-label="Sizes"></div>
+      <fieldset>
+        <legend>How I like it to fit</legend>
+        <div class="seg" id="fit">
+          <label><input type="radio" name="fit" value="slim">Closer</label>
+          <label><input type="radio" name="fit" value="regular" checked>Regular</label>
+          <label><input type="radio" name="fit" value="loose">Looser</label>
+        </div>
+      </fieldset>
       <p class="note" id="result-note" hidden></p>
       <div class="actions">
         <button class="primary" type="button" id="add"></button>
         <div class="secondary">
-          <button class="link" type="button" id="edit">Change my details</button>
           <button class="link" type="button" id="tryon" hidden>See it on your own body</button>
+          <button class="link" type="button" id="edit" hidden>Change my answers</button>
         </div>
       </div>
       <p class="foot" id="result-foot"></p>
@@ -170,12 +227,18 @@
 </div>
 
 <script type="module">
+import { recommendSize } from './sizing-engine.js';
 import { quickSize, validateInput, inferCategory, toMetric, SHAPE_QUESTIONS, ACCURACY, normalizeGender } from './size-estimator.js';
 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const inFrame = window.self !== window.top;
-const STORE_KEY = 'tryon_size_profile_v1';
+const GUEST_KEY = 'tryon_size_profile_v1';
+const FIT_KEY = 'tryon_size_fit';
+const TOKEN_KEY = 'tryon_widget_token';
+const LINK_TOKEN_KEY = 'tryon_link_token';        // shared with the Try On widget
+const LINK_TOKEN_TTL_MS = 60 * 60 * 1000;
+const VIEWS = ['gate', 'nomeas', 'form', 'result'];
 
 // ---- look: wear the store's colours, radius and font, never arbitrary CSS ----
 const COLOR = /^(#[0-9a-f]{3,8}|rgba?\(\s*[\d.\s,%/]+\))$/i;
@@ -192,6 +255,12 @@ if (radius >= 0) {
 const font = (q.get('font') || '').replace(/[^\w\s,'"-]/g, '').slice(0, 200);
 if (font) document.documentElement.style.setProperty('--font', font + ', system-ui, sans-serif');
 
+// ---- storage (this origin, partitioned per store when framed) ----
+const read = (k) => { try { return localStorage.getItem(k) || sessionStorage.getItem(k); } catch { return null; } };
+const write = (k, v) => { try { localStorage.setItem(k, v); } catch { /* blocked */ } try { sessionStorage.setItem(k, v); } catch { /* blocked */ } };
+const drop = (k) => { try { localStorage.removeItem(k); } catch { /* blocked */ } try { sessionStorage.removeItem(k); } catch { /* blocked */ } };
+const httpsUrl = (v) => { try { const u = new URL(v); return u.protocol === 'https:' ? u.toString() : null; } catch { return null; } };
+
 // ---- config ----
 const cfg = {
   api: q.get('api_url') ?? (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? 'http://localhost:8000' : ''),
@@ -200,25 +269,34 @@ const cfg = {
   productName: q.get('product_name') || '',
   productType: q.get('product_type') || '',
   variantId: q.get('variant_id') || '',
+  brandName: q.get('brand_name') || '',
+  returnUrl: httpsUrl(q.get('return_url')) || httpsUrl(document.referrer),
   country: (q.get('country') || '').toUpperCase() || null,
+  guestAllowed: q.get('guest') === '1',
 };
+// Signed-in shopper: from the sign-in redirect (?user_id=), else remembered from last time.
+let userId = q.get('user_id') || read('tryon_user_id');
+let displayName = q.get('display_name') || read('tryon_user_name') || '';
+if (q.get('user_id')) { write('tryon_user_id', userId); if (displayName) write('tryon_user_name', displayName); }
+let widgetToken = read(TOKEN_KEY);
+
 let product = { sizes: [], hasTryon: false };   // from the host
-let garment = null;                              // { category, fitType } once known
+let garment = null;                              // { category, fitType, has3d, chart }
+let body = null;                                 // { measurements, gender } from the account
+let bodyState = 'unknown';                       // unknown | ready | none | signedout | error
+let guest = null;                                // guest answers, when used
+let mode = 'account';                            // account | guest
 let silent = q.get('silent') === '1';
 let sessionId = null;
 let sessionPromise = null;
-let last = null;                                 // last quickSize result
-let picked = null;                               // size the shopper has selected
+let last = null;                                 // { recommendedSize, alternative, ... }
+let picked = null;
+let fit = read(FIT_KEY) || 'regular';
 let units = ['US', 'LR', 'MM'].includes(cfg.country) ? 'imperial' : 'metric';
 
-$('product-line').textContent = cfg.productName;
+document.querySelectorAll('[data-product]').forEach((el) => { el.textContent = cfg.productName; });
 if (silent) document.body.classList.add('silent');
-
-// ---- saved answers (this browser only) ----
-function loadProfile() { try { return JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch { return null; } }
-function saveProfile(p) { try { localStorage.setItem(STORE_KEY, JSON.stringify(p)); } catch { /* storage blocked: works for this visit */ } }
-let profile = loadProfile();
-if (profile && profile.units) units = profile.units;
+$('guest-line').hidden = !cfg.guestAllowed;
 
 // ---- host messaging ----
 const post = (type, payload) => { if (inFrame) window.parent.postMessage(payload ? { type, payload } : { type }, '*'); };
@@ -229,7 +307,6 @@ window.addEventListener('message', (e) => {
   if (d.type === 'TRYON_SIZE_OPEN') open();
   if (d.type === 'TRYON_SIZE_HIDE') hide(false);
 });
-
 function normalizeProduct(p) {
   const seen = new Set();
   const sizes = (p.sizes || []).map((s) => ({ label: String(s.label || '').trim(), available: s.available !== false }))
@@ -237,26 +314,140 @@ function normalizeProduct(p) {
   return { sizes, hasTryon: !!p.hasTryon };
 }
 
-// ---- what kind of garment is this? the store's 3D garment if it has one, else the product's own words ----
+// ---- the product: the store's 3D garment when it has one (category, cut, chart), else the product's own words ----
 const garmentReady = (async () => {
   let category = inferCategory(cfg.productType, cfg.productName);
   let fitType = 'regular';
   let has3d = false;
+  let chart = {};
   if (cfg.productId && cfg.shop) {
     try {
       const r = await fetch(`${cfg.api}/api/products/${encodeURIComponent(cfg.productId)}/tryon-config?shop=${encodeURIComponent(cfg.shop)}`);
-      if (r.ok) { const d = await r.json(); category = d.category || category; fitType = d.fit_type || fitType; has3d = true; }
+      if (r.ok) { const d = await r.json(); category = d.category || category; fitType = d.fit_type || fitType; chart = d.size_chart || {}; has3d = true; }
     } catch { /* offline or no garment: the product's own words are enough */ }
   }
-  garment = { category, fitType, has3d };
+  garment = { category, fitType, has3d, chart };
 })();
 
-// ---- analytics: outcome only, never height / weight / age ----
+// ---- the shopper's measurements, from their account ----
+const MEASURE_KEYS = ['height', 'chest', 'waist', 'hips', 'inseam', 'shoulder_width', 'arm_length', 'neck', 'thigh', 'torso_length'];
+async function loadBody() {
+  if (!userId) { bodyState = 'signedout'; body = null; return; }
+  try {
+    const headers = widgetToken ? { 'X-Widget-Token': widgetToken } : {};
+    const r = await fetch(`${cfg.api}/api/avatar/${encodeURIComponent(userId)}`, { headers });
+    if (r.status === 401 || r.status === 403) { forgetUser(); bodyState = 'signedout'; body = null; return; }
+    if (r.status === 404) { bodyState = 'none'; body = null; return; }
+    if (!r.ok) { bodyState = 'error'; return; }
+    const d = await r.json();
+    const m = d.measurements || {};
+    const measurements = {};
+    for (const k of MEASURE_KEYS) if (typeof m[k] === 'number' && m[k] > 0) measurements[k] = m[k];
+    // Only a finished measurement counts. A passport that is still pending has a height the
+    // shopper typed and nothing measured; sizing from that would be a guess dressed as a fact.
+    const measured = d.status === 'completed' && (measurements.chest || measurements.waist || measurements.hips);
+    if (!measured) { bodyState = 'none'; body = null; return; }
+    body = { measurements, gender: normalizeGender(d.gender) };
+    bodyState = 'ready';
+  } catch { bodyState = 'error'; }
+}
+function forgetUser() {
+  userId = null; displayName = ''; widgetToken = null;
+  ['tryon_user_id', 'tryon_user_name', TOKEN_KEY].forEach(drop);
+}
+function signedIn(uid, name, token) {
+  userId = uid; displayName = name || '';
+  write('tryon_user_id', uid);
+  if (name) write('tryon_user_name', name);
+  if (token) { widgetToken = token; write(TOKEN_KEY, token); }
+  sessionPromise = null; sessionId = null;   // later events belong to this shopper
+}
+
+// ---- sign-in: tryon.global does it in a popup / new tab; this card polls for the hand-off ----
+function newToken() { return (crypto.randomUUID && crypto.randomUUID()) || 'ws-' + Math.random().toString(36).slice(2) + Date.now().toString(36); }
+function linkToken() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LINK_TOKEN_KEY) || 'null');
+    if (v && v.t && Date.now() - v.ts < LINK_TOKEN_TTL_MS) return v.t;
+  } catch { /* fall through */ }
+  const t = newToken();
+  try { localStorage.setItem(LINK_TOKEN_KEY, JSON.stringify({ t, ts: Date.now() })); } catch { /* blocked */ }
+  return t;
+}
+const polls = {};
+function stopPolls() { Object.keys(polls).forEach((t) => { clearInterval(polls[t].i); clearTimeout(polls[t].stop); delete polls[t]; }); }
+function poll(token, maxMs) {
+  if (polls[token]) return;
+  const check = () => fetch(`${cfg.api}/api/auth/widget-state/${encodeURIComponent(token)}`).then((r) => r.json()).then(async (d) => {
+    if (!d || !d.user_id || !polls[token]) return;
+    stopPolls();
+    drop(LINK_TOKEN_KEY);
+    signedIn(d.user_id, d.display_name, d.widget_token);
+    track('size_finder_signed_in');
+    await route(true);
+  }).catch(() => {});
+  polls[token] = { i: setInterval(check, 2000), stop: setTimeout(() => { clearInterval(polls[token] && polls[token].i); delete polls[token]; }, maxMs || 5 * 60 * 1000) };
+  check();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (!$('nomeas').hidden) recheck(false);
+});
+function siteUrl(path, extra) {
+  const u = new URL(path, location.origin);
+  u.searchParams.set('from', 'widget');
+  if (cfg.returnUrl) u.searchParams.set('return', cfg.returnUrl);
+  if (cfg.brandName) u.searchParams.set('brand', cfg.brandName);
+  Object.keys(extra || {}).forEach((k) => { if (extra[k]) u.searchParams.set(k, extra[k]); });
+  return u.toString();
+}
+$('signin').addEventListener('click', () => {
+  const token = newToken();
+  // No show_form: a shopper already signed in on tryon.global is handed over at once, which
+  // is what makes one account work in every store. Otherwise the page shows its sign-in form.
+  const here = new URL(location.href); here.searchParams.delete('silent');
+  const url = `${location.origin}/widget-signin?return=${encodeURIComponent(here.toString())}&widget_state=${encodeURIComponent(token)}`
+    + (cfg.returnUrl ? `&store_return=${encodeURIComponent(cfg.returnUrl)}` : '');
+  const w = 500, h = 650;
+  const popup = window.open(url, 'tryon-signin', `width=${w},height=${h},left=${(screen.width - w) / 2},top=${(screen.height - h) / 2},scrollbars=yes`);
+  if (!popup || popup.closed) {
+    // Popup blocked: sign in inside this frame; tryon.global sends it back here with ?user_id=.
+    const f = new URL(url); f.searchParams.delete('widget_state');
+    location.href = f.toString();
+    return;
+  }
+  poll(token);
+  $('gate-wait').hidden = false;
+  track('size_finder_signin_clicked');
+});
+function armSignup() {
+  const t = linkToken();
+  $('signup').href = siteUrl('/signup', { link_state: t });
+  $('onboard').href = siteUrl('/onboarding', { link_state: t });
+  return t;
+}
+$('signup').addEventListener('click', () => { poll(armSignup(), LINK_TOKEN_TTL_MS); $('gate-wait').hidden = false; track('size_finder_signup_clicked'); });
+$('onboard').addEventListener('click', () => { armSignup(); track('size_finder_measure_clicked'); });
+$('recheck').addEventListener('click', () => recheck(true));
+let rechecking = false;
+async function recheck(fromButton) {
+  if (rechecking) return;
+  rechecking = true;
+  try {
+    await loadBody();
+    if (bodyState === 'ready') { await route(true); return; }
+    if (bodyState === 'signedout') { show('gate'); return; }
+    if (fromButton) { $('nomeas-note').textContent = 'Not ready yet. Measuring can take up to 10 minutes after you send your photo.'; $('nomeas-note').hidden = false; }
+  } finally { rechecking = false; }
+}
+document.querySelectorAll('[data-signout]').forEach((b) => b.addEventListener('click', () => { forgetUser(); body = null; bodyState = 'signedout'; show('gate'); }));
+
+// ---- analytics. Account mode carries the shopper's id; nothing typed into the estimate form is ever sent. ----
 function ensureSession() {
   if (!sessionPromise) {
     sessionPromise = fetch(cfg.api + '/api/events/tryon-session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shop_domain: cfg.shop, product_id: cfg.productId, product_name: cfg.productName || undefined, variant_id: cfg.variantId || undefined }),
+      body: JSON.stringify({ user_id: userId || undefined, shop_domain: cfg.shop, product_id: cfg.productId, product_name: cfg.productName || undefined, variant_id: cfg.variantId || undefined }),
     }).then((r) => r.json()).then((d) => { sessionId = d.session_id || null; }).catch(() => {});
   }
   return sessionPromise;
@@ -266,15 +457,140 @@ async function track(eventType, metadata) {
   await ensureSession();
   fetch(cfg.api + '/api/events/track', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-    body: JSON.stringify({ event_type: eventType, session_id: sessionId || undefined, shop_domain: cfg.shop, product_id: cfg.productId,
-      variant_id: cfg.variantId || undefined, country: undefined, preferred_fit: (profile && profile.fit) || undefined,
-      metadata: { source: 'size_finder', ...(metadata || {}) } }),
+    body: JSON.stringify({ event_type: eventType, session_id: sessionId || undefined, user_id: userId || undefined, shop_domain: cfg.shop,
+      product_id: cfg.productId, variant_id: cfg.variantId || undefined, preferred_fit: fit,
+      metadata: { source: 'size_finder', basis: mode === 'guest' ? 'estimate' : 'measured', ...(metadata || {}) } }),
   }).catch(() => {});
 }
 
-// ---- form ----
+// ---- views ----
+function show(view) {
+  VIEWS.forEach((v) => { $(v).hidden = v !== view; });
+  if (view === 'gate') { armSignup(); $('gate-wait').hidden = !Object.keys(polls).length; }
+  if (view === 'nomeas') { armSignup(); $('nomeas-name').textContent = displayName ? ' as ' + displayName : ''; $('nomeas-note').hidden = true; }
+  if (view === 'form') fillForm();
+  $('card').scrollTop = 0;
+}
+
+// ---- sizing ----
+const up = (s) => String(s).toUpperCase();
+const isOut = (label) => { const s = product.sizes.find((x) => x.label === label); return !!s && !s.available; };
+function compute() {
+  if (!product.sizes.length || !garment) return null;
+  const sizes = product.sizes.map((s) => s.label);
+  if (mode === 'guest') {
+    if (!guest) return null;
+    const r = quickSize({ gender: guest.gender, height: guest.height, weight: guest.weight, age: guest.age, shape: guest.shape },
+      { sizes, category: garment.category, fitType: garment.fitType }, { preferredFit: fit, country: cfg.country });
+    return r && { ...r, basis: 'estimate' };
+  }
+  if (!body) return null;
+  const hasChart = Object.keys(garment.chart).length > 0;
+  // Same call the Try On widget makes: body-anchored, the store's own size labels as the
+  // candidates; a merchant chart (flat, pit-to-pit) only adds the "snug around..." detail.
+  const r = recommendSize(body.measurements, garment.chart, fit, garment.category, garment.fitType,
+    hasChart ? 'flat' : 'circumference', body.gender, sizes, cfg.country);
+  if (!r || !r.recommendedSize) return null;
+  return { recommendedSize: r.recommendedSize, reasoning: r.reasoning, alternative: null, basis: 'measured' };
+}
+
+function renderResult() {
+  last = compute();
+  if (!last) return false;
+  picked = last.recommendedSize;
+  let note = '';
+  if (isOut(picked)) {
+    if (last.alternative && !isOut(last.alternative)) { note = `${up(picked)} is sold out. ${up(last.alternative)} is your next most likely size.`; picked = last.alternative; }
+    else note = `${up(picked)} is sold out right now.`;
+  } else if (last.alternative && isOut(last.alternative)) {
+    note = `${up(last.alternative)} is sold out right now.`;
+  }
+  $('result-lead').textContent = last.basis === 'estimate' ? 'Your estimated size' : 'Your size';
+  $('result-size').textContent = up(last.recommendedSize);
+  $('result-why').textContent = last.reasoning;
+  $('result-note').textContent = note; $('result-note').hidden = !note;
+  document.querySelectorAll('#fit input').forEach((r) => { r.checked = r.value === fit; });
+
+  const measuredEl = $('measured');
+  const tape = $('tape');
+  if (last.basis === 'measured') {
+    const m = body.measurements;
+    const cells = [['Chest', m.chest], ['Waist', m.waist], ['Hips', m.hips]].filter((c) => c[1]);
+    measuredEl.innerHTML = cells.map((c) => `<li><b>${Math.round(c[1])} cm</b>${c[0]}</li>`).join('');
+    measuredEl.hidden = cells.length === 0; tape.hidden = true;
+    $('result-foot').innerHTML = `Measured from your photo${displayName ? ', signed in as ' + escapeHtml(displayName) : ''}. <button class="link" type="button" id="signout-result">Use another account</button>`;
+    $('signout-result').addEventListener('click', () => { forgetUser(); body = null; bodyState = 'signedout'; show('gate'); });
+  } else {
+    const byLabel = Object.fromEntries(last.probabilities.map((x) => [x.size, x.p]));
+    const top = Math.max(...last.probabilities.map((x) => x.p));
+    tape.innerHTML = product.sizes.map((s) => {
+      const p = byLabel[s.label] || 0;
+      return `<div class="${s.label === last.recommendedSize ? 'pick' : ''}">${p >= 0.05 ? `<span>${Math.round(p * 100)}%</span>` : ''}<i style="height:${p ? Math.max(6, Math.round((p / top) * 70)) : 0}%"></i></div>`;
+    }).join('');
+    tape.hidden = false; measuredEl.hidden = true;
+    const acc = ACCURACY[normalizeGender(guest.gender)] || ACCURACY.female;
+    const a = acc[last.anchor] || acc.chest;
+    $('result-foot').textContent = `An estimate from height, weight and build, not a measurement. Estimates like this match a tape measure about ${Math.round(a[0] * 10)} times in 10. Sign in for your measured size.`;
+  }
+  $('edit').hidden = last.basis !== 'estimate';
+  $('tryon').hidden = !(product.hasTryon && garment.has3d && last.basis === 'measured');
+  renderChips();
+  return true;
+}
+function escapeHtml(v) { return String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function renderChips() {
+  const recIdx = product.sizes.findIndex((s) => s.label === last.recommendedSize);
+  const relative = last.basis === 'measured';
+  $('chips').classList.toggle('rel', relative);
+  $('chips').innerHTML = product.sizes.map((s, i) => {
+    const rel = !relative ? '' : `<small>${i < recIdx ? 'tighter' : i > recIdx ? 'looser' : 'your size'}</small>`;
+    return `<button type="button" class="chip${s.available ? '' : ' out'}" data-size="${encodeURIComponent(s.label)}" aria-pressed="${s.label === picked}"${s.available ? '' : ' aria-label="' + up(s.label) + ', sold out"'}>${up(s.label)}${rel}</button>`;
+  }).join('');
+  const out = isOut(picked);
+  $('add').textContent = out ? `${up(picked)} is sold out` : `Add ${up(picked)} to cart`;
+  $('add').disabled = out;
+}
+$('chips').addEventListener('click', (e) => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  picked = decodeURIComponent(b.dataset.size); renderChips();
+  track('size_selected', { size: picked.toLowerCase() });
+});
+$('fit').addEventListener('change', (e) => {
+  fit = e.target.value; write(FIT_KEY, fit);
+  if (renderResult()) post('TRYON_SIZE_RESULT', { size: last.recommendedSize });
+});
+$('add').addEventListener('click', () => {
+  if (!picked || isOut(picked)) return;
+  track('add_to_cart', { size: picked.toLowerCase(), recommended: String(last.recommendedSize).toLowerCase() });
+  post('TRYON_SIZE_ADD_TO_CART', { size: picked, session_id: sessionId });
+  hide(true);
+});
+$('tryon').addEventListener('click', () => { post('TRYON_SIZE_OPEN_TRYON'); hide(true); });
+$('edit').addEventListener('click', () => show('form'));
+
+// Decide what the shopper sees. `fresh` = a visible open or a new answer (tracked once).
+async function route(fresh) {
+  await garmentReady;
+  if (mode === 'account') {
+    if (bodyState === 'unknown' || fresh) await loadBody();
+    if (bodyState === 'signedout') { if (!silent) show('gate'); return; }
+    if (bodyState === 'none') { if (!silent) show('nomeas'); return; }
+    if (bodyState === 'error') { if (!silent) { show('gate'); $('gate-wait').textContent = 'We could not load your measurements. Check your connection and try again.'; $('gate-wait').hidden = false; } return; }
+  }
+  if (!renderResult()) { if (!silent) show(mode === 'guest' ? 'form' : 'gate'); return; }
+  post('TRYON_SIZE_RESULT', { size: last.recommendedSize, alternative: last.alternative });
+  if (silent) return;
+  show('result');
+  if (fresh) {
+    track('size_finder_completed', { size: String(last.recommendedSize).toLowerCase(), alternative: last.alternative || undefined, confidence: last.confidence });
+    track('size_recommended', { size: String(last.recommendedSize).toLowerCase() });
+  }
+}
+
+// ---- optional estimate without an account ----
+function loadGuest() { try { return JSON.parse(localStorage.getItem(GUEST_KEY) || 'null'); } catch { return null; } }
 function renderShape(gender) {
-  const saved = (profile && profile.gender === gender && profile.shape) || {};
+  const saved = (guest && guest.gender === gender && guest.shape) || {};
   $('shape').innerHTML = SHAPE_QUESTIONS[gender].map((sq) => `
     <fieldset>
       <legend>${sq.label} <span class="opt">for my height and weight</span></legend>
@@ -288,122 +604,46 @@ function setUnits(u) {
   $('units-toggle').textContent = u === 'metric' ? 'Use feet and pounds' : 'Use centimetres and kilograms';
 }
 function fillForm() {
-  const g = (profile && profile.gender) || null;
+  guest = guest || loadGuest();
+  if (guest && guest.units) units = guest.units;
+  const g = (guest && guest.gender) || null;
   document.querySelectorAll('input[name=gender]').forEach((r) => { r.checked = r.value === g; });
   renderShape(g || 'female');
   $('shape').hidden = !g;
-  if (profile) {
-    if (profile.height) { $('h-cm').value = profile.height; const totalIn = profile.height / 2.54; $('h-ft').value = Math.floor(totalIn / 12); $('h-in').value = Math.round(totalIn % 12); }
-    if (profile.weight) { $('w-kg').value = profile.weight; $('w-lb').value = Math.round(profile.weight / 0.45359237); }
-    if (profile.age) { $('age').value = profile.age; $('age-i').value = profile.age; }
-    document.querySelectorAll('input[name=fit]').forEach((r) => { r.checked = r.value === (profile.fit || 'regular'); });
+  if (guest) {
+    if (guest.height) { $('h-cm').value = guest.height; const totalIn = guest.height / 2.54; $('h-ft').value = Math.floor(totalIn / 12); $('h-in').value = Math.round(totalIn % 12); }
+    if (guest.weight) { $('w-kg').value = guest.weight; $('w-lb').value = Math.round(guest.weight / 0.45359237); }
+    if (guest.age) { $('age').value = guest.age; $('age-i').value = guest.age; }
   }
   setUnits(units);
 }
 $('gender').addEventListener('change', (e) => { renderShape(e.target.value); $('shape').hidden = false; });
 $('units-toggle').addEventListener('click', () => setUnits(units === 'metric' ? 'imperial' : 'metric'));
 $('form').addEventListener('input', () => { $('error').textContent = ''; });
-
-function readForm() {
+$('guest').addEventListener('click', () => { mode = 'guest'; show('form'); });
+$('back-to-gate').addEventListener('click', () => { mode = 'account'; route(false); });
+$('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
   const gender = (document.querySelector('input[name=gender]:checked') || {}).value;
   const m = units === 'imperial' ? toMetric('imperial', $('h-ft').value, $('h-in').value, $('w-lb').value) : toMetric('metric', $('h-cm').value, null, $('w-kg').value);
   const age = (units === 'imperial' ? $('age-i').value : $('age').value).trim();
   const shape = {};
   if (gender) for (const sq of SHAPE_QUESTIONS[gender]) { const c = document.querySelector(`input[name="shape-${sq.id}"]:checked`); shape[sq.id] = c ? Number(c.value) : 0; }
-  return { gender, height: m.height, weight: m.weight, age: age === '' ? null : Number(age), shape,
-           fit: (document.querySelector('input[name=fit]:checked') || {}).value || 'regular', units };
-}
-
-$('form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const p = readForm();
-  const err = !p.gender ? 'Choose Women or Men.' : validateInput(p);
+  const p = { gender, height: m.height, weight: m.weight, age: age === '' ? null : Number(age), shape, units };
+  const err = !gender ? 'Choose Women or Men.' : validateInput(p);
   if (err) { $('error').textContent = err; return; }
-  profile = p; saveProfile(p);
-  await showResult(true);
+  guest = p;
+  try { localStorage.setItem(GUEST_KEY, JSON.stringify(p)); } catch { /* blocked: works for this visit */ }
+  mode = 'guest';
+  await route(true);
 });
-
-// ---- result ----
-function compute() {
-  if (!profile || !product.sizes.length || !garment) return null;
-  return quickSize(
-    { gender: profile.gender, height: profile.height, weight: profile.weight, age: profile.age, shape: profile.shape },
-    { sizes: product.sizes.map((s) => s.label), category: garment.category, fitType: garment.fitType },
-    { preferredFit: profile.fit, country: cfg.country },
-  );
-}
-const up = (s) => String(s).toUpperCase();
-const isOut = (label) => { const s = product.sizes.find((x) => x.label === label); return !!s && !s.available; };
-
-async function showResult(fresh) {
-  await garmentReady;
-  last = compute();
-  if (!last) { showForm(); if (profile && !product.sizes.length) $('error').textContent = 'This product has no sizes to choose from.'; return; }
-  post('TRYON_SIZE_RESULT', { size: last.recommendedSize, alternative: last.alternative });
-  if (silent) return;
-
-  // If the recommended size is sold out, start on the other likely size when that one is in stock.
-  picked = last.recommendedSize;
-  let note = '';
-  if (isOut(picked)) {
-    if (last.alternative && !isOut(last.alternative)) { note = `${up(picked)} is sold out. ${up(last.alternative)} is your next most likely size.`; picked = last.alternative; }
-    else note = `${up(picked)} is sold out right now.`;
-  } else if (last.alternative && isOut(last.alternative)) {
-    note = `${up(last.alternative)} is sold out right now.`;
-  }
-  if (garment.fitType === 'oversized') note = (note ? note + ' ' : '') + 'This piece is cut oversized on purpose, so your usual size already fits loose.';
-  if (garment.fitType === 'slim') note = (note ? note + ' ' : '') + 'This piece is cut slim.';
-
-  $('result-size').textContent = up(last.recommendedSize);
-  $('result-why').textContent = last.reasoning;
-  $('result-note').textContent = note; $('result-note').hidden = !note;
-  const byLabel = Object.fromEntries(last.probabilities.map((x) => [x.size, x.p]));
-  const top = Math.max(...last.probabilities.map((x) => x.p));
-  $('tape').innerHTML = product.sizes.map((s) => {
-    const p = byLabel[s.label] || 0;
-    return `<div class="${s.label === last.recommendedSize ? 'pick' : ''}">${p >= 0.05 ? `<span>${Math.round(p * 100)}%</span>` : ''}<i style="height:${p ? Math.max(6, Math.round((p / top) * 70)) : 0}%"></i></div>`;
-  }).join('');
-  renderChips();
-  const acc = ACCURACY[normalizeGender(profile.gender)] || ACCURACY.female;
-  const a = acc[last.anchor] || acc.chest;
-  $('result-foot').textContent = `Estimated from your height, weight and build, not measured. Estimates like this match a tape measure about ${Math.round(a[0] * 10)} times in 10 and are within one size nearly every time.`;
-  $('tryon').hidden = !(product.hasTryon && garment.has3d);
-  $('form').hidden = true; $('result').hidden = false;
-  $('card').scrollTop = 0;
-  if (fresh) {
-    track('size_finder_completed', { size: last.recommendedSize, confidence: last.confidence, alternative: last.alternative, extrapolated: last.extrapolated, used_age: profile.age != null });
-    track('size_recommended', { size: String(last.recommendedSize).toLowerCase(), confidence: last.confidence });
-  }
-}
-function renderChips() {
-  $('chips').innerHTML = product.sizes.map((s) =>
-    `<button type="button" class="chip${s.available ? '' : ' out'}" data-size="${encodeURIComponent(s.label)}" aria-pressed="${s.label === picked}"${s.available ? '' : ' aria-label="' + up(s.label) + ', sold out"'}>${up(s.label)}</button>`).join('');
-  const out = isOut(picked);
-  $('add').textContent = out ? `${up(picked)} is sold out` : `Add ${up(picked)} to cart`;
-  $('add').disabled = out;
-}
-$('chips').addEventListener('click', (e) => {
-  const b = e.target.closest('.chip'); if (!b) return;
-  picked = decodeURIComponent(b.dataset.size); renderChips();
-  track('size_selected', { size: picked.toLowerCase() });
-});
-$('add').addEventListener('click', () => {
-  if (!picked || isOut(picked)) return;
-  track('add_to_cart', { size: picked.toLowerCase(), recommended: String(last.recommendedSize).toLowerCase() });
-  post('TRYON_SIZE_ADD_TO_CART', { size: picked, session_id: sessionId });
-  hide(true);
-});
-$('edit').addEventListener('click', showForm);
-$('tryon').addEventListener('click', () => { post('TRYON_SIZE_OPEN_TRYON'); hide(true); });
-
-function showForm() { fillForm(); $('result').hidden = true; $('form').hidden = false; $('card').scrollTop = 0; }
 
 // ---- open / close ----
 async function open() {
   silent = false;
   document.body.classList.remove('silent', 'closed');
   track('size_finder_opened');
-  if (profile && !validateInput(profile) && profile.gender) await showResult(true); else showForm();
+  await route(true);
   $('card').focus({ preventScroll: true });
 }
 function hide(tellHost) {
@@ -411,13 +651,14 @@ function hide(tellHost) {
   if (tellHost) post('TRYON_SIZE_CLOSE');
 }
 async function onProduct() {
-  // A returning shopper gets their size for this product without opening anything.
+  // Closed or hidden: a signed-in, measured shopper still gets their size for this product,
+  // which the store shows by the size picker without a click.
   if (document.body.classList.contains('closed') || silent) {
-    await garmentReady;
-    const r = profile && profile.gender && !validateInput(profile) ? compute() : null;
-    if (r) post('TRYON_SIZE_RESULT', { size: r.recommendedSize, alternative: r.alternative });
+    const wasSilent = silent; silent = true;
+    await route(false);
+    silent = wasSilent;
   } else if (!$('result').hidden) {
-    await showResult(false);
+    if (renderResult()) post('TRYON_SIZE_RESULT', { size: last.recommendedSize });
   }
 }
 $('close').addEventListener('click', () => hide(true));
@@ -425,8 +666,9 @@ $('scrim').addEventListener('click', (e) => { if (e.target === $('scrim')) hide(
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hide(true); });
 
 // ---- start ----
-fillForm();
 if (inFrame) {
+  // After the in-frame sign-in fallback this document reloads while the host still shows
+  // the frame; the host answers READY with the product and OPEN again.
   post('TRYON_SIZE_READY');
 } else {
   // Opened directly (local preview): stand in for the store.
