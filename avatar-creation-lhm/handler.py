@@ -2699,10 +2699,21 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
     weight_kg = _coerce_float(inp.get("weight", inp.get("weight_kg")))
     user_id = inp.get("user_id")
 
+    # Seconds per stage, returned as `timings` so the backend can record where a
+    # build's time goes. `*_load` stages are only non-trivial on a worker's first job.
+    timings: dict[str, float] = {}
+    _clock = [_now()]
+
+    def lap(name: str) -> None:
+        now = _now()
+        timings[name] = round(now - _clock[0], 2)
+        _clock[0] = now
+
     try:
         _ensure_lhm_data()
     except Exception as e:
         return {"error": f"LHM data bootstrap failed: {e}"}
+    lap("data_check")
 
     with tempfile.TemporaryDirectory(prefix="lhm_avatar_prod_") as tmp:
         tmp_path = Path(tmp)
@@ -2712,10 +2723,12 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
             image_rotated = _normalize_image_orientation(img_path)
         except Exception as e:
             return {"error": f"failed to download image: {e}"}
+        lap("photo_download")
 
         # 1) Pose estimation -> SMPL-X beta
         try:
             pose_estimator = _get_pose_estimator()
+            lap("pose_model_load")
         except Exception as e:
             return {
                 "error": f"failed to load pose estimator: {e}",
@@ -2734,6 +2747,7 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
                 "is_full_body": bool(shape_pose.is_full_body),
             }
         beta_np = shape_pose.beta
+        lap("pose_inference")
 
         # 2) SMPL-X mesh build (A-pose + T-pose)
         try:
@@ -2751,6 +2765,8 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
                 "traceback": traceback.format_exc()[-3000:],
             }
 
+        lap("body_mesh")
+
         # 3) Face crop + skin-median color
         face_crop_path = tmp_path / "face_crop.png"
         face_detector = None
@@ -2759,11 +2775,13 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
             face_detector = _get_face_detector()
         except Exception as e:
             face_detector_error = f"{type(e).__name__}: {e}"
+        lap("face_model_load")
         skin_debug_path = tmp_path / "skin_debug.png"
         skin_rgb_diag, skin_method, skin_info = _sample_skin_color(
             face_detector, str(img_path), out_crop_path=face_crop_path,
             out_debug_path=skin_debug_path,
         )
+        lap("skin_color")
         import numpy as np
         vertex_colors = np.tile(
             np.array(
@@ -2788,6 +2806,8 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
         _write_skin_texture_png(skin_rgb_diag, png_path)
         np.savez(npz_path, **{k: v for k, v in smplx_params.items() if k != "gender"})
 
+        lap("write_files")
+
         # 5) Measurements (SMPL-Anthropometry on T-pose)
         measurements_block = None
         measurements_error = None
@@ -2799,6 +2819,8 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
             )
         except Exception as e:
             measurements_error = f"{e.__class__.__name__}: {e}"
+
+        lap("measurements")
 
         # 6) Base64-encode for the response. Backend decodes + uploads.
         path_by_key = {
@@ -2818,6 +2840,8 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
         # Backend coerces measurements to int and fills `height` from request if
         # missing. We still pass a height fallback to keep DB updates resilient
         # when measurements_error is set.
+        lap("encode")
+        print(f"[LHM Handler] timings {timings} total={round(_now() - started, 2)}s")
         meas_standardized = (measurements_block or {}).get("standardized_cm") or {}
         if not meas_standardized and height_cm:
             meas_standardized = {"height": int(round(height_cm))}
@@ -2827,6 +2851,7 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
             "files_base64": files_base64,
             "file_sizes": file_sizes,
             "processing_time_seconds": round(_now() - started, 2),
+            "timings": timings,
             "skin_rgb": list(skin_rgb_diag),
             "skin_method": skin_method,
             "skin_info": skin_info,
