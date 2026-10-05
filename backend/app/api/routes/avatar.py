@@ -162,6 +162,7 @@ def drape_scope_for_shop(shop_domain: str | None) -> list[str] | None:
 
 
 POLL_SECONDS = 2
+OTHER_STORES_DRAPE_PRIORITY = 50   # this store's garments are queued at 10 and go first
 MAX_BUILD_SECONDS = 600
 
 
@@ -478,6 +479,12 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                     drape_counts = enqueue_full_drape(request.user_id, priority=10, brand_ids=brand_ids)
                     scope = f"shop {request.shop_domain}" if brand_ids is not None else "all stores"
                     print(f"[Avatar] Pre-drape enqueue ({scope}): {drape_counts}")
+                    if brand_ids is not None:
+                        # The account works in every store, so the other stores' garments are
+                        # draped too, behind this store's (a higher number waits longer). Without
+                        # this, the shopper's first try-on in another store waits minutes.
+                        rest_counts = enqueue_full_drape(request.user_id, priority=OTHER_STORES_DRAPE_PRIORITY)
+                        print(f"[Avatar] Pre-drape enqueue (other stores, priority {OTHER_STORES_DRAPE_PRIORITY}): {rest_counts}")
                     # The product they onboarded from goes first: it is the one they open next.
                     first = drape_product_first(request.user_id, request.shop_domain, request.product_id)
                     if first:
