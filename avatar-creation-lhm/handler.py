@@ -2736,9 +2736,10 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
     # load from the baked copy) fall back to the full data bootstrap, as before.
     global _DATA_ENSURED, _POSE_ESTIMATOR, _FACE_DETECTOR
     data_source = "baked" if _baked_models_ready() else "bootstrap"
+    data_log: list[str] = []   # what the bootstrap did: downloaded, found on the volume, linked
     if data_source == "bootstrap" and not _DATA_ENSURED:
         try:
-            _ensure_lhm_data()
+            _ensure_lhm_data(log=data_log)
             _DATA_ENSURED = True
         except Exception as e:
             return {"error": f"LHM data bootstrap failed: {e}"}
@@ -2913,6 +2914,9 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
         # when measurements_error is set.
         lap("encode")
         timings["data_source"] = data_source
+        timings["using_volume"] = USING_VOLUME
+        if data_log:
+            timings["data_log"] = [line[:160] for line in data_log[:12]]
         print(f"[LHM Handler] timings {timings} total={round(_now() - started, 2)}s")
         meas_standardized = (measurements_block or {}).get("standardized_cm") or {}
         if not meas_standardized and height_cm:

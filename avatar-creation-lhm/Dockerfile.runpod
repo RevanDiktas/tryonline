@@ -257,37 +257,6 @@ RUN sed -i 's/^                is_full_body=False,$/                is_full_body
     && python -c "import ast; ast.parse(open('/workspace/LHM/engine/pose_estimation/pose_estimator.py').read())" \
     && echo "pose_estimator no-human branch patched"
 
-# ----------------------------------------------------------------------------
-# Bake the two model trees the production avatar command uses (Multi-HMR +
-# SMPL-X under human_model_files, and the head detector under gagatracker).
-#
-# Measured 2026-10-05: on a fresh worker the handler spent 86 s of a 100 s job
-# in its data bootstrap before any model ran; inference itself is ~0.5 s. With
-# these files on the image's own disk the handler skips that bootstrap.
-#
-# The tarball is fetched, the two trees are extracted to a temp dir, checked,
-# copied into place, and the tarball is deleted, all in ONE layer, so the image grows only by what is kept (the full
-# tarballs are what broke the build cap before). Soft-fail on purpose: if the
-# download is slow (10-min limit) or the layout differs, the build still
-# succeeds and the handler falls back to its runtime bootstrap exactly as before.
-# ----------------------------------------------------------------------------
-RUN mkdir -p /tmp/lhm-prior/x /workspace/LHM/pretrained_models \
-    && ( timeout 600 aria2c -x 16 -s 16 --max-tries=5 --retry-wait=10 \
-             --console-log-level=warn -d /tmp/lhm-prior -o prior.tar \
-             "https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/aigc3d/data/LHM/LHM_prior_model.tar" \
-         && tar -xf /tmp/lhm-prior/prior.tar -C /tmp/lhm-prior/x --wildcards \
-             '*pretrained_models/human_model_files*' \
-             '*pretrained_models/gagatracker*' \
-         && test -d /tmp/lhm-prior/x/pretrained_models/human_model_files \
-         && test -f /tmp/lhm-prior/x/pretrained_models/gagatracker/vgghead/vgg_heads_l.trcd \
-         && du -sh /tmp/lhm-prior/x/pretrained_models/* \
-         && cp -a /tmp/lhm-prior/x/pretrained_models/human_model_files \
-                  /tmp/lhm-prior/x/pretrained_models/gagatracker \
-                  /workspace/LHM/pretrained_models/ \
-         && echo "PRODUCTION MODELS BAKED" \
-       ) || echo "WARNING: production models NOT baked; handler will bootstrap at runtime" ; \
-    rm -rf /tmp/lhm-prior
-
 # YuNet face landmarks (OpenCV, ~230 KB) for cheek-based skin colour. Outside
 # pretrained_models/ because the handler stitches that tree to the network volume.
 COPY avatar-creation-lhm/models/face_detection_yunet_2023mar.onnx /workspace/models/yunet/face_detection_yunet_2023mar.onnx
