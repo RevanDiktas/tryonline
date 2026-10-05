@@ -83,6 +83,54 @@ def log_step(step_num: int, title: str, status: str = "start"):
         print(f"[ERROR] Step {step_num} failed: {title}")
 
 
+_demo_yolo = None   # the 4D-Humans module, imported once and kept with its models loaded
+
+
+def _find_step1_outputs(output_dir: Path) -> Tuple[Optional[Path], Optional[Path]]:
+    mesh_files = list(output_dir.glob("*person0.obj"))
+    params_files = list(output_dir.glob("*person0_params.npz"))
+    if not mesh_files or not params_files:
+        mesh_files = list(output_dir.glob("*.obj"))
+        params_files = list(output_dir.glob("*params.npz"))
+    if not mesh_files or not params_files:
+        return None, None
+    return mesh_files[0], params_files[0]
+
+
+def step1_in_process(image_path: Path, output_dir: Path, four_d_humans_dir: Path) -> Tuple[Optional[Path], Optional[Path]]:
+    """
+    Step 1 without starting a new Python process: the models stay loaded in this worker,
+    so only the first job after a worker starts pays for loading them.
+
+    Raises on any problem; the caller then falls back to the subprocess route.
+    Set AVATAR_STEP1_SUBPROCESS=1 to skip this route.
+    """
+    global _demo_yolo
+    import importlib
+    cwd = os.getcwd()
+    gl = os.environ.get('PYOPENGL_PLATFORM')
+    os.chdir(str(four_d_humans_dir))   # the detector keeps its weights file next to the script
+    try:
+        if _demo_yolo is None:
+            if str(four_d_humans_dir) not in sys.path:
+                sys.path.insert(0, str(four_d_humans_dir))
+            _demo_yolo = importlib.import_module("demo_yolo")
+        found = _demo_yolo.process_image(Path(image_path), str(output_dir), batch_size=1)
+    finally:
+        os.chdir(cwd)
+        # demo_yolo blanks this for itself; later steps keep what the worker was started with
+        if gl is None:
+            os.environ.pop('PYOPENGL_PLATFORM', None)
+        else:
+            os.environ['PYOPENGL_PLATFORM'] = gl
+    if not found:
+        return None, None   # the model ran and saw nobody: a second attempt would not help
+    mesh_path, params_path = _find_step1_outputs(Path(output_dir))
+    if not params_path:
+        raise RuntimeError("no output written")
+    return mesh_path, params_path
+
+
 def step1_extract_body(
     image_path: Path,
     output_dir: Path,
@@ -95,6 +143,22 @@ def step1_extract_body(
         Tuple of (mesh_path, params_path) or (None, None) on failure
     """
     log_step(1, "4D-Humans Body Extraction")
+
+    if os.environ.get("AVATAR_STEP1_SUBPROCESS") != "1":
+        try:
+            mesh_path, params_path = step1_in_process(Path(image_path), Path(output_dir), Path(four_d_humans_dir))
+            if not params_path:
+                print("  [ERROR] No person detected in the photo")
+                return None, None
+            print(f"  [OK] In-process: {mesh_path.name}, {params_path.name}")
+            log_step(1, "4D-Humans Body Extraction", "done")
+            return mesh_path, params_path
+        except Exception as e:
+            import traceback
+            print(f"  [WARNING] In-process body extraction failed ({e}); falling back to a subprocess")
+            traceback.print_exc()
+            for stale in list(Path(output_dir).glob("*person*.obj")) + list(Path(output_dir).glob("*params.npz")):
+                stale.unlink(missing_ok=True)
     
     # Create temp input folder (demo_yolo.py expects a folder)
     import tempfile
@@ -963,6 +1027,17 @@ def run_pipeline(
     
     print("\n[DEBUG] Starting Step 1...")
     sys.stdout.flush()
+
+    import time as _time
+    timings = results["timings"] = {}
+    _clock = [_time.time()]
+
+    def lap(name: str) -> None:
+        now = _time.time()
+        timings[name] = round(now - _clock[0], 2)
+        _clock[0] = now
+        print(f"[timing] {name}: {timings[name]}s")
+        sys.stdout.flush()
     
     try:
         # Step 1: 4D-Humans body extraction
@@ -987,6 +1062,7 @@ def run_pipeline(
             results["error"] = "Step 1 failed: Body extraction"
             return results
         
+        lap("step1_body_extraction")
         results["outputs"]["original_mesh"] = str(mesh_path)
         results["outputs"]["smpl_params"] = str(params_path)
         
@@ -997,6 +1073,7 @@ def run_pipeline(
             results["error"] = "Step 2 failed: T-pose generation"
             return results
         
+        lap("step2_tpose")
         results["outputs"]["tpose_mesh"] = str(tpose_path)
         
         # Step 3: Extract measurements
@@ -1013,6 +1090,7 @@ def run_pipeline(
                 "inside leg height": height_cm * 0.45,
             }
         
+        lap("step3_measurements")
         measurements_path = output_dir / "measurements.json"
         save_measurements_json(measurements, measurements_path, height_cm, gender)
         results["outputs"]["measurements"] = str(measurements_path)
@@ -1033,6 +1111,7 @@ def run_pipeline(
             results["error"] = "Step 4b failed: Scale for CLO 3D"
             return results
 
+        lap("step4_apose")
         results["outputs"]["apose_mesh"] = str(apose_clo3d_path)
 
         # Step 5: Extract skin from body image
@@ -1043,6 +1122,7 @@ def run_pipeline(
         else:
             _, skin_color = skin_result
         
+        lap("step5_skin")
         results["outputs"]["skin_texture"] = str(output_dir / "skin_texture.png")
         
         # Step 6: Create textured GLB (from CLO-scaled mesh for correct viewer sizing)
@@ -1052,6 +1132,8 @@ def run_pipeline(
             results["error"] = "Step 6 failed: GLB export"
             return results
         
+        lap("step6_glb")
+        print(f"[timing] all steps: {timings}")
         results["outputs"]["avatar_glb"] = str(glb_path)
         
         # Success!

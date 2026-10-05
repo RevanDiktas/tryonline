@@ -90,109 +90,127 @@ def load_hmr2_no_renderer(checkpoint_path):
     model = HMR2.load_from_checkpoint(checkpoint_path, strict=False, cfg=model_cfg, init_renderer=False)
     return model, model_cfg
 
+# Loaded once per process and reused. A serverless worker that stays up between jobs
+# pays the model-loading cost (the multi-GB checkpoint) on its first job only.
+_MODELS = None
+
+
+def load_models(checkpoint=DEFAULT_CHECKPOINT):
+    """Return (model, model_cfg, detector, device), loading them on first use."""
+    global _MODELS
+    if _MODELS is None:
+        t0 = time.time()
+        print("\n📦 Loading HMR2 model...")
+        download_models(CACHE_DIR_4DHUMANS)
+        model, model_cfg = load_hmr2_no_renderer(checkpoint)
+        device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        model = model.to(device)
+        model.eval()
+        print(f"✓ HMR2 model loaded on {device}")
+        print("\n📦 Loading YOLO detector...")
+        detector = YOLOPredictor(confidence=0.5)
+        _MODELS = (model, model_cfg, detector, device)
+        print(f"[timing] models loaded in {time.time()-t0:.1f}s")
+    return _MODELS
+
+
+def process_image(img_path, out_folder, batch_size=1, checkpoint=DEFAULT_CHECKPOINT):
+    """Detect people in one image and save a mesh (.obj) and SMPL params (.npz) per person.
+
+    Returns the number of people found.
+    """
+    model, model_cfg, detector, device = load_models(checkpoint)
+    img_path = Path(img_path)
+    os.makedirs(out_folder, exist_ok=True)
+
+    img_cv2 = cv2.imread(str(img_path))
+
+    # Detect humans with YOLO
+    det_out = detector(img_cv2)
+    det_instances = det_out['instances']
+    valid_idx = (det_instances.pred_classes == 0) & (det_instances.scores > 0.5)
+    boxes = det_instances.pred_boxes.tensor[valid_idx].cpu().numpy()
+
+    if len(boxes) == 0:
+        print(f"  ⚠️  No humans detected")
+        return 0
+
+    print(f"  ✓ Detected {len(boxes)} person(s)")
+
+    # Create dataset and run HMR2
+    dataset = ViTDetDataset(model_cfg, img_cv2, boxes)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+
+    for person_idx, batch in enumerate(dataloader):
+        batch = recursive_to(batch, device)
+
+        with torch.no_grad():
+            out = model(batch)
+
+        pred_vertices = out['pred_vertices']
+        pred_cam = out['pred_cam']
+
+        # Save meshes
+        for i in range(pred_vertices.shape[0]):
+            person_id = person_idx * batch_size + i
+
+            vertices = pred_vertices[i].cpu().numpy()
+            faces = model.smpl.faces
+
+            mesh = trimesh.Trimesh(vertices, faces, process=False)
+            mesh_filename = f"{img_path.stem}_person{person_id}.obj"
+            mesh.export(str(Path(out_folder) / mesh_filename))
+            print(f"  ✓ Saved mesh: {mesh_filename}")
+
+            # Also save SMPL parameters
+            smpl_params = {
+                'pred_cam': pred_cam[i].cpu().numpy(),
+                'pred_vertices': vertices,
+                'betas': out['pred_smpl_params']['betas'][i].cpu().numpy() if 'betas' in out['pred_smpl_params'] else None,
+                'body_pose': out['pred_smpl_params']['body_pose'][i].cpu().numpy() if 'body_pose' in out['pred_smpl_params'] else None,
+                'global_orient': out['pred_smpl_params']['global_orient'][i].cpu().numpy() if 'global_orient' in out['pred_smpl_params'] else None,
+            }
+
+            params_filename = f"{img_path.stem}_person{person_id}_params.npz"
+            np.savez(str(Path(out_folder) / params_filename), **smpl_params)
+            print(f"  ✓ Saved params: {params_filename}")
+
+    return len(boxes)
+
+
 def main():
     start_time = time.time()
-    
+
     parser = argparse.ArgumentParser(description='HMR2 demo with YOLO detection (macOS compatible)')
     parser.add_argument('--checkpoint', type=str, default=DEFAULT_CHECKPOINT)
     parser.add_argument('--img_folder', type=str, default='example_data/images')
     parser.add_argument('--out_folder', type=str, default='demo_out')
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--file_type', nargs='+', default=['*.jpg', '*.png'])
-    
+
     args = parser.parse_args()
-    
+
     print("="*60)
     print("4D-Humans Demo with YOLOv8 Detection")
     print("="*60)
-    
-    print("\n📦 Loading HMR2 model...")
-    download_models(CACHE_DIR_4DHUMANS)
-    model, model_cfg = load_hmr2_no_renderer(args.checkpoint)
-    
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    model = model.to(device)
-    model.eval()
-    print(f"✓ HMR2 model loaded on {device}")
-    
-    # Load YOLO detector
-    print("\n📦 Loading YOLO detector...")
-    detector = YOLOPredictor(confidence=0.5)
-    
+
+    load_models(args.checkpoint)
     os.makedirs(args.out_folder, exist_ok=True)
-    
+
     # Get all images (skip macOS hidden files starting with ._)
     img_paths = []
     for file_type in args.file_type:
         img_paths.extend([p for p in Path(args.img_folder).glob(file_type) if not p.name.startswith('._')])
     img_paths = sorted(img_paths)
-    
+
     print(f"\n🖼️  Found {len(img_paths)} images in {args.img_folder}")
     print("="*60)
-    
-    # Process each image
+
     total_people = 0
     for img_idx, img_path in enumerate(img_paths):
         print(f"\n[{img_idx+1}/{len(img_paths)}] Processing: {img_path.name}")
-        
-        img_cv2 = cv2.imread(str(img_path))
-        
-        # Detect humans with YOLO
-        det_out = detector(img_cv2)
-        det_instances = det_out['instances']
-        valid_idx = (det_instances.pred_classes == 0) & (det_instances.scores > 0.5)
-        boxes = det_instances.pred_boxes.tensor[valid_idx].cpu().numpy()
-        
-        if len(boxes) == 0:
-            print(f"  ⚠️  No humans detected")
-            continue
-        
-        print(f"  ✓ Detected {len(boxes)} person(s)")
-        total_people += len(boxes)
-        
-        # Create dataset and run HMR2
-        dataset = ViTDetDataset(model_cfg, img_cv2, boxes)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
-        
-        for person_idx, batch in enumerate(dataloader):
-            batch = recursive_to(batch, device)
-            
-            with torch.no_grad():
-                out = model(batch)
-            
-            pred_vertices = out['pred_vertices']
-            pred_cam = out['pred_cam']
-            
-            # Save meshes
-            batch_size = pred_vertices.shape[0]
-            for i in range(batch_size):
-                person_id = person_idx * args.batch_size + i
-                
-                vertices = pred_vertices[i].cpu().numpy()
-                faces = model.smpl.faces
-                
-                mesh = trimesh.Trimesh(vertices, faces, process=False)
-                mesh_filename = f"{img_path.stem}_person{person_id}.obj"
-                mesh_path = Path(args.out_folder) / mesh_filename
-                mesh.export(str(mesh_path))
-                
-                print(f"  ✓ Saved mesh: {mesh_filename}")
-                
-                # Also save SMPL parameters
-                smpl_params = {
-                    'pred_cam': pred_cam[i].cpu().numpy(),
-                    'pred_vertices': vertices,
-                    'betas': out['pred_smpl_params']['betas'][i].cpu().numpy() if 'betas' in out['pred_smpl_params'] else None,
-                    'body_pose': out['pred_smpl_params']['body_pose'][i].cpu().numpy() if 'body_pose' in out['pred_smpl_params'] else None,
-                    'global_orient': out['pred_smpl_params']['global_orient'][i].cpu().numpy() if 'global_orient' in out['pred_smpl_params'] else None,
-                }
-                
-                params_filename = f"{img_path.stem}_person{person_id}_params.npz"
-                params_path = Path(args.out_folder) / params_filename
-                np.savez(str(params_path), **smpl_params)
-                
-                print(f"  ✓ Saved params: {params_filename}")
-    
+        total_people += process_image(img_path, args.out_folder, args.batch_size, args.checkpoint)
+
     end_time = time.time()
     print(f"\n{'='*60}")
     print(f"✓ Processing complete!")
