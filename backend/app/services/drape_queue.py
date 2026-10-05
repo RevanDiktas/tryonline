@@ -326,3 +326,49 @@ def enqueue_for_garment(
             _enqueue_one(uid, garment_id, size, body_hash, version, priority, counts, passport)
 
     return counts
+
+
+# Priorities: lower runs first. The fan-out after onboarding uses 10, backfills 100 and a
+# new garment 200. A garment the shopper has open in the try-on goes ahead of all of them.
+PRIORITY_ON_SCREEN = 0      # the size the shopper is looking at
+PRIORITY_IN_VIEWER = 1      # the other sizes of the garment they have open
+
+
+def prioritize_drape(user_id: str, garment_id: str, size: str, priority: int) -> Optional[dict]:
+    """The try-on is showing this garment: make sure this shopper's drape for it exists and
+    is first in line. Uses the same drape_jobs row as the fan-out (one job per user,
+    garment, size and version), so nothing is draped twice.
+
+    Returns the job row ({id, status, priority, error_message}), or None when the shopper
+    has no avatar or the garment has no OBJ for this size.
+    """
+    passport = _get_passport(user_id)
+    if not passport:
+        return None
+    body_hash = compute_body_hash(user_id, passport)
+    if not body_hash:
+        return None
+    g = supabase_service.client.table("garments").select(
+        "id,obj_sizes,content_hash"
+    ).eq("id", garment_id).limit(1).execute()
+    if not g.data or not (g.data[0].get("obj_sizes") or {}).get(size):
+        return None
+    version = g.data[0].get("content_hash") or compute_garment_content_hash(garment_id)
+    if not version:
+        return None
+
+    counts = {"enqueued": 0, "skipped_already_cached": 0, "skipped_already_queued": 0}
+    _enqueue_one(user_id, garment_id, size, body_hash, version, priority, counts, passport)
+
+    r = supabase_service.client.table("drape_jobs").select(
+        "id,status,priority,error_message"
+    ).eq("user_id", user_id).eq("garment_id", garment_id).eq("size", size).eq(
+        "garment_version_hash", version
+    ).limit(1).execute()
+    job = r.data[0] if r.data else None
+    # Still waiting in our queue behind other work: move it up. (Once handed to RunPod
+    # it is already next or running.)
+    if job and job.get("status") == "queued" and (job.get("priority") is None or job["priority"] > priority):
+        supabase_service.client.table("drape_jobs").update({"priority": priority}).eq("id", job["id"]).execute()
+        job["priority"] = priority
+    return job

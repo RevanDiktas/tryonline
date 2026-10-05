@@ -1798,10 +1798,12 @@
           && !(companionConfig.drapedUrls || {})[companionSize]) {
         requestDrapingForGarment(companionConfig.garmentId, companionSize);
       }
-      var sizes = Object.keys(modelPaths);
+      // The size the viewer will open on drapes first; the others queue right behind it.
+      var onScreen = resolveCurrentSizeForOpen();
+      var sizes = Object.keys(modelPaths).sort(function(a, b) { return (b === onScreen) - (a === onScreen); });
       sizes.forEach(function(size) {
         if (drapedUrls[size]) return;
-        requestDrapingForSize(size);
+        requestDrapingForSize(size, size === onScreen);
       });
     }
 
@@ -1833,7 +1835,7 @@
       });
     }
 
-    function requestDrapingForSize(size) {
+    function requestDrapingForSize(size, onScreen) {
       var url = config.apiUrl + '/api/draping/request';
       fetch(url, {
         method: 'POST',
@@ -1842,6 +1844,7 @@
           garment_id: serverGarmentId,
           size: size,
           user_id: config.userId,
+          on_screen: !!onScreen,
         }),
       }).then(function(r) { return r.json(); }).then(function(data) {
         if (data.cached && data.draped_url) {
@@ -2699,6 +2702,9 @@
         refreshSizeUi();
 
         track('size_selected', { size: size });
+
+        // Not draped yet: this size is now the one on screen, so it goes first in the queue.
+        if (drapingAvailable && config.userId && serverGarmentId && !drapedUrls[size]) requestDrapingForSize(size, true);
 
         // INSTANT switch from cache
         showModel(size);

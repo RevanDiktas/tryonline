@@ -2,9 +2,15 @@
 Drape dispatcher
 ================
 
-Background loop that wakes every TICK_SECONDS, atomically claims up to
-DISPATCH_BATCH queued jobs (via the `claim_drape_jobs` RPC), and POSTs each to
-RunPod's async endpoint with a webhook back to our callback route.
+Background loop that wakes every TICK_SECONDS (or at once when the widget asks for a
+drape), atomically claims queued jobs (via the `claim_drape_jobs` RPC, lowest priority
+number first), and POSTs each to RunPod's async endpoint with a webhook back to our
+callback route.
+
+RunPod only gets as many jobs as it can run (MAX_IN_FLIGHT, the endpoint's worker
+count). Everything else waits in drape_jobs, where priority decides what goes next.
+Measured 2026-10-05: handing RunPod every job at once left 39 in its first-come queue,
+so the garment a shopper was looking at waited ~23 min for a 30-75 s drape.
 
 The actual upload-and-cache step happens in the webhook handler, not here. This
 module's only job is "queued -> dispatched (running on RunPod)".
@@ -14,12 +20,15 @@ Configuration via env:
   - BACKEND_PUBLIC_URL          (required; used to build webhook URL)
   - DRAPE_DISPATCHER_INTERVAL   (seconds, default 30)
   - DRAPE_DISPATCH_BATCH        (max jobs claimed per tick, default 4)
+  - DRAPE_MAX_IN_FLIGHT         (jobs RunPod may hold, queued + running; default 2,
+                                 the drape endpoint's max workers)
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -32,6 +41,18 @@ settings = get_settings()
 
 TICK_SECONDS = int(os.getenv("DRAPE_DISPATCHER_INTERVAL", "30"))
 DISPATCH_BATCH = int(os.getenv("DRAPE_DISPATCH_BATCH", "4"))
+MAX_IN_FLIGHT = int(os.getenv("DRAPE_MAX_IN_FLIGHT", "2"))
+# Without RunPod's own count, a job dispatched longer ago than this no longer holds a slot
+# (a lost webhook must not stall the queue). A drape runs in 30-75 s plus a cold start.
+IN_FLIGHT_WINDOW_SECONDS = 15 * 60
+
+_wake: Optional[asyncio.Event] = None
+
+
+def wake_dispatcher() -> None:
+    """Run a tick now instead of at the next interval (a shopper is waiting)."""
+    if _wake is not None:
+        _wake.set()
 
 
 def _resolve_storage_url(path: str) -> str:
@@ -177,6 +198,37 @@ def _claim_jobs(limit_n: int) -> list[dict]:
         return []
 
 
+async def _runpod_backlog(client: httpx.AsyncClient) -> Optional[int]:
+    """Jobs RunPod holds for the drape endpoint (queued + running), from its health
+    route. Counts every source, including jobs whose webhook never came back."""
+    url = f"https://api.runpod.ai/v2/{settings.runpod_draping_endpoint_id}/health"
+    try:
+        resp = await client.get(url, headers={"Authorization": f"Bearer {settings.runpod_api_key}"}, timeout=10.0)
+        resp.raise_for_status()
+        jobs = resp.json().get("jobs") or {}
+        return int(jobs.get("inQueue") or 0) + int(jobs.get("inProgress") or 0)
+    except Exception as e:
+        print(f"[drape_dispatcher] RunPod health failed, counting from drape_jobs: {e}")
+        return None
+
+
+def _db_in_flight() -> int:
+    """Fallback count: our jobs handed to RunPod recently and not finished."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=IN_FLIGHT_WINDOW_SECONDS)).isoformat()
+    try:
+        r = supabase_service.client.table("drape_jobs").select("id").in_(
+            "status", ["dispatched", "running"]
+        ).gte("dispatched_at", cutoff).execute()
+        return len(r.data or [])
+    except Exception as e:
+        print(f"[drape_dispatcher] in-flight count failed: {e}")
+        return MAX_IN_FLIGHT   # unknown: dispatch nothing this tick
+
+
+def _free_slots(backlog: int) -> int:
+    return max(0, min(DISPATCH_BATCH, MAX_IN_FLIGHT - backlog))
+
+
 async def _tick() -> None:
     if not settings.runpod_api_key or not settings.runpod_draping_endpoint_id:
         return
@@ -184,29 +236,43 @@ async def _tick() -> None:
         # Without a webhook target we cannot complete jobs. Don't dispatch.
         return
 
-    jobs = _claim_jobs(DISPATCH_BATCH)
-    if not jobs:
-        return
-
-    print(f"[drape_dispatcher] claimed {len(jobs)} jobs")
     async with httpx.AsyncClient() as client:
+        backlog = await _runpod_backlog(client)
+        if backlog is None:
+            backlog = _db_in_flight()
+        free = _free_slots(backlog)
+        if free == 0:
+            return
+
+        jobs = _claim_jobs(free)
+        if not jobs:
+            return
+
+        print(f"[drape_dispatcher] claimed {len(jobs)} jobs (RunPod held {backlog})")
         await asyncio.gather(*[_dispatch_one(client, j) for j in jobs])
 
 
 async def dispatcher_loop(stop_event: asyncio.Event) -> None:
     """Long-running coroutine. Owned by the FastAPI lifespan."""
-    print(f"[drape_dispatcher] started (tick={TICK_SECONDS}s, batch={DISPATCH_BATCH})")
+    global _wake
+    _wake = asyncio.Event()
+    print(f"[drape_dispatcher] started (tick={TICK_SECONDS}s, batch={DISPATCH_BATCH}, max_in_flight={MAX_IN_FLIGHT})")
     try:
         while not stop_event.is_set():
+            _wake.clear()
             try:
                 await _tick()
             except Exception as e:
                 print(f"[drape_dispatcher] tick error: {e}")
                 import traceback
                 traceback.print_exc()
+            # Sleep until the interval passes, a shopper asks for a drape, or shutdown.
+            waiters = [asyncio.ensure_future(stop_event.wait()), asyncio.ensure_future(_wake.wait())]
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=TICK_SECONDS)
-            except asyncio.TimeoutError:
-                continue
+                await asyncio.wait(waiters, timeout=TICK_SECONDS, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for w in waiters:
+                    w.cancel()
     finally:
+        _wake = None
         print("[drape_dispatcher] stopped")

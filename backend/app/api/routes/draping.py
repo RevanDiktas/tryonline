@@ -73,148 +73,6 @@ def _get_garment_draping_info(garment_id: str, size: str) -> Optional[dict]:
         return None
 
 
-def _get_user_body_files(user_id: str) -> Optional[dict]:
-    """Get user's body OBJ and SMPL params URLs from pipeline_files."""
-    try:
-        r = supabase.client.table("fit_passports").select(
-            "pipeline_files,avatar_url"
-        ).eq("user_id", user_id).limit(1).execute()
-        if not r.data:
-            return None
-        from app.services.body_clustering import body_mesh_path
-        passport = r.data[0]
-        pf = passport.get("pipeline_files") or {}
-        # Same body file as the queue (drape_dispatcher): A-pose, the pose the widget shows.
-        body_obj_url = body_mesh_path(passport)
-        smpl_params_url = pf.get("smpl_params")
-        if not body_obj_url:
-            return None
-        return {
-            "body_obj_url": body_obj_url,
-            "smpl_params_url": smpl_params_url,
-        }
-    except Exception:
-        return None
-
-
-def _resolve_storage_url(path: str) -> str:
-    """Convert relative storage path to full public URL."""
-    if path.startswith("http"):
-        return path
-    storage_base = f"{settings.supabase_url.rstrip('/')}/storage/v1/object/public"
-    return f"{storage_base}/{path.lstrip('/')}"
-
-
-async def _run_draping_job(request_id: str, user_id: str, garment_id: str, size: str, body_hash: str):
-    """Background task: call RunPod draping endpoint, store result."""
-    import httpx
-
-    try:
-        supabase.client.table("draping_requests").update({
-            "status": "processing"
-        }).eq("id", request_id).execute()
-
-        body_files = _get_user_body_files(user_id)
-        garment_info = _get_garment_draping_info(garment_id, size)
-
-        if not body_files or not garment_info:
-            supabase.client.table("draping_requests").update({
-                "status": "failed",
-                "error_message": "Missing body or garment files",
-            }).eq("id", request_id).execute()
-            return
-
-        runpod_payload = {
-            "input": {
-                "body_obj_url": _resolve_storage_url(body_files["body_obj_url"]),
-                "garment_obj_url": _resolve_storage_url(garment_info["obj_path"]),
-                "smpl_params_url": _resolve_storage_url(body_files["smpl_params_url"]) if body_files.get("smpl_params_url") else None,
-                "fabric_config": garment_info.get("fabric_config", {}),
-                "simulation_mode": "swift",
-                "garment_id": garment_id,
-                "size": size,
-                "user_id": user_id,
-            }
-        }
-
-        if not settings.runpod_api_key or not settings.runpod_draping_endpoint_id:
-            supabase.client.table("draping_requests").update({
-                "status": "failed",
-                "error_message": "RunPod draping endpoint not configured",
-            }).eq("id", request_id).execute()
-            return
-
-        # Submit to RunPod
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            run_url = f"https://api.runpod.ai/v2/{settings.runpod_draping_endpoint_id}/runsync"
-            headers = {"Authorization": f"Bearer {settings.runpod_api_key}"}
-
-            resp = await client.post(run_url, json=runpod_payload, headers=headers)
-            resp.raise_for_status()
-            result = resp.json()
-
-        job_output = result.get("output", {})
-        if not job_output.get("success"):
-            supabase.client.table("draping_requests").update({
-                "status": "failed",
-                "error_message": job_output.get("error", "Unknown RunPod error"),
-                "runpod_job_id": result.get("id"),
-            }).eq("id", request_id).execute()
-            return
-
-        # Upload draped GLB to Supabase Storage
-        glb_b64 = job_output.get("draped_glb_base64", "")
-        if not glb_b64:
-            supabase.client.table("draping_requests").update({
-                "status": "failed",
-                "error_message": "No GLB in RunPod response",
-            }).eq("id", request_id).execute()
-            return
-
-        glb_bytes = base64.b64decode(glb_b64)
-        storage_path = f"draped/{garment_id}/{size}/{body_hash}.glb"
-
-        supabase.ensure_garments_bucket()
-        bucket = supabase.client.storage.from_(settings.garments_bucket)
-        try:
-            bucket.upload(
-                storage_path, glb_bytes,
-                {"content-type": "model/gltf-binary", "x-upsert": "true"},
-            )
-        except Exception:
-            bucket.update(storage_path, glb_bytes, {"content-type": "model/gltf-binary"})
-
-        draped_url = bucket.get_public_url(storage_path)
-
-        # Insert into draped_meshes cache
-        mesh_row = supabase.client.table("draped_meshes").upsert({
-            "garment_id": garment_id,
-            "size": size,
-            "body_hash": body_hash,
-            "draped_glb_url": draped_url,
-            "simulation_method": job_output.get("simulation_method", "unknown"),
-            "processing_time_seconds": job_output.get("processing_time_seconds"),
-            "vertex_count": job_output.get("vertex_count"),
-        }, on_conflict="garment_id,size,body_hash").execute()
-
-        mesh_id = mesh_row.data[0]["id"] if mesh_row.data else None
-
-        supabase.client.table("draping_requests").update({
-            "status": "completed",
-            "draped_mesh_id": mesh_id,
-            "runpod_job_id": result.get("id"),
-        }).eq("id", request_id).execute()
-
-    except Exception as e:
-        print(f"[Draping] Job {request_id} failed: {e}")
-        import traceback
-        traceback.print_exc()
-        supabase.client.table("draping_requests").update({
-            "status": "failed",
-            "error_message": str(e)[:500],
-        }).eq("id", request_id).execute()
-
-
 class TestRunRequest(BaseModel):
     body_obj_url: str
     garment_obj_url: str
@@ -297,6 +155,9 @@ class DrapingRequest(BaseModel):
     garment_id: str
     size: str
     user_id: str
+    # The size the try-on is showing right now: drapes first. Other sizes of the open
+    # garment come right after it.
+    on_screen: bool = False
 
 
 class DrapingResponse(BaseModel):
@@ -307,16 +168,17 @@ class DrapingResponse(BaseModel):
 
 
 @router.post("/request", response_model=DrapingResponse)
-async def request_draping(body: DrapingRequest, background_tasks: BackgroundTasks):
+async def request_draping(body: DrapingRequest):
     """
-    Request cloth draping for a garment+size+user.
-    Returns immediately with a request_id. Draping runs in background.
-    If a cached result exists, returns it immediately.
+    The try-on has this garment+size open: return the cached drape, or put this shopper's
+    drape job at the front of the queue and return an id to poll (`job:<drape_job id>`).
+
+    Same drape_jobs row as the fan-out after onboarding, run by the same dispatcher, so the
+    garment is never draped twice and the result lands in draped_meshes either way.
     """
     ident = _body_identity(body.user_id)
     if not ident:
         raise HTTPException(status_code=400, detail="User has no body data (fit passport required)")
-    body_hash = ident.body_hash
 
     garment_info = _get_garment_draping_info(body.garment_id, body.size)
     if not garment_info:
@@ -335,46 +197,17 @@ async def request_draping(body: DrapingRequest, background_tasks: BackgroundTask
     except Exception:
         pass
 
-    # Check for in-progress request
-    try:
-        existing = supabase.client.table("draping_requests").select("id,status").eq(
-            "garment_id", body.garment_id
-        ).eq("size", body.size).eq("body_hash", body_hash).in_(
-            "status", ["pending", "processing"]
-        ).limit(1).execute()
+    from app.services.drape_dispatcher import wake_dispatcher
+    from app.services.drape_queue import PRIORITY_IN_VIEWER, PRIORITY_ON_SCREEN, prioritize_drape
 
-        if existing.data:
-            return DrapingResponse(
-                request_id=str(existing.data[0]["id"]),
-                status=existing.data[0]["status"],
-            )
-    except Exception:
-        pass
-
-    # Create new request
-    row = supabase.client.table("draping_requests").insert({
-        "user_id": body.user_id,
-        "garment_id": body.garment_id,
-        "size": body.size,
-        "body_hash": body_hash,
-        "status": "pending",
-    }).execute()
-
-    if not row.data:
-        raise HTTPException(status_code=500, detail="Failed to create draping request")
-
-    request_id = str(row.data[0]["id"])
-
-    background_tasks.add_task(
-        _run_draping_job,
-        request_id=request_id,
-        user_id=body.user_id,
-        garment_id=body.garment_id,
-        size=body.size,
-        body_hash=body_hash,
-    )
-
-    return DrapingResponse(request_id=request_id, status="pending")
+    priority = PRIORITY_ON_SCREEN if body.on_screen else PRIORITY_IN_VIEWER
+    job = prioritize_drape(body.user_id, body.garment_id, body.size, priority)
+    if not job:
+        raise HTTPException(status_code=404, detail="Nothing to drape for this garment+size")
+    if job.get("status") == "failed":
+        return DrapingResponse(request_id=f"job:{job['id']}", status="failed")
+    wake_dispatcher()
+    return DrapingResponse(request_id=f"job:{job['id']}", status="pending")
 
 
 class DrapingStatusResponse(BaseModel):
@@ -390,6 +223,8 @@ async def get_draping_status(request_id: str):
     """Poll draping job status. Returns draped_url when complete."""
     if request_id == "cached":
         return DrapingStatusResponse(request_id="cached", status="completed")
+    if request_id.startswith("job:"):
+        return _drape_job_status(request_id)
 
     try:
         r = supabase.client.table("draping_requests").select(
@@ -423,6 +258,31 @@ async def get_draping_status(request_id: str):
         error=req.get("error_message"),
         simulation_method=sim_method,
     )
+
+
+def _drape_job_status(request_id: str) -> DrapingStatusResponse:
+    """Status of a drape job started or moved up by /request: the drape itself is read from
+    the draped_meshes cache, which the RunPod callback fills."""
+    job_id = request_id[len("job:"):]
+    try:
+        r = supabase.client.table("drape_jobs").select(
+            "id,user_id,garment_id,size,status,error_message"
+        ).eq("id", job_id).limit(1).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not r.data:
+        raise HTTPException(status_code=404, detail="Draping request not found")
+    job = r.data[0]
+    status = job.get("status")
+    if status == "completed":
+        ident = _body_identity(job["user_id"])
+        url = _cached_drape_url(job["garment_id"], job["size"], ident.lookup_hashes) if ident else None
+        if url:
+            return DrapingStatusResponse(request_id=request_id, status="completed", draped_url=url)
+        return DrapingStatusResponse(request_id=request_id, status="failed", error="Drape finished but no mesh was saved")
+    if status in ("failed", "cancelled"):
+        return DrapingStatusResponse(request_id=request_id, status="failed", error=job.get("error_message"))
+    return DrapingStatusResponse(request_id=request_id, status="processing")
 
 
 class DrapingCheckResponse(BaseModel):
