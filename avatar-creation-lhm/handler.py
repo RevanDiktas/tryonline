@@ -310,6 +310,9 @@ def _baked_models_ready() -> bool:
         return False
 
 
+PRIOR_SURVEY: dict = {}   # filled once by _fetch_production_models, returned with that job
+
+
 def _fetch_production_models(log: list[str]) -> None:
     """Get only what the production avatar command needs onto this worker's disk.
 
@@ -337,6 +340,34 @@ def _fetch_production_models(log: list[str]) -> None:
         size_gb = tar_path.stat().st_size / 1e9
         t1 = _now()
         log.append(f"prior tar: downloaded {size_gb:.1f} GB in {t1 - t0:.1f}s")
+
+        # One-off survey: where the needed files sit inside the tarball. With these byte
+        # positions a later version can fetch only those bytes instead of all 18.8 GB.
+        # Never allowed to break the job.
+        try:
+            import tarfile
+            ti = _now()
+            wanted, total_members = [], 0
+            with tarfile.open(str(tar_path), "r:") as tf:
+                for m in tf:
+                    total_members += 1
+                    name = m.name.lstrip("./")
+                    if name.startswith("pretrained_models/human_model_files") or \
+                            name.startswith("pretrained_models/gagatracker"):
+                        kind = "f" if m.isfile() else "d" if m.isdir() else "l" if m.issym() else "o"
+                        wanted.append([name, kind, m.offset_data, m.size, m.linkname or ""])
+            needed_bytes = sum(w[3] for w in wanted if w[1] == "f")
+            log.append(
+                f"prior tar survey: {len(wanted)} of {total_members} entries needed, "
+                f"{needed_bytes / 1e9:.2f} GB of {size_gb:.1f} GB, took {_now() - ti:.1f}s, "
+                f"tar bytes {tar_path.stat().st_size}"
+            )
+            if len(wanted) <= 3000:
+                PRIOR_SURVEY.clear()
+                PRIOR_SURVEY.update({"tar_bytes": tar_path.stat().st_size, "entries": wanted})
+        except Exception as e:
+            log.append(f"prior tar survey failed: {str(e)[:120]}")
+        t1 = _now()
 
         out = tmp / "x"
         out.mkdir()
@@ -2979,7 +3010,10 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
         timings["data_source"] = data_source
         timings["using_volume"] = USING_VOLUME
         if data_log:
-            timings["data_log"] = [line[:160] for line in data_log[:12]]
+            timings["data_log"] = [line[:200] for line in data_log[:12]]
+        if PRIOR_SURVEY:
+            timings["prior_survey"] = dict(PRIOR_SURVEY)
+            PRIOR_SURVEY.clear()
         print(f"[LHM Handler] timings {timings} total={round(_now() - started, 2)}s")
         meas_standardized = (measurements_block or {}).get("standardized_cm") or {}
         if not meas_standardized and height_cm:
