@@ -168,7 +168,7 @@ class DrapingResponse(BaseModel):
 
 
 @router.post("/request", response_model=DrapingResponse)
-async def request_draping(body: DrapingRequest):
+async def request_draping(body: DrapingRequest, background_tasks: BackgroundTasks):
     """
     The try-on has this garment+size open: return the cached drape, or put this shopper's
     drape job at the front of the queue and return an id to poll (`job:<drape_job id>`).
@@ -207,6 +207,10 @@ async def request_draping(body: DrapingRequest):
     if job.get("status") == "failed":
         return DrapingResponse(request_id=f"job:{job['id']}", status="failed")
     wake_dispatcher()
+    # This garment was not ready for this shopper, so others may be missing too: queue the
+    # rest behind it, after the response is sent.
+    from app.services.drape_queue import fill_drape_gaps
+    background_tasks.add_task(fill_drape_gaps, body.user_id)
     return DrapingResponse(request_id=f"job:{job['id']}", status="pending")
 
 
