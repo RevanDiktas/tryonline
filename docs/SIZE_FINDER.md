@@ -88,6 +88,17 @@ stand-ins.
 - Sign-in on a fresh browser, a wrong password, and sign-up with a taken email.
 - `backend/scripts/check_widget_onboarding.py`: 48 checks, including the passport route.
 
+Checked against the production database, read-only (2026-10-05):
+
+- Sign-up needs no email confirmation: all 85 accounts are confirmed and no confirmation
+  mail was ever sent, so sign-up returns a session and the card can carry on.
+- `on_auth_user_created` creates the `users` row from the sign-up metadata (`name`,
+  `user_type`), which is what the card sends. The card's own insert is a no-op backup.
+- `users` allows a signed-in shopper to insert their own row; `fit_passports` requires
+  `user_id`, `height` and `gender`, all of which `/create` writes.
+- **The `photos` bucket is public.** The backend comments say it is private. Shoppers'
+  full-body photos are readable by anyone who has the URL. Not changed here.
+
 **Not checked.**
 - The real RunPod endpoint, real Supabase auth, real storage.
 - A real Shopify theme: Shopify has never rendered the block.
