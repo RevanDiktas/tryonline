@@ -348,6 +348,15 @@ fake.tables["drape_jobs"].clear()
 counts = drape_queue.enqueue_full_drape(BOB, priority=10, brand_ids=avatar_routes.drape_scope_for_shop(None))
 check("unscoped fan-out still queues every store (3 garment-sizes)", counts["enqueued"] == 3, str(counts))
 
+# What process_avatar_job does for a store sign-up: this store first, then every other store behind it.
+fake.tables["drape_jobs"].clear()
+drape_queue.enqueue_full_drape(BOB, priority=10, brand_ids=avatar_routes.drape_scope_for_shop(SHOP))
+rest = drape_queue.enqueue_full_drape(BOB, priority=avatar_routes.OTHER_STORES_DRAPE_PRIORITY)
+by_key = {(j["garment_id"], j["size"]): j["priority"] for j in fake.tables["drape_jobs"]}
+check("store sign-up: this store's garments at priority 10, the other store's queued behind them, no duplicates",
+      by_key == {("g-lafam", "m"): 10, ("g-lafam", "l"): 10, ("g-ramin", "m"): avatar_routes.OTHER_STORES_DRAPE_PRIORITY}
+      and len(fake.tables["drape_jobs"]) == 3 and rest["enqueued"] == 1, f"{by_key} {rest}")
+
 req = AvatarCreateRequest(**{k: v for k, v in payload.items() if k != "shop_domain"})
 check("shop_domain is optional: older clients that do not send it still validate", req.shop_domain is None)
 
