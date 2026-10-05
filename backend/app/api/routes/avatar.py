@@ -450,6 +450,15 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                     "total": round(time.monotonic() - submitted, 1),
                 }
                 print(f"[Avatar] TIMING {job_id}: {jobs[job_id]['timing']}")
+                try:
+                    await supabase_service.track_event(
+                        "avatar_build_timing",
+                        user_id=request.user_id,
+                        shop_domain=request.shop_domain,
+                        event_data=jobs[job_id]["timing"],
+                    )
+                except Exception as timing_err:
+                    print(f"[Avatar] Could not record build timing (non-fatal): {timing_err}")
                 jobs[job_id]["avatar_url"] = avatar_url
                 jobs[job_id]["measurements"] = measurements
                 jobs[job_id]["completed_at"] = datetime.utcnow()
@@ -519,7 +528,6 @@ async def get_avatar_status(job_id: str):
         started_at=job.get("started_at"),
         completed_at=job.get("completed_at"),
         error=job.get("error"),
-        timing=job.get("timing"),
     )
 
 

@@ -280,7 +280,7 @@
     <section id="building" hidden>
       <h1>Getting your measurements</h1>
       <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><i id="bar-fill"></i></div>
-      <p class="stage"><span id="stage" aria-live="polite">Starting…</span><span id="elapsed"></span></p>
+      <p class="stage"><span id="stage" aria-live="polite">Starting…</span></p>
       <p class="lede">This usually takes a few minutes, sometimes up to ten. You can close this and keep shopping: your size will be waiting next to the size picker.</p>
       <button class="ghost" type="button" id="keep-shopping">Keep shopping</button>
     </section>
@@ -802,14 +802,12 @@ $('send').addEventListener('click', async () => {
 // it; if the backend no longer does (it restarted), the passport's status has the outcome.
 function stopBuildWatch() { clearTimeout(buildTimer); buildTimer = null; }
 let buildPct = 0;   // the bar only ever moves forward
-function paintBuild(pct, message, started) {
+function paintBuild(pct, message) {
   pct = buildPct = Math.max(buildPct, pct || 0);
   message = /busy/i.test(message || '') ? message : pct >= 95 ? 'Almost done…' : pct >= 30 ? 'Measuring you from your photo…' : 'Starting…';
   $('bar-fill').style.width = Math.max(4, Math.min(100, pct)) + '%';
   $('bar').setAttribute('aria-valuenow', String(Math.round(pct)));
   $('stage').textContent = message;
-  const s = Math.max(0, Math.round((Date.now() - started) / 1000));
-  $('elapsed').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 function watchBuild() {
   if (buildTimer) return;
@@ -829,7 +827,7 @@ function watchBuild() {
     } else {
       // Finished, or the job is unknown: the passport is the record.
       await loadPassport();
-      if (bodyState === 'ready') { drop(JOB_KEY); track('size_finder_build_completed', { seconds: Math.round((Date.now() - started) / 1000), timing: (status && status.timing) || undefined }); await route(true); return; }
+      if (bodyState === 'ready') { drop(JOB_KEY); track('size_finder_build_completed'); await route(true); return; }
       if (bodyState === 'failed' || (status && status.status === 'failed')) {
         drop(JOB_KEY); bodyState = 'failed';
         track('size_finder_build_failed');
