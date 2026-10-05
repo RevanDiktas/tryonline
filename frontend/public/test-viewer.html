@@ -1701,6 +1701,7 @@
           console.log('[TryOn] Companion loaded', companion.size,
             companion.isDraped ? '(DRAPED)' : '', '| bbox:',
             cs.x.toFixed(3), cs.y.toFixed(3), cs.z.toFixed(3));
+          gltf.scene.userData.isDraped = !!companion.isDraped;
           companionCache = gltf.scene;
           onPreloadDone();
         }, undefined, (err) => {
@@ -1822,6 +1823,7 @@
           console.log('[TryOn] Companion drape was cached:', data.draped_url);
           gltfLoader.load(data.draped_url, function(gltf) {
             refreshSkinnedMeshes(gltf.scene);
+            gltf.scene.userData.isDraped = true;
             companionCache = gltf.scene;
             if (currentSize) displayModel(currentSize);
           }, undefined, function(err) {
@@ -1853,11 +1855,12 @@
           hotSwapDrapedMesh(size, data.draped_url);
         } else if (data.request_id && data.request_id !== 'cached') {
           console.log('[TryOn] Drape requested for', size, '— polling', data.request_id);
-          showDrapingIndicator(size);
+          if (data.status === 'failed') { drapeFailed(size); return; }
           pollDrapingStatus(data.request_id, size);
         }
       }).catch(function(e) {
         console.warn('[TryOn] Draping request failed for', size, ':', e);
+        drapeFailed(size);
       });
     }
 
@@ -1869,7 +1872,7 @@
         attempt++;
         if (attempt > maxAttempts) {
           console.warn('[TryOn] Draping poll timeout for', size);
-          hideDrapingIndicator(size);
+          drapeFailed(size);
           return;
         }
         fetch(config.apiUrl + '/api/draping/status/' + encodeURIComponent(requestId))
@@ -1878,11 +1881,10 @@
             if (data.status === 'completed' && data.draped_url) {
               console.log('[TryOn] Drape complete for', size, ':', data.draped_url);
               drapedUrls[size] = data.draped_url;
-              hideDrapingIndicator(size);
               hotSwapDrapedMesh(size, data.draped_url);
             } else if (data.status === 'failed') {
               console.warn('[TryOn] Draping failed for', size, ':', data.error);
-              hideDrapingIndicator(size);
+              drapeFailed(size);
             } else {
               var delay = Math.min(2000 * Math.pow(1.5, attempt - 1), 10000);
               drapingPollTimers[size] = setTimeout(poll, delay);
@@ -1916,25 +1918,31 @@
       });
     }
 
-    function showDrapingIndicator(size) {
+    // A garment that has not been fitted to this body is never put on it: the raw mesh
+    // cuts through the avatar (skin showing through the cloth from every angle). Until the
+    // drape lands the avatar is shown alone with this note; displayModel keeps it in step
+    // with the size on screen.
+    const drapeFailedSizes = {};
+    function drapeFailed(size) {
+      drapeFailedSizes[String(size).toLowerCase()] = true;
+      if (currentSize && currentSize.toLowerCase() === String(size).toLowerCase() && uiState === 'viewer') displayModel(currentSize);
+    }
+    function setFitNote(text) {
       var el = document.getElementById('draping-indicator');
+      if (!text) {
+        if (el) { el.style.opacity = '0'; setTimeout(function() { if (el.style.opacity === '0') el.style.display = 'none'; }, 300); }
+        return;
+      }
       if (!el) {
         el = document.createElement('div');
         el.id = 'draping-indicator';
-        el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:8px 16px;border-radius:20px;font-size:12px;z-index:9999;font-family:Inter,sans-serif;backdrop-filter:blur(10px);transition:opacity 0.3s;';
+        el.setAttribute('role', 'status');
+        el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:8px 16px;border-radius:20px;font-size:12px;z-index:9999;font-family:Inter,sans-serif;backdrop-filter:blur(10px);transition:opacity 0.3s;max-width:calc(100% - 32px);text-align:center;';
         document.body.appendChild(el);
       }
-      el.textContent = 'Optimizing fit for your body...';
-      el.style.opacity = '1';
+      el.textContent = text;
       el.style.display = 'block';
-    }
-
-    function hideDrapingIndicator() {
-      var el = document.getElementById('draping-indicator');
-      if (el) {
-        el.style.opacity = '0';
-        setTimeout(function() { el.style.display = 'none'; }, 300);
-      }
+      el.style.opacity = '1';
     }
 
     // ============================================
@@ -2857,6 +2865,12 @@
           group.add(avatarCache);
         }
         const garmentRoot = garmentCache[key];
+        // Fitted to this body yet? If not, show the avatar alone until the drape arrives.
+        const holdBack = stackAvatar && drapingAvailable && !garmentRoot.userData.isDraped;
+        const productLabel = config.productName || 'this piece';
+        setFitNote(!holdBack ? null : drapeFailedSizes[key]
+          ? 'We couldn’t fit ' + productLabel + ' to your body yet. Try again in a few minutes.'
+          : 'Fitting ' + productLabel + ' to your body…');
         detachFromParent(garmentRoot);
         garmentRoot.position.set(0, 0, 0);
         garmentRoot.rotation.set(0, 0, 0);
@@ -2867,12 +2881,12 @@
         garmentRoot.scale.setScalar(metersScaleFor(garmentRoot));
         refreshSkinnedMeshes(garmentRoot);
         prepareGarment(garmentRoot);
-        group.add(garmentRoot);
+        if (!holdBack) group.add(garmentRoot);
         /* The other half of the outfit. Draped against the same body as the primary,
            so it already shares this coordinate frame — it needs the identical
            normalisation the primary gets, and nothing more. Size never changes here;
            that is what keeps the jeans still while the shopper cycles tee sizes. */
-        if (companionCache) {
+        if (companionCache && !holdBack && !(drapingAvailable && !companionCache.userData.isDraped)) {
           detachFromParent(companionCache);
           companionCache.position.set(0, 0, 0);
           companionCache.rotation.set(0, 0, 0);

@@ -807,7 +807,7 @@ $('send').addEventListener('click', async () => {
     const start = () => fetch(`${cfg.api}/api/avatar/create`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
       // shop_domain: pre-drape this avatar for this store's garments, ready for the try-on.
-      body: JSON.stringify({ user_id: session.user_id, photo_url: upData.url, height: details.height, weight: details.weight, gender: details.gender, shop_domain: cfg.shop || undefined }),
+      body: JSON.stringify({ user_id: session.user_id, photo_url: upData.url, height: details.height, weight: details.weight, gender: details.gender, shop_domain: cfg.shop || undefined, product_id: cfg.productId || undefined }),
     });
     let res = await start();
     if (res.status === 409) { await ensureProfile(displayName); res = await start(); }   // account had no profile row yet

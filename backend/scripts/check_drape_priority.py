@@ -8,6 +8,7 @@ Offline check for drape scheduling (2026-10-05):
      instead of starting its own RunPod call, and wakes the dispatcher.
   4. /api/draping/status/job:<id> reports the job and returns the cached drape when done.
   5. wake_dispatcher() runs a tick at once instead of at the next interval.
+  6. A new avatar's fan-out puts the product page the shopper onboarded from first.
 
 Measured before the change: 39 jobs in RunPod's first-come queue, ~23 min wait for a
 30-75 s drape. In-process TestClient, FAKE Supabase and RunPod. No network.
@@ -149,9 +150,11 @@ class FakeClient:
         self.tables = {
             "fit_passports": [passport(SHOPPER, f"avatars/{SHOPPER}/body_apose.obj"),
                               passport(OTHER, f"avatars/{OTHER}/body_apose.obj")],
-            "garments": [{"id": g, "is_active": True, "content_hash": VERSION, "fabric_config": {},
-                          "category": "tops", "obj_sizes": {s: f"garments/{g}/{s}.obj" for s in ("s", "m", "l")}}
-                         for g in (ZIP, TEE)],
+            "garments": [{"id": g, "brand_id": "brand-ramin", "is_active": True, "content_hash": VERSION,
+                          "fabric_config": {}, "category": "tops", "shopify_product_handle": handle,
+                          "obj_sizes": {s: f"garments/{g}/{s}.obj" for s in ("s", "m", "l")}}
+                         for g, handle in ((ZIP, "rs-zip-up"), (TEE, "rs-tee"))],
+            "brands": [{"id": "brand-ramin", "shopify_domain": "ph2360-eq.myshopify.com"}],
             "drape_jobs": [], "draped_meshes": [],
         }
 
@@ -178,6 +181,10 @@ def add_job(uid, garment, size, status="queued", priority=10, created="t0001", *
            "status": status, "created_at": created, "attempts": 0, **extra}
     fake.tables["drape_jobs"].append(row)
     return row
+
+
+def job_id_garment(job_id):
+    return next(r["garment_id"] for r in fake.tables["drape_jobs"] if r["id"] == job_id)
 
 
 def job(job_id):
@@ -337,9 +344,31 @@ async def wake_test():
     return first, second
 
 
+real_tick = dd._tick
 first, second = asyncio.run(wake_test())
+dd._tick = real_tick
 check("loop ticks once at start", first == 1, first)
 check("wake_dispatcher runs another tick at once (interval is an hour)", second == 2, second)
+
+# --------------------------------------------------------------------------- 6. product first
+
+fake.reset()
+dd.wake_dispatcher = lambda: woken.append(1)
+woken.clear()
+dq.enqueue_full_drape(SHOPPER, priority=10, brand_ids=["brand-ramin"])       # what /create does on completion
+check("fan-out queued every garment x size", len(fake.tables["drape_jobs"]) == 6, len(fake.tables["drape_jobs"]))
+moved = dq.drape_product_first(SHOPPER, "ph2360-eq.myshopify.com", "rs-zip-up")
+check("product first: all its sizes moved up", sorted(moved) == ["l", "m", "s"], moved)
+zip_p = sorted(j["priority"] for j in fake.tables["drape_jobs"] if j["garment_id"] == ZIP)
+tee_p = sorted(j["priority"] for j in fake.tables["drape_jobs"] if j["garment_id"] == TEE)
+check("product first: its jobs at priority 0, the rest stay at 10", zip_p == [0, 0, 0] and tee_p == [10, 10, 10], (zip_p, tee_p))
+check("product first: dispatcher woken", len(woken) == 1)
+runpod["backlog"] = 0
+sent = tick()
+check("product first: dispatched before the store's other garments",
+      len(sent) == 2 and all(job_id_garment(j) == ZIP for j in sent), sent)
+check("product first: unknown product changes nothing", dq.drape_product_first(SHOPPER, "ph2360-eq.myshopify.com", "no-such-product") == [])
+check("product first: no shop or product changes nothing", dq.drape_product_first(SHOPPER, None, "rs-zip-up") == [] and dq.drape_product_first(SHOPPER, "ph2360-eq.myshopify.com", None) == [])
 
 print()
 print("ALL CHECKS PASSED" if failures == 0 else f"{failures} CHECK(S) FAILED")

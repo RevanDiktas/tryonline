@@ -473,11 +473,15 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 # Postgres inserts), the actual sims are picked up by the
                 # dispatcher loop. Failures here must NOT fail the avatar job.
                 try:
-                    from app.services.drape_queue import enqueue_full_drape
+                    from app.services.drape_queue import drape_product_first, enqueue_full_drape
                     brand_ids = drape_scope_for_shop(request.shop_domain)
                     drape_counts = enqueue_full_drape(request.user_id, priority=10, brand_ids=brand_ids)
                     scope = f"shop {request.shop_domain}" if brand_ids is not None else "all stores"
                     print(f"[Avatar] Pre-drape enqueue ({scope}): {drape_counts}")
+                    # The product they onboarded from goes first: it is the one they open next.
+                    first = drape_product_first(request.user_id, request.shop_domain, request.product_id)
+                    if first:
+                        print(f"[Avatar] Draping {request.product_id} first: {first}")
                 except Exception as drape_err:
                     print(f"[Avatar] Pre-drape enqueue failed (non-fatal): {drape_err}")
 

@@ -45,6 +45,12 @@ class AvatarCreateRequest(BaseModel):
         description="Store the shopper is onboarding from (the widget sends it). When set, "
                     "the new avatar is pre-draped in that store's garments only.",
     )
+    product_id: Optional[str] = Field(
+        None,
+        max_length=255,
+        description="Product page the shopper onboarded from (Shopify handle or id). Its "
+                    "garment is draped first, so it is ready when they open the try-on.",
+    )
 
 
 class AvatarCreateResponse(BaseModel):

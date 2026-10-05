@@ -334,6 +334,30 @@ PRIORITY_ON_SCREEN = 0      # the size the shopper is looking at
 PRIORITY_IN_VIEWER = 1      # the other sizes of the garment they have open
 
 
+def drape_product_first(user_id: str, shop_domain: Optional[str], product_id: Optional[str]) -> list:
+    """Put every size of the product page the shopper came from at the front of their
+    drapes, and wake the dispatcher. Returns the sizes moved up ([] when the product has
+    no garment in this store). Never raises: the avatar is done either way."""
+    if not user_id or not shop_domain or not product_id:
+        return []
+    try:
+        from app.api.routes.products import _find_garment_row
+        from app.services.drape_dispatcher import wake_dispatcher
+        brand = supabase_service.get_brand_by_shopify_domain(shop_domain)
+        row = _find_garment_row(product_id, str(brand["id"]) if brand and brand.get("id") else None)
+        if not row or not row.get("id"):
+            return []
+        g = supabase_service.client.table("garments").select("obj_sizes").eq("id", row["id"]).limit(1).execute()
+        sizes = [s for s, path in ((g.data[0].get("obj_sizes") if g.data else None) or {}).items() if path]
+        moved = [s for s in sizes if prioritize_drape(user_id, row["id"], s, PRIORITY_ON_SCREEN)]
+        if moved:
+            wake_dispatcher()
+        return moved
+    except Exception as e:
+        print(f"[drape_queue] drape_product_first failed (non-fatal): {e}")
+        return []
+
+
 def prioritize_drape(user_id: str, garment_id: str, size: str, priority: int) -> Optional[dict]:
     """The try-on is showing this garment: make sure this shopper's drape for it exists and
     is first in line. Uses the same drape_jobs row as the fan-out (one job per user,
