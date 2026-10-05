@@ -1075,11 +1075,21 @@
       return null;
     }
 
-    function track(eventType, metadata = {}) {
+    // Country and city from the shopper's IP address (worked out by the host, no prompt).
+    let geo = {};
+    const geoReady = Promise.race([
+      fetch('/widget-config').then(r => r.json()).then(d => { geo = (d && d.geo) || {}; }).catch(() => {}),
+      new Promise(res => setTimeout(res, 2000))
+    ]);
+
+    async function track(eventType, metadata = {}) {
+      await geoReady;
       const payload = {
         event_type: eventType,
         session_id: sessionId || undefined,
         user_id: config.userId || undefined,
+        country: geo.country || undefined,
+        city: geo.city || undefined,
         shop_domain: config.shopDomain,
         product_id: config.productId,
         variant_id: config.variantId,

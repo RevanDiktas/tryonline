@@ -496,11 +496,22 @@ const garmentReady = (async () => {
 })();
 
 // ---- account: email + password against the Supabase auth REST API ----
+// /widget-config also says where the shopper is (country and city from their IP address,
+// worked out by the host): events carry it, so nobody is asked for a location.
+let widgetCfg = null;
+function widgetConfig() {
+  if (!widgetCfg) widgetCfg = fetch('/widget-config').then((r) => r.json()).catch(() => { widgetCfg = null; return {}; });
+  return widgetCfg;
+}
+let geo = {};
+const geoReady = Promise.race([
+  widgetConfig().then((d) => { geo = (d && d.geo) || {}; }),
+  new Promise((res) => setTimeout(res, 2000)),
+]);
 let supaCfg = null;
 async function supa() {
   if (supaCfg) return supaCfg;
-  const r = await fetch('/widget-config');
-  const d = await r.json();
+  const d = await widgetConfig();
   if (!d.supabaseUrl || !d.supabaseAnonKey) throw new Error('Sign-in is not available right now.');
   supaCfg = { url: d.supabaseUrl, key: d.supabaseAnonKey };
   return supaCfg;
@@ -862,9 +873,11 @@ function ensureSession() {
 async function track(eventType, metadata) {
   if (!cfg.shop) return;
   await ensureSession();
+  await geoReady;
   fetch(cfg.api + '/api/events/track', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
     body: JSON.stringify({ event_type: eventType, session_id: sessionId || undefined, user_id: userId || undefined, shop_domain: cfg.shop,
+      country: geo.country || undefined, city: geo.city || undefined,
       product_id: cfg.productId, variant_id: cfg.variantId || undefined, preferred_fit: fit,
       metadata: { source: 'size_finder', basis: mode === 'guest' ? 'estimate' : 'measured', ...(metadata || {}) } }),
   }).catch(() => {});
