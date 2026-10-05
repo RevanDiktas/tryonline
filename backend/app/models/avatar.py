@@ -13,6 +13,17 @@ class Gender(str, Enum):
     other = "other"
 
 
+# What the avatar pipeline (RunPod handler) accepts. A shopper may pick "other"; the
+# pipeline has no such body model and rejects it, so it is built on the neutral one.
+# The fit passport keeps what the shopper chose.
+PIPELINE_GENDER = {"male": "male", "female": "female", "other": "neutral"}
+
+
+def pipeline_gender(gender: "Gender | str") -> str:
+    value = gender.value if isinstance(gender, Gender) else str(gender or "").lower()
+    return PIPELINE_GENDER.get(value, "neutral")
+
+
 class ProcessingStatus(str, Enum):
     pending = "pending"
     queued = "queued"
@@ -28,6 +39,12 @@ class AvatarCreateRequest(BaseModel):
     height: int = Field(..., ge=100, le=250, description="Height in cm")
     weight: Optional[int] = Field(None, ge=30, le=300, description="Weight in kg")
     gender: Gender = Field(..., description="Body type")
+    shop_domain: Optional[str] = Field(
+        None,
+        max_length=255,
+        description="Store the shopper is onboarding from (the widget sends it). When set, "
+                    "the new avatar is pre-draped in that store's garments only.",
+    )
 
 
 class AvatarCreateResponse(BaseModel):

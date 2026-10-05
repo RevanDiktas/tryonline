@@ -170,6 +170,10 @@ export interface AnalyticsMetrics {
   revenue_lost_to_returns?: number;
   bracket_orders?: number;
   bracket_rate?: number | null;
+  /** Try-on sessions with at least one order (the numerator of tryon_purchase_rate). */
+  purchase_sessions?: number;
+  /** Days after a try-on in which an order still counts for it. */
+  attribution_window_days?: number;
   [key: string]: unknown;
 }
 
@@ -214,6 +218,7 @@ export interface DwellMetrics {
   median_dwell_seconds?: number | null;
   p90_dwell_seconds?: number | null;
   dwell_to_conversion?: number | null;
+  histogram?: Array<{ label: string; sessions: number }>;
 }
 
 export interface DeviceMetric {
@@ -278,6 +283,8 @@ export interface SkuMetricRow {
 }
 
 export interface ReturnMetricsData {
+  /** 'all_store_orders': every order paid in the range, widget or not. */
+  scope?: string;
   total_purchases: number;
   total_returns: number;
   return_rate?: number | null;
@@ -287,14 +294,27 @@ export interface ReturnMetricsData {
   avg_days_to_return?: number | null;
 }
 
+/** Try-on orders against the store orders that never touched the widget. */
 export interface CohortComparisonData {
+  tryon_sessions?: number;
   tryon_users_count: number;
   tryon_purchases: number;
   tryon_returns: number;
+  tryon_revenue?: number;
   tryon_aov?: number | null;
   tryon_return_rate?: number | null;
   tryon_conversion_rate?: number | null;
   tryon_bracket_rate?: number | null;
+  baseline_orders?: number;
+  baseline_returns?: number;
+  baseline_revenue?: number;
+  baseline_aov?: number | null;
+  baseline_return_rate?: number | null;
+  baseline_bracket_rate?: number | null;
+  attribution_window_days?: number;
+  min_orders_for_comparison?: number;
+  /** False while either side has too few orders for a difference to mean anything. */
+  comparable?: boolean;
   baseline_note?: string;
 }
 
@@ -354,6 +374,8 @@ export interface CreateAvatarPayload {
   height: number;
   weight?: number;
   gender: string;
+  /** Store the shopper is onboarding from; the avatar is then pre-draped for that store only. */
+  shop_domain?: string;
 }
 
 export interface CreateAvatarResult {
@@ -756,6 +778,7 @@ export async function createAvatarWithFallback(
         height: payload.height,
         weight: payload.weight ?? null,
         gender: payload.gender,
+        ...(payload.shop_domain ? { shop_domain: payload.shop_domain } : {}),
       }),
     });
     if (!createRes.ok) {

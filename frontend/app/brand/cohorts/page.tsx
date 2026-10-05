@@ -5,6 +5,47 @@ import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
 import { SharedNav, NavLink } from '@/components/redesign/SharedNav';
 import { useIsMobile } from '@/components/redesign/useIsMobile';
+import { getCurrentUser } from '@/lib/supabase-auth';
+import {
+  api, getMyBrand,
+  type AnalyticsMetrics, type CohortComparisonData, type DwellMetrics, type MetricsByProductResponse,
+} from '@/lib/api';
+
+// Everything on this page is measured: the brand's own events for the last 30 days, with
+// the same definitions as the dashboard (backend/app/services/analytics_cohort.py).
+// A number that cannot be measured yet shows as a dash, never as an estimate.
+const WINDOW_DAYS = 30;
+
+type ProductRow = {
+  product_id: string;
+  tryons_started?: number;
+  add_to_carts?: number;
+  purchases?: number;
+  tryon_purchase_rate?: number | null;
+};
+
+type CohortData = {
+  shop: string;
+  start: string;
+  end: string;
+  cohort: CohortComparisonData | null;
+  metrics: AnalyticsMetrics | null;
+  dwell: DwellMetrics | null;
+  products: ProductRow[];
+};
+
+const localIsoDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function lastDays(days: number): { start: string; end: string } {
+  const end = new Date();
+  const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - (days - 1));
+  return { start: localIsoDate(start), end: localIsoDate(end) };
+}
+
+const pct = (v: number | null | undefined, digits = 1) => (v != null ? `${(v * 100).toFixed(digits)}%` : '–');
+const eur = (v: number | null | undefined) => (v != null ? `€${v.toFixed(2)}` : '–');
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 const PAL = {
   light: {
@@ -66,38 +107,103 @@ const headingStyle = (px: string): React.CSSProperties => ({
   fontSize: px, letterSpacing: '-0.022em', lineHeight: 1.04, margin: 0,
 });
 
-function Hero({ C }: { C: Palette }) {
+function Hero({ C, data }: { C: Palette; data: CohortData }) {
+  const c = data.cohort;
+  const orders = c?.tryon_purchases ?? 0;
+  const sessions = c?.tryon_sessions ?? 0;
+  const minOrders = c?.min_orders_for_comparison ?? 20;
+  const aovRatio = c?.comparable && c.tryon_aov && c.baseline_aov ? c.tryon_aov / c.baseline_aov : null;
+
+  let headline: React.ReactNode;
+  let sub: string;
+  if (aovRatio != null) {
+    headline = <>Try-on orders are worth <CountUp to={aovRatio} decimals={2} suffix="x" /> a store order.</>;
+    sub = `Average order value of ${plural(orders, 'try-on order')} against ${plural(c?.baseline_orders ?? 0, 'store order')} that did not come through the widget.`;
+  } else if (orders > 0) {
+    headline = <>{plural(orders, 'try-on order')} so far.</>;
+    sub = `That is too few to compare with the rest of the store. The comparison is shown once both sides have at least ${minOrders} orders.`;
+  } else if (sessions > 0) {
+    headline = <>{plural(sessions, 'try-on')}, no try-on orders yet.</>;
+    sub = 'Shoppers are trying on, but no order has come through the widget in this period, so there is nothing to compare with the store yet.';
+  } else {
+    headline = <>No try-ons in this period.</>;
+    sub = 'The comparison fills in once shoppers use the widget on your product pages.';
+  }
+
   return (
     <section style={{ background: C.bg, color: C.ink, padding: '48px 32px 24px', borderBottom: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <div style={{
           fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500, marginBottom: 10,
         }}>
-          Ramin Studios pilot, last 30 days
+          {data.shop}, last {WINDOW_DAYS} days ({data.start} to {data.end})
         </div>
         <h1 style={{
           ...headingStyle('clamp(36px, 5vw, 72px)'),
           maxWidth: 1100, marginBottom: 14,
         }}>
-          Virtual try-on lifted conversion <CountUp to={1.78} decimals={2} suffix="x" />.
+          {headline}
         </h1>
         <p style={{
           fontFamily: 'var(--display)', fontSize: 15, lineHeight: 1.55,
           color: C.mute, maxWidth: 720, margin: 0,
         }}>
-          Side-by-side comparison of shoppers who used the Tryon widget against the store baseline. Numbers are computed on the rolling 30-day window. Baselines pulled from your Shopify Analytics.
+          {sub}
         </p>
       </div>
     </section>
   );
 }
 
-function MetricGrid({ C }: { C: Palette }) {
-  const metrics = [
-    { label: 'Conversion rate', tryon: 3.2, baseline: 1.8, suffix: '%', decimals: 1, delta: '+78%' },
-    { label: 'Average order value', tryon: 47, baseline: 39, prefix: '€', decimals: 0, delta: '+20%' },
-    { label: 'Return rate', tryon: 8, baseline: 12, suffix: '%', decimals: 0, delta: '−33%' },
-    { label: 'Fit confidence', tryon: 82, suffix: '%', decimals: 0, delta: 'Per-SKU avg' },
+type Card = {
+  label: string;
+  value: string;
+  detail: string;
+  baseline: string;
+  delta: string | null;
+};
+
+function relativeDelta(tryon: number | null | undefined, baseline: number | null | undefined): string | null {
+  if (tryon == null || baseline == null || baseline === 0) return null;
+  const d = ((tryon - baseline) / baseline) * 100;
+  return `${d >= 0 ? '+' : '−'}${Math.abs(d).toFixed(0)}% vs store`;
+}
+
+function MetricGrid({ C, data }: { C: Palette; data: CohortData }) {
+  const c = data.cohort;
+  const m = data.metrics;
+  const comparable = !!c?.comparable;
+  const orders = c?.tryon_purchases ?? 0;
+  const baseOrders = c?.baseline_orders ?? 0;
+  const cards: Card[] = [
+    {
+      label: 'Try-on conversion',
+      value: pct(c?.tryon_conversion_rate),
+      detail: `${m?.purchase_sessions ?? 0} of ${plural(c?.tryon_sessions ?? 0, 'try-on session')} ordered`,
+      baseline: 'No store figure: store visits are not tracked.',
+      delta: null,
+    },
+    {
+      label: 'Average order value',
+      value: eur(c?.tryon_aov),
+      detail: plural(orders, 'try-on order'),
+      baseline: `Store ${eur(c?.baseline_aov)} over ${plural(baseOrders, 'order')}`,
+      delta: comparable ? relativeDelta(c?.tryon_aov, c?.baseline_aov) : null,
+    },
+    {
+      label: 'Return rate',
+      value: pct(c?.tryon_return_rate),
+      detail: `${c?.tryon_returns ?? 0} of ${plural(orders, 'try-on order')} refunded`,
+      baseline: `Store ${pct(c?.baseline_return_rate)} (${c?.baseline_returns ?? 0} of ${baseOrders})`,
+      delta: comparable ? relativeDelta(c?.tryon_return_rate, c?.baseline_return_rate) : null,
+    },
+    {
+      label: 'Bracketing',
+      value: pct(c?.tryon_bracket_rate),
+      detail: 'Orders with the same product in several sizes',
+      baseline: `Store ${pct(c?.baseline_bracket_rate)}`,
+      delta: comparable ? relativeDelta(c?.tryon_bracket_rate, c?.baseline_bracket_rate) : null,
+    },
   ];
   return (
     <section style={{ background: C.bg, color: C.ink, padding: '24px 20px 48px' }}>
@@ -106,8 +212,8 @@ function MetricGrid({ C }: { C: Palette }) {
           display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 0,
           border: `1px solid ${C.line}`, background: C.surface,
         }}>
-          {metrics.map((m) => (
-            <div key={m.label} style={{
+          {cards.map((card) => (
+            <div key={card.label} style={{
               borderRight: `1px solid ${C.line}`,
               borderBottom: `1px solid ${C.line}`,
               padding: '22px 20px',
@@ -115,34 +221,32 @@ function MetricGrid({ C }: { C: Palette }) {
             }}>
               <div style={{
                 fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600, color: C.mute,
-              }}>{m.label}</div>
+              }}>{card.label}</div>
 
               <div style={{
                 fontFamily: 'var(--display)', fontSize: 38, fontWeight: 700,
                 letterSpacing: '-0.025em', lineHeight: 1, color: C.ink,
+                fontVariantNumeric: 'tabular-nums',
               }}>
-                <CountUp to={m.tryon} prefix={m.prefix} suffix={m.suffix} decimals={m.decimals} />
+                {card.value}
               </div>
 
-              {m.baseline !== undefined ? (
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 13, color: C.mute,
-                }}>
-                  vs {m.prefix || ''}{m.baseline.toFixed(m.decimals || 0)}{m.suffix || ''} baseline
-                </div>
-              ) : (
-                <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
-                  Average across SKUs.
-                </div>
-              )}
+              <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
+                {card.detail}
+              </div>
+              <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
+                {card.baseline}
+              </div>
 
-              <div style={{
-                marginTop: 'auto',
-                fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600, color: C.ink,
-                padding: '4px 10px',
-                border: `1px solid ${C.ink}`,
-                alignSelf: 'flex-start',
-              }}>{m.delta}</div>
+              {card.delta && (
+                <div style={{
+                  marginTop: 'auto',
+                  fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600, color: C.ink,
+                  padding: '4px 10px',
+                  border: `1px solid ${C.ink}`,
+                  alignSelf: 'flex-start',
+                }}>{card.delta}</div>
+              )}
             </div>
           ))}
         </div>
@@ -151,15 +255,16 @@ function MetricGrid({ C }: { C: Palette }) {
   );
 }
 
-function Funnel({ C }: { C: Palette }) {
+function Funnel({ C, data }: { C: Palette; data: CohortData }) {
+  const m = data.metrics;
+  // Four measured steps. Each is a count of distinct widget sessions; the last is orders.
   const stages = [
-    { k: 'Widget opens', v: 100, sub: 'Shoppers clicked Try On.' },
-    { k: 'Try-on rendered', v: 94, sub: 'Avatar dressed in garment.' },
-    { k: 'Size selected', v: 71, sub: 'Picked recommended or alternate.' },
-    { k: 'Add to cart', v: 34, sub: 'Pushed to checkout.' },
-    { k: 'Purchase', v: 25, sub: 'Order completed.' },
+    { k: 'Widget opens', v: m?.widget_opens ?? 0, sub: 'Sessions that opened the widget.' },
+    { k: 'Try-ons', v: m?.tryons_started ?? 0, sub: 'Sessions that dressed the avatar.' },
+    { k: 'Add to cart', v: m?.add_to_carts ?? 0, sub: 'Try-on sessions that added to cart.' },
+    { k: 'Orders', v: m?.purchases ?? 0, sub: `Paid within ${m?.attribution_window_days ?? WINDOW_DAYS} days of the try-on.` },
   ];
-  const max = stages[0].v;
+  const max = Math.max(...stages.map((s) => s.v), 1);
   return (
     <section style={{
       background: C.surface, color: C.ink, padding: '56px 32px',
@@ -167,13 +272,13 @@ function Funnel({ C }: { C: Palette }) {
     }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <h2 style={{ ...headingStyle('clamp(28px, 3.5vw, 44px)'), marginBottom: 20 }}>
-          Fit-to-purchase funnel.
+          Try-on funnel.
         </h2>
         <div style={{
           border: `1px solid ${C.line}`, background: C.bg,
         }}>
           {stages.map((s, i) => {
-            const pct = (s.v / max) * 100;
+            const pctWidth = (s.v / max) * 100;
             return (
               <div key={s.k} style={{
                 padding: '16px 22px',
@@ -193,15 +298,15 @@ function Funnel({ C }: { C: Palette }) {
                 }}>
                   <div style={{
                     position: 'absolute', left: 0, top: 0, bottom: 0,
-                    width: `${pct}%`, background: C.ink, transition: 'width 0.6s ease',
+                    width: `${pctWidth}%`, background: C.ink, transition: 'width 0.6s ease',
                   }} />
                 </div>
                 <div style={{
                   textAlign: 'right',
                   fontFamily: 'var(--display)', fontSize: 20, fontWeight: 700, color: C.ink,
-                  letterSpacing: '-0.02em',
+                  letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums',
                 }}>
-                  <CountUp to={s.v} />
+                  {s.v}
                 </div>
               </div>
             );
@@ -212,68 +317,77 @@ function Funnel({ C }: { C: Palette }) {
   );
 }
 
-function Dwell({ C }: { C: Palette }) {
-  const buckets = [
-    { range: '0 to 10s', count: 8 },
-    { range: '10 to 20s', count: 19 },
-    { range: '20 to 30s', count: 28 },
-    { range: '30 to 60s', count: 24 },
-    { range: 'Over 60s', count: 15 },
-  ];
-  const max = Math.max(...buckets.map(b => b.count));
+function Dwell({ C, data }: { C: Palette; data: CohortData }) {
+  const d = data.dwell;
+  const buckets = d?.histogram ?? [];
+  const max = Math.max(...buckets.map((b) => b.sessions), 1);
+  const hasData = (d?.total_sessions ?? 0) > 0 && buckets.length > 0;
   return (
     <section style={{
       background: C.bg, color: C.ink, padding: '56px 32px',
       borderTop: `1px solid ${C.line}`,
     }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 20, gap: 16, flexWrap: 'wrap' }}>
           <h2 style={{ ...headingStyle('clamp(28px, 3.5vw, 44px)'), margin: 0 }}>
             Dwell time.
           </h2>
-          <div style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.mute }}>
-            Avg <span style={{ color: C.ink, fontWeight: 600 }}>38s</span> per session
+          {hasData && (
+            <div style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.mute }}>
+              Median <span style={{ color: C.ink, fontWeight: 600 }}>{Math.round(d?.median_dwell_seconds ?? 0)}s</span>
+              {' '}over {plural(d?.total_sessions ?? 0, 'session')}
+            </div>
+          )}
+        </div>
+        {hasData ? (
+          <div style={{
+            border: `1px solid ${C.line}`, padding: 24, background: C.surface,
+            display: 'flex', alignItems: 'flex-end', gap: 18, height: 200,
+          }}>
+            {buckets.map((b) => {
+              const h = Math.round((b.sessions / max) * 144);
+              return (
+                <div key={b.label} style={{
+                  flex: 1,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                }}>
+                  <div style={{
+                    fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600, color: C.ink,
+                  }}>{b.sessions}</div>
+                  <div style={{
+                    width: '100%', height: h,
+                    background: C.ink,
+                    transition: 'height 0.6s ease',
+                  }} />
+                  <div style={{
+                    fontFamily: 'var(--display)', fontSize: 12, color: C.mute, textAlign: 'center',
+                  }}>{b.label}</div>
+                </div>
+              );
+            })}
           </div>
-        </div>
-        <div style={{
-          border: `1px solid ${C.line}`, padding: 24, background: C.surface,
-          display: 'flex', alignItems: 'flex-end', gap: 18, height: 200,
-        }}>
-          {buckets.map(b => {
-            const h = Math.round((b.count / max) * 144);
-            return (
-              <div key={b.range} style={{
-                flex: 1,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-              }}>
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600, color: C.ink,
-                }}>{b.count}</div>
-                <div style={{
-                  width: '100%', height: h,
-                  background: C.ink,
-                  transition: 'height 0.6s ease',
-                }} />
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 12, color: C.mute, textAlign: 'center',
-                }}>{b.range}</div>
-              </div>
-            );
-          })}
-        </div>
+        ) : (
+          <EmptyRow C={C} text="No finished try-ons in this period yet." />
+        )}
       </div>
     </section>
   );
 }
 
-function TopProducts({ C }: { C: Palette }) {
-  const rows = [
-    { name: 'NPC Oversized T-shirt', tryons: 38, conv: 32, lift: '+1.9x' },
-    { name: 'NPC Cropped Hoodie', tryons: 22, conv: 28, lift: '+1.6x' },
-    { name: 'NPC Flow Pant', tryons: 17, conv: 24, lift: '+1.4x' },
-    { name: 'NPC Tank', tryons: 12, conv: 18, lift: '+1.2x' },
-    { name: 'NPC Track Top', tryons: 5, conv: 14, lift: '+1.1x' },
-  ];
+function EmptyRow({ C, text }: { C: Palette; text: string }) {
+  return (
+    <div style={{
+      border: `1px solid ${C.line}`, background: C.surface, padding: '28px 22px',
+      fontFamily: 'var(--display)', fontSize: 14, color: C.mute,
+    }}>{text}</div>
+  );
+}
+
+function TopProducts({ C, data }: { C: Palette; data: CohortData }) {
+  const rows = [...data.products]
+    .sort((a, b) => (b.tryons_started ?? 0) - (a.tryons_started ?? 0))
+    .slice(0, 8);
+  const cols = '1.6fr 0.6fr 0.6fr 0.6fr 0.7fr';
   return (
     <section style={{
       background: C.surface, color: C.ink, padding: '56px 32px',
@@ -283,52 +397,61 @@ function TopProducts({ C }: { C: Palette }) {
         <h2 style={{ ...headingStyle('clamp(28px, 3.5vw, 44px)'), marginBottom: 20 }}>
           Top products by try-on volume.
         </h2>
-        <div style={{ border: `1px solid ${C.line}`, background: C.bg }}>
-          <div style={{
-            padding: '12px 22px', borderBottom: `1px solid ${C.line}`,
-            display: 'grid', gridTemplateColumns: '1.6fr 0.6fr 0.6fr 0.6fr', gap: 22,
-            fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600, color: C.mute,
-          }}>
-            <span>Product</span>
-            <span style={{ textAlign: 'right' }}>Try-ons</span>
-            <span style={{ textAlign: 'right' }}>Conversion</span>
-            <span style={{ textAlign: 'right' }}>Lift</span>
-          </div>
-          {rows.map((r, i) => (
-            <div key={r.name} style={{
-              padding: '14px 22px',
-              borderBottom: i < rows.length - 1 ? `1px solid ${C.line}` : 'none',
-              display: 'grid', gridTemplateColumns: '1.6fr 0.6fr 0.6fr 0.6fr', gap: 22, alignItems: 'center',
-            }}>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 500 }}>
-                {r.name}
-              </div>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.ink, textAlign: 'right' }}>
-                {r.tryons}
-              </div>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.ink, textAlign: 'right' }}>
-                {r.conv}%
-              </div>
+        {rows.length === 0 ? (
+          <EmptyRow C={C} text="No products tried on in this period yet." />
+        ) : (
+          <div style={{ border: `1px solid ${C.line}`, background: C.bg, overflowX: 'auto' }}>
+            <div style={{ minWidth: 520 }}>
               <div style={{
-                fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 600,
-                textAlign: 'right',
-              }}>{r.lift}</div>
+                padding: '12px 22px', borderBottom: `1px solid ${C.line}`,
+                display: 'grid', gridTemplateColumns: cols, gap: 22,
+                fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600, color: C.mute,
+              }}>
+                <span>Product</span>
+                <span style={{ textAlign: 'right' }}>Try-ons</span>
+                <span style={{ textAlign: 'right' }}>Add to cart</span>
+                <span style={{ textAlign: 'right' }}>Orders</span>
+                <span style={{ textAlign: 'right' }}>Conversion</span>
+              </div>
+              {rows.map((r, i) => (
+                <div key={r.product_id} style={{
+                  padding: '14px 22px',
+                  borderBottom: i < rows.length - 1 ? `1px solid ${C.line}` : 'none',
+                  display: 'grid', gridTemplateColumns: cols, gap: 22, alignItems: 'center',
+                  fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontVariantNumeric: 'tabular-nums',
+                }}>
+                  <div style={{ fontWeight: 500, overflowWrap: 'anywhere' }}>{r.product_id}</div>
+                  <div style={{ textAlign: 'right' }}>{r.tryons_started ?? 0}</div>
+                  <div style={{ textAlign: 'right' }}>{r.add_to_carts ?? 0}</div>
+                  <div style={{ textAlign: 'right' }}>{r.purchases ?? 0}</div>
+                  <div style={{ textAlign: 'right', fontWeight: 600 }}>{pct(r.tryon_purchase_rate, 0)}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
-function Footnote({ C }: { C: Palette }) {
+function Footnote({ C, data }: { C: Palette; data: CohortData }) {
+  const days = data.cohort?.attribution_window_days ?? WINDOW_DAYS;
   return (
     <section style={{ background: C.bg, color: C.mute, padding: '28px 32px 44px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <p style={{ fontFamily: 'var(--display)', fontSize: 12, lineHeight: 1.6, margin: 0 }}>
-          Ramin Studios pilot data, 2026-04-17 to 2026-05-02. Baselines: McKinsey State of Fashion 2025 (industry conversion), Shopify Plus Apparel benchmark 2024 (AOV), Coresight 2024 (apparel return rate). Fit confidence is the per-SKU average from our recommendation engine. Numbers refresh hourly when the brand dashboard is connected to Shopify Analytics.
+        <p style={{ fontFamily: 'var(--display)', fontSize: 12, lineHeight: 1.6, margin: 0, maxWidth: 900 }}>
+          How this is counted. A try-on is a widget session that dressed the avatar at least once in the period. A try-on order is a Shopify order paid within {days} days of that session&apos;s try-on. Store orders are every other order paid in the period. An order counts as returned once it has a refund, including cancellations. Conversion is try-on sessions with an order, divided by try-on sessions. All figures are this store&apos;s own data; none are industry benchmarks.
         </p>
       </div>
+    </section>
+  );
+}
+
+function StatusPanel({ C, text }: { C: Palette; text: string }) {
+  return (
+    <section style={{ background: C.bg, color: C.mute, padding: '96px 32px' }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto', fontFamily: 'var(--display)', fontSize: 15 }}>{text}</div>
     </section>
   );
 }
@@ -339,6 +462,49 @@ export default function CohortsPage() {
   const C = dark ? PAL.dark : PAL.light;
   const router = useRouter();
   const mobile = useIsMobile();
+  const [data, setData] = useState<CohortData | null>(null);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'no-store' | 'error'>('loading');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const user = await getCurrentUser();
+        if (cancelled) return;
+        if (!user) { router.push('/login'); return; }
+        if (user.user_type !== 'brand') { router.push('/dashboard'); return; }
+        const brand = await getMyBrand(user.id);
+        const shop = (brand?.shopify_domain as string | undefined) || '';
+        if (cancelled) return;
+        if (!shop) { setStatus('no-store'); return; }
+        const range = lastDays(WINDOW_DAYS);
+        const params = { ...range, shop };
+        const [cohort, metrics, dwell, byProduct] = await Promise.allSettled([
+          api.getCohortComparison(params),
+          api.getAnalyticsMetrics(params),
+          api.getDwellMetrics(params),
+          api.getMetricsByProduct(params),
+        ]);
+        if (cancelled) return;
+        // The comparison and the funnel are the page; without them there is nothing honest to show.
+        if (cohort.status !== 'fulfilled' || metrics.status !== 'fulfilled') { setStatus('error'); return; }
+        setData({
+          shop,
+          ...range,
+          cohort: cohort.value,
+          metrics: metrics.value,
+          dwell: dwell.status === 'fulfilled' ? dwell.value : null,
+          products: byProduct.status === 'fulfilled'
+            ? (((byProduct.value as MetricsByProductResponse).products ?? []) as ProductRow[])
+            : [],
+        });
+        setStatus('ready');
+      } catch {
+        if (!cancelled) setStatus('error');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [router]);
 
   const links = [
     { label: 'Overview', onClick: () => router.push('/brand') },
@@ -359,12 +525,19 @@ export default function CohortsPage() {
           <NavLink dark={dark} label="Back to dashboard" href="/brand" />
         )}
       />
-      <Hero C={C} />
-      <MetricGrid C={C} />
-      <Funnel C={C} />
-      <Dwell C={C} />
-      <TopProducts C={C} />
-      <Footnote C={C} />
+      {status === 'loading' && <StatusPanel C={C} text="Loading your store's numbers…" />}
+      {status === 'no-store' && <StatusPanel C={C} text="No Shopify store is linked to this brand yet, so there is nothing to compare. Install the Tryon app on your store to connect it." />}
+      {status === 'error' && <StatusPanel C={C} text="The numbers could not be loaded. Reload the page to try again." />}
+      {status === 'ready' && data && (
+        <>
+          <Hero C={C} data={data} />
+          <MetricGrid C={C} data={data} />
+          <Funnel C={C} data={data} />
+          <Dwell C={C} data={data} />
+          <TopProducts C={C} data={data} />
+          <Footnote C={C} data={data} />
+        </>
+      )}
     </div>
   );
 }

@@ -61,6 +61,16 @@ class Settings(BaseSettings):
     frontend_app_url_pilot: str = ""  # Override for shopify_pilot_shops (e.g. Ramin Studios stays on tryon.global; App Store submission lives on app.tryon.global)
     backend_public_url: str = ""  # Public URL of this API (e.g. https://api.railway.app) for OAuth callback
 
+    # Store-page widget (see app/services/widget_token.py)
+    # Signing key for widget tokens. Empty = derive one from the service key.
+    widget_token_secret: str = ""
+    widget_token_ttl_days: int = 30
+    # False (default): requests that name a user_id without proof still work, and are
+    # logged, so the live widget keeps working while the token rolls out. Set to true once
+    # the widget sends X-Widget-Token and the tryon.global pages send their bearer token:
+    # from then on a bare user_id is refused.
+    widget_auth_required: bool = False
+
     # Server (Railway/Render set PORT at runtime)
     port: int = 8000
 

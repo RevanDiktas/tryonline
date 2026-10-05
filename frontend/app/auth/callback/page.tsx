@@ -14,7 +14,7 @@ import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ensureUserProfile, isProfileComplete, hasFitPassport, getSession } from '@/lib/supabase-auth';
-import { completeWidgetLink, shopperHomePath } from '@/lib/widgetReturn';
+import { completeWidgetLink, shopperHomePath, widgetStateHeaders } from '@/lib/widgetReturn';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +47,7 @@ function AuthCallbackInner() {
           try {
             await fetch(`/api/auth/widget-state/${widgetState}/complete`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: await widgetStateHeaders(),
               body: JSON.stringify({ user_id: user.id, display_name: displayName }),
             });
           } catch (_) { /* best-effort */ }

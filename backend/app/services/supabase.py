@@ -83,6 +83,43 @@ class SupabaseService:
             response = self.client.table("fit_passports").select("*").eq("user_id", user_id).execute()
             return response.data[0] if response.data else None
     
+    async def ensure_fit_passport(
+        self,
+        user_id: str,
+        height: int,
+        weight: Optional[int],
+        gender: str,
+    ) -> bool:
+        """Make sure the shopper has a fit passport holding what this avatar is being built
+        from, marked as processing. Creates the row if the client never did (the widget
+        onboards without visiting tryon.global), otherwise updates it in place. An avatar
+        job with no passport row would run for minutes and then have nowhere to save.
+        Returns False only if the row could not be written."""
+        now = datetime.utcnow().isoformat()
+        fields: Dict[str, Any] = {
+            "height": int(height),
+            "gender": gender,
+            "status": "processing",
+            "processing_started_at": now,
+            "updated_at": now,
+        }
+        if weight is not None:
+            fields["weight"] = int(weight)
+        existing = self.client.table("fit_passports").select("id").eq("user_id", user_id).limit(1).execute()
+        if existing.data:
+            r = self.client.table("fit_passports").update(fields).eq("user_id", user_id).execute()
+            return len(r.data or []) > 0
+        try:
+            r = self.client.table("fit_passports").insert({"user_id": user_id, **fields}).execute()
+            return len(r.data or []) > 0
+        except Exception as e:
+            msg = str(e).lower()
+            if "duplicate" in msg or "23505" in msg or "unique" in msg:
+                # Raced with the client creating it: update what is now there.
+                r = self.client.table("fit_passports").update(fields).eq("user_id", user_id).execute()
+                return len(r.data or []) > 0
+            raise
+
     async def update_fit_passport_status(
         self, 
         user_id: str, 

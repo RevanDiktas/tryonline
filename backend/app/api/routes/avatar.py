@@ -16,8 +16,9 @@ from app.models.avatar import (
     AvatarResponse,
     Measurements,
     ProcessingStatus,
+    pipeline_gender,
 )
-from app.api.deps import get_current_user_id
+from app.api.deps import UserAccess, get_current_user_id
 from app.services.supabase import supabase_service
 from app.services.runpod import runpod_service
 from app.config import get_settings
@@ -90,12 +91,24 @@ async def create_avatar(
     # Generate job ID
     job_id = f"job-{uuid.uuid4().hex[:12]}"
     
-    # Update fit_passport status
-    await supabase_service.update_fit_passport_status(
-        user_id=body.user_id,
-        status="processing",
-        progress_message="Starting avatar creation..."
-    )
+    # The passport is created here if the client has not made one (the widget onboards
+    # without ever visiting tryon.global), and always holds what this avatar is built from.
+    try:
+        saved = await supabase_service.ensure_fit_passport(
+            user_id=body.user_id,
+            height=body.height,
+            weight=body.weight,
+            gender=body.gender.value,
+        )
+    except Exception as e:
+        print(f"[Avatar] Could not write fit passport for {body.user_id}: {e}")
+        saved = False
+    if not saved:
+        # fit_passports.user_id references users.id: no profile row, no passport.
+        raise HTTPException(
+            status_code=409,
+            detail="Your account is not fully set up yet. Finish signing up, then try again.",
+        )
     
     # Store job info
     jobs[job_id] = {
@@ -126,6 +139,28 @@ async def create_avatar(
     )
 
 
+def drape_scope_for_shop(shop_domain: str | None) -> list[str] | None:
+    """Which brands a new avatar is pre-draped for.
+
+    A shopper who onboards from a store's widget needs that store's garments now, not
+    every garment on the platform: return that store's brand. No shop (onboarding on
+    tryon.global), or a shop we cannot match to a brand, returns None = every store, which
+    is what happened before and is the safe side: nobody ends up with no drapes.
+    """
+    shop = (shop_domain or "").strip()
+    if not shop:
+        return None
+    try:
+        brand_id = supabase_service._resolve_brand_id(shop)
+    except Exception as e:
+        print(f"[Avatar] Brand lookup failed for shop {shop!r}: {e}")
+        return None
+    if not brand_id:
+        print(f"[Avatar] No brand for shop {shop!r}; pre-draping for every store")
+        return None
+    return [brand_id]
+
+
 async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
     """
     Background task to process avatar creation
@@ -140,7 +175,7 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
         print(f"[Avatar] 🚀 Starting avatar job: {job_id}")
         print(f"[Avatar]   User ID: {request.user_id}")
         print(f"[Avatar]   Height: {request.height} cm")
-        print(f"[Avatar]   Gender: {request.gender.value}")
+        print(f"[Avatar]   Gender: {request.gender.value} (pipeline: {pipeline_gender(request.gender)})")
         print(f"[Avatar]   Photo URL: {request.photo_url[:100]}...")
         
         jobs[job_id]["status"] = ProcessingStatus.processing
@@ -198,7 +233,7 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
             photo_url=photo_url,  # Use signed URL
             height=request.height,
             weight=request.weight,
-            gender=request.gender.value,
+            gender=pipeline_gender(request.gender),
             user_id=request.user_id
         )
         
@@ -413,8 +448,10 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                 # dispatcher loop. Failures here must NOT fail the avatar job.
                 try:
                     from app.services.drape_queue import enqueue_full_drape
-                    drape_counts = enqueue_full_drape(request.user_id, priority=10)
-                    print(f"[Avatar] Pre-drape enqueue: {drape_counts}")
+                    brand_ids = drape_scope_for_shop(request.shop_domain)
+                    drape_counts = enqueue_full_drape(request.user_id, priority=10, brand_ids=brand_ids)
+                    scope = f"shop {request.shop_domain}" if brand_ids is not None else "all stores"
+                    print(f"[Avatar] Pre-drape enqueue ({scope}): {drape_counts}")
                 except Exception as drape_err:
                     print(f"[Avatar] Pre-drape enqueue failed (non-fatal): {drape_err}")
 
@@ -523,7 +560,7 @@ async def debug_test_upload():
 
 
 @router.get("/{user_id}", response_model=AvatarResponse)
-async def get_avatar(user_id: str):
+async def get_avatar(user_id: str, _access: None = Depends(UserAccess("avatar"))):
     """
     Get user's avatar and measurements.
     ALWAYS returns avatar_textured.glb URL — canonical path from Supabase storage.

@@ -4,6 +4,7 @@ Avatar creation background tasks
 from app.tasks.celery_app import celery_app
 from app.services.supabase import supabase_service
 from app.services.runpod import runpod_service
+from app.models.avatar import pipeline_gender
 import asyncio
 
 
@@ -42,7 +43,7 @@ def create_avatar_task(
                 photo_url=photo_url,
                 height=height,
                 weight=weight,
-                gender=gender,
+                gender=pipeline_gender(gender),
                 user_id=user_id
             )
         )

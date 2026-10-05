@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { login, logout, getCurrentUser, signInWithSocial } from '@/lib/supabase-auth';
-import { isValidLinkState } from '@/lib/widgetReturn';
+import { isValidLinkState, widgetStateHeaders } from '@/lib/widgetReturn';
 
 const SUPABASE_CONFIGURED =
   typeof process.env.NEXT_PUBLIC_SUPABASE_URL === 'string' &&
@@ -53,7 +53,7 @@ export default function WidgetSignInPage() {
     try {
       await fetch(`/api/auth/widget-state/${widgetState}/complete`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await widgetStateHeaders(),
         body: JSON.stringify({ user_id: userId, display_name: displayName }),
       });
     } catch (_) { /* best-effort */ }

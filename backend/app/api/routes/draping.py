@@ -15,8 +15,10 @@ import os
 from typing import Optional, Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
 from pydantic import BaseModel
+
+from app.api.deps import UserAccess
 
 from app.config import get_settings
 from app.services.supabase import SupabaseService
@@ -434,6 +436,7 @@ async def check_draping_cache(
     garment_id: str = Query(...),
     size: str = Query(...),
     user_id: str = Query(...),
+    _access: None = Depends(UserAccess("drape check")),
 ):
     """Quick check: does a draped mesh exist for this garment+size+user?"""
     ident = _body_identity(user_id)
