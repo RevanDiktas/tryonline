@@ -5,10 +5,44 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 
-from app.api.deps import get_current_user_id
+from app.api.deps import UserAccess, get_current_user_id
 from app.services.supabase import supabase_service
 
 router = APIRouter()
+
+# The body measurements a fit passport holds (cm).
+PASSPORT_MEASUREMENTS = (
+    "chest", "waist", "hips", "inseam", "shoulder_width", "arm_length", "neck", "thigh", "torso_length",
+)
+
+
+@router.get("/passport/{user_id}")
+async def get_fit_passport(user_id: str, _access: None = Depends(UserAccess("fit passport"))):
+    """The shopper's fit passport and nothing else: what a size-only surface needs.
+
+    One onboarding always produces both a fit passport and an avatar. What a surface
+    fetches depends on what it shows:
+      - size only (the "Find my size" card)  -> this route
+      - try-on (the 3D viewer)               -> GET /api/avatar/{user_id}: passport + avatar
+
+    `status` is the passport's: pending / processing / completed / failed. Measurements
+    are only real once it is `completed`; before that the row holds what the shopper
+    typed (height, weight) and no measured value. 404 = the shopper has not started.
+    """
+    fp = await supabase_service.get_fit_passport(user_id)
+    if not fp:
+        raise HTTPException(status_code=404, detail="No fit passport")
+    measurements = {k: fp.get(k) for k in PASSPORT_MEASUREMENTS if fp.get(k) is not None}
+    return {
+        "user_id": user_id,
+        "status": fp.get("status") or "pending",
+        "gender": fp.get("gender"),
+        "height": fp.get("height"),
+        "weight": fp.get("weight"),
+        "preferred_fit": fp.get("preferred_fit"),
+        "measurements": measurements,
+        "measured_at": fp.get("processing_completed_at"),
+    }
 
 
 class MeasurementsUpdate(BaseModel):

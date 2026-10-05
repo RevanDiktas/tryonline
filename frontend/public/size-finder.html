@@ -1,0 +1,1046 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Find your size</title>
+<!--
+  Size finder: your size on any product, from your Tryon account. Opened in an iframe by the
+  "Find my size" theme block (shopify_app/extensions/tryon-widget/blocks/find-my-size.liquid).
+
+  ONE ONBOARDING, TWO SURFACES. A shopper is onboarded once: account, height and weight, one
+  photo. That always starts the full build on RunPod (POST /api/avatar/create), which
+  produces a fit passport (measurements) AND an avatar. What a surface then fetches depends
+  on what it shows:
+
+      size only (this card)     GET /api/measurements/passport/{id}   the fit passport
+      try-on (test-viewer.html) GET /api/avatar/{id}                  passport + avatar
+
+  So a shopper who starts here can open the Try On widget later and their avatar is already
+  there, and the other way round.
+
+  The whole onboarding happens in this card, on the store's product page:
+
+      gate -> account (create or sign in) -> details -> photo -> building -> size
+
+  - The card holds its own Supabase session (email + password, straight against the auth
+    REST API; keys come from /widget-config). Upload, create and status are the same
+    endpoints tryon.global/onboarding uses.
+  - A build keeps running if the card is closed, and the card picks it up again on the next
+    open or the next page. If the backend forgot the job (restart), the passport's own
+    status says how it ended.
+  - Google / Apple sign-in still opens tryon.global in a popup and hands back the user id
+    only. Enough to show a measured shopper their size; a new shopper who signs in that way
+    is sent to tryon.global for the photo, until the session hand-off exists.
+
+  No 3D garment is needed for a size, so this answers on every product with sizes, in every
+  store with the block: one account, every store.
+
+  Optional, off by default (?guest=1): a quick estimate from height, weight and build for
+  shoppers without an account (size-estimator.js).
+
+  Look: Tryon's own (Inter, black on white), the same as the Try On widget. A store can ask
+  for its own colours instead (?look=store plus ink / paper / btn_bg / btn_fg / radius / font).
+
+  Host <-> card messages (all prefixed TRYON_SIZE_ so the try-on block ignores them):
+    card -> host  TRYON_SIZE_READY, TRYON_SIZE_CLOSE, TRYON_SIZE_RESULT {size},
+                  TRYON_SIZE_ADD_TO_CART {size, session_id}, TRYON_SIZE_OPEN_TRYON,
+                  TRYON_SIZE_ACCOUNT (the shopper is signed in)
+    host -> card  TRYON_SIZE_PRODUCT {sizes:[{label, available}], hasTryon}, TRYON_SIZE_OPEN,
+                  TRYON_SIZE_HIDE
+-->
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  :root {
+    --ink: #0a0a0a; --paper: #ffffff; --btn-bg: #0a0a0a; --btn-fg: #ffffff; --accent: #0040ff;
+    --radius: 10px; --btn-radius: 10px; --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --line: color-mix(in srgb, var(--ink) 15%, transparent);
+    --soft: color-mix(in srgb, var(--ink) 5%, transparent);
+    --mute: color-mix(in srgb, var(--ink) 60%, transparent);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: transparent; }
+  body { font-family: var(--font); color: var(--ink); font-size: 15px; line-height: 1.45; -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: flex-end; justify-content: center; }
+  body.silent .scrim, body.closed .scrim { display: none; }
+  /* The card scrolls inside itself, so a short screen never cuts it off. */
+  .card { position: relative; width: 100%; max-width: 420px; max-height: 100dvh; overflow-y: auto; overscroll-behavior: contain;
+          background: var(--paper); color: var(--ink); padding: 20px 20px calc(18px + env(safe-area-inset-bottom));
+          border-radius: 16px 16px 0 0; box-shadow: 0 12px 40px rgba(0,0,0,.15); }
+  @media (min-width: 560px) {
+    .scrim { align-items: center; padding: 24px; }
+    .card { border-radius: 16px; max-height: calc(100dvh - 48px); padding: 26px 26px 22px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .card { animation: rise .22s ease-out; }
+    @keyframes rise { from { transform: translateY(18px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .tape i, .bar i { transition: height .35s ease-out, width .6s ease-out; }
+  }
+  .brand { margin: 0 0 14px; font-size: 12px; font-weight: 600; letter-spacing: .12em; color: var(--mute); }
+  h1 { font-size: 21px; line-height: 1.2; margin: 0 40px 4px 0; font-weight: 600; letter-spacing: -0.015em; }
+  .product { margin: 0 0 16px; color: var(--mute); font-size: 13px; }
+  .lede { margin: 0 0 18px; font-size: 14.5px; color: color-mix(in srgb, var(--ink) 78%, transparent); max-width: 38ch; }
+  .close { position: absolute; top: 10px; right: 10px; width: 40px; height: 40px; border: 0; background: none; color: inherit; font-size: 18px; cursor: pointer; border-radius: 50%; }
+  .close:hover { background: var(--soft); }
+  fieldset { border: 0; padding: 0; margin: 0 0 14px; min-width: 0; }
+  legend, label.lab { display: block; padding: 0; margin: 0 0 6px; font-size: 13px; font-weight: 500; }
+  .opt { font-weight: 400; color: var(--mute); }
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .seg label { position: relative; display: block; text-align: center; padding: 11px 6px; font-size: 14px; cursor: pointer; border-left: 1px solid var(--line); min-height: 44px; }
+  .seg label:first-of-type { border-left: 0; }
+  .seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .seg label:has(input:checked) { background: var(--ink); color: var(--paper); }
+  .seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -4px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .row.two { grid-template-columns: 1fr 1fr; }
+  .field { position: relative; margin-bottom: 12px; }
+  .row .field { margin-bottom: 0; }
+  .field input { width: 100%; height: 46px; padding: 0 12px; font: inherit; font-size: 16px; color: inherit; background: transparent;
+                 border: 1px solid var(--line); border-radius: var(--radius); font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+  .field.u input { padding-right: 38px; }
+  .field input::-webkit-outer-spin-button, .field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .field input:focus-visible, .primary:focus-visible, .ghost:focus-visible, .link:focus-visible, .close:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .field .unit { position: absolute; right: 12px; top: 0; line-height: 46px; color: var(--mute); font-size: 13px; pointer-events: none; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .units { display: flex; justify-content: flex-end; margin: -6px 0 10px; }
+  .link { background: none; border: 0; padding: 4px 0; font: inherit; font-size: 13px; color: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  .primary, .ghost { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; padding: 12px 16px; border-radius: var(--btn-radius);
+             font: inherit; font-size: 14.5px; font-weight: 500; cursor: pointer; text-decoration: none; text-align: center; }
+  .primary { border: 1px solid var(--btn-bg); background: var(--btn-bg); color: var(--btn-fg); }
+  .ghost { border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent); background: var(--paper); color: var(--ink); }
+  .primary:hover { opacity: .9; } .ghost:hover { background: var(--soft); }
+  .primary[disabled], .primary[aria-busy="true"], .ghost[disabled] { opacity: .5; cursor: default; pointer-events: none; }
+  .stack { display: grid; gap: 10px; }
+  .error { min-height: 18px; margin: 0 0 8px; font-size: 13px; color: #b3261e; }
+  .foot { margin: 14px 0 0; font-size: 12px; color: var(--mute); }
+  .foot a { color: inherit; }
+  .wait { margin: 12px 0 0; font-size: 13px; color: var(--mute); }
+  .check { display: flex; gap: 10px; align-items: flex-start; margin: 2px 0 12px; font-size: 13px; color: var(--mute); }
+  .check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
+  .steps { margin: 0 0 18px; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+  .steps li { padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14px; display: flex; justify-content: space-between; gap: 12px; }
+  .steps li span:last-child { color: var(--mute); white-space: nowrap; }
+  .progress { margin: 0 0 16px; font-size: 12px; color: var(--mute); }
+
+  /* Photo */
+  .shot { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: start; margin: 0 0 16px; }
+  .shot img { width: 112px; aspect-ratio: 3/4; object-fit: cover; border-radius: var(--radius); background: var(--soft); display: block; }
+  .tips { margin: 0; padding: 0; list-style: none; font-size: 13.5px; }
+  .tips li { padding: 0 0 8px 18px; position: relative; }
+  .tips li::before { content: ''; position: absolute; left: 0; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--ink); }
+  input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  /* Building */
+  .bar { height: 6px; background: var(--soft); border-radius: 99px; overflow: hidden; margin: 18px 0 10px; }
+  .bar i { display: block; height: 100%; width: 4%; background: var(--accent); border-radius: 99px; }
+  .stage { margin: 0 0 18px; font-size: 14px; font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; gap: 12px; }
+  .stage span:last-child { color: var(--mute); }
+
+  /* Result */
+  .lead { margin: 0; font-size: 13px; font-weight: 500; color: var(--mute); }
+  .size { margin: 0 0 6px -3px; font-size: clamp(76px, 27vw, 108px); line-height: .9; font-weight: 800; letter-spacing: -0.05em; }
+  .why { margin: 0 0 16px; font-size: 14.5px; max-width: 36ch; }
+  .measured { margin: 0 0 14px; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: var(--radius); }
+  .measured li { padding: 10px 12px; border-left: 1px solid var(--line); font-size: 12px; color: var(--mute); }
+  .measured li:first-child { border-left: 0; }
+  .measured b { display: block; font-size: 17px; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
+  /* Estimate only: sizes laid out like marks on a tape, filled by how likely each is. */
+  .tape { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; align-items: end; height: 72px; margin: 0 0 6px; border-bottom: 2px solid var(--ink); }
+  .tape div { position: relative; height: 100%; display: flex; align-items: flex-end; justify-content: center; }
+  .tape i { display: block; width: 62%; background: var(--ink); min-height: 0; }
+  .tape div:not(.pick) i { opacity: .25; }
+  .tape span { position: absolute; top: 0; font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; }
+  .chips { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin: 0 0 14px; gap: 4px; }
+  .chip { height: 40px; border: 0; background: none; color: inherit; font: inherit; font-size: 14px; cursor: pointer; border-radius: var(--radius); }
+  .chips.rel .chip { height: 50px; }
+  .chip small { display: block; font-size: 10px; font-weight: 400; color: var(--mute); line-height: 1; margin-top: 3px; }
+  .chip[aria-pressed="true"] { font-weight: 600; box-shadow: inset 0 0 0 1.5px var(--ink); }
+  .chip.out { color: var(--mute); text-decoration: line-through; }
+  .note { margin: 0 0 14px; font-size: 13px; padding: 10px 12px; background: var(--soft); border-radius: var(--radius); }
+  .secondary { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body class="closed">
+<div class="scrim" id="scrim">
+  <div class="card" role="dialog" aria-modal="true" aria-label="Find your size" id="card" tabindex="-1">
+    <button class="close" id="close" type="button" aria-label="Close">&#x2715;</button>
+    <p class="brand" id="brand">TRYON</p>
+
+    <section id="gate" hidden>
+      <h1>Find your size</h1>
+      <p class="product" data-product></p>
+      <p class="lede">One photo gives us your measurements. After that you get your size on every product here, and in every other store that uses Tryon.</p>
+      <div class="stack">
+        <button class="primary" type="button" data-go="signup">Create my account</button>
+        <button class="ghost" type="button" data-go="signin">Sign in</button>
+      </div>
+      <p class="wait" id="gate-wait" hidden></p>
+      <p class="foot" id="guest-line" hidden><button class="link" type="button" id="guest">Get a quick estimate without an account</button></p>
+    </section>
+
+    <form id="signup" novalidate hidden>
+      <p class="progress">Step 1 of 3</p>
+      <h1>Create your account</h1>
+      <p class="product">Free, and it works in every store that uses Tryon.</p>
+      <label class="lab" for="su-name">Name</label>
+      <div class="field"><input id="su-name" autocomplete="name"></div>
+      <label class="lab" for="su-email">Email</label>
+      <div class="field"><input id="su-email" type="email" autocomplete="email" inputmode="email" autocapitalize="off"></div>
+      <label class="lab" for="su-pass">Password <span class="opt">8 characters or more</span></label>
+      <div class="field"><input id="su-pass" type="password" autocomplete="new-password"></div>
+      <label class="check"><input type="checkbox" id="su-consent"><span>I agree that Tryon stores my photo and body measurements to work out my size, as described in the <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>
+      <p class="error" data-error role="alert"></p>
+      <button class="primary" type="submit">Create account</button>
+      <p class="foot">Already have one? <button class="link" type="button" data-go="signin">Sign in</button></p>
+    </form>
+
+    <form id="signin" novalidate hidden>
+      <h1>Sign in</h1>
+      <p class="product">Your Tryon account.</p>
+      <label class="lab" for="si-email">Email</label>
+      <div class="field"><input id="si-email" type="email" autocomplete="email" inputmode="email" autocapitalize="off"></div>
+      <label class="lab" for="si-pass">Password</label>
+      <div class="field"><input id="si-pass" type="password" autocomplete="current-password"></div>
+      <p class="error" data-error role="alert"></p>
+      <div class="stack">
+        <button class="primary" type="submit">Sign in</button>
+        <button class="ghost" type="button" id="social">Continue with Google or Apple</button>
+      </div>
+      <p class="wait" id="social-wait" hidden>Finish in the other window. This card updates by itself.</p>
+      <p class="foot">New here? <button class="link" type="button" data-go="signup">Create an account</button></p>
+    </form>
+
+    <form id="details" novalidate hidden>
+      <p class="progress">Step 2 of 3</p>
+      <h1>About you</h1>
+      <p class="product">We use these to scale your measurements.</p>
+      <fieldset>
+        <legend>Body type</legend>
+        <div class="seg" id="d-gender">
+          <label><input type="radio" name="d-gender" value="female">Woman</label>
+          <label><input type="radio" name="d-gender" value="male">Man</label>
+          <label><input type="radio" name="d-gender" value="other">Other</label>
+        </div>
+      </fieldset>
+      <div class="row two" data-metric>
+        <div><label class="lab" for="d-h-cm">Height</label><div class="field u"><input id="d-h-cm" inputmode="decimal" autocomplete="off"><span class="unit">cm</span></div></div>
+        <div><label class="lab" for="d-w-kg">Weight</label><div class="field u"><input id="d-w-kg" inputmode="decimal" autocomplete="off"><span class="unit">kg</span></div></div>
+      </div>
+      <div class="row two" data-imperial hidden>
+        <div><label class="lab" for="d-h-ft">Height</label><div class="pair">
+          <div class="field u"><input id="d-h-ft" inputmode="numeric" autocomplete="off" aria-label="Feet"><span class="unit">ft</span></div>
+          <div class="field u"><input id="d-h-in" inputmode="numeric" autocomplete="off" aria-label="Inches"><span class="unit">in</span></div></div></div>
+        <div><label class="lab" for="d-w-lb">Weight</label><div class="field u"><input id="d-w-lb" inputmode="decimal" autocomplete="off"><span class="unit">lb</span></div></div>
+      </div>
+      <div class="units"><button type="button" class="link" data-units-toggle>Use feet and pounds</button></div>
+      <p class="error" data-error role="alert"></p>
+      <button class="primary" type="submit">Next: your photo</button>
+      <p class="foot"><button class="link" type="button" data-signout>Use another account</button></p>
+    </form>
+
+    <section id="photo" hidden>
+      <p class="progress">Step 3 of 3</p>
+      <h1>One full-body photo</h1>
+      <p class="product">Head to feet, facing the camera.</p>
+      <div class="shot">
+        <img id="photo-preview" src="/pose-guide.png" alt="Example: standing straight, arms slightly out, whole body in frame">
+        <ul class="tips">
+          <li>Stand straight, arms a little away from your body.</li>
+          <li>Fitted clothes, not loose ones.</li>
+          <li>Whole body in the frame, good light.</li>
+        </ul>
+      </div>
+      <input type="file" id="file-camera" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
+      <input type="file" id="file-library" accept="image/*" tabindex="-1" aria-hidden="true">
+      <p class="error" data-error role="alert"></p>
+      <div class="stack" id="photo-pick">
+        <button class="primary" type="button" id="take">Take a photo</button>
+        <button class="ghost" type="button" id="choose">Choose from my photos</button>
+      </div>
+      <div class="stack" id="photo-confirm" hidden>
+        <button class="primary" type="button" id="send">Use this photo</button>
+        <button class="ghost" type="button" id="retake">Pick another</button>
+      </div>
+      <p class="foot">Only used to measure you and build your avatar. <button class="link" type="button" data-go="details">Back</button></p>
+    </section>
+
+    <section id="building" hidden>
+      <h1>Measuring you</h1>
+      <p class="product" data-product></p>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><i id="bar-fill"></i></div>
+      <p class="stage"><span id="stage" aria-live="polite">Starting…</span><span id="elapsed"></span></p>
+      <p class="lede">This usually takes a few minutes, sometimes up to ten. You can close this and keep shopping: your size will be waiting next to the size picker.</p>
+      <button class="ghost" type="button" id="keep-shopping">Keep shopping</button>
+    </section>
+
+    <section id="failed" hidden>
+      <h1>That photo did not work</h1>
+      <p class="product" data-product></p>
+      <p class="lede" id="failed-why">We could not measure you from it. A clear, full-body photo in good light usually does.</p>
+      <div class="stack">
+        <button class="primary" type="button" data-go="photo">Try another photo</button>
+      </div>
+      <p class="foot"><button class="link" type="button" data-signout>Use another account</button></p>
+    </section>
+
+    <section id="nomeas" hidden>
+      <h1>One photo to go</h1>
+      <p class="product" data-product></p>
+      <p class="lede">You are signed in<span id="nomeas-name"></span>, but we have not measured you yet. Finish on tryon.global, or sign in here with your email and password to do it on this page.</p>
+      <div class="stack">
+        <a class="primary" id="onboard" target="_blank" rel="noopener">Measure me on tryon.global</a>
+        <button class="ghost" type="button" data-go="signin">Sign in with email here</button>
+        <button class="ghost" type="button" id="recheck">I have done this</button>
+      </div>
+      <p class="wait" id="nomeas-note" hidden></p>
+      <p class="foot"><button class="link" type="button" data-signout>Use another account</button></p>
+    </section>
+
+    <form id="form" novalidate hidden>
+      <h1>A quick estimate</h1>
+      <p class="product" data-product></p>
+      <fieldset>
+        <legend>I shop for</legend>
+        <div class="seg" id="gender">
+          <label><input type="radio" name="gender" value="female">Women</label>
+          <label><input type="radio" name="gender" value="male">Men</label>
+        </div>
+      </fieldset>
+      <div class="row" data-metric>
+        <div><label class="lab" for="h-cm">Height</label><div class="field u"><input id="h-cm" inputmode="decimal" autocomplete="off"><span class="unit">cm</span></div></div>
+        <div><label class="lab" for="w-kg">Weight</label><div class="field u"><input id="w-kg" inputmode="decimal" autocomplete="off"><span class="unit">kg</span></div></div>
+        <div><label class="lab" for="age">Age <span class="opt">optional</span></label><div class="field"><input id="age" inputmode="numeric" autocomplete="off"></div></div>
+      </div>
+      <div class="row" data-imperial hidden>
+        <div><label class="lab" for="h-ft">Height</label><div class="pair">
+          <div class="field u"><input id="h-ft" inputmode="numeric" autocomplete="off" aria-label="Feet"><span class="unit">ft</span></div>
+          <div class="field u"><input id="h-in" inputmode="numeric" autocomplete="off" aria-label="Inches"><span class="unit">in</span></div></div></div>
+        <div><label class="lab" for="w-lb">Weight</label><div class="field u"><input id="w-lb" inputmode="decimal" autocomplete="off"><span class="unit">lb</span></div></div>
+        <div><label class="lab" for="age-i">Age <span class="opt">optional</span></label><div class="field"><input id="age-i" inputmode="numeric" autocomplete="off"></div></div>
+      </div>
+      <div class="units"><button type="button" class="link" data-units-toggle>Use feet and pounds</button></div>
+      <div id="shape"></div>
+      <p class="error" data-error role="alert"></p>
+      <button class="primary" type="submit">Show my estimate</button>
+      <p class="foot">These answers stay on this device. <button class="link" type="button" id="back-to-gate">Use my account instead</button></p>
+    </form>
+
+    <section id="result" hidden>
+      <p class="lead" id="result-lead">Your size</p>
+      <p class="size" id="result-size"></p>
+      <p class="why" id="result-why"></p>
+      <ul class="measured" id="measured" hidden></ul>
+      <div class="tape" id="tape" aria-hidden="true" hidden></div>
+      <div class="chips" id="chips" role="group" aria-label="Sizes"></div>
+      <fieldset>
+        <legend>How I like it to fit</legend>
+        <div class="seg" id="fit">
+          <label><input type="radio" name="fit" value="slim">Closer</label>
+          <label><input type="radio" name="fit" value="regular" checked>Regular</label>
+          <label><input type="radio" name="fit" value="loose">Looser</label>
+        </div>
+      </fieldset>
+      <p class="note" id="result-note" hidden></p>
+      <button class="primary" type="button" id="add"></button>
+      <div class="secondary">
+        <button class="link" type="button" id="tryon" hidden>See it on your own body</button>
+        <button class="link" type="button" id="edit" hidden>Change my answers</button>
+      </div>
+      <p class="foot" id="result-foot"></p>
+    </section>
+  </div>
+</div>
+
+<script type="module">
+import { recommendSize } from './sizing-engine.js';
+import { quickSize, validateInput, inferCategory, toMetric, SHAPE_QUESTIONS, ACCURACY, normalizeGender, INPUT_LIMITS } from './size-estimator.js';
+
+const $ = (id) => document.getElementById(id);
+const q = new URLSearchParams(location.search);
+const inFrame = window.self !== window.top;
+const GUEST_KEY = 'tryon_size_profile_v1';
+const FIT_KEY = 'tryon_size_fit';
+const TOKEN_KEY = 'tryon_widget_token';
+const SESSION_KEY = 'tryon_size_session';        // this card's own Supabase session
+const JOB_KEY = 'tryon_size_job';                // a build in flight: { job_id, user_id, started }
+const LINK_TOKEN_KEY = 'tryon_link_token';       // shared with the Try On widget
+const LINK_TOKEN_TTL_MS = 60 * 60 * 1000;
+const BUILD_GIVE_UP_MS = 25 * 60 * 1000;
+const VIEWS = ['gate', 'signup', 'signin', 'details', 'photo', 'building', 'failed', 'nomeas', 'form', 'result'];
+
+// ---- look: Tryon's own by default; a store's colours only when the block asks (look=store) ----
+if (q.get('look') === 'store') {
+  const COLOR = /^(#[0-9a-f]{3,8}|rgba?\(\s*[\d.\s,%/]+\))$/i;
+  const setColor = (name, v) => { if (v && COLOR.test(v.trim())) document.documentElement.style.setProperty(name, v.trim()); };
+  setColor('--ink', q.get('ink')); setColor('--paper', q.get('paper'));
+  setColor('--btn-bg', q.get('btn_bg')); setColor('--btn-fg', q.get('btn_fg')); setColor('--accent', q.get('ink'));
+  const radius = parseFloat(q.get('radius'));
+  if (radius >= 0) {
+    document.documentElement.style.setProperty('--btn-radius', Math.min(radius, 999) + 'px');
+    document.documentElement.style.setProperty('--radius', Math.min(radius, 12) + 'px');
+  }
+  const font = (q.get('font') || '').replace(/[^\w\s,'"-]/g, '').slice(0, 200);
+  if (font) document.documentElement.style.setProperty('--font', font + ', system-ui, sans-serif');
+  $('brand').textContent = 'Sizing by Tryon'; $('brand').style.letterSpacing = '0';
+}
+
+// ---- storage (this origin; partitioned per store when framed) ----
+const read = (k) => { try { return localStorage.getItem(k) || sessionStorage.getItem(k); } catch { return null; } };
+const write = (k, v) => { try { localStorage.setItem(k, v); } catch { /* blocked */ } try { sessionStorage.setItem(k, v); } catch { /* blocked */ } };
+const drop = (k) => { try { localStorage.removeItem(k); } catch { /* blocked */ } try { sessionStorage.removeItem(k); } catch { /* blocked */ } };
+const readJson = (k) => { try { return JSON.parse(read(k) || 'null'); } catch { return null; } };
+const httpsUrl = (v) => { try { const u = new URL(v); return u.protocol === 'https:' ? u.toString() : null; } catch { return null; } };
+
+// ---- config ----
+const cfg = {
+  api: q.get('api_url') ?? (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? 'http://localhost:8000' : ''),
+  shop: q.get('shop') || '',
+  productId: q.get('product_id') || '',
+  productName: q.get('product_name') || '',
+  productType: q.get('product_type') || '',
+  variantId: q.get('variant_id') || '',
+  brandName: q.get('brand_name') || '',
+  returnUrl: httpsUrl(q.get('return_url')) || httpsUrl(document.referrer),
+  country: (q.get('country') || '').toUpperCase() || null,
+  guestAllowed: q.get('guest') === '1',
+};
+let session = readJson(SESSION_KEY);             // { access_token, refresh_token, expires_at, user_id, email }
+// Signed-in shopper: this card's session, else the sign-in redirect (?user_id=), else the id
+// the Try On widget remembered. Only a session can upload a photo; an id alone can read a size.
+let userId = (session && session.user_id) || q.get('user_id') || read('tryon_user_id');
+let displayName = q.get('display_name') || read('tryon_user_name') || '';
+if (session && userId !== session.user_id) session = null;
+if (userId) write('tryon_user_id', userId);
+if (displayName) write('tryon_user_name', displayName);
+let widgetToken = read(TOKEN_KEY);
+
+let product = { sizes: [], hasTryon: false };   // from the host
+let garment = null;                              // { category, fitType, has3d, chart }
+let passport = null;                             // GET /api/measurements/passport/{id}
+let body = null;                                 // { measurements, gender } once measured
+let bodyState = 'unknown';                       // unknown | ready | none | building | failed | signedout | error
+let guest = null;
+let mode = 'account';                            // account | guest
+let silent = q.get('silent') === '1';
+let sessionId = null;                            // analytics session (tryon_sessions row)
+let sessionPromise = null;
+let last = null;
+let picked = null;
+let fit = read(FIT_KEY) || 'regular';
+let units = ['US', 'LR', 'MM'].includes(cfg.country) ? 'imperial' : 'metric';
+let photoBlob = null;
+let photoUrl = null;
+let buildTimer = null;
+
+document.querySelectorAll('[data-product]').forEach((el) => { el.textContent = cfg.productName; });
+if (silent) document.body.classList.add('silent');
+$('guest-line').hidden = !cfg.guestAllowed;
+
+// ---- host messaging ----
+const post = (type, payload) => { if (inFrame) window.parent.postMessage(payload ? { type, payload } : { type }, '*'); };
+window.addEventListener('message', (e) => {
+  if (e.source !== window.parent || !e.data) return;
+  const d = e.data;
+  if (d.type === 'TRYON_SIZE_PRODUCT' && d.payload) { product = normalizeProduct(d.payload); onProduct(); }
+  if (d.type === 'TRYON_SIZE_OPEN') open();
+  if (d.type === 'TRYON_SIZE_HIDE') hide(false);
+});
+function normalizeProduct(p) {
+  const seen = new Set();
+  const sizes = (p.sizes || []).map((s) => ({ label: String(s.label || '').trim(), available: s.available !== false }))
+    .filter((s) => s.label && !seen.has(s.label.toLowerCase()) && seen.add(s.label.toLowerCase()));
+  return { sizes, hasTryon: !!p.hasTryon };
+}
+
+// ---- the product: the store's 3D garment when it has one (category, cut, chart), else the product's own words ----
+const garmentReady = (async () => {
+  let category = inferCategory(cfg.productType, cfg.productName);
+  let fitType = 'regular';
+  let has3d = false;
+  let chart = {};
+  if (cfg.productId && cfg.shop) {
+    try {
+      const r = await fetch(`${cfg.api}/api/products/${encodeURIComponent(cfg.productId)}/tryon-config?shop=${encodeURIComponent(cfg.shop)}`);
+      if (r.ok) { const d = await r.json(); category = d.category || category; fitType = d.fit_type || fitType; chart = d.size_chart || {}; has3d = true; }
+    } catch { /* offline or no garment: the product's own words are enough */ }
+  }
+  garment = { category, fitType, has3d, chart };
+})();
+
+// ---- account: email + password against the Supabase auth REST API ----
+let supaCfg = null;
+async function supa() {
+  if (supaCfg) return supaCfg;
+  const r = await fetch('/widget-config');
+  const d = await r.json();
+  if (!d.supabaseUrl || !d.supabaseAnonKey) throw new Error('Sign-in is not available right now.');
+  supaCfg = { url: d.supabaseUrl, key: d.supabaseAnonKey };
+  return supaCfg;
+}
+async function authCall(path, payload) {
+  const s = await supa();
+  const r = await fetch(`${s.url}/auth/v1/${path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', apikey: s.key, Authorization: `Bearer ${s.key}` }, body: JSON.stringify(payload),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = d.msg || d.error_description || d.message || 'Something went wrong. Try again.';
+    const e = new Error(/already registered|already exists/i.test(msg) ? 'That email already has an account. Sign in instead.'
+      : /invalid login|invalid credentials/i.test(msg) ? 'Wrong email or password.' : msg);
+    e.code = d.error_code || d.code;
+    throw e;
+  }
+  return d;
+}
+function keepSession(d) {
+  if (!d || !d.access_token || !d.user) return false;
+  session = {
+    access_token: d.access_token, refresh_token: d.refresh_token,
+    expires_at: d.expires_at || Math.floor(Date.now() / 1000) + (d.expires_in || 3600),
+    user_id: d.user.id, email: d.user.email,
+  };
+  write(SESSION_KEY, JSON.stringify(session));
+  const name = (d.user.user_metadata && (d.user.user_metadata.name || d.user.user_metadata.full_name)) || (d.user.email || '').split('@')[0];
+  signedIn(d.user.id, name, null);
+  return true;
+}
+// A valid access token, refreshed when it is about to run out. null = signed out.
+async function token() {
+  if (!session) return null;
+  if (session.expires_at - Date.now() / 1000 > 120) return session.access_token;
+  try {
+    const d = await authCall('token?grant_type=refresh_token', { refresh_token: session.refresh_token });
+    if (keepSession(d)) return session.access_token;
+  } catch { /* fall through */ }
+  session = null; drop(SESSION_KEY);
+  return null;
+}
+async function authHeaders() {
+  const t = await token();
+  if (t) return { Authorization: `Bearer ${t}` };
+  return widgetToken ? { 'X-Widget-Token': widgetToken } : {};
+}
+// public.users row: every fit passport hangs off it. Never overwrites an existing profile.
+async function ensureProfile(name) {
+  const s = await supa();
+  const t = await token();
+  if (!t) return;
+  await fetch(`${s.url}/rest/v1/users?on_conflict=id`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: s.key, Authorization: `Bearer ${t}`, Prefer: 'resolution=ignore-duplicates,return=minimal' },
+    body: JSON.stringify({ id: session.user_id, email: session.email, name: name || (session.email || '').split('@')[0], user_type: 'shopper' }),
+  }).catch(() => {});
+}
+function forgetUser() {
+  userId = null; displayName = ''; widgetToken = null; session = null; passport = null; body = null;
+  ['tryon_user_id', 'tryon_user_name', TOKEN_KEY, SESSION_KEY, JOB_KEY].forEach(drop);
+  stopBuildWatch();
+}
+function signedIn(uid, name, wt) {
+  userId = uid; displayName = name || displayName || '';
+  write('tryon_user_id', uid);
+  if (displayName) write('tryon_user_name', displayName);
+  if (wt) { widgetToken = wt; write(TOKEN_KEY, wt); }
+  sessionPromise = null; sessionId = null;   // later events belong to this shopper
+  // Tell the store page this shopper has an account, so it loads this card quietly on later
+  // product pages: that is how a build in flight is picked up, and a size shown unasked.
+  post('TRYON_SIZE_ACCOUNT');
+}
+const errorOf = (form) => form.querySelector('[data-error]');
+const busy = (btn, on) => { if (on) btn.setAttribute('aria-busy', 'true'); else btn.removeAttribute('aria-busy'); };
+
+$('signup').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.currentTarget, err = errorOf(form), btn = form.querySelector('[type=submit]');
+  const name = $('su-name').value.trim(), email = $('su-email').value.trim(), pass = $('su-pass').value;
+  err.textContent = !name ? 'Enter your name.' : !/^\S+@\S+\.\S+$/.test(email) ? 'Enter your email.' : pass.length < 8 ? 'Choose a password of 8 characters or more.'
+    : !$('su-consent').checked ? 'Tick the box to let us store your photo and measurements.' : '';
+  if (err.textContent) return;
+  busy(btn, true);
+  try {
+    const d = await authCall('signup', { email, password: pass, data: { name, user_type: 'shopper' } });
+    if (!keepSession(d)) { err.textContent = 'Check your email to confirm your account, then sign in here.'; return; }
+    await ensureProfile(name);
+    track('size_finder_account_created');
+    await route(true);
+  } catch (ex) { err.textContent = ex.message; } finally { busy(btn, false); }
+});
+$('signin').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.currentTarget, err = errorOf(form), btn = form.querySelector('[type=submit]');
+  const email = $('si-email').value.trim(), pass = $('si-pass').value;
+  err.textContent = !/^\S+@\S+\.\S+$/.test(email) ? 'Enter your email.' : !pass ? 'Enter your password.' : '';
+  if (err.textContent) return;
+  busy(btn, true);
+  try {
+    keepSession(await authCall('token?grant_type=password', { email, password: pass }));
+    track('size_finder_signed_in');
+    await route(true);
+  } catch (ex) { err.textContent = ex.message; } finally { busy(btn, false); }
+});
+
+// ---- Google / Apple: tryon.global does it in a popup; this card polls for the hand-off (user id only) ----
+function newToken() { return (crypto.randomUUID && crypto.randomUUID()) || 'ws-' + Math.random().toString(36).slice(2) + Date.now().toString(36); }
+function linkToken() {
+  const v = readJson(LINK_TOKEN_KEY);
+  if (v && v.t && Date.now() - v.ts < LINK_TOKEN_TTL_MS) return v.t;
+  const t = newToken();
+  write(LINK_TOKEN_KEY, JSON.stringify({ t, ts: Date.now() }));
+  return t;
+}
+const polls = {};
+function stopPolls() { Object.keys(polls).forEach((t) => { clearInterval(polls[t].i); clearTimeout(polls[t].stop); delete polls[t]; }); }
+function poll(tokenId, maxMs) {
+  if (polls[tokenId]) return;
+  const check = () => fetch(`${cfg.api}/api/auth/widget-state/${encodeURIComponent(tokenId)}`).then((r) => r.json()).then(async (d) => {
+    if (!d || !d.user_id || !polls[tokenId]) return;
+    stopPolls();
+    drop(LINK_TOKEN_KEY);
+    if (session && session.user_id !== d.user_id) { session = null; drop(SESSION_KEY); }
+    signedIn(d.user_id, d.display_name, d.widget_token);
+    track('size_finder_signed_in', { via: 'popup' });
+    await route(true);
+  }).catch(() => {});
+  polls[tokenId] = { i: setInterval(check, 2000), stop: setTimeout(() => { clearInterval(polls[tokenId] && polls[tokenId].i); delete polls[tokenId]; }, maxMs || 5 * 60 * 1000) };
+  check();
+}
+function siteUrl(path, extra) {
+  const u = new URL(path, location.origin);
+  u.searchParams.set('from', 'widget');
+  if (cfg.returnUrl) u.searchParams.set('return', cfg.returnUrl);
+  if (cfg.brandName) u.searchParams.set('brand', cfg.brandName);
+  Object.keys(extra || {}).forEach((k) => { if (extra[k]) u.searchParams.set(k, extra[k]); });
+  return u.toString();
+}
+$('social').addEventListener('click', () => {
+  const t = newToken();
+  // No show_form: a shopper already signed in on tryon.global is handed over at once.
+  const here = new URL(location.href); here.searchParams.delete('silent');
+  const url = `${location.origin}/widget-signin?return=${encodeURIComponent(here.toString())}&widget_state=${encodeURIComponent(t)}`
+    + (cfg.returnUrl ? `&store_return=${encodeURIComponent(cfg.returnUrl)}` : '');
+  const w = 500, h = 650;
+  const popup = window.open(url, 'tryon-signin', `width=${w},height=${h},left=${(screen.width - w) / 2},top=${(screen.height - h) / 2},scrollbars=yes`);
+  if (!popup || popup.closed) {
+    // Popup blocked: sign in inside this frame; tryon.global sends it back here with ?user_id=.
+    const f = new URL(url); f.searchParams.delete('widget_state');
+    location.href = f.toString();
+    return;
+  }
+  poll(t);
+  $('social-wait').hidden = false;
+  track('size_finder_signin_clicked', { via: 'popup' });
+});
+$('onboard').addEventListener('click', () => { const t = linkToken(); $('onboard').href = siteUrl('/onboarding', { link_state: t }); track('size_finder_measure_clicked'); });
+$('recheck').addEventListener('click', async () => {
+  await loadPassport();
+  if (bodyState === 'ready' || bodyState === 'building') { await route(true); return; }
+  $('nomeas-note').textContent = 'Not ready yet. Measuring can take up to ten minutes after you send your photo.'; $('nomeas-note').hidden = false;
+});
+document.querySelectorAll('[data-signout]').forEach((b) => b.addEventListener('click', () => { forgetUser(); bodyState = 'signedout'; show('gate'); }));
+document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => show(b.dataset.go)));
+
+// ---- the fit passport: all a size needs. (The try-on fetches /api/avatar/{id} for the avatar as well.) ----
+const MEASURE_KEYS = ['chest', 'waist', 'hips', 'inseam', 'shoulder_width', 'arm_length', 'neck', 'thigh', 'torso_length'];
+async function loadPassport() {
+  if (!userId) { bodyState = 'signedout'; passport = null; body = null; return; }
+  try {
+    const r = await fetch(`${cfg.api}/api/measurements/passport/${encodeURIComponent(userId)}`, { headers: await authHeaders() });
+    if (r.status === 401 || r.status === 403) { forgetUser(); bodyState = 'signedout'; return; }
+    if (r.status === 404) { passport = null; body = null; bodyState = 'none'; return; }
+    if (!r.ok) { bodyState = 'error'; return; }
+    passport = await r.json();
+    const m = passport.measurements || {};
+    const measurements = {};
+    if (passport.height > 0) measurements.height = passport.height;
+    for (const k of MEASURE_KEYS) if (typeof m[k] === 'number' && m[k] > 0) measurements[k] = m[k];
+    // Only a finished passport is a measurement. Before that it holds what the shopper typed.
+    if (passport.status === 'completed' && (measurements.chest || measurements.waist || measurements.hips)) {
+      body = { measurements, gender: normalizeGender(passport.gender) };
+      bodyState = 'ready';
+      if (passport.preferred_fit && !read(FIT_KEY)) fit = passport.preferred_fit;
+    } else {
+      body = null;
+      bodyState = passport.status === 'processing' ? 'building' : passport.status === 'failed' ? 'failed' : 'none';
+    }
+  } catch { bodyState = 'error'; }
+}
+
+// ---- details -> photo -> build (the same endpoints tryon.global/onboarding uses) ----
+let details = readJson('tryon_size_details');    // { gender, height, weight, units }
+function setUnits(u) {
+  units = u;
+  document.querySelectorAll('[data-metric]').forEach((el) => { el.hidden = u !== 'metric'; });
+  document.querySelectorAll('[data-imperial]').forEach((el) => { el.hidden = u !== 'imperial'; });
+  document.querySelectorAll('[data-units-toggle]').forEach((el) => { el.textContent = u === 'metric' ? 'Use feet and pounds' : 'Use centimetres and kilograms'; });
+}
+document.querySelectorAll('[data-units-toggle]').forEach((el) => el.addEventListener('click', () => setUnits(units === 'metric' ? 'imperial' : 'metric')));
+function fillDetails() {
+  const d = details || (passport && { gender: passport.gender, height: passport.height, weight: passport.weight }) || {};
+  document.querySelectorAll('input[name=d-gender]').forEach((r) => { r.checked = r.value === d.gender; });
+  if (d.height) { $('d-h-cm').value = d.height; const inches = d.height / 2.54; $('d-h-ft').value = Math.floor(inches / 12); $('d-h-in').value = Math.round(inches % 12); }
+  if (d.weight) { $('d-w-kg').value = d.weight; $('d-w-lb').value = Math.round(d.weight / 0.45359237); }
+  setUnits((d.units) || units);
+}
+$('details').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const err = errorOf(e.currentTarget);
+  const gender = (document.querySelector('input[name=d-gender]:checked') || {}).value;
+  const m = units === 'imperial' ? toMetric('imperial', $('d-h-ft').value, $('d-h-in').value, $('d-w-lb').value) : toMetric('metric', $('d-h-cm').value, null, $('d-w-kg').value);
+  const [hMin, hMax] = [100, 250], [wMin, wMax] = INPUT_LIMITS.weight;   // /api/avatar/create accepts 100-250 cm
+  err.textContent = !gender ? 'Choose a body type.' : !(m.height >= hMin && m.height <= hMax) ? 'Enter your height.' : !(m.weight >= wMin && m.weight <= wMax) ? 'Enter your weight.' : '';
+  if (err.textContent) return;
+  details = { gender, height: Math.round(m.height), weight: Math.round(m.weight), units };
+  write('tryon_size_details', JSON.stringify(details));
+  show('photo');
+});
+
+// Phone photos are 5-12 MB and often sideways in their metadata. Redraw upright at a size the
+// pipeline can use: the upload is then a few hundred KB instead of minutes on mobile data.
+async function prepareImage(file) {
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const scale = Math.min(1, 2048 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.9));
+    if (blob) return blob;
+  } catch { /* a format this browser cannot draw: send it as it is */ }
+  return file;
+}
+async function onFile(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  const err = errorOf($('photo'));
+  err.textContent = '';
+  if (!/^image\//.test(file.type || '') && !/\.(jpe?g|png|heic|heif|webp)$/i.test(file.name || '')) { err.textContent = 'Choose a photo.'; return; }
+  photoBlob = await prepareImage(file);
+  if (photoBlob.size > 10 * 1024 * 1024) { err.textContent = 'That photo is too large. Choose one under 10 MB.'; photoBlob = null; return; }
+  if (photoUrl) URL.revokeObjectURL(photoUrl);
+  photoUrl = URL.createObjectURL(photoBlob);
+  $('photo-preview').src = photoUrl; $('photo-preview').alt = 'Your photo';
+  $('photo-pick').hidden = true; $('photo-confirm').hidden = false;
+}
+$('take').addEventListener('click', () => $('file-camera').click());
+$('choose').addEventListener('click', () => $('file-library').click());
+$('retake').addEventListener('click', resetPhoto);
+$('file-camera').addEventListener('change', (e) => onFile(e.target));
+$('file-library').addEventListener('change', (e) => onFile(e.target));
+function resetPhoto() {
+  photoBlob = null;
+  $('photo-preview').src = '/pose-guide.png'; $('photo-preview').alt = 'Example: standing straight, arms slightly out, whole body in frame';
+  $('photo-pick').hidden = false; $('photo-confirm').hidden = true;
+}
+$('send').addEventListener('click', async () => {
+  const err = errorOf($('photo')), btn = $('send');
+  err.textContent = '';
+  const t = await token();
+  if (!t) { show('signin'); errorOf($('signin')).textContent = 'Sign in again to send your photo.'; return; }
+  if (!photoBlob || !details) { show(details ? 'photo' : 'details'); return; }
+  busy(btn, true);
+  try {
+    const fd = new FormData();
+    fd.append('file', photoBlob, 'photo.jpg');
+    const up = await fetch(`${cfg.api}/api/avatar/upload-photo`, { method: 'POST', headers: { Authorization: `Bearer ${t}` }, body: fd });
+    const upData = await up.json().catch(() => ({}));
+    if (!up.ok) throw new Error(up.status === 429 ? 'Too many tries. Wait a minute and try again.' : (upData.detail || 'The photo could not be uploaded. Try again.'));
+    const start = () => fetch(`${cfg.api}/api/avatar/create`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+      // shop_domain: pre-drape this avatar for this store's garments, ready for the try-on.
+      body: JSON.stringify({ user_id: session.user_id, photo_url: upData.url, height: details.height, weight: details.weight, gender: details.gender, shop_domain: cfg.shop || undefined }),
+    });
+    let res = await start();
+    if (res.status === 409) { await ensureProfile(displayName); res = await start(); }   // account had no profile row yet
+    const job = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(res.status === 429 ? 'Too many tries. Wait a minute and try again.' : (job.detail || 'We could not start measuring. Try again.'));
+    write(JOB_KEY, JSON.stringify({ job_id: job.job_id, user_id: session.user_id, started: Date.now() }));
+    track('size_finder_build_started');
+    resetPhoto();
+    bodyState = 'building';
+    show('building');
+    watchBuild();
+  } catch (ex) { err.textContent = ex.message; } finally { busy(btn, false); }
+});
+
+// A build runs on the backend whether or not this card is open. Watch the job while we know
+// it; if the backend no longer does (it restarted), the passport's status has the outcome.
+function stopBuildWatch() { clearTimeout(buildTimer); buildTimer = null; }
+function paintBuild(pct, message, started) {
+  $('bar-fill').style.width = Math.max(4, Math.min(100, pct)) + '%';
+  $('bar').setAttribute('aria-valuenow', String(Math.round(pct)));
+  $('stage').textContent = message;
+  const s = Math.max(0, Math.round((Date.now() - started) / 1000));
+  $('elapsed').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+function watchBuild() {
+  if (buildTimer) return;
+  const tick = async () => {
+    buildTimer = null;
+    const job = readJson(JOB_KEY);
+    const started = (job && job.user_id === userId && job.started) || Date.now();
+    let status = null;
+    if (job && job.user_id === userId && job.job_id) {
+      try {
+        const r = await fetch(`${cfg.api}/api/avatar/status/${encodeURIComponent(job.job_id)}`);
+        if (r.ok) status = await r.json();
+      } catch { /* network blip: try again */ }
+    }
+    if (status && status.status !== 'completed' && status.status !== 'failed') {
+      paintBuild(status.progress || 5, status.message || 'Working on it…', started);
+    } else {
+      // Finished, or the job is unknown: the passport is the record.
+      await loadPassport();
+      if (bodyState === 'ready') { drop(JOB_KEY); track('size_finder_build_completed', { seconds: Math.round((Date.now() - started) / 1000) }); await route(true); return; }
+      if (bodyState === 'failed' || (status && status.status === 'failed')) {
+        drop(JOB_KEY); bodyState = 'failed';
+        track('size_finder_build_failed');
+        if (!silent && !document.body.classList.contains('closed')) show('failed');
+        return;
+      }
+      if (bodyState !== 'building') { drop(JOB_KEY); await route(false); return; }
+      paintBuild(60, 'Still measuring…', started);
+    }
+    if (Date.now() - started > BUILD_GIVE_UP_MS) {
+      $('stage').textContent = 'This is taking longer than usual. Your size will show here once it is ready.';
+      buildTimer = setTimeout(tick, 30000);
+      return;
+    }
+    buildTimer = setTimeout(tick, 3000);
+  };
+  tick();
+}
+$('keep-shopping').addEventListener('click', () => hide(true));
+document.addEventListener('visibilitychange', () => { if (!document.hidden && bodyState === 'building') { stopBuildWatch(); watchBuild(); } });
+
+// ---- analytics. Account mode carries the shopper's id; nothing typed into the estimate form is ever sent. ----
+function ensureSession() {
+  if (!sessionPromise) {
+    sessionPromise = fetch(cfg.api + '/api/events/tryon-session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId || undefined, shop_domain: cfg.shop, product_id: cfg.productId, product_name: cfg.productName || undefined, variant_id: cfg.variantId || undefined }),
+    }).then((r) => r.json()).then((d) => { sessionId = d.session_id || null; }).catch(() => {});
+  }
+  return sessionPromise;
+}
+async function track(eventType, metadata) {
+  if (!cfg.shop) return;
+  await ensureSession();
+  fetch(cfg.api + '/api/events/track', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+    body: JSON.stringify({ event_type: eventType, session_id: sessionId || undefined, user_id: userId || undefined, shop_domain: cfg.shop,
+      product_id: cfg.productId, variant_id: cfg.variantId || undefined, preferred_fit: fit,
+      metadata: { source: 'size_finder', basis: mode === 'guest' ? 'estimate' : 'measured', ...(metadata || {}) } }),
+  }).catch(() => {});
+}
+
+// ---- views ----
+function show(view) {
+  VIEWS.forEach((v) => { $(v).hidden = v !== view; });
+  document.querySelectorAll('[data-error]').forEach((el) => { el.textContent = ''; });
+  if (view === 'nomeas') { $('nomeas-name').textContent = displayName ? ' as ' + displayName : ''; $('nomeas-note').hidden = true; $('onboard').href = siteUrl('/onboarding', { link_state: linkToken() }); }
+  if (view === 'details') fillDetails();
+  if (view === 'form') fillForm();
+  if (view === 'signin') $('social-wait').hidden = !Object.keys(polls).length;
+  $('card').scrollTop = 0;
+}
+
+// ---- sizing ----
+const up = (s) => String(s).toUpperCase();
+const isOut = (label) => { const s = product.sizes.find((x) => x.label === label); return !!s && !s.available; };
+function compute() {
+  if (!product.sizes.length || !garment) return null;
+  const sizes = product.sizes.map((s) => s.label);
+  if (mode === 'guest') {
+    if (!guest) return null;
+    const r = quickSize({ gender: guest.gender, height: guest.height, weight: guest.weight, age: guest.age, shape: guest.shape },
+      { sizes, category: garment.category, fitType: garment.fitType }, { preferredFit: fit, country: cfg.country });
+    return r && { ...r, basis: 'estimate' };
+  }
+  if (!body) return null;
+  const hasChart = Object.keys(garment.chart).length > 0;
+  // Same call the Try On widget makes: body-anchored, the store's own size labels as the
+  // candidates; a merchant chart (flat, pit-to-pit) only adds the "snug around..." detail.
+  const r = recommendSize(body.measurements, garment.chart, fit, garment.category, garment.fitType,
+    hasChart ? 'flat' : 'circumference', body.gender, sizes, cfg.country);
+  if (!r || !r.recommendedSize) return null;
+  return { recommendedSize: r.recommendedSize, reasoning: r.reasoning, alternative: null, basis: 'measured' };
+}
+function escapeHtml(v) { return String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function renderResult() {
+  last = compute();
+  if (!last) return false;
+  picked = last.recommendedSize;
+  let note = '';
+  if (isOut(picked)) {
+    if (last.alternative && !isOut(last.alternative)) { note = `${up(picked)} is sold out. ${up(last.alternative)} is your next most likely size.`; picked = last.alternative; }
+    else note = `${up(picked)} is sold out right now.`;
+  } else if (last.alternative && isOut(last.alternative)) {
+    note = `${up(last.alternative)} is sold out right now.`;
+  }
+  $('result-lead').textContent = last.basis === 'estimate' ? 'Your estimated size' : 'Your size';
+  $('result-size').textContent = up(last.recommendedSize);
+  $('result-why').textContent = last.reasoning;
+  $('result-note').textContent = note; $('result-note').hidden = !note;
+  document.querySelectorAll('#fit input').forEach((r) => { r.checked = r.value === fit; });
+  const measuredEl = $('measured'), tape = $('tape');
+  if (last.basis === 'measured') {
+    const m = body.measurements;
+    const cells = [['Chest', m.chest], ['Waist', m.waist], ['Hips', m.hips]].filter((c) => c[1]);
+    measuredEl.innerHTML = cells.map((c) => `<li><b>${Math.round(c[1])} cm</b>${c[0]}</li>`).join('');
+    measuredEl.hidden = cells.length === 0; tape.hidden = true;
+    $('result-foot').innerHTML = `Measured from your photo${displayName ? ', signed in as ' + escapeHtml(displayName) : ''}. <button class="link" type="button" id="signout-result">Use another account</button>`;
+    $('signout-result').addEventListener('click', () => { forgetUser(); bodyState = 'signedout'; show('gate'); });
+  } else {
+    const byLabel = Object.fromEntries(last.probabilities.map((x) => [x.size, x.p]));
+    const top = Math.max(...last.probabilities.map((x) => x.p));
+    tape.innerHTML = product.sizes.map((s) => {
+      const p = byLabel[s.label] || 0;
+      return `<div class="${s.label === last.recommendedSize ? 'pick' : ''}">${p >= 0.05 ? `<span>${Math.round(p * 100)}%</span>` : ''}<i style="height:${p ? Math.max(6, Math.round((p / top) * 70)) : 0}%"></i></div>`;
+    }).join('');
+    tape.hidden = false; measuredEl.hidden = true;
+    const acc = ACCURACY[normalizeGender(guest.gender)] || ACCURACY.female;
+    const a = acc[last.anchor] || acc.chest;
+    $('result-foot').textContent = `An estimate from height, weight and build, not a measurement. Estimates like this match a tape measure about ${Math.round(a[0] * 10)} times in 10. Create an account for your measured size.`;
+  }
+  $('edit').hidden = last.basis !== 'estimate';
+  $('tryon').hidden = !(product.hasTryon && garment.has3d && last.basis === 'measured');
+  renderChips();
+  return true;
+}
+function renderChips() {
+  const recIdx = product.sizes.findIndex((s) => s.label === last.recommendedSize);
+  const relative = last.basis === 'measured';
+  $('chips').classList.toggle('rel', relative);
+  $('chips').innerHTML = product.sizes.map((s, i) => {
+    const rel = !relative ? '' : `<small>${i < recIdx ? 'tighter' : i > recIdx ? 'looser' : 'your size'}</small>`;
+    return `<button type="button" class="chip${s.available ? '' : ' out'}" data-size="${encodeURIComponent(s.label)}" aria-pressed="${s.label === picked}"${s.available ? '' : ' aria-label="' + up(s.label) + ', sold out"'}>${up(s.label)}${rel}</button>`;
+  }).join('');
+  const out = isOut(picked);
+  $('add').textContent = out ? `${up(picked)} is sold out` : `Add ${up(picked)} to cart`;
+  $('add').disabled = out;
+}
+$('chips').addEventListener('click', (e) => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  picked = decodeURIComponent(b.dataset.size); renderChips();
+  track('size_selected', { size: picked.toLowerCase() });
+});
+$('fit').addEventListener('change', (e) => {
+  fit = e.target.value; write(FIT_KEY, fit);
+  if (renderResult()) post('TRYON_SIZE_RESULT', { size: last.recommendedSize });
+});
+$('add').addEventListener('click', () => {
+  if (!picked || isOut(picked)) return;
+  track('add_to_cart', { size: picked.toLowerCase(), recommended: String(last.recommendedSize).toLowerCase() });
+  post('TRYON_SIZE_ADD_TO_CART', { size: picked, session_id: sessionId });
+  hide(true);
+});
+$('tryon').addEventListener('click', () => { post('TRYON_SIZE_OPEN_TRYON'); hide(true); });
+$('edit').addEventListener('click', () => show('form'));
+
+// Decide what the shopper sees. `fresh` = a visible open or a new step (tracked once).
+async function route(fresh) {
+  await garmentReady;
+  const visible = !silent && !document.body.classList.contains('closed');
+  if (mode === 'account') {
+    if (bodyState === 'unknown' || fresh) await loadPassport();
+    if (bodyState === 'building') { if (visible) show('building'); watchBuild(); return; }
+    if (bodyState !== 'ready') {
+      if (!visible) return;
+      if (bodyState === 'signedout') show('gate');
+      else if (bodyState === 'failed') show('failed');
+      else if (bodyState === 'none') show(session ? (details ? 'photo' : 'details') : 'nomeas');
+      else { show('gate'); $('gate-wait').textContent = 'We could not load your measurements. Check your connection and try again.'; $('gate-wait').hidden = false; }
+      return;
+    }
+  }
+  if (!renderResult()) { if (visible) show(mode === 'guest' ? 'form' : 'gate'); return; }
+  post('TRYON_SIZE_RESULT', { size: last.recommendedSize });
+  if (!visible) return;
+  show('result');
+  if (fresh) {
+    track('size_finder_completed', { size: String(last.recommendedSize).toLowerCase(), alternative: last.alternative || undefined, confidence: last.confidence });
+    track('size_recommended', { size: String(last.recommendedSize).toLowerCase() });
+  }
+}
+
+// ---- optional estimate without an account ----
+function renderShape(gender) {
+  const saved = (guest && guest.gender === gender && guest.shape) || {};
+  $('shape').innerHTML = SHAPE_QUESTIONS[gender].map((sq) => `
+    <fieldset>
+      <legend>${sq.label} <span class="opt">for my height and weight</span></legend>
+      <div class="seg">${sq.options.map((o, i) => `<label><input type="radio" name="shape-${sq.id}" value="${i - 1}"${(saved[sq.id] ?? 0) === i - 1 ? ' checked' : ''}>${o}</label>`).join('')}</div>
+    </fieldset>`).join('');
+}
+function fillForm() {
+  guest = guest || readJson(GUEST_KEY);
+  const g = (guest && guest.gender) || null;
+  document.querySelectorAll('input[name=gender]').forEach((r) => { r.checked = r.value === g; });
+  renderShape(g || 'female');
+  $('shape').hidden = !g;
+  if (guest) {
+    if (guest.height) { $('h-cm').value = guest.height; const inches = guest.height / 2.54; $('h-ft').value = Math.floor(inches / 12); $('h-in').value = Math.round(inches % 12); }
+    if (guest.weight) { $('w-kg').value = guest.weight; $('w-lb').value = Math.round(guest.weight / 0.45359237); }
+    if (guest.age) { $('age').value = guest.age; $('age-i').value = guest.age; }
+  }
+  setUnits((guest && guest.units) || units);
+}
+$('gender').addEventListener('change', (e) => { renderShape(e.target.value); $('shape').hidden = false; });
+$('guest').addEventListener('click', () => { mode = 'guest'; show('form'); });
+$('back-to-gate').addEventListener('click', () => { mode = 'account'; route(false); });
+$('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const gender = (document.querySelector('input[name=gender]:checked') || {}).value;
+  const m = units === 'imperial' ? toMetric('imperial', $('h-ft').value, $('h-in').value, $('w-lb').value) : toMetric('metric', $('h-cm').value, null, $('w-kg').value);
+  const age = (units === 'imperial' ? $('age-i').value : $('age').value).trim();
+  const shape = {};
+  if (gender) for (const sq of SHAPE_QUESTIONS[gender]) { const c = document.querySelector(`input[name="shape-${sq.id}"]:checked`); shape[sq.id] = c ? Number(c.value) : 0; }
+  const p = { gender, height: m.height, weight: m.weight, age: age === '' ? null : Number(age), shape, units };
+  const err = !gender ? 'Choose Women or Men.' : validateInput(p);
+  if (err) { errorOf(e.currentTarget).textContent = err; return; }
+  guest = p;
+  write(GUEST_KEY, JSON.stringify(p));
+  mode = 'guest';
+  await route(true);
+});
+document.querySelectorAll('form').forEach((f) => f.addEventListener('input', () => { errorOf(f).textContent = ''; }));
+
+// ---- open / close ----
+async function open() {
+  silent = false;
+  document.body.classList.remove('silent', 'closed');
+  track('size_finder_opened');
+  await route(true);
+  $('card').focus({ preventScroll: true });
+}
+function hide(tellHost) {
+  document.body.classList.add('closed');
+  if (tellHost) post('TRYON_SIZE_CLOSE');
+}
+async function onProduct() {
+  // Closed or hidden: a measured shopper still gets their size for this product, which the
+  // store shows by the size picker without a click. A build in flight is picked up too.
+  if (document.body.classList.contains('closed') || silent) await route(false);
+  else if (!$('result').hidden && renderResult()) post('TRYON_SIZE_RESULT', { size: last.recommendedSize });
+}
+$('close').addEventListener('click', () => hide(true));
+$('scrim').addEventListener('click', (e) => { if (e.target === $('scrim')) hide(true); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hide(true); });
+
+// ---- start ----
+setUnits(units);
+if (inFrame) {
+  // After the in-frame sign-in fallback this document reloads while the host still shows
+  // the frame; the host answers READY with the product and OPEN again.
+  post('TRYON_SIZE_READY');
+} else {
+  // Opened directly (local preview): stand in for the store.
+  product = normalizeProduct({ sizes: (q.get('sizes') || 'S,M,L,XL').split(',').map((label) => ({ label, available: !(q.get('sold_out') || '').split(',').includes(label) })), hasTryon: q.get('tryon') === '1' });
+  open();
+}
+</script>
+</body>
+</html>
