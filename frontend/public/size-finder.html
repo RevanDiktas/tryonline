@@ -562,7 +562,7 @@ async function ensureProfile(name) {
 }
 function forgetUser() {
   userId = null; displayName = ''; widgetToken = null; session = null; passport = null; body = null;
-  ['tryon_user_id', 'tryon_user_name', TOKEN_KEY, SESSION_KEY, JOB_KEY].forEach(drop);
+  ['tryon_user_id', 'tryon_user_name', TOKEN_KEY, SESSION_KEY, JOB_KEY, 'tryon_size_details'].forEach(drop);
   stopBuildWatch();
 }
 function signedIn(uid, name, wt) {
@@ -695,7 +695,14 @@ async function loadPassport() {
 }
 
 // ---- details -> photo -> build (the same endpoints tryon.global/onboarding uses) ----
-let details = readJson('tryon_size_details');    // { gender, height, weight, units }
+// What the shopper typed belongs to one account: never reuse it for another account on this device.
+const DETAILS_KEY = 'tryon_size_details';
+let details = null;    // { user_id, gender, height, weight, units }
+function loadDetails() {
+  const d = readJson(DETAILS_KEY);
+  details = d && session && d.user_id && d.user_id === session.user_id ? d : null;
+  return details;
+}
 function setUnits(u) {
   units = u;
   document.querySelectorAll('[data-metric]').forEach((el) => { el.hidden = u !== 'metric'; });
@@ -704,7 +711,7 @@ function setUnits(u) {
 }
 document.querySelectorAll('[data-units-toggle]').forEach((el) => el.addEventListener('click', () => setUnits(units === 'metric' ? 'imperial' : 'metric')));
 function fillDetails() {
-  const d = details || (passport && { gender: passport.gender, height: passport.height, weight: passport.weight }) || {};
+  const d = loadDetails() || (passport && { gender: passport.gender, height: passport.height, weight: passport.weight }) || {};
   document.querySelectorAll('input[name=d-gender]').forEach((r) => { r.checked = r.value === d.gender; });
   if (d.height) { $('d-h-cm').value = d.height; const inches = d.height / 2.54; $('d-h-ft').value = Math.floor(inches / 12); $('d-h-in').value = Math.round(inches % 12); }
   if (d.weight) { $('d-w-kg').value = d.weight; $('d-w-lb').value = Math.round(d.weight / 0.45359237); }
@@ -718,8 +725,8 @@ $('details').addEventListener('submit', (e) => {
   const [hMin, hMax] = [100, 250], [wMin, wMax] = INPUT_LIMITS.weight;   // /api/avatar/create accepts 100-250 cm
   err.textContent = !gender ? 'Choose a body type.' : !(m.height >= hMin && m.height <= hMax) ? 'Enter your height.' : !(m.weight >= wMin && m.weight <= wMax) ? 'Enter your weight.' : '';
   if (err.textContent) return;
-  details = { gender, height: Math.round(m.height), weight: Math.round(m.weight), units };
-  write('tryon_size_details', JSON.stringify(details));
+  details = { user_id: session && session.user_id, gender, height: Math.round(m.height), weight: Math.round(m.weight), units };
+  write(DETAILS_KEY, JSON.stringify(details));
   show('photo');
 });
 
@@ -766,7 +773,7 @@ $('send').addEventListener('click', async () => {
   err.textContent = '';
   const t = await token();
   if (!t) { show('signin'); errorOf($('signin')).textContent = 'Sign in again to send your photo.'; return; }
-  if (!photoBlob || !details) { show(details ? 'photo' : 'details'); return; }
+  if (!photoBlob || !loadDetails()) { show(details ? 'photo' : 'details'); return; }
   busy(btn, true);
   try {
     const fd = new FormData();
@@ -816,7 +823,7 @@ function watchBuild() {
       } catch { /* network blip: try again */ }
     }
     if (status && status.status !== 'completed' && status.status !== 'failed') {
-      paintBuild(status.progress || 5, status.message || 'Working on it…', started);
+      paintBuild(status.progress || 5, /runpod|job/i.test(status.message || '') ? 'Starting…' : (status.message || 'Working on it…'), started);
     } else {
       // Finished, or the job is unknown: the passport is the record.
       await loadPassport();
@@ -978,7 +985,7 @@ async function route(fresh) {
       if (!visible) return;
       if (bodyState === 'signedout') show('gate');
       else if (bodyState === 'failed') show('failed');
-      else if (bodyState === 'none') show(session ? (details ? 'photo' : 'details') : 'nomeas');
+      else if (bodyState === 'none') show(session ? (loadDetails() ? 'photo' : 'details') : 'nomeas');
       else { show('gate'); $('gate-wait').textContent = 'We could not load your measurements. Check your connection and try again.'; $('gate-wait').hidden = false; }
       return;
     }
