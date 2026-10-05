@@ -1,9 +1,28 @@
 # Status: 2026-10-05
 
 Branch `claude/analytics-and-onboarding-part2`, cut from `feature/analytics` (`aebbb0d`).
+Pull request: https://github.com/RevanDiktas/tryonline/pull/1 (base `feature/analytics`).
 Not merged, not deployed. Written in a cloud session without access to the Mac, so
 `feature/widget-onboarding` (`a69bc77`, local only) was not available: nothing here
 touches `test-viewer.html`.
+
+## WHERE THINGS STAND
+
+- **Live store, unchanged.** Pressing Try On still sends a shopper without an avatar to
+  tryon.global to sign up and onboard. In-widget onboarding is NOT live.
+- **In-widget onboarding part 1.** Revan confirms it works (2026-10-05). It is still only
+  on the Mac, on `feature/widget-onboarding`.
+- **This branch.** Pushed and in PR #1. It changes the dashboard numbers and adds backend
+  support for the widget; it does not change what the Try On button does.
+
+**To get in-widget onboarding live.**
+1. Push `feature/widget-onboarding` from the Mac.
+2. Merge it into `feature/analytics` so Vercel serves the new widget.
+3. Re-release the Shopify theme block only if that branch changed anything under
+   `shopify_app`.
+
+Email sign-up, photo and avatar build then run inside the card. Google and Apple sign-in
+still open the popup until the session hand-off (see OPEN) is decided and built.
 
 ## DONE: analytics steps 2-4 (yesterday's NEXT UP item 3)
 
