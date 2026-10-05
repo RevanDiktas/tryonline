@@ -31,11 +31,30 @@
       break
     endif
   endfor
+  # A lone option not named as a size counts only when every value looks like a clothing
+  # size (S, XL, 3XL, One size, 38, 32/34). Gift card amounts, colours and bundles do not.
   if size_pos == -1 and product.options.size == 1
-    assign size_pos = 0
+    assign letter_sizes = ',xxxs,xxs,xs,s,m,l,xl,xxl,xxxl,2xs,3xs,2xl,3xl,4xl,5xl,x-small,small,medium,large,x-large,xx-large,one size,os,'
+    assign all_sizes = true
+    for value in product.options_with_values[0].values
+      assign v = value | downcase | strip
+      assign needle = ',' | append: v | append: ','
+      unless letter_sizes contains needle
+        assign first = v | split: '/' | first
+        assign n = first | plus: 0
+        assign n_text = n | append: ''
+        if n_text != first or n < 20 or n > 60
+          assign all_sizes = false
+          break
+        endif
+      endunless
+    endfor
+    if all_sizes
+      assign size_pos = 0
+    endif
   endif
   assign size_count = 0
-  if size_pos >= 0
+  if size_pos >= 0 and product.gift_card? == false
     assign size_count = product.options_with_values[size_pos].values.size
   endif
 
