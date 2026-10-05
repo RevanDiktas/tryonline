@@ -121,6 +121,7 @@ class RunPodService:
                 processed_output = {
                     "measurements": output.get("measurements", {}),
                     "processing_time": output.get("processing_time_seconds"),
+                    "timings": output.get("timings"),   # seconds per stage, from the GPU worker
                     "files_bytes": {},
                     "file_sizes": output.get("file_sizes", {}),
                 }
