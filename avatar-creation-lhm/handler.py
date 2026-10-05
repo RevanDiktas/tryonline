@@ -310,6 +310,61 @@ def _baked_models_ready() -> bool:
         return False
 
 
+def _fetch_production_models(log: list[str]) -> None:
+    """Get only what the production avatar command needs onto this worker's disk.
+
+    Measured 2026-10-05 on a worker with no network volume: the full bootstrap (both
+    tarballs, everything extracted) took 98 s of a 112 s job. Production uses two trees
+    from LHM_prior_model.tar and nothing from motion_video.tar, so fetch that one tarball
+    and unpack just those trees. No `.extracted` marker is written: commands that need
+    the full data set still run the full bootstrap.
+
+    Raises on any failure; the caller then falls back to the full bootstrap.
+    """
+    url = next(item["url"] for item in DATA_FILES if item["name"] == "LHM_prior_model.tar")
+    tmp = Path(tempfile.mkdtemp(prefix="prior_fetch_", dir=str(LHM_ROOT)))
+    try:
+        t0 = _now()
+        dl = subprocess.run(
+            ["aria2c", "-x", "16", "-s", "16", "--max-tries=5", "--retry-wait=10",
+             "--console-log-level=warn", "--allow-overwrite=true",
+             "-d", str(tmp), "-o", "prior.tar", url],
+            capture_output=True, text=True, timeout=900,
+        )
+        if dl.returncode != 0:
+            raise RuntimeError(f"aria2c rc={dl.returncode}: {(dl.stderr or dl.stdout)[-300:]}")
+        tar_path = tmp / "prior.tar"
+        size_gb = tar_path.stat().st_size / 1e9
+        t1 = _now()
+        log.append(f"prior tar: downloaded {size_gb:.1f} GB in {t1 - t0:.1f}s")
+
+        out = tmp / "x"
+        out.mkdir()
+        ex = subprocess.run(
+            ["tar", "-xf", str(tar_path), "-C", str(out), "--wildcards",
+             "*pretrained_models/human_model_files*", "*pretrained_models/gagatracker*"],
+            capture_output=True, text=True, timeout=600,
+        )
+        if ex.returncode != 0:
+            raise RuntimeError(f"tar rc={ex.returncode}: {ex.stderr[-300:]}")
+        src = out / "pretrained_models"
+        if not (src / "human_model_files").is_dir() or \
+                not (src / "gagatracker" / "vgghead" / "vgg_heads_l.trcd").is_file():
+            raise RuntimeError("expected model trees not found in the tarball")
+        dst = LHM_ROOT / "pretrained_models"
+        dst.mkdir(parents=True, exist_ok=True)
+        for name in ("human_model_files", "gagatracker"):
+            target = dst / name
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+            elif target.exists():
+                shutil.rmtree(target)
+            shutil.move(str(src / name), str(target))
+        log.append(f"prior tar: unpacked 2 model trees in {_now() - t1:.1f}s")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _stitch_volume_into_lhm_root(log: list[str] | None = None) -> None:
     """Make /workspace/LHM/<x> point to /runpod-volume/lhm-data/<x>.
 
@@ -2737,6 +2792,14 @@ def cmd_avatar_production(inp: dict, started: float) -> dict:
     global _DATA_ENSURED, _POSE_ESTIMATOR, _FACE_DETECTOR
     data_source = "baked" if _baked_models_ready() else "bootstrap"
     data_log: list[str] = []   # what the bootstrap did: downloaded, found on the volume, linked
+    if data_source == "bootstrap" and not _DATA_ENSURED and not USING_VOLUME:
+        # No network volume: fetch just the production models instead of everything.
+        try:
+            _fetch_production_models(data_log)
+            if _baked_models_ready():
+                data_source = "slim_fetch"
+        except Exception as e:
+            data_log.append(f"slim fetch failed, using full bootstrap: {str(e)[:120]}")
     if data_source == "bootstrap" and not _DATA_ENSURED:
         try:
             _ensure_lhm_data(log=data_log)
