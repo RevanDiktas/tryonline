@@ -6,8 +6,13 @@
   that has two or more sizes, in any store with this block: one account, every store.
   Opens tryon.global/size-finder.html in a modal iframe.
 
+  A new shopper is onboarded inside the card (account, height and weight, one photo), which
+  starts the same avatar build the Try On widget uses. This card then reads only the fit
+  passport; the Try On widget reads the passport and the avatar.
+
   - The button sits in the store's own DOM, so it takes the theme's font and colour.
-  - The card is told the store's colours, corner radius and font when it opens.
+  - The card is in Tryon's own look by default; "Match my store" passes the store's
+    colours, corner radius and font instead.
   - A signed-in shopper sees "Your size: L" on every product without clicking.
   - If the Try On block is on the same page, the card offers the avatar try-on as a next step.
   - Optional (off by default): a quick estimate for shoppers without an account.
@@ -77,6 +82,7 @@
       "brandName": {{ shop.name | json }},
       "returnUrl": {{ shop.url | append: product.url | json }},
       "guest": {{ block.settings.allow_guest | json }},
+      "look": {{ block.settings.card_look | json }},
       "variantId": {{ variant.id | json }},
       "country": {{ country_code | json }},
       "sizePos": {{ size_pos }},
@@ -181,8 +187,11 @@
           country: cfg.country || '', brand_name: cfg.brandName || '', return_url: cfg.returnUrl || '', v: VERSION
         });
         if (cfg.guest) p.set('guest', '1');
-        var look = storeLook();
-        Object.keys(look).forEach(function (k) { if (look[k] !== undefined && look[k] !== '') p.set(k, String(look[k])); });
+        if (cfg.look === 'store') {
+          var look = storeLook();
+          p.set('look', 'store');
+          Object.keys(look).forEach(function (k) { if (look[k] !== undefined && look[k] !== '') p.set(k, String(look[k])); });
+        }
         if (silent) p.set('silent', '1');
         return cfg.widgetBase + '/size-finder.html?' + p.toString();
       }
@@ -306,6 +315,9 @@
           if (wantOpen || isOpen) { wantOpen = false; show(); }
         }
         if (d.type === 'TRYON_SIZE_RESULT' && d.payload) setResult(d.payload.size);
+        // Signed in: load the card quietly on later product pages, so a measurement still
+        // being made is picked up and the size appears by itself.
+        if (d.type === 'TRYON_SIZE_ACCOUNT') { try { localStorage.setItem(KNOWN_KEY, '1'); } catch (e2) {} }
         if (d.type === 'TRYON_SIZE_CLOSE') close(true);
         if (d.type === 'TRYON_SIZE_ADD_TO_CART' && d.payload) addToCart(d.payload);
         if (d.type === 'TRYON_SIZE_OPEN_TRYON') {
@@ -415,8 +427,18 @@
       "content": "Size card"
     },
     {
+      "type": "select",
+      "id": "card_look",
+      "label": "Look",
+      "options": [
+        { "value": "tryon", "label": "Tryon" },
+        { "value": "store", "label": "Match my store" }
+      ],
+      "default": "tryon"
+    },
+    {
       "type": "paragraph",
-      "content": "The card takes your theme's colours, font and button shape. Set these only to override the main button colours."
+      "content": "With \"Match my store\" the card takes your theme's colours, font and button shape. The two colours below then override its main button."
     },
     {
       "type": "color",

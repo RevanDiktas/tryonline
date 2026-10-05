@@ -264,6 +264,24 @@ check("flag on: wishlist status no proof -> 401, own token -> 200, other's token
 r = client.post("/api/wishlist", json={"product_id": "tee", "shop_domain": SHOP, "user_id": BOB}, headers=alice_tok)
 check("flag on: cannot save to Bob's wishlist with Alice's token -> 403, nothing written",
       r.status_code == 403 and not fake.tables["saved_items"], str(r.status_code))
+
+# One onboarding, two surfaces: the size-only card reads the passport, the try-on reads
+# passport + avatar.
+r = client.get(f"/api/measurements/passport/{BOB}", headers=bob_tok)
+fp_body = r.json() if r.status_code == 200 else {}
+check("passport route: status, gender, height and the measured values, for the shopper's own token",
+      r.status_code == 200 and fp_body.get("status") == "completed" and fp_body.get("gender") == "male" and fp_body.get("height") == 180
+      and isinstance(fp_body.get("measurements"), dict), str(fp_body))
+check("passport route returns no avatar: a size-only surface fetches no 3D file",
+      not any("avatar" in k or "glb" in str(v).lower() for k, v in fp_body.items()), str(list(fp_body)))
+check("avatar route still returns passport + avatar for the try-on",
+      "avatar_url" in client.get(f"/api/avatar/{BOB}", headers=bob_tok).json())
+check("flag on: passport route no proof -> 401, someone else's token -> 403, own session -> 200",
+      (client.get(f"/api/measurements/passport/{BOB}").status_code,
+       client.get(f"/api/measurements/passport/{BOB}", headers=alice_tok).status_code,
+       client.get(f"/api/measurements/passport/{BOB}", headers=bearer(BOB)).status_code) == (401, 403, 200))
+check("passport route: a shopper who never started -> 404",
+      client.get(f"/api/measurements/passport/{NO_PROFILE}", headers=bearer(NO_PROFILE)).status_code == 404)
 require_auth(False)
 
 # --------------------------------------------------------------------------- 4. create
