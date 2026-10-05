@@ -446,6 +446,7 @@ async def process_avatar_job(job_id: str, request: AvatarCreateRequest):
                     "queue": secs(rp.get("queue_ms")),
                     "gpu": secs(rp.get("gpu_ms")),
                     "pipeline": output.get("processing_time"),
+                    "stages": output.get("timings"),
                     "save": round(time.monotonic() - gpu_done, 1),
                     "total": round(time.monotonic() - submitted, 1),
                 }
