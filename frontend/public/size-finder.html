@@ -1396,7 +1396,11 @@ function renderQuiz() {
   });
 }
 // Next: the first unanswered question after this one, else any unanswered one, else done.
+let answering = -1;   // a double tap during the step animation counts once
 function answered(i) {
+  if (answering === i) return;
+  answering = i;
+  setTimeout(() => { if (answering === i) answering = -1; }, 450);
   const steps = quizSteps();
   track('size_finder_quiz_step', { step: steps[i].id, index: i, total: steps.length });
   haptic(8);
