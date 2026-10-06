@@ -194,14 +194,14 @@
   .pick:hover { background: var(--soft-2); }
   .pick[aria-pressed="true"] { background: var(--ink); color: var(--paper); box-shadow: 0 8px 20px color-mix(in srgb, var(--ink) 22%, transparent); }
   .figs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .fig { --fill: color-mix(in srgb, var(--ink) 7%, transparent); --stroke: color-mix(in srgb, var(--ink) 38%, transparent); --arm: color-mix(in srgb, var(--ink) 5%, transparent);
+  .fig { --fill: var(--paper); --stroke: color-mix(in srgb, var(--ink) 26%, var(--paper)); --detail: color-mix(in srgb, var(--ink) 16%, var(--paper)); --arrow: color-mix(in srgb, var(--accent) 38%, var(--paper));
          display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 6px 10px; border: 0; border-radius: 18px; background: var(--soft); color: var(--ink);
          font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; transition: background .22s var(--snap), box-shadow .22s, transform .18s var(--snap); }
   .fig:hover { background: var(--soft-2); }
-  .fig svg { width: 100%; max-width: 96px; height: auto; overflow: visible; }
+  .fig svg { width: 100%; max-width: 100px; height: auto; overflow: visible; }
+  .fig svg * { transition: stroke .25s var(--snap); }
   .fig[aria-pressed="true"] { background: var(--paper); box-shadow: inset 0 0 0 2px var(--ink), 0 8px 22px rgba(0,0,0,.08);
-                              --fill: color-mix(in srgb, var(--ink) 12%, transparent); --stroke: var(--ink); }
-  .fig .measure { color: var(--accent); }
+                              --stroke: var(--ink); --detail: color-mix(in srgb, var(--ink) 58%, var(--paper)); --arrow: var(--accent); }
   .ok { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin: 16px 0 0; min-height: 52px; padding: 0 18px; border: 0; border-radius: var(--btn-radius);
         background: var(--btn-bg); color: var(--btn-fg); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform .18s var(--snap), opacity .2s;
         box-shadow: 0 6px 18px color-mix(in srgb, var(--btn-bg) 22%, transparent); font-variant-numeric: tabular-nums; }
@@ -1620,64 +1620,97 @@ function buildRuler(host, { min, max, major, mid, value, tick, fmt, unit, label,
 }
 
 // ---- illustrations for the build questions ----
-// Front view (chest and shoulders, hips) or side view (belly, bust). The answer moves the part
-// asked about; a blue measuring arrow sits on that part. Drawn as smooth closed silhouettes.
-function smoothClosed(pts) {
-  const n = pts.length;
-  let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
-  for (let k = 0; k < n; k++) {
-    const p0 = pts[(k - 1 + n) % n], p1 = pts[k], p2 = pts[(k + 1) % n], p3 = pts[(k + 2) % n];
-    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
-    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
-    d += ` C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+// Line art of a real torso, cropped neck to upper thigh: front view for chest & shoulders and
+// hips, side view for belly and bust. A bigger answer grows the part as a smooth round swell
+// over its whole area (a sine dome, densely sampled), never a pushed point, so it reads like a
+// real body. Colours come from CSS (--stroke, --detail, --arrow) so choosing only restyles.
+function curve(pts, closed) {
+  const n = pts.length, P = (i) => (closed ? pts[(i + n) % n] : pts[Math.max(0, Math.min(n - 1, i))]);
+  let d = `M${pts[0][0].toFixed(2)},${pts[0][1].toFixed(2)}`;
+  for (let k = 0; k < (closed ? n : n - 1); k++) {
+    const p0 = P(k - 1), p1 = P(k), p2 = P(k + 1), p3 = P(k + 2);
+    d += ` C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(2)},${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(2)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(2)},${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(2)} ${p2[0].toFixed(2)},${p2[1].toFixed(2)}`;
   }
-  return d + 'Z';
+  return d + (closed ? 'Z' : '');
 }
-function arrowH(x1, x2, y) {
+const interp = (pts, y) => {
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x1, y1] = pts[i], [x2, y2] = pts[i + 1];
+    if (y >= y1 && y <= y2) return x1 + ((x2 - x1) * (y - y1)) / (y2 - y1 || 1);
+  }
+  return pts[pts.length - 1][0];
+};
+// A round dome from y=a to y=b, peaking at `peak` (0..1 along the span); 0 outside.
+const dome = (y, a, b, peak = 0.5) => {
+  if (y <= a || y >= b) return 0;
+  const t = (y - a) / (b - a);
+  const u = t < peak ? 0.5 * (t / peak) : 0.5 + 0.5 * ((t - peak) / (1 - peak));
+  return Math.sin(Math.PI * u);
+};
+const sampleY = (from, to, step, fn) => { const out = []; for (let y = from; y <= to + 1e-9; y += step) out.push([fn(y), y]); return out; };
+// Front view (viewBox 0..100 x 0..120, centre x=50). S half shoulder, C half chest, W half
+// waist, H half hip, E extra hip roundness.
+function frontBody({ S = 30, C = 22, W = 18, H = 23, E = 0, female = false }) {
+  const l = (x) => 50 - x;
+  const neutral = [[l(6.5), 0], [l(7.5), 7], [l(14), 10.5], [l(C - 1), 22], [l(C), 31], [l(C - 0.5), 42], [l(W + (female ? 0 : 1)), 57], [l(W), 64], [l(H - 1), 78], [l(H), 88], [l(H - 1.5), 104], [l(H - 4), 120]];
+  const torsoL = [...neutral.slice(0, 3), ...sampleY(14, 120, 3, (y) => interp(neutral, y) - E * dome(y, 58, 128, 0.45))];
+  const armL = [[l(14), 10.5], [l(S - 5), 13], [l(S), 21], [l(S + 1.5), 36], [l(S + 1), 52], [l(S + 1.8), 68], [l(S + 1), 86], [l(S - 0.5), 100],
+    [l(S - 6), 101], [l(S - 5.5), 86], [l(C + 2.5), 66], [l(C + 2.6), 48], [l(C + 1.2), 32]];
+  const R = (pts) => pts.map(([x, y]) => [100 - x, y]);
+  const hipX = H + E * 0.85;
+  const lines = [
+    `M${l(4)},9.5 Q${l(10)},11 ${l(15)},11.5`, `M${100 - l(4)},9.5 Q${100 - l(10)},11 ${100 - l(15)},11.5`,
+    female
+      ? `M${l(C - 3)},31 Q${l(C - 5)},43 ${l(5)},40 M${100 - l(C - 3)},31 Q${100 - l(C - 5)},43 ${100 - l(5)},40`
+      : `M50,37 Q${l(C * 0.45)},40.5 ${l(C - 4)},33 M50,37 Q${100 - l(C * 0.45)},40.5 ${100 - l(C - 4)},33`,
+    'M50,62.5 v2.6',
+    `M${l(hipX - 6)},90 Q${l(6)},101 50,106 Q${100 - l(6)},101 ${100 - l(hipX - 6)},90`, 'M50,106 V120',
+  ];
+  return { kind: 'front', torso: [...torsoL, ...R(torsoL).reverse()], arms: [armL, R(armL)], lines };
+}
+// Side view, facing right. P = belly fullness, B = bust fullness.
+function sideBody({ P = 6, B = 0, female = false }) {
+  const back = [[40, 0], [37, 9], [30, 17], [27, 28], [27.5, 42], [30.5, 56], [30, 66], [25.5, 78], [24.5, 88], [27, 100], [31, 120]];
+  const neutral = female
+    ? [[51, 0], [52.5, 8], [56.5, 14], [57.5, 22], [58, 31], [57.5, 38], [57, 44], [57, 52], [57.5, 62], [57, 72], [56, 82], [55.5, 92], [56, 104], [56, 120]]
+    : [[51, 0], [52.5, 8], [57, 14], [61, 22], [62.5, 30], [61.5, 37], [59.5, 44], [58.5, 52], [58.5, 62], [58, 72], [56.5, 82], [55.5, 92], [56, 104], [56, 120]];
+  const front = [neutral[0], neutral[1], ...sampleY(12, 120, 2.5, (y) => interp(neutral, y) + B * dome(y, 16, 49, 0.52)
+    + P * dome(y, 40, 108, 0.4) + P * 0.18 * dome(y, 80, 120, 0.3))];
+  return { kind: 'side', torso: [...back, ...front.slice().reverse()] };
+}
+function measureArrow(x1, y, x2) {
   const h = 3.2;
-  return `<g class="measure" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <path d="M${x1},${y} H${x2}" stroke-dasharray="2.6 2.6"/>
-    <path d="M${x1 + h},${y - h} L${x1},${y} L${x1 + h},${y + h}"/><path d="M${x2 - h},${y - h} L${x2},${y} L${x2 - h},${y + h}"/></g>`;
+  return `<g style="stroke:var(--arrow)" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M${x1},${y} H${x2}" stroke-dasharray="2.4 2.6"/><path d="M${x1 + h},${y - h} L${x1},${y} L${x1 + h},${y + h}"/><path d="M${x2 - h},${y - h} L${x2},${y} L${x2 - h},${y + h}"/></g>`;
 }
 function figure(target, level, gender) {
   const male = gender === 'male';
-  const side = target === 'waist' || (target === 'chest' && !male);
-  const shape = side ? sideFigure(target, level, male) : frontFigure(target, level, male);
-  return `<svg viewBox="0 0 120 150" aria-hidden="true">${shape}</svg>`;
-}
-function frontFigure(target, level, male) {
-  const c = 60;
-  let sh = male ? 31 : 26, ch = male ? 25 : 23, wa = male ? 21 : 17, hi = male ? 23 : 26;
-  if (target === 'chest') { sh += 3.5 * level; ch += 4 * level; }
-  if (target === 'hips') hi += 5 * level;
-  const half = [
-    [6.5, 27], [8, 34], [sh - 6, 39], [sh, 45], [sh - 1, 54], [ch, 64], [ch - 1.5, 76], [wa, 92], [hi - 1, 108], [hi, 118], [hi - 2, 132], [hi - 4, 150],
-  ];
-  const left = half.map(([x, y]) => [c - x, y]);
-  const right = half.slice().reverse().map(([x, y]) => [c + x, y]);
-  const body = smoothClosed([...left, [c, 150], ...right]);
-  const arm = (s) => `<path d="M${c + s * (sh - 1)},47 C${c + s * (sh + 5)},62 ${c + s * (sh + 6)},86 ${c + s * (sh + 4)},112" stroke="var(--arm)" stroke-width="9" stroke-linecap="round" fill="none"/>
-    <path d="M${c + s * (sh - 1)},47 C${c + s * (sh + 5)},62 ${c + s * (sh + 6)},86 ${c + s * (sh + 4)},112" stroke="var(--stroke)" stroke-width="1.4" stroke-linecap="round" fill="none" opacity=".55"/>`;
-  const head = `<ellipse cx="${c}" cy="14" rx="10.5" ry="12.5" fill="var(--fill)" stroke="var(--stroke)" stroke-width="1.6"/>`;
-  const legs = `<path d="M${c},128 V150" stroke="var(--stroke)" stroke-width="1.4" opacity=".5"/>`;
-  const y = target === 'chest' ? 62 : target === 'hips' ? 116 : 92;
-  const w = target === 'chest' ? ch : target === 'hips' ? hi : wa;
-  return `${arm(-1)}${arm(1)}<path d="${body}" fill="var(--fill)" stroke="var(--stroke)" stroke-width="1.6" stroke-linejoin="round"/>${legs}${head}${arrowH(c - w + 4, c + w - 4, y)}`;
-}
-function sideFigure(target, level, male) {
-  // Facing right: back on the left, front on the right.
-  const bust = male ? 0 : 7 + 3.5 * (target === 'chest' ? level : 0);
-  const belly = (male ? 9 : 6) + (target === 'waist' ? 7 * level : 0);
-  const pts = [
-    [58, 27], [57, 35], [50, 44], [47, 60], [49, 80], [50, 96], [45, 114], [47, 132], [50, 150],
-    [70, 150], [72, 132], [74, 118], [69 + belly * 0.55, 106], [68 + belly, 92], [66 + belly * 0.6, 80], [67 + bust * 0.4, 74], [68 + bust, 63], [67, 50], [65, 40], [64, 34], [64, 27],
-  ];
-  const body = smoothClosed(pts);
-  const head = `<ellipse cx="62" cy="14" rx="11" ry="12.5" fill="var(--fill)" stroke="var(--stroke)" stroke-width="1.6"/><path d="M72,15 l3,2.5 -3,1" fill="none" stroke="var(--stroke)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>`;
-  const arm = `<path d="M57,46 C60,64 60,86 58,110" stroke="var(--arm)" stroke-width="9" stroke-linecap="round" fill="none" opacity=".9"/><path d="M57,46 C60,64 60,86 58,110" stroke="var(--stroke)" stroke-width="1.4" stroke-linecap="round" fill="none" opacity=".55"/>`;
-  const y = target === 'chest' ? 63 : 92;
-  const x2 = target === 'chest' ? 68 + bust : 68 + belly;
-  return `<path d="${body}" fill="var(--fill)" stroke="var(--stroke)" stroke-width="1.6" stroke-linejoin="round"/>${arm}${head}${arrowH(48, x2 - 3, y)}`;
+  let body; let arrow;
+  if (target === 'waist') {                                // belly, side view
+    const P = [0.5, 5.5, 12][level + 1];
+    body = sideBody({ P });
+    arrow = measureArrow(61 + P, 64, 71.5 + P);
+  } else if (target === 'chest' && !male) {                // bust, side view
+    const B = [3, 7, 12][level + 1];
+    body = sideBody({ B, P: 2.5, female: true });
+    arrow = measureArrow(60.5 + B, 33, 71 + B);
+  } else if (target === 'hips') {                          // hips, front view
+    const E = [-3.5, 0, 5][level + 1];
+    body = frontBody({ S: 26, C: 20, W: 15, H: 24, E, female: true });
+    const half = 24 + E * 0.95;
+    arrow = measureArrow(50 - half - 8, 90, 50 + half + 8);
+  } else {                                                 // chest and shoulders, front view
+    const S = [27, 31, 35.5][level + 1], C = [20, 23, 27][level + 1];
+    body = frontBody({ S, C, W: 18 + level * 1.5, H: 21 + level });
+    arrow = measureArrow(50 - S - 6, 4, 50 + S + 6);
+  }
+  const line = 'stroke:var(--stroke);fill:var(--fill)';
+  const shape = body.kind === 'front'
+    ? body.arms.map((a) => `<path d="${curve(a, true)}" style="${line}" stroke-width="1.7" stroke-linejoin="round"/>`).join('')
+      + `<path d="${curve(body.torso, true)}" style="${line}" stroke-width="1.7" stroke-linejoin="round"/>`
+      + `<g fill="none" style="stroke:var(--detail)" stroke-width="1.2" stroke-linecap="round">${body.lines.map((d) => `<path d="${d}"/>`).join('')}</g>`
+    : `<path d="${curve(body.torso, true)}" style="${line}" stroke-width="1.7" stroke-linejoin="round"/>`;
+  return `<svg viewBox="2 -4 96 128" aria-hidden="true">${shape}${arrow}</svg>`;
 }
 
 document.querySelectorAll('form').forEach((f) => f.addEventListener('input', () => { errorOf(f).textContent = ''; }));
