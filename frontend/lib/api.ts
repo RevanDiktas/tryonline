@@ -367,6 +367,43 @@ export interface FitPurchaseCorrelationResponse {
   overall_acceptance_rate?: number | null;
 }
 
+/** Size card analytics. Counts are distinct size-card sessions; purchases are distinct orders. */
+export interface SizeFinderFunnelStep {
+  step: 'opened' | 'quiz_started' | 'quiz_completed' | 'estimate_shown' | 'passport_clicked' | 'build_started' | 'build_completed' | 'add_to_cart' | 'purchase' | string;
+  sessions: number;
+}
+export interface SizeFinderQuizStep {
+  step: string;
+  index?: number | null;
+  sessions: number;
+}
+export interface SizeFinderAltPicks {
+  picks: number;
+  add_to_cart: number;
+}
+export interface SizeFinderSizeScore {
+  size: string;
+  mean_score: number;
+  samples: number;
+}
+export interface SizeFinderAnalytics {
+  sessions: number;
+  funnel: SizeFinderFunnelStep[];
+  step_dropoff: SizeFinderQuizStep[];
+  cta_split: Record<string, number>;
+  atc_by_basis: Record<string, number>;
+  purchases_by_basis: Record<string, number>;
+  revenue_by_basis: Record<string, number>;
+  revenue: number;
+  alt_picks: Record<string, SizeFinderAltPicks>;
+  recommended_distribution: Record<string, number>;
+  /** 0-100, per basis (estimate / measured); null when no data. */
+  avg_confidence: Record<string, number | null>;
+  mean_score_by_size: SizeFinderSizeScore[];
+  source_split: Record<string, number>;
+  attribution_window_days: number;
+}
+
 // --- Avatar ---
 export interface CreateAvatarPayload {
   user_id: string;
@@ -570,6 +607,10 @@ export const api = {
 
   async getFitPurchaseCorrelation(params: { start: string; end: string; shop?: string }): Promise<FitPurchaseCorrelationResponse> {
     return fetchApi('/api/analytics/fit-purchase-correlation', { params: params as Record<string, string> });
+  },
+
+  async getSizeFinderAnalytics(params: { start: string; end: string; shop?: string }): Promise<SizeFinderAnalytics> {
+    return fetchApi('/api/analytics/size-finder', { params: params as Record<string, string> });
   },
 
   async getReturnRisk(params: { shop?: string }): Promise<ReturnRiskResponse> {

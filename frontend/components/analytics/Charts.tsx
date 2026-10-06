@@ -336,6 +336,103 @@ export function FullFunnelChart({
   );
 }
 
+/* ─── Size Finder funnel ─── */
+
+// Quiz steps in blues, passport and photo build in violets, then the cart and order
+// colours the try-on funnel uses, so the two funnels read the same.
+const SIZE_FINDER_FUNNEL_COLORS = ['#3b82f6', '#4f7df3', '#5b74f0', '#6366f1', '#7c5cf4', '#8b5cf6', '#a78bfa', '#f59e0b', '#22c55e'];
+
+export function SizeFinderFunnelChart({
+  steps,
+  dark,
+}: {
+  steps: { name: string; value: number }[];
+  dark?: boolean;
+}) {
+  // Every step is a measured count of distinct sessions (purchases: sessions with an order).
+  const maxVal = Math.max(...steps.map((s) => s.value), 1);
+  const tt = tooltipStyle(dark);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const renderDropLabel = (props: any) => {
+    const y = Number(props.y ?? 0);
+    const height = Number(props.height ?? 0);
+    const index = Number(props.index ?? 0);
+    if (index === 0) return null;
+    const prev = steps[index - 1].value;
+    const cur = steps[index].value;
+    // Steps aren't nested (Try On sessions skip the quiz), so a step can exceed the one
+    // before it. Label real drops only.
+    if (prev <= 0 || cur >= prev) return null;
+    const drop = (((prev - cur) / prev) * 100).toFixed(0);
+    return (
+      <text x="100%" dx={-4} y={y + height / 2} textAnchor="end" dominantBaseline="middle" fontSize={9} fill={dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'}>
+        −{drop}%
+      </text>
+    );
+  };
+
+  return (
+    <div className="h-full w-full min-h-[160px] min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minHeight={160} initialDimension={{ width: 400, height: 160 }}>
+        <BarChart data={steps} layout="vertical" margin={{ top: 0, right: 60, left: 0, bottom: 0 }}>
+          <XAxis type="number" domain={[0, maxVal]} hide />
+          <YAxis type="category" dataKey="name" width={110} tick={tickStyle(dark)} axisLine={false} tickLine={false} interval={0} />
+          <Tooltip
+            contentStyle={tt.contentStyle}
+            labelStyle={tt.labelStyle}
+            itemStyle={tt.itemStyle}
+            cursor={tt.cursor}
+            isAnimationActive={false}
+            formatter={(value: number | undefined) => [value ?? 0, '']}
+          />
+          <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={18} isAnimationActive={false} label={renderDropLabel}>
+            {steps.map((_, i) => (
+              <Cell key={i} fill={SIZE_FINDER_FUNNEL_COLORS[i % SIZE_FINDER_FUNNEL_COLORS.length]} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ─── Size Finder: mean score per size ─── */
+
+export function SizeScoreChart({
+  scores,
+  dark,
+}: {
+  scores: { size: string; mean_score: number; samples: number }[];
+  dark?: boolean;
+}) {
+  const colors = dark ? CHART_COLORS_DARK : CHART_COLORS;
+  if (scores.length === 0) return null;
+  const tt = tooltipStyle(dark);
+
+  return (
+    <div className="h-[180px] w-full min-h-[140px] min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minHeight={140} initialDimension={{ width: 400, height: 140 }}>
+        <BarChart data={scores} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke(dark)} vertical={false} />
+          <XAxis dataKey="size" tick={tickStyle(dark)} axisLine={false} tickLine={false} />
+          <YAxis tick={tickStyle(dark)} domain={[0, 100]} allowDecimals={false} axisLine={false} tickLine={false} />
+          <Tooltip
+            contentStyle={tt.contentStyle}
+            labelStyle={tt.labelStyle}
+            itemStyle={tt.itemStyle}
+            cursor={tt.cursor}
+            isAnimationActive={false}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            formatter={(value: number | undefined, _name: any, item: any) => [`${value ?? 0} (n=${item?.payload?.samples ?? 0})`, 'Mean score']}
+          />
+          <Bar dataKey="mean_score" fill={colors.recommended} radius={[4, 4, 0, 0]} name="Mean score" isAnimationActive={false} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 /* ─── Device Breakdown ─── */
 
 const DEVICE_COLORS: Record<string, string> = {

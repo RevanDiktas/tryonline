@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { TryonLogo } from '@/components/TryonLogo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, logout, type User } from '@/lib/supabase-auth';
-import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse, type DwellMetrics, type DeviceMetricsResponse, type FitConfidenceResponse, type RepeatVisitorsResponse, type BodyShapeInsightsResponse, type ReturnMetricsData, type CohortComparisonData, type ReturnRiskResponse, type TimeSeriesResponse, type FitPurchaseCorrelationResponse } from '@/lib/api';
+import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse, type DwellMetrics, type DeviceMetricsResponse, type FitConfidenceResponse, type RepeatVisitorsResponse, type BodyShapeInsightsResponse, type ReturnMetricsData, type CohortComparisonData, type ReturnRiskResponse, type TimeSeriesResponse, type FitPurchaseCorrelationResponse, type SizeFinderAnalytics } from '@/lib/api';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
 import { formatBucket } from '@/lib/dateBuckets';
@@ -27,10 +27,44 @@ const DwellTimeChart = dynamic(() => import('@/components/analytics/Charts').the
 const ReturnRiskChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.ReturnRiskChart })), { ssr: false });
 const TimeSeriesChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.TimeSeriesChart })), { ssr: false });
 const FitPurchaseCorrelationChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.FitPurchaseCorrelationChart })), { ssr: false });
+const SizeFinderFunnelChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.SizeFinderFunnelChart })), { ssr: false });
+const SizeScoreChart = dynamic(() => import('@/components/analytics/Charts').then((m) => ({ default: m.SizeScoreChart })), { ssr: false });
 
 const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
-type Tab = 'roi' | 'fit' | 'trend' | 'returns' | 'engagement';
+type Tab = 'roi' | 'fit' | 'sizefinder' | 'trend' | 'returns' | 'engagement';
+
+// Size card funnel steps and quiz step ids, as the backend names them.
+const SIZE_FINDER_STEP_LABELS: Record<string, string> = {
+  opened: 'Opened',
+  quiz_started: 'Quiz started',
+  quiz_completed: 'Quiz done',
+  estimate_shown: 'Estimate shown',
+  passport_clicked: 'Passport CTA',
+  build_started: 'Build started',
+  build_completed: 'Build done',
+  add_to_cart: 'Add to cart',
+  purchase: 'Purchase',
+};
+const QUIZ_STEP_LABELS: Record<string, string> = {
+  gender: 'Gender',
+  height: 'Height',
+  weight: 'Weight',
+  age: 'Age',
+  'shape-chest': 'Chest shape',
+  'shape-belly': 'Belly shape',
+  'shape-hips': 'Hips shape',
+  fit: 'Fit preference',
+};
+const CTA_LABELS: Record<string, string> = {
+  try_on: 'Try On',
+  create_passport: 'Create passport',
+  finish_passport: 'Finish passport',
+};
+const ALT_REASON_LABELS: Record<string, string> = {
+  auto_sold_out: 'Sold out (auto)',
+  shopper: 'Shopper picked',
+};
 
 function SunIcon() {
   return (
@@ -176,6 +210,7 @@ export default function BrandDashboardPage() {
   const [returnRisk, setReturnRisk] = useState<ReturnRiskResponse | null>(null);
   const [timeSeries, setTimeSeries] = useState<TimeSeriesResponse | null>(null);
   const [fitPurchaseCorrelation, setFitPurchaseCorrelation] = useState<FitPurchaseCorrelationResponse | null>(null);
+  const [sizeFinder, setSizeFinder] = useState<SizeFinderAnalytics | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   // Range lives in the URL (?range=3m) so a view can be bookmarked or shared.
@@ -231,6 +266,7 @@ export default function BrandDashboardPage() {
       () => api.getReturnRisk({ shop: metricsShop }),
       () => api.getTimeSeries(params),
       () => api.getFitPurchaseCorrelation(params),
+      () => api.getSizeFinderAnalytics(params),
     ];
     const results = await Promise.allSettled(calls.map((fn) => fn()));
     if (fetchId !== fetchIdRef.current) return; // superseded by a newer range/shop
@@ -267,6 +303,7 @@ export default function BrandDashboardPage() {
     setReturnRisk(val(15) as ReturnRiskResponse | null);
     setTimeSeries(val(16) as TimeSeriesResponse | null);
     setFitPurchaseCorrelation(val(17) as FitPurchaseCorrelationResponse | null);
+    setSizeFinder(val(18) as SizeFinderAnalytics | null);
     setMetricsLoading(false);
   }, [metricsRange, metricsShop]);
 
@@ -327,6 +364,7 @@ export default function BrandDashboardPage() {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'roi', label: 'ROI & Attribution' },
     { id: 'fit', label: 'Fit Intelligence' },
+    { id: 'sizefinder', label: 'Size Finder' },
     { id: 'trend', label: 'Trend & Demand' },
     { id: 'returns', label: 'Returns & Risk' },
     { id: 'engagement', label: 'Engagement' },
@@ -804,6 +842,148 @@ export default function BrandDashboardPage() {
             )}
           </div>
         )}
+
+        {/* ═══ TAB: Size Finder ═══ */}
+        {tab === 'sizefinder' && (() => {
+          if (metricsLoading && !sizeFinder) return <div className="space-y-6"><LoadingSpinner dark={dark} /></div>;
+          if (!sizeFinder || sizeFinder.sessions === 0) {
+            return (
+              <div className="space-y-6">
+                {!fetchError && <EmptyState message="No size finder data yet" sub="Sessions appear here once shoppers open Find my size or Try On on your product pages" dark={dark} />}
+              </div>
+            );
+          }
+          const sf = sizeFinder;
+          const step = (k: string) => sf.funnel.find((f) => f.step === k)?.sessions ?? 0;
+          const ratio = (num: number, den: number) => (den > 0 ? num / den : null);
+          const pair = (r: Record<string, number>) => `${r.estimate ?? 0} / ${r.measured ?? 0}`;
+          const conf = (v: number | null | undefined) => (v != null ? `${v.toFixed(0)}` : '-');
+          const fmtDrop = (prev: number, cur: number) => (prev <= 0 ? '-' : cur >= prev ? '0%' : `−${(((prev - cur) / prev) * 100).toFixed(0)}%`);
+          const quizBase = step('quiz_started') || sf.step_dropoff[0]?.sessions || 0;
+          const ctaTotal = Object.values(sf.cta_split).reduce((a, b) => a + b, 0);
+          const autoAlt = sf.alt_picks.auto_sold_out ?? { picks: 0, add_to_cart: 0 };
+          const recDist = Object.entries(sf.recommended_distribution);
+          const subCl = dark ? 'text-white/40' : 'text-black/40';
+          return (
+            <div className="space-y-6">
+              <div className={`${panelClass} p-5`}>
+                <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-1 ${labelCl}`}>Size finder funnel</p>
+                <p className={`text-xs mb-4 ${subCl}`}>
+                  Size card sessions only, from Find my size and the Try On onboarding. Each session counts once per step; a purchase is an order paid within {sf.attribution_window_days} days of the session.
+                </p>
+                <div style={{ height: 260 }}>
+                  <SizeFinderFunnelChart
+                    steps={sf.funnel.map((f) => ({ name: SIZE_FINDER_STEP_LABELS[f.step] ?? f.step, value: f.sessions }))}
+                    dark={dark}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <MetricCell label="Opens" value={step('opened')} dark={dark} />
+                <MetricCell label="Quiz completion" value={fmtPct(ratio(step('quiz_completed'), step('quiz_started')))} highlight dark={dark} />
+                <MetricCell label="Estimates" value={step('estimate_shown')} dark={dark} />
+                <MetricCell label="Passport CTA" value={fmtPct(ratio(step('passport_clicked'), step('estimate_shown')))} highlight dark={dark} />
+                <MetricCell label="Sold-out alts" value={autoAlt.picks} dark={dark} />
+                <MetricCell label="ATC est / meas" value={pair(sf.atc_by_basis)} dark={dark} />
+                <MetricCell label="Purch est / meas" value={pair(sf.purchases_by_basis)} dark={dark} />
+                <MetricCell label="Revenue" value={fmtEur(sf.revenue)} dark={dark} />
+                <MetricCell label="Conf est / meas" value={`${conf(sf.avg_confidence.estimate)} / ${conf(sf.avg_confidence.measured)}`} dark={dark} />
+                <MetricCell label="Size card / Try On" value={`${sf.source_split.size_finder ?? 0} / ${sf.source_split.tryon_onboarding ?? 0}`} dark={dark} />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:items-start">
+                <div className={`${panelClass} overflow-hidden`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] px-4 pt-4 pb-2 ${labelCl}`}>Quiz step drop-off</p>
+                  {sf.step_dropoff.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead><tr className={`border-b ${borderCl}`}>
+                          <th className={tableHeaderClass}>Step</th>
+                          <th className={`${tableHeaderClass} text-right whitespace-nowrap`}>Sessions</th>
+                          <th className={`${tableHeaderClass} text-right whitespace-nowrap`}>Of starts</th>
+                          <th className={`${tableHeaderClass} text-right whitespace-nowrap`}>Drop</th>
+                        </tr></thead>
+                        <tbody>
+                          {sf.step_dropoff.map((q, i) => {
+                            const prev = i === 0 ? quizBase : sf.step_dropoff[i - 1].sessions;
+                            return (
+                              <tr key={q.step} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors ${i % 2 ? (dark ? 'bg-white/[0.02]' : 'bg-black/[0.02]') : ''}`}>
+                                <td className={`${tableCellClass} font-medium`}>{QUIZ_STEP_LABELS[q.step] ?? q.step}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums whitespace-nowrap`}>{q.sessions}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums whitespace-nowrap`}>{fmtPct(ratio(q.sessions, quizBase))}</td>
+                                <td className={`${tableCellClass} text-right font-mono tabular-nums whitespace-nowrap`}>{fmtDrop(prev, q.sessions)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className={`px-4 pb-4 text-xs ${subCl}`}>No quiz steps recorded in this range.</p>
+                  )}
+                </div>
+
+                <div className={`${panelClass} p-5`} style={chartPanelMinH}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-1 ${labelCl}`}>Mean score by size</p>
+                  <p className={`text-xs mb-4 ${subCl}`}>Average 0–100 fit score each size got across the estimates shown.</p>
+                  {sf.mean_score_by_size.length > 0 ? (
+                    <div style={{ height: CHART_HEIGHT }}><SizeScoreChart scores={sf.mean_score_by_size} dark={dark} /></div>
+                  ) : (
+                    <p className={`text-xs ${subCl}`}>No estimates with scores in this range.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className={`${panelClass} overflow-hidden`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] px-4 pt-4 pb-2 ${labelCl}`}>Passport CTA split</p>
+                  <table className="w-full">
+                    <tbody>
+                      {Object.entries(sf.cta_split).map(([cta, n]) => (
+                        <tr key={cta} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors`}>
+                          <td className={`${tableCellClass} font-medium`}>{CTA_LABELS[cta] ?? cta}</td>
+                          <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{n}</td>
+                          <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{fmtPct(ratio(n, ctaTotal))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className={`${panelClass} overflow-hidden`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] px-4 pt-4 pb-2 ${labelCl}`}>Alternative size picks</p>
+                  <table className="w-full">
+                    <thead><tr className={`border-b ${borderCl}`}>
+                      <th className={tableHeaderClass}>Reason</th>
+                      <th className={`${tableHeaderClass} text-right`}>Picks</th>
+                      <th className={`${tableHeaderClass} text-right`}>Then ATC</th>
+                    </tr></thead>
+                    <tbody>
+                      {Object.entries(sf.alt_picks).map(([reason, a]) => (
+                        <tr key={reason} className={`border-b ${borderCl} last:border-0 ${rowHover} transition-colors`}>
+                          <td className={`${tableCellClass} font-medium`}>{ALT_REASON_LABELS[reason] ?? reason}</td>
+                          <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{a.picks}</td>
+                          <td className={`${tableCellClass} text-right font-mono tabular-nums`}>{a.add_to_cart}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {recDist.length > 0 ? (
+                  <SizeCell label="Recommended sizes" data={sf.recommended_distribution} dark={dark} />
+                ) : (
+                  <div className={`${panelClass} p-5`}><p className={`text-xs ${subCl}`}>No recommendations in this range.</p></div>
+                )}
+              </div>
+
+              <p className={`text-[11px] ${labelCl}`}>
+                Revenue est / meas: {fmtEur(sf.revenue_by_basis.estimate ?? 0)} / {fmtEur(sf.revenue_by_basis.measured ?? 0)}. Estimate = the 7-question quiz; measured = the fit passport.
+              </p>
+            </div>
+          );
+        })()}
 
         {/* ═══ TAB 3: Trend & Demand (UNCHANGED) ═══ */}
         {tab === 'trend' && (() => {

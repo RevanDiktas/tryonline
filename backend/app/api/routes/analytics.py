@@ -2023,3 +2023,301 @@ async def get_fit_purchase_correlation(
     )
     _cache[key] = result
     return result
+
+
+# --- Size Finder (quiz-first size card) ---------------------------------------------------
+
+SIZE_FINDER_SOURCES = ("size_finder", "tryon_onboarding")
+SIZE_FINDER_BASES = ("estimate", "measured")
+SIZE_FINDER_QUIZ_STEPS = (
+    "gender", "height", "weight", "age", "shape-chest", "shape-belly", "shape-hips", "fit",
+)
+SIZE_FINDER_CTAS = ("try_on", "create_passport", "finish_passport")
+SIZE_FINDER_ALT_REASONS = ("auto_sold_out", "shopper")
+# Funnel steps in order: (key, event_type). add_to_cart and purchase are resolved separately.
+SIZE_FINDER_FUNNEL = (
+    ("opened", "size_finder_opened"),
+    ("quiz_started", "size_finder_quiz_started"),
+    ("quiz_completed", "size_finder_quiz_completed"),
+    ("estimate_shown", "size_finder_estimate_shown"),
+    ("passport_clicked", "size_finder_passport_clicked"),
+    ("build_started", "size_finder_build_started"),
+    ("build_completed", "size_finder_build_completed"),
+    ("add_to_cart", None),
+    ("purchase", None),
+)
+
+
+class SizeFinderFunnelStep(BaseModel):
+    step: str
+    sessions: int
+
+
+class SizeFinderQuizStep(BaseModel):
+    step: str
+    index: Optional[int] = None
+    sessions: int
+
+
+class SizeFinderAltPicks(BaseModel):
+    picks: int = 0           # distinct sessions that picked an alternative for this reason
+    add_to_cart: int = 0     # of those, sessions with an add_to_cart at or after the pick
+
+
+class SizeFinderSizeScore(BaseModel):
+    size: str
+    mean_score: float
+    samples: int
+
+
+class SizeFinderResponse(BaseModel):
+    # Counts are distinct size-card sessions; purchases are distinct orders.
+    sessions: int = 0
+    funnel: list[SizeFinderFunnelStep] = []
+    step_dropoff: list[SizeFinderQuizStep] = []
+    cta_split: dict[str, int] = {}
+    atc_by_basis: dict[str, int] = {}
+    purchases_by_basis: dict[str, int] = {}
+    revenue_by_basis: dict[str, float] = {}
+    revenue: float = 0.0
+    alt_picks: dict[str, SizeFinderAltPicks] = {}
+    recommended_distribution: dict[str, int] = {}
+    avg_confidence: dict[str, Optional[float]] = {}
+    mean_score_by_size: list[SizeFinderSizeScore] = []
+    source_split: dict[str, int] = {}
+    attribution_window_days: int = ATTRIBUTION_WINDOW_DAYS
+
+
+def _is_size_finder_row(e: dict) -> bool:
+    ed = e.get("event_data") or {}
+    return (
+        ed.get("source") in SIZE_FINDER_SOURCES
+        or str(e.get("event_type") or "").startswith("size_finder_")
+    )
+
+
+def _num(value: Any) -> Optional[float]:
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f else None  # drop NaN
+
+
+def _size_sort_key(size: str) -> tuple:
+    o = _size_to_ordinal(size)
+    return (0, o, size) if o is not None else (1, 0, size)
+
+
+def size_finder_summary(
+    events: list[dict],
+    start: datetime,
+    end: datetime,
+    window_days: int = ATTRIBUTION_WINDOW_DAYS,
+) -> SizeFinderResponse:
+    """Size card analytics for [start, end] from one shop's events.
+
+    Pure over event dicts, like build_cohort. `events` should cover [start, end +
+    window_days] so carts and orders that follow a late session are seen.
+
+      session   a widget session with at least one size-card row in [start, end]; its
+                anchor is the first such row.
+      step      a session with that event in [start, end].
+      cart      a size-card add_to_cart within the window after the anchor.
+      purchase  a distinct order on a size-card session, paid within the window after
+                the anchor. Purchase rows carry no source, so they join on session_id.
+      basis     the basis on the session's cart; failing that, its latest size-card row.
+    """
+    window = timedelta(days=window_days)
+    rows = sorted(
+        (e for e in events if e.get("session_id") and parse_ts(e.get("created_at"))),
+        key=lambda e: parse_ts(e.get("created_at")),
+    )
+
+    anchors: dict[str, datetime] = {}
+    for e in rows:
+        if e.get("event_type") in ("purchase", "return") or not _is_size_finder_row(e):
+            continue
+        t = parse_ts(e["created_at"])
+        if start <= t <= end and e["session_id"] not in anchors:
+            anchors[e["session_id"]] = t
+
+    def in_window(sid: str, t: datetime) -> bool:
+        a = anchors.get(sid)
+        return a is not None and a <= t <= a + window
+
+    step_sessions: dict[str, set] = defaultdict(set)
+    quiz_sessions: dict[str, set] = defaultdict(set)
+    quiz_index: dict[str, int] = {}
+    cta_sessions: dict[str, set] = defaultdict(set)
+    source_sessions: dict[str, set] = defaultdict(set)
+    session_basis: dict[str, str] = {}
+    atc_basis: dict[str, str] = {}
+    atc_times: dict[str, list[datetime]] = defaultdict(list)
+    alt_first: dict[str, dict[str, datetime]] = defaultdict(dict)  # reason -> sid -> first pick
+    recommended: dict[str, str] = {}
+    confidence: dict[tuple[str, str], float] = {}
+    score_sum: dict[str, float] = defaultdict(float)
+    score_n: dict[str, int] = defaultdict(int)
+    orders: dict[str, tuple[str, float]] = {}  # order key -> (session, amount)
+    funnel_types = {etype: key for key, etype in SIZE_FINDER_FUNNEL if etype}
+
+    for e in rows:
+        sid = e["session_id"]
+        if sid not in anchors:
+            continue
+        etype = e.get("event_type")
+        t = parse_ts(e["created_at"])
+        ed = e.get("event_data") or {}
+
+        if etype == "purchase":
+            if in_window(sid, t):
+                okey = str(ed.get("order_id") or f"event:{e.get('id')}")
+                orders.setdefault(okey, (sid, _num(ed.get("amount")) or 0.0))
+            continue
+        if not _is_size_finder_row(e):
+            continue
+        basis = ed.get("basis")
+        if basis:
+            session_basis[sid] = str(basis)
+
+        if etype == "add_to_cart":
+            if in_window(sid, t):
+                atc_times[sid].append(t)
+                if basis:
+                    atc_basis[sid] = str(basis)
+            continue
+        if not (start <= t <= end):
+            continue
+
+        if ed.get("source") in SIZE_FINDER_SOURCES:
+            source_sessions[ed["source"]].add(sid)
+        if etype in funnel_types:
+            step_sessions[funnel_types[etype]].add(sid)
+
+        if etype == "size_finder_quiz_step":
+            step = str(ed.get("step") or "").strip()
+            if step:
+                quiz_sessions[step].add(sid)
+                idx = _num(ed.get("index"))
+                if idx is not None and step not in quiz_index:
+                    quiz_index[step] = int(idx)
+        elif etype == "size_finder_passport_clicked":
+            cta = str(ed.get("cta") or "").strip()
+            if cta:
+                cta_sessions[cta].add(sid)
+        elif etype == "size_finder_alt_size_picked":
+            reason = str(ed.get("reason") or "").strip()
+            if reason:
+                alt_first[reason].setdefault(sid, t)
+
+        if etype in ("size_finder_estimate_shown", "size_finder_completed"):
+            size = str(ed.get("size") or "").strip().upper()
+            if size:
+                recommended[sid] = size
+            conf = _num(ed.get("confidence"))
+            if conf is not None and basis:
+                confidence[(sid, str(basis))] = conf
+        scores = ed.get("scores")
+        if etype == "size_finder_estimate_shown" and isinstance(scores, dict):
+            for size, score in scores.items():
+                v = _num(score)
+                if v is not None and str(size).strip():
+                    k = str(size).strip().upper()
+                    score_sum[k] += v
+                    score_n[k] += 1
+
+    step_sessions["add_to_cart"] = set(atc_times)
+    step_sessions["purchase"] = {sid for sid, _amt in orders.values()}
+
+    def basis_of(sid: str) -> str:
+        return atc_basis.get(sid) or session_basis.get(sid) or "unknown"
+
+    def by_basis(keys) -> dict[str, int]:
+        out = {b: 0 for b in SIZE_FINDER_BASES}
+        for k in keys:
+            b = basis_of(k)
+            out[b] = out.get(b, 0) + 1
+        return out
+
+    atc_by_basis = by_basis(atc_times)
+    purchases_by_basis = by_basis(sid for sid, _amt in orders.values())
+    revenue_by_basis: dict[str, float] = {b: 0.0 for b in SIZE_FINDER_BASES}
+    for sid, amt in orders.values():
+        b = basis_of(sid)
+        revenue_by_basis[b] = revenue_by_basis.get(b, 0.0) + amt
+
+    alt_picks: dict[str, SizeFinderAltPicks] = {}
+    for reason in list(SIZE_FINDER_ALT_REASONS) + [r for r in alt_first if r not in SIZE_FINDER_ALT_REASONS]:
+        picks = alt_first.get(reason, {})
+        carted = sum(1 for sid, t in picks.items() if any(a >= t for a in atc_times.get(sid, ())))
+        alt_picks[reason] = SizeFinderAltPicks(picks=len(picks), add_to_cart=carted)
+
+    conf_by_basis: dict[str, list[float]] = defaultdict(list)
+    for (_sid, b), v in confidence.items():
+        conf_by_basis[b].append(v)
+    avg_confidence: dict[str, Optional[float]] = {
+        b: (round(sum(conf_by_basis[b]) / len(conf_by_basis[b]), 1) if conf_by_basis.get(b) else None)
+        for b in list(SIZE_FINDER_BASES) + [b for b in conf_by_basis if b not in SIZE_FINDER_BASES]
+    }
+
+    known = [s for s in SIZE_FINDER_QUIZ_STEPS if s in quiz_sessions]
+    extra = sorted((s for s in quiz_sessions if s not in SIZE_FINDER_QUIZ_STEPS),
+                   key=lambda s: (quiz_index.get(s, 99), s))
+    step_dropoff = [
+        SizeFinderQuizStep(
+            step=s,
+            index=quiz_index.get(s, SIZE_FINDER_QUIZ_STEPS.index(s) if s in SIZE_FINDER_QUIZ_STEPS else None),
+            sessions=len(quiz_sessions[s]),
+        )
+        for s in known + extra
+    ] if quiz_sessions else []
+
+    rec_dist: dict[str, int] = defaultdict(int)
+    for size in recommended.values():
+        rec_dist[size] += 1
+
+    return SizeFinderResponse(
+        sessions=len(anchors),
+        funnel=[SizeFinderFunnelStep(step=k, sessions=len(step_sessions.get(k, ()))) for k, _ in SIZE_FINDER_FUNNEL],
+        step_dropoff=step_dropoff,
+        cta_split={
+            c: len(cta_sessions.get(c, ()))
+            for c in list(SIZE_FINDER_CTAS) + [c for c in cta_sessions if c not in SIZE_FINDER_CTAS]
+        },
+        atc_by_basis=atc_by_basis,
+        purchases_by_basis=purchases_by_basis,
+        revenue_by_basis={b: round(v, 2) for b, v in revenue_by_basis.items()},
+        revenue=round(sum(amt for _sid, amt in orders.values()), 2),
+        alt_picks=alt_picks,
+        recommended_distribution={s: rec_dist[s] for s in sorted(rec_dist, key=_size_sort_key)},
+        avg_confidence=avg_confidence,
+        mean_score_by_size=[
+            SizeFinderSizeScore(size=s, mean_score=round(score_sum[s] / score_n[s], 1), samples=score_n[s])
+            for s in sorted(score_n, key=_size_sort_key)
+        ],
+        source_split={s: len(source_sessions.get(s, ())) for s in SIZE_FINDER_SOURCES},
+        attribution_window_days=window_days,
+    )
+
+
+@router.get("/size-finder", response_model=SizeFinderResponse)
+async def get_size_finder(
+    start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    shop: str = Depends(get_brand_shop),
+):
+    """
+    Size card funnel: opens, quiz steps, the estimate, the fit passport CTA, the photo
+    build, then carts and orders split by estimate vs measured size. Definitions in
+    size_finder_summary. Reads the same cached scan as the try-on cohort.
+    """
+    key = _cache_key("size_finder", start=start, end=end, shop=shop)
+    if key in _cache:
+        return _cache[key]
+    start_d, end_d, _, _ = parse_range(start, end, 30)
+    events = load_cohort_events(shop, start_d, end_d)
+    start_dt, end_dt = _day_bounds(start_d, end_d)
+    result = size_finder_summary(events, start_dt, end_dt, ATTRIBUTION_WINDOW_DAYS)
+    _cache[key] = result
+    return result

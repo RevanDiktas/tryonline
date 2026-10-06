@@ -37,6 +37,14 @@ class EventType(str, Enum):
     size_finder_build_completed = "size_finder_build_completed"
     size_finder_build_failed = "size_finder_build_failed"
     size_finder_completed = "size_finder_completed"
+    # Quiz-first size card: seven questions, an estimate, then the fit passport CTA.
+    # Step events carry a step id only, never the shopper's answers.
+    size_finder_quiz_started = "size_finder_quiz_started"
+    size_finder_quiz_step = "size_finder_quiz_step"
+    size_finder_quiz_completed = "size_finder_quiz_completed"
+    size_finder_estimate_shown = "size_finder_estimate_shown"
+    size_finder_passport_clicked = "size_finder_passport_clicked"
+    size_finder_alt_size_picked = "size_finder_alt_size_picked"
 
     # Size events (Category B)
     size_recommended = "size_recommended"

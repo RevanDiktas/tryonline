@@ -834,7 +834,8 @@ class SupabaseService:
                     existing.append(new_size)
                 update["sizes_viewed"] = existing
             elif event_type == "add_to_cart":
-                update["action"] = "add_to_cart"
+                # tryon_sessions_action_check allows only opened|viewed|tried_on|added_to_cart|purchased.
+                update["action"] = "added_to_cart"
                 if ed.get("size"):
                     update["size_selected"] = ed["size"]
             elif event_type == "purchase":
@@ -844,8 +845,10 @@ class SupabaseService:
 
             if update:
                 self.client.table("tryon_sessions").update(update).eq("id", session_id).execute()
-        except Exception:
-            pass
+        except Exception as e:
+            # The event row is already written; a failed session update must not fail the
+            # track call, but it must not vanish either.
+            print(f"[Supabase] tryon_sessions update ({event_type}) failed for {session_id}: {e}")
 
     def get_session_context(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Who/what/where of a try-on session, for stamping onto the order and
