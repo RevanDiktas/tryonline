@@ -1,6 +1,9 @@
 {% comment %}
   TryOn — "Try On" button app block for product pages.
-  Renders a button that opens the TryOn widget in a modal iframe.
+  Products with a 3D garment get "Try On", which opens the avatar viewer in a modal iframe.
+  Every other product with sizes gets "Find my size" instead: the size-only card
+  (assets/tryon-size.js, the same card as the Find my size block). Which one is decided on load
+  from tryon.global's list of this shop's 3D products, cached for the browsing session.
   On Add to Cart: calls Shopify /cart/add.js with the variant matching the selected size.
   Guard: never render on cart (or any non-product template) if the block appears in shared JSON.
 {% endcomment %}
@@ -38,6 +41,41 @@
   endfor
   if size_pos == -1 and product.options.size == 1
     assign size_pos = 0
+  endif
+
+  # For "Find my size": same rule as the Find my size block. A lone option counts only when
+  # every value looks like a clothing size, so gift cards, colours and bundles get no button.
+  assign size_card_pos = -1
+  for opt in product.options_with_values
+    assign opt_name = opt.name | downcase
+    if opt_name contains 'size' or opt_name contains 'maat' or opt_name contains 'taille' or opt_name contains 'talla' or opt_name contains 'größe' or opt_name contains 'grösse' or opt_name contains 'groesse'
+      assign size_card_pos = forloop.index0
+      break
+    endif
+  endfor
+  if size_card_pos == -1 and product.options.size == 1
+    assign letter_sizes = ',xxxs,xxs,xs,s,m,l,xl,xxl,xxxl,2xs,3xs,2xl,3xl,4xl,5xl,x-small,small,medium,large,x-large,xx-large,one size,os,'
+    assign all_sizes = true
+    for value in product.options_with_values[0].values
+      assign v = value | downcase | strip
+      assign needle = ',' | append: v | append: ','
+      unless letter_sizes contains needle
+        assign first = v | split: '/' | first
+        assign n = first | plus: 0
+        assign n_text = n | append: ''
+        if n_text != first or n < 20 or n > 60
+          assign all_sizes = false
+          break
+        endif
+      endunless
+    endfor
+    if all_sizes
+      assign size_card_pos = 0
+    endif
+  endif
+  assign size_card_count = 0
+  if size_card_pos >= 0 and product.gift_card? == false
+    assign size_card_count = product.options_with_values[size_card_pos].values.size
   endif
 
   assign btn_bg = block.settings.button_background
@@ -82,9 +120,40 @@
     #tryon-root-{{ block.id }} .tryon-btn:hover { opacity: 0.92; filter: brightness(1.05); }
   </style>
 
-  <button type="button" class="tryon-btn" data-tryon-open aria-label="{{ block.settings.button_label | escape }}">
+  {%- comment -%}
+    Hidden until the block knows whether this product has a 3D garment (instant once the
+    shop's list is cached for the session); then exactly one of the two buttons shows.
+  {%- endcomment -%}
+  <button type="button" class="tryon-btn" data-tryon-btn aria-label="{{ block.settings.button_label | escape }}" style="visibility:hidden;">
     {{ block.settings.button_label }}
   </button>
+
+  <div data-tryon-size-slot hidden>
+    <button type="button" class="tryon-btn" data-tryon-size-open>
+      <span data-tryon-size-label>{{ block.settings.size_label }}</span>
+    </button>
+    <script type="application/json" data-tryon-size-config>
+      {
+        "widgetBase": "https://tryon.global",
+        "shop": {{ shop.permanent_domain | json }},
+        "productId": {{ product.handle | json }},
+        "productName": {{ product.title | json }},
+        "productType": {{ product.type | json }},
+        "productImage": {{ product.featured_image | image_url: width: 400 | json }},
+        "brandName": {{ shop.name | json }},
+        "returnUrl": {{ shop.url | append: product.url | json }},
+        "guest": false,
+        "look": "tryon",
+        "variantId": {{ variant_id | json }},
+        "country": {{ country_code | json }},
+        "sizePos": {{ size_card_pos }},
+        "sizeCount": {{ size_card_count }},
+        "variants": {{ product.variants | json }},
+        "label": {{ block.settings.size_label | json }},
+        "resultLabel": {{ block.settings.size_result_label | json }}
+      }
+    </script>
+  </div>
 
   <iframe
     id="tryon-frame-{{ block.id }}"
@@ -117,11 +186,81 @@
     (function() {
       var root = document.getElementById('tryon-root-{{ block.id }}');
       if (!root) return;
-      var btn = root.querySelector('[data-tryon-open]');
+      var btn = root.querySelector('[data-tryon-btn]');
       var iframe = document.getElementById('tryon-frame-{{ block.id }}');
       var closeBtn = document.getElementById('tryon-close-{{ block.id }}');
       if (!btn || !iframe) return;
       var src = iframe.getAttribute('data-tryon-src');
+
+      // ---- Try On or Find my size: does this product have a 3D garment? ----
+      var HANDLE = {{ product.handle | downcase | json }};
+      var SHOP = {{ shop.permanent_domain | json }};
+      var API = 'https://tryon.global/api/products/';
+      var HANDLES_KEY = 'tryon_3d_handles:' + SHOP;
+      var HANDLES_TTL_MS = 10 * 60 * 1000;
+      var SIZE_JS = {{ 'tryon-size.js' | asset_url | json }};
+      var mode = null;   // 'tryon' | 'size' | 'none'
+
+      function has3d(cb) {
+        try {
+          var c = JSON.parse(sessionStorage.getItem(HANDLES_KEY) || 'null');
+          if (c && Array.isArray(c.handles) && Date.now() - c.ts < HANDLES_TTL_MS) return cb(c.handles.indexOf(HANDLE) >= 0);
+        } catch (e) {}
+        var tries = 0;
+        (function load() {
+          tries++;
+          fetch(API + 'tryon-handles?shop=' + encodeURIComponent(SHOP))
+            .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+            .then(function(d) {
+              if (!d || !Array.isArray(d.handles)) throw new Error('bad response');
+              try { sessionStorage.setItem(HANDLES_KEY, JSON.stringify({ ts: Date.now(), handles: d.handles })); } catch (e) {}
+              cb(d.handles.indexOf(HANDLE) >= 0);
+            })
+            .catch(function(err) {
+              if (tries < 2) { setTimeout(load, 1500); return; }
+              // Still unknown: keep the Try On button, which works on every 3D product.
+              console.warn('[TryOn] 3D product list unavailable, showing Try On:', err && err.message);
+              cb(true);
+            });
+        })();
+      }
+
+      function showSizeButton() {
+        var slot = root.querySelector('[data-tryon-size-slot]');
+        var sizeCfg = null;
+        try { sizeCfg = JSON.parse(slot.querySelector('[data-tryon-size-config]').textContent); } catch (e) {}
+        // Nothing to size (one size, gift card), or the store's own Find my size block is on
+        // this page already: no second button.
+        if (!slot || !sizeCfg || sizeCfg.sizeCount < 2 || document.querySelector('[data-tryon-size-root]')) {
+          mode = 'none';
+          root.style.display = 'none';
+          return;
+        }
+        mode = 'size';
+        btn.style.display = 'none';
+        slot.hidden = false;
+        slot.setAttribute('data-tryon-size-root', '');
+        if (window.TryonSizeCard) { window.TryonSizeCard.mount(slot); return; }
+        var s = document.createElement('script');
+        s.src = SIZE_JS;
+        // The asset mounts every [data-tryon-size-root] itself once it loads.
+        document.head.appendChild(s);
+      }
+
+      function decide() {
+        has3d(function(yes) {
+          if (mode) return;
+          if (yes) {
+            mode = 'tryon';
+            btn.setAttribute('data-tryon-open', '');
+            btn.style.visibility = '';
+          } else {
+            showSizeButton();
+          }
+        });
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', decide);
+      else decide();
 
       // Size → variant and stock, for the variant currently selected on the product page, so the
       // widget shows exactly what this store can sell (and colour switches are respected).
@@ -272,7 +411,7 @@
       }
 
       btn.addEventListener('click', function() {
-        if (isOpen) return;
+        if (isOpen || mode !== 'tryon') return;
         isOpen = true;
         // Re-parent iframe + close button to <body> so position:fixed escapes any ancestor
         // with transform/filter/will-change/contain (some Shopify themes apply these on the
@@ -389,6 +528,20 @@
       "id": "button_label",
       "label": "Button label",
       "default": "Try On"
+    },
+    {
+      "type": "text",
+      "id": "size_label",
+      "label": "Label on products without a 3D garment",
+      "info": "These products get the size-only card instead of the avatar try-on.",
+      "default": "Find my size"
+    },
+    {
+      "type": "text",
+      "id": "size_result_label",
+      "label": "Label once the shopper has a size",
+      "info": "[size] is replaced by the shopper's size for the product.",
+      "default": "Your size: [size]"
     },
     {
       "type": "header",

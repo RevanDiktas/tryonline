@@ -1,9 +1,11 @@
 """
 Product / garment tryon config — model URLs, size chart, draped mesh integration
 """
+import time
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.services.supabase import supabase_service
@@ -15,6 +17,10 @@ _GARMENT_BASE_COLS = "id,name,sizes,size_chart,category,fit_type,obj_sizes,shopi
 # the read path keeps working against a DB where a migration hasn't run yet.
 _OPTIONAL_GARMENT_COLS = ("shopify_product_handle", "companion_garment_id")
 _HAS_COLUMN: dict[str, bool] = {}
+
+# shop -> (monotonic expiry, handles). In-process only; each worker warms its own.
+_TRYON_HANDLES_TTL_S = 60.0
+_TRYON_HANDLES_CACHE: dict[str, tuple[float, list[str]]] = {}
 
 
 def _norm_pid(value: Optional[str]) -> str:
@@ -226,6 +232,87 @@ def _resolve_companion(
     except Exception as e:
         print(f"[products] companion resolve failed for {companion_id}: {e}")
         return None
+
+
+def _has_model_url(row: dict[str, Any]) -> bool:
+    """Would tryon-config hand the viewer something to load? Same source as
+    _build_garment_meshes' model_urls (garments.sizes), minus the draping lookups."""
+    sizes = row.get("sizes")
+    if not isinstance(sizes, dict):
+        return False
+    return any(str(v).strip() for v in sizes.values() if v)
+
+
+def _tryon_handles_for_brand(brand_id: str) -> list[str]:
+    """Every product id/handle in this brand that resolves to a 3D garment."""
+    cols = "sizes,shopify_product_id"
+    if _has_garment_column("shopify_product_handle"):
+        cols += ",shopify_product_handle"
+    r = (
+        supabase_service.client.table("garments")
+        .select(cols)
+        .eq("brand_id", brand_id)
+        .execute()
+    )
+    handles: list[str] = []
+    seen: set[str] = set()
+    for row in r.data or []:
+        if not _has_model_url(row):
+            continue
+        for key in ("shopify_product_handle", "shopify_product_id"):
+            h = _norm_pid(row.get(key))
+            if h and h not in seen:
+                seen.add(h)
+                handles.append(h)
+    return handles
+
+
+class TryonHandlesResponse(BaseModel):
+    shop: str = ""
+    handles: list[str] = []
+
+
+@router.get("/tryon-handles", response_model=TryonHandlesResponse)
+async def get_tryon_handles(
+    response: Response,
+    shop: Optional[str] = Query(None, description="Shopify shop domain"),
+):
+    """
+    Which products in this shop have a 3D garment, so the PDP block can pick
+    "Try On" vs "Find my size" on page load without a per-product tryon-config
+    round trip. Unknown or missing shop is an empty list, never an error.
+    """
+    # Storefront origins (e.g. www.lafamamsterdam.com) aren't in CORS_ORIGINS. This is a
+    # credential-less public GET, so open it here rather than widening global CORS.
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    shop_key = _norm_pid(shop)
+    if not shop_key:
+        response.headers["Cache-Control"] = "public, max-age=60"
+        return TryonHandlesResponse(shop="", handles=[])
+
+    now = time.monotonic()
+    hit = _TRYON_HANDLES_CACHE.get(shop_key)
+    if hit and hit[0] > now:
+        response.headers["Cache-Control"] = "public, max-age=60"
+        return TryonHandlesResponse(shop=shop_key, handles=hit[1])
+
+    try:
+        brand = supabase_service.get_brand_by_shopify_domain(shop_key)
+        brand_id = str(brand["id"]) if brand and brand.get("id") else None
+        handles = _tryon_handles_for_brand(brand_id) if brand_id else []
+    except Exception as e:
+        # A failure is an error, not an empty list: the block would cache [] and show
+        # "Find my size" on 3D products. On an error it retries, then keeps Try On.
+        print(f"[products] tryon-handles failed for {shop_key}: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Try-on product list unavailable"},
+            headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"},
+        )
+
+    _TRYON_HANDLES_CACHE[shop_key] = (now + _TRYON_HANDLES_TTL_S, handles)
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return TryonHandlesResponse(shop=shop_key, handles=handles)
 
 
 @router.get("/{product_id}/tryon-config", response_model=TryonConfigResponse)

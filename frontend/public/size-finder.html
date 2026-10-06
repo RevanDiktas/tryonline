@@ -438,6 +438,12 @@ let silent = q.get('silent') === '1';
 // 'tryon': opened by the Try On widget for a shopper without an avatar. Same steps; the size
 // comes first, then "See it on you" hands back to the widget's 3D viewer.
 const flow = q.get('flow') === 'tryon' ? 'tryon' : 'size';
+// In the 'tryon' flow a shopper who is already measured goes straight to the 3D viewer: Try On
+// means the avatar. Only a shopper who measured in this card (details, photo, build) sees their
+// size here first. handedOff: hand over once; if the viewer sends them back (avatar not ready),
+// they get the size screen instead of bouncing between the two.
+let measuredHere = false;
+let handedOff = false;
 let sessionId = null;                            // analytics session (tryon_sessions row)
 let sessionPromise = null;
 let last = null;
@@ -898,6 +904,7 @@ async function track(eventType, metadata) {
 
 // ---- views ----
 function show(view) {
+  if (['details', 'photo', 'building', 'failed', 'nomeas'].includes(view)) measuredHere = true;
   VIEWS.forEach((v) => { $(v).hidden = v !== view; });
   document.querySelectorAll('[data-error]').forEach((el) => { el.textContent = ''; });
   if (view === 'nomeas') { $('nomeas-name').textContent = displayName ? ' as ' + displayName : ''; $('nomeas-note').hidden = true; $('onboard').href = siteUrl('/onboarding', { link_state: linkToken() }); }
@@ -1013,6 +1020,12 @@ async function route(fresh) {
       else if (bodyState === 'failed') show('failed');
       else if (bodyState === 'none') show(session ? (loadDetails() ? 'photo' : 'details') : 'nomeas');
       else { show('gate'); $('gate-wait').textContent = 'We could not load your measurements. Check your connection and try again.'; $('gate-wait').hidden = false; }
+      return;
+    }
+    if (flow === 'tryon' && visible && !measuredHere && !handedOff) {
+      handedOff = true;
+      post('TRYON_SIZE_OPEN_TRYON');
+      hide(false);
       return;
     }
   }
