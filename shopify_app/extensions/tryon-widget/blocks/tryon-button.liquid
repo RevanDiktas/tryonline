@@ -487,12 +487,20 @@
           // Sync the (re)loaded widget with the host: hidden → HIDE, shown → OPEN. A reload can
           // swallow an earlier TRYON_OPEN, and the widget ignores OPEN when already open.
           sendStock();
+          // The size quiz answers live on the store's own site too (Safari can drop framed storage).
+          try {
+            var prof = JSON.parse(localStorage.getItem('tryon_size_profile') || 'null');
+            if (prof) postToWidget({ type: 'TRYON_PROFILE', profile: prof });
+          } catch (e) {}
           postToWidget(isOpen ? 'TRYON_OPEN' : 'TRYON_HIDE');
           if (isOpen) focusWidget();
         }
         if (e.data.type === 'TRYON_RELOADING' && fromWidget) {
           widgetReady = false;
           if (isOpen) armFallback();
+        }
+        if (e.data.type === 'TRYON_PROFILE' && e.data.profile && fromWidget) {
+          try { localStorage.setItem('tryon_size_profile', JSON.stringify(e.data.profile)); } catch (err) {}
         }
         if (e.data.type === 'TRYON_CLOSE' && fromWidget) {
           close(true);

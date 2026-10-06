@@ -2102,6 +2102,7 @@
     let onboardFrame = null;
     let onboardReady = false;
     let onboardLast = false;   // the shopper was last in onboarding: a reopen goes back there
+    let hostProfile = null;    // the store's copy of the size quiz answers (Safari can drop framed storage)
     function onboardSrc() {
       var p = new URLSearchParams({
         flow: 'tryon', api_url: config.apiUrl || '', shop: config.shopDomain || '',
@@ -2126,6 +2127,7 @@
         sizes: labels.map(function(s) { return { label: s, available: !isSoldOut(s) }; }),
         image: config.productImageUrl || undefined,
         hasTryon: true,
+        profile: hostProfile || undefined,
       });
     }
     function showOnboarding() {
@@ -2175,6 +2177,10 @@
         config.displayName = tryonStored('tryon_user_name') || config.displayName;
       }
       if (d.type === 'TRYON_SIZE_OPEN_TRYON') finishOnboarding();
+      if (d.type === 'TRYON_SIZE_PROFILE' && d.payload && d.payload.profile) {
+        hostProfile = d.payload.profile;
+        postToParent({ type: 'TRYON_PROFILE', profile: d.payload.profile });
+      }
       if (d.type === 'TRYON_SIZE_ADD_TO_CART' && d.payload) {
         // The card has tracked add_to_cart already; the store's cart is the block's job.
         postToParent({
@@ -2464,6 +2470,11 @@
         }
         if (event.data.type === 'TRYON_OPEN') reopenWidget();
         if (event.data.type === 'TRYON_HIDE') closeWidget({ fromHost: true });
+        // The store's copy of the size quiz answers, for the onboarding card.
+        if (event.data.type === 'TRYON_PROFILE' && event.data.profile && typeof event.data.profile === 'object') {
+          hostProfile = event.data.profile;
+          if (onboardReady) sendOnboardProduct();
+        }
       }
     });
 

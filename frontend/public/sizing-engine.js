@@ -353,6 +353,95 @@ export function nativeSizeOrdinal(measurements, category, gender, region) {
 }
 
 // ---------------------------------------------------------------------------
+// Per-size fit scores (0-100): how likely each size is to fit this body.
+//
+// The anchor measurement gives the body a continuous position on the size scale: a size's
+// band centre is its ordinal and its band edges are +-0.5, plus the same height bump and
+// fit-preference shift the pick uses. A size fits a body whose position lies inside the size's
+// own band widened by FIT_TOLERANCE on each side, with soft edges (FIT_EDGE). The score is that
+// fit averaged over the uncertainty in the body measurement (quantiles, every girth shifted
+// together): a quiz estimate spreads the scores, a photo measurement sharpens them. The window
+// is symmetric on purpose, so the best-scoring size is the one nearest the body, which is the
+// one the engine picks. Tight vs roomy is said in words (sizeFeel), not skewed into the number.
+//
+// ASSUMPTION, not measured: FIT_TOLERANCE (how far past its band a size is still wearable,
+// ~2 cm chest) and MEASURED_SD (photo measurement error). Calibrate both against kept and
+// returned orders once size-finder purchases carry outcomes.
+// ---------------------------------------------------------------------------
+export const FIT_TOLERANCE = 0.25;
+export const FIT_EDGE = 0.12;
+export const MEASURED_SD = { chest: 2.5, waist: 2.5, hips: 2.5 };
+const SCORE_STEPS = 41;
+
+// Standard normal quantile (Acklam's approximation; error < 1.2e-9, plenty here).
+export function normalQuantile(p) {
+  const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239];
+  const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+  const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+  const lo = 0.02425;
+  if (p < lo) {
+    const q = Math.sqrt(-2 * Math.log(p));
+    return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+  }
+  if (p > 1 - lo) {
+    const q = Math.sqrt(-2 * Math.log(1 - p));
+    return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+  }
+  const q = p - 0.5;
+  const r = q * q;
+  return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+}
+
+// The body's continuous position on the ordinal scale (null without an anchor measurement).
+export function bodyPosition(measurements, category, gender, region) {
+  const native = nativeSizeOrdinal(measurements, category, gender, region);
+  if (!native) return null;
+  const band = bodyScaleFor(region || 'global', gender)[native.anchorKey];
+  const label = SIZE_ORDER[native.girthOrdinal];
+  const upper = band[label] != null ? band[label] : native.anchorValue;
+  const prev = SIZE_ORDER[native.girthOrdinal - 1];
+  const lower = prev && band[prev] != null ? band[prev] : upper - 8;
+  // -0.5 at the band's lower edge, +0.5 at its upper edge; beyond the outer bands it extrapolates.
+  return native.ordinal + (native.anchorValue - lower) / Math.max(1, upper - lower) - 0.5;
+}
+
+const logistic = (x) => 1 / (1 + Math.exp(-x));
+// Chance a size fits a body sitting `offset` bands from the size's centre (+ = body is bigger).
+export function fitChance(offset) {
+  const half = 0.5 + FIT_TOLERANCE;
+  return logistic((half - offset) / FIT_EDGE) * logistic((half + offset) / FIT_EDGE);
+}
+
+// { size: 0-100 } for every candidate size. `sd` is the measurement uncertainty in cm per
+// girth ({} = treat the measurements as exact). Null without an anchor measurement.
+export function sizeScores(measurements, sd, sizes, category, gender, region, preferredFit, system) {
+  const shift = PREFERRED_FIT_SIZE_SHIFT[preferredFit] || 0;
+  const keys = Object.keys(sd || {}).filter((k) => sd[k] > 0 && measurements && measurements[k] != null);
+  const steps = keys.length ? SCORE_STEPS : 1;
+  const sums = sizes.map(() => 0);
+  for (let i = 0; i < steps; i++) {
+    const z = steps > 1 ? normalQuantile((i + 0.5) / steps) : 0;
+    const m = { ...measurements };
+    for (const k of keys) m[k] = measurements[k] + z * sd[k];
+    const pos = bodyPosition(m, category, gender, region);
+    if (pos == null) return null;
+    sizes.forEach((s, j) => { sums[j] += fitChance(pos + shift - sizeToOrdinal(s, system)); });
+  }
+  const out = {};
+  sizes.forEach((s, j) => { out[s] = Math.round((100 * sums[j]) / steps); });
+  return out;
+}
+
+// How a size feels on this body, for copy: 'snug' | 'right' | 'roomy' (null without an anchor).
+export function sizeFeel(measurements, size, category, gender, region, preferredFit, system) {
+  const pos = bodyPosition(measurements, category, gender, region);
+  if (pos == null) return null;
+  const offset = pos + (PREFERRED_FIT_SIZE_SHIFT[preferredFit] || 0) - sizeToOrdinal(size, system);
+  return offset > 0.5 ? 'snug' : offset < -0.5 ? 'roomy' : 'right';
+}
+
+// ---------------------------------------------------------------------------
 // Scoring
 // ---------------------------------------------------------------------------
 
@@ -400,6 +489,7 @@ export function recommendSize(
   gender,
   availableSizes,
   country,
+  uncertainty,
 ) {
   preferredFit = preferredFit || 'regular';
   category = category || 'tops';
@@ -425,7 +515,8 @@ export function recommendSize(
   const prefShift = PREFERRED_FIT_SHIFT[preferredFit];
 
   const allSizes = sizes.map((size) => {
-    const chart = sizeChart[size];
+    // Store labels ("M") and chart keys ("m", lowercased by the backend) differ in case.
+    const chart = sizeChart[size] || sizeChart[String(size).toLowerCase()] || sizeChart[String(size).toUpperCase()];
     if (!chart) {
       return { size, totalScore: 0, weightedEase: 0, fit: 'recommended', breakdown: [] };
     }
@@ -492,6 +583,25 @@ export function recommendSize(
     recommendedOrdinal = sizeToOrdinal(recommendedSize, system);
   }
 
+  // Per-size fit scores (0-100) over the measurement's uncertainty (MEASURED_SD unless given).
+  const scores = native
+    ? sizeScores(measurements, uncertainty === undefined ? MEASURED_SD : uncertainty, sizes, category, gender, region, preferredFit, system)
+    : null;
+  if (scores) {
+    for (const s of allSizes) {
+      s.score = scores[s.size];
+      s.feel = sizeFeel(measurements, s.size, category, gender, region, preferredFit, system);
+    }
+    // The pick and the best score are the same size by construction; a near-tie at a band edge
+    // under uncertainty goes to the better score, so the shopper never sees a higher number
+    // on a size we did not recommend.
+    const top = sizes.reduce((best, sz) => (scores[sz] > scores[best] ? sz : best), recommendedSize);
+    if (scores[top] > scores[recommendedSize]) {
+      recommendedSize = top;
+      recommendedOrdinal = sizeToOrdinal(top, system);
+    }
+  }
+
   // Relabel the per-size chips RELATIVE to the recommendation (tight -> recommended -> loose).
   for (const s of allSizes) {
     const ord = sizeToOrdinal(s.size, system);
@@ -525,7 +635,7 @@ export function recommendSize(
   const nativeLabel = native ? ordinalToLabel(native.ordinal, system) : undefined;
   const reasoning = buildReasoning(recommended, category, fitType, preferredFit, confidence, nativeLabel);
 
-  return { recommendedSize, confidence, allSizes, reasoning };
+  return { recommendedSize, confidence, allSizes, reasoning, scores };
 }
 
 // ---------------------------------------------------------------------------

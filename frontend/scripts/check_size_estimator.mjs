@@ -106,5 +106,38 @@ check('category from the product\'s own words (EN/NL/DE/FR)',
   && inferCategory('', 'Striped LA FAM longsleeve') === 'tops' && inferCategory(null, undefined) === 'tops');
 check('"short" inside another word is not shorts', inferCategory('', 'Shortsleeve shirt') === 'tops');
 
+// --- per-size fit scores (0-100)
+{
+  const quiz = [];
+  const measured = [];
+  for (const g of ['male', 'female']) for (let h = 155; h <= 200; h += 5) for (let kg = 50; kg <= 115; kg += 5) {
+    const q = quickSize({ gender: g, height: h, weight: kg, age: 30 }, { sizes: ALPHA, category: 'tops' }, { country: 'NL' });
+    if (q) quiz.push(q);
+    const est = estimateBody({ gender: g, height: h, weight: kg, age: 30 });
+    measured.push(recommendSize(est.measurements, {}, 'regular', 'tops', 'regular', 'circumference', g, ALPHA, 'NL'));
+  }
+  const all = quiz.concat(measured);
+  check('every size gets a score from 0 to 100', all.every((r) => ALPHA.every((s) => r.scores[s] >= 0 && r.scores[s] <= 100)));
+  const topIsPick = (r) => ALPHA.every((s) => r.scores[s] <= r.scores[r.recommendedSize]);
+  check('the recommended size always has the top score', all.every(topIsPick), all.filter((r) => !topIsPick(r)).map((r) => [r.recommendedSize, r.scores])[0]);
+  const falls = (r) => {
+    const i = ALPHA.indexOf(r.recommendedSize);
+    return ALPHA.every((s, j) => (j < i ? r.scores[s] <= r.scores[ALPHA[j + 1]] : j > i ? r.scores[s] <= r.scores[ALPHA[j - 1]] : true));
+  };
+  check('scores fall away from the recommended size on both sides', all.every(falls), all.filter((r) => !falls(r)).map((r) => [r.recommendedSize, r.scores])[0]);
+  const spread = (r) => ALPHA.reduce((t, s) => t + (s === r.recommendedSize ? 0 : r.scores[s]), 0);
+  const avg = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  check('a quiz estimate is less certain than a measurement (more score on the other sizes)', avg(quiz.map(spread)) > avg(measured.map(spread)),
+    [avg(quiz.map(spread)), avg(measured.map(spread))]);
+  const mid = recommendSize({ chest: 110, waist: 96, hips: 108, height: 180 }, {}, 'regular', 'tops', 'regular', 'circumference', 'male', ALPHA, null);
+  check('a body mid-band is near-certain of its own size and unlikely in the next', mid.scores.L >= 90 && mid.scores.M < 40 && mid.scores.XL < 40, mid.scores);
+  const exact = recommendSize({ chest: 110, waist: 96, hips: 108, height: 180 }, {}, 'regular', 'tops', 'regular', 'circumference', 'male', ALPHA, null, {});
+  check('exact measurements (no uncertainty) still score every size', ALPHA.every((s) => exact.scores[s] != null) && exact.recommendedSize === mid.recommendedSize);
+  const charted = recommendSize({ chest: 104, waist: 90, hips: 100, height: 180 }, { m: { chest: 53 }, l: { chest: 56 } }, 'regular', 'tops', 'regular', 'flat', 'male', ['M', 'L'], 'NL');
+  check('store labels (M) find lowercase chart keys (m)', charted.allSizes.every((x) => x.breakdown.length === 1), charted.allSizes);
+  check('a chart never changes the scores (the body decides; the chart only describes)',
+    JSON.stringify(charted.scores) === JSON.stringify(recommendSize({ chest: 104, waist: 90, hips: 100, height: 180 }, {}, 'regular', 'tops', 'regular', 'flat', 'male', ['M', 'L'], 'NL').scores));
+}
+
 console.log('\n' + (failures ? failures + ' CHECK(S) FAILED' : 'ALL CHECKS PASSED'));
 process.exit(failures ? 1 : 0);

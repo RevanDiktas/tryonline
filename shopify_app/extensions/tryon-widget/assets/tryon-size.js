@@ -17,6 +17,9 @@
     if (!btn || !cfg || cfg.sizePos < 0) return;
 
     var KNOWN_KEY = 'tryon_size_known';
+    // The size quiz answers, kept on the store's own site as well: Safari can drop storage
+    // inside the card's frame, never the store's own. Shared with the Try On block.
+    var PROFILE_KEY = 'tryon_size_profile';
     var VERSION = '2';
     var iframe = null;
     var ready = false;
@@ -72,10 +75,13 @@
     }
 
     function sendProduct() {
+      var profile = null;
+      try { profile = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null'); } catch (e) {}
       post('TRYON_SIZE_PRODUCT', {
         sizes: sizesNow().map(function (s) { return { label: s.label, available: s.available }; }),
         image: imageNow(),
-        hasTryon: hasTryonBlock()
+        hasTryon: hasTryonBlock(),
+        profile: profile || undefined
       });
     }
 
@@ -178,9 +184,10 @@
 
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && (isOpen || wantOpen)) close(false); });
 
-    function setResult(size) {
+    function setResult(size, score) {
       if (!size || !labelEl) return;
       var text = (cfg.resultLabel || 'Your size: [size]').replace('[size]', String(size).toUpperCase());
+      if (score > 0) text += ' · ' + Math.round(score) + '% match';
       labelEl.textContent = text;
       btn.setAttribute('data-has-size', '');
       try { localStorage.setItem(KNOWN_KEY, '1'); } catch (e) {}
@@ -237,7 +244,10 @@
         // isOpen: the card reloaded itself while showing (sign-in fallback); open it again.
         if (wantOpen || isOpen) { wantOpen = false; show(); }
       }
-      if (d.type === 'TRYON_SIZE_RESULT' && d.payload) setResult(d.payload.size);
+      if (d.type === 'TRYON_SIZE_RESULT' && d.payload) setResult(d.payload.size, d.payload.score);
+      if (d.type === 'TRYON_SIZE_PROFILE' && d.payload && d.payload.profile) {
+        try { localStorage.setItem(PROFILE_KEY, JSON.stringify(d.payload.profile)); localStorage.setItem(KNOWN_KEY, '1'); } catch (e2) {}
+      }
       // Signed in: load the card quietly on later product pages, so a measurement still
       // being made is picked up and the size appears by itself.
       if (d.type === 'TRYON_SIZE_ACCOUNT') { try { localStorage.setItem(KNOWN_KEY, '1'); } catch (e2) {} }

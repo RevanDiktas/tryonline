@@ -355,7 +355,8 @@ async def get_tryon_config(
         return TryonConfigResponse(
             product_id=product_id,
             model_urls=model_urls,
-            size_chart=size_chart_out or {"m": {"chest": 100, "waist": 84, "hips": 98}},
+            # No chart is no chart: a stand-in made every chart-based fit score wrong.
+            size_chart=size_chart_out or {},
             model_type=str(row.get("model_type") or "garment_only"),
             category=str(row.get("category") or "tops"),
             fit_type=str(row.get("fit_type") or "regular"),

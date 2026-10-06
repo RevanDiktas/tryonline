@@ -58,178 +58,276 @@
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
   :root {
     --ink: #0a0a0a; --paper: #ffffff; --btn-bg: #0a0a0a; --btn-fg: #ffffff; --accent: #0040ff;
-    --radius: 10px; --btn-radius: 10px; --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    --line: color-mix(in srgb, var(--ink) 15%, transparent);
-    --soft: color-mix(in srgb, var(--ink) 5%, transparent);
-    --mute: color-mix(in srgb, var(--ink) 60%, transparent);
+    --radius: 14px; --btn-radius: 14px; --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --line: color-mix(in srgb, var(--ink) 10%, transparent);
+    --line-strong: color-mix(in srgb, var(--ink) 18%, transparent);
+    --soft: color-mix(in srgb, var(--ink) 4.5%, transparent);
+    --soft-2: color-mix(in srgb, var(--ink) 8%, transparent);
+    --mute: color-mix(in srgb, var(--ink) 55%, transparent);
+    /* iOS sheet curve, and a snappier one for small things */
+    --spring: cubic-bezier(.32, .72, 0, 1);
+    --snap: cubic-bezier(.2, .8, .2, 1);
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; margin: 0; background: transparent; }
-  body { font-family: var(--font); color: var(--ink); font-size: 15px; line-height: 1.45; -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
-  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: flex-end; justify-content: center; }
+  body { font-family: var(--font); color: var(--ink); font-size: 15px; line-height: 1.45; -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; font-feature-settings: 'cv11', 'ss01'; }
+  button { -webkit-user-select: none; user-select: none; }
+
+  /* ---- sheet ---- */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.32); display: flex; align-items: flex-end; justify-content: center;
+           -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
   body.silent .scrim, body.closed .scrim { display: none; }
-  /* The card scrolls inside itself, so a short screen never cuts it off. */
-  .card { position: relative; width: 100%; max-width: 420px; max-height: 100dvh; overflow-y: auto; overscroll-behavior: contain;
-          background: var(--paper); color: var(--ink); padding: 20px 20px calc(18px + env(safe-area-inset-bottom));
-          border-radius: 16px 16px 0 0; box-shadow: 0 12px 40px rgba(0,0,0,.15); }
+  .card { position: relative; width: 100%; max-width: 440px; max-height: calc(100dvh - 12px); overflow-y: auto; overscroll-behavior: contain;
+          background: var(--paper); color: var(--ink); padding: 0 20px calc(20px + env(safe-area-inset-bottom));
+          border-radius: 28px 28px 0 0; box-shadow: 0 -10px 50px rgba(0,0,0,.18); scrollbar-width: none; }
+  .card::-webkit-scrollbar { display: none; }
   @media (min-width: 560px) {
     .scrim { align-items: center; padding: 24px; }
-    .card { border-radius: 16px; max-height: calc(100dvh - 48px); padding: 26px 26px 22px; }
+    .card { border-radius: 28px; max-height: calc(100dvh - 48px); padding: 0 26px 24px; }
+    .grab { display: none; }
   }
-  @media (prefers-reduced-motion: no-preference) {
-    .card { animation: rise .22s ease-out; }
-    @keyframes rise { from { transform: translateY(18px); opacity: 0; } to { transform: none; opacity: 1; } }
-    .tape i, .bar i { transition: height .35s ease-out, width .6s ease-out; }
-  }
-  /* What the shopper is sizing: its picture and name, on every step. */
-  .item { display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: center; margin: 0 40px 16px 0; }
-  .item img { width: 56px; height: 70px; object-fit: cover; border-radius: 8px; background: var(--soft); display: block; }
+  .grab { position: sticky; top: 0; z-index: 3; height: 0; display: flex; justify-content: center; pointer-events: none; }
+  .grab::before { content: ''; width: 38px; height: 5px; margin-top: 7px; border-radius: 3px; background: var(--line-strong); }
+
+  /* ---- nav bar ---- */
+  .nav { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 4px;
+         margin: 0 -20px 6px; padding: 14px 12px 6px; background: color-mix(in srgb, var(--paper) 88%, transparent);
+         -webkit-backdrop-filter: saturate(1.8) blur(16px); backdrop-filter: saturate(1.8) blur(16px); touch-action: none; cursor: grab; }
+  @media (min-width: 560px) { .nav { margin: 0 -26px 6px; padding: 16px 16px 6px; } }
+  .nav-btn { width: 40px; height: 40px; border: 0; border-radius: 50%; background: var(--soft); color: inherit; display: inline-flex; align-items: center; justify-content: center;
+             cursor: pointer; transition: transform .18s var(--snap), background .18s, opacity .25s var(--snap); }
+  .nav-btn:hover { background: var(--soft-2); }
+  .nav-btn:active { transform: scale(.9); }
+  .nav-btn[hidden] { display: inline-flex !important; opacity: 0; pointer-events: none; transform: scale(.7); }
+  .nav-right { display: flex; gap: 8px; }
+  .brand { margin: 0; text-align: center; font-size: 11px; font-weight: 700; letter-spacing: .2em; color: var(--mute); }
+  .prog { height: 3px; margin: 2px 0 14px; border-radius: 3px; background: var(--soft-2); overflow: hidden; }
+  .prog i { display: block; height: 100%; width: 0; background: var(--ink); border-radius: 3px; transition: width .5s var(--spring); }
+
+  /* What the shopper is sizing: picture and name, on every step. */
+  .item { display: grid; grid-template-columns: 48px 1fr; gap: 12px; align-items: center; margin: 0 0 14px; padding: 8px; border-radius: 16px; background: var(--soft); }
+  .item img { width: 48px; height: 58px; object-fit: cover; border-radius: 10px; background: var(--paper); display: block; }
   .item p { margin: 0; font-size: 13px; line-height: 1.3; min-width: 0; }
-  .item span { display: block; color: var(--mute); }
-  .item b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .item span { display: block; color: var(--mute); font-size: 12px; }
+  .item b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   body.has-item [data-product] { display: none; }
-  .brand { margin: 0 0 14px; font-size: 12px; font-weight: 600; letter-spacing: .12em; color: var(--mute); }
-  h1 { font-size: 21px; line-height: 1.2; margin: 0 40px 4px 0; font-weight: 600; letter-spacing: -0.015em; }
+  h1 { font-size: 26px; line-height: 1.12; margin: 2px 0 6px; font-weight: 700; letter-spacing: -0.025em; }
   .product { margin: 0 0 16px; color: var(--mute); font-size: 13px; }
-  .lede { margin: 0 0 18px; font-size: 14.5px; color: color-mix(in srgb, var(--ink) 78%, transparent); max-width: 38ch; }
-  .close { position: absolute; top: 10px; right: 10px; width: 40px; height: 40px; border: 0; background: none; color: inherit; font-size: 18px; cursor: pointer; border-radius: 50%; }
-  .close:hover { background: var(--soft); }
-  fieldset { border: 0; padding: 0; margin: 0 0 14px; min-width: 0; }
-  legend, label.lab { display: block; padding: 0; margin: 0 0 6px; font-size: 13px; font-weight: 500; }
+  .lede { margin: 0 0 20px; font-size: 15px; color: color-mix(in srgb, var(--ink) 72%, transparent); max-width: 38ch; }
+
+  /* ---- forms (account, details) ---- */
+  fieldset { border: 0; padding: 0; margin: 0 0 16px; min-width: 0; }
+  legend, label.lab { display: block; padding: 0; margin: 0 0 7px; font-size: 13px; font-weight: 600; }
   .opt { font-weight: 400; color: var(--mute); }
-  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-  .seg label { position: relative; display: block; text-align: center; padding: 11px 6px; font-size: 14px; cursor: pointer; border-left: 1px solid var(--line); min-height: 44px; }
-  .seg label:first-of-type { border-left: 0; }
+  /* iOS segmented control: a pill track, the selected segment raised */
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; gap: 2px; border-radius: 12px; background: var(--soft-2); }
+  .seg label { position: relative; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px 6px; font-size: 14px; font-weight: 500; cursor: pointer; min-height: 38px; border-radius: 9px;
+               transition: background .25s var(--snap), box-shadow .25s var(--snap), color .2s; }
   .seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
-  .seg label:has(input:checked) { background: var(--ink); color: var(--paper); }
-  .seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -4px; }
+  .seg label:has(input:checked) { background: var(--paper); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 3px 10px rgba(0,0,0,.08); font-weight: 600; }
+  .seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
   .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
   .row.two { grid-template-columns: 1fr 1fr; }
   .field { position: relative; margin-bottom: 12px; }
   .row .field { margin-bottom: 0; }
-  .field input { width: 100%; height: 46px; padding: 0 12px; font: inherit; font-size: 16px; color: inherit; background: transparent;
-                 border: 1px solid var(--line); border-radius: var(--radius); font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
-  .field.u input { padding-right: 38px; }
+  .field input { width: 100%; height: 50px; padding: 0 14px; font: inherit; font-size: 16px; color: inherit; background: var(--soft);
+                 border: 1px solid transparent; border-radius: 12px; font-variant-numeric: tabular-nums; -moz-appearance: textfield; transition: border-color .2s, background .2s; }
+  .field input:focus { background: var(--paper); border-color: var(--line-strong); outline: none; }
+  .field.u input { padding-right: 40px; }
   .field input::-webkit-outer-spin-button, .field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-  .field input:focus-visible, .primary:focus-visible, .ghost:focus-visible, .link:focus-visible, .close:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .field .unit { position: absolute; right: 12px; top: 0; line-height: 46px; color: var(--mute); font-size: 13px; pointer-events: none; }
+  .field .unit { position: absolute; right: 14px; top: 0; line-height: 50px; color: var(--mute); font-size: 13px; pointer-events: none; }
   .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .units { display: flex; justify-content: flex-end; margin: -6px 0 10px; }
-  .link { background: none; border: 0; padding: 4px 0; font: inherit; font-size: 13px; color: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-  .primary, .ghost { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; padding: 12px 16px; border-radius: var(--btn-radius);
-             font: inherit; font-size: 14.5px; font-weight: 500; cursor: pointer; text-decoration: none; text-align: center; }
-  .primary { border: 1px solid var(--btn-bg); background: var(--btn-bg); color: var(--btn-fg); }
-  .ghost { border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent); background: var(--paper); color: var(--ink); }
-  .primary:hover { opacity: .9; } .ghost:hover { background: var(--soft); }
-  .flow-tryon #tryon + #add { margin-top: 10px; }
-  .primary[disabled], .primary[aria-busy="true"], .ghost[disabled] { opacity: .5; cursor: default; pointer-events: none; }
+  .link { background: none; border: 0; padding: 6px 0; font: inherit; font-size: 13px; font-weight: 500; color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; cursor: pointer; }
+  .primary, .ghost { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 52px; padding: 13px 18px; border-radius: var(--btn-radius);
+             font: inherit; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; cursor: pointer; text-decoration: none; text-align: center;
+             transition: transform .18s var(--snap), opacity .2s, background .2s, box-shadow .2s; }
+  .primary { border: 0; background: var(--btn-bg); color: var(--btn-fg); box-shadow: 0 6px 18px color-mix(in srgb, var(--btn-bg) 22%, transparent); }
+  .ghost { border: 0; background: var(--soft-2); color: var(--ink); }
+  .primary:active, .ghost:active, .pick:active, .fig:active, .tile:active, .done button:active, .ok:active { transform: scale(.97); }
+  .primary:hover { opacity: .92; } .ghost:hover { background: color-mix(in srgb, var(--ink) 11%, transparent); }
+  .primary[disabled], .primary[aria-busy="true"], .ghost[disabled] { opacity: .45; cursor: default; pointer-events: none; box-shadow: none; }
+  .primary[aria-busy="true"]::after { content: ''; width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .field input:focus-visible, .primary:focus-visible, .ghost:focus-visible, .link:focus-visible, .nav-btn:focus-visible, .tile:focus-visible,
+  .done button:focus-visible, .pick:focus-visible, .fig:focus-visible, .ok:focus-visible, .units-seg button:focus-visible, .rl:focus-visible, .fit-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .stack { display: grid; gap: 10px; }
-  .error { min-height: 18px; margin: 0 0 8px; font-size: 13px; color: #b3261e; }
-  .foot { margin: 14px 0 0; font-size: 12px; color: var(--mute); }
+  .error { min-height: 18px; margin: 0 0 8px; font-size: 13px; color: #c62828; }
+  .foot { margin: 16px 0 0; font-size: 12px; color: var(--mute); }
   .foot a { color: inherit; }
   .wait { margin: 12px 0 0; font-size: 13px; color: var(--mute); }
   .check { display: flex; gap: 10px; align-items: flex-start; margin: 2px 0 12px; font-size: 13px; color: var(--mute); }
-  .check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
-  .steps { margin: 0 0 18px; padding: 0; list-style: none; border-top: 1px solid var(--line); }
-  .steps li { padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14px; display: flex; justify-content: space-between; gap: 12px; }
-  .steps li span:last-child { color: var(--mute); white-space: nowrap; }
-  .progress { margin: 0 0 16px; font-size: 12px; color: var(--mute); }
+  .check input { width: 20px; height: 20px; margin: 0; accent-color: var(--ink); flex: none; }
+  .progress { margin: 0 0 6px; font-size: 12px; font-weight: 600; letter-spacing: .04em; color: var(--mute); text-transform: uppercase; }
 
   /* Photo */
   .shot { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: start; margin: 0 0 16px; }
-  .shot img { width: 112px; aspect-ratio: 3/4; object-fit: cover; border-radius: var(--radius); background: var(--soft); display: block; }
-  .tips { margin: 0; padding: 0; list-style: none; font-size: 13.5px; }
-  .tips li { padding: 0 0 8px 18px; position: relative; }
-  .tips li::before { content: ''; position: absolute; left: 0; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--ink); }
+  .shot img { width: 112px; aspect-ratio: 3/4; object-fit: cover; border-radius: 16px; background: var(--soft); display: block; }
+  .tips { margin: 0; padding: 0; list-style: none; font-size: 14px; }
+  .tips li { padding: 0 0 9px 20px; position: relative; }
+  .tips li::before { content: ''; position: absolute; left: 2px; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
   input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
   /* Building */
-  .bar { height: 6px; background: var(--soft); border-radius: 99px; overflow: hidden; margin: 18px 0 10px; }
-  .bar i { display: block; height: 100%; width: 4%; background: var(--accent); border-radius: 99px; }
+  .bar { height: 8px; background: var(--soft-2); border-radius: 99px; overflow: hidden; margin: 18px 0 10px; }
+  .bar i { display: block; height: 100%; width: 4%; background: var(--accent); border-radius: 99px; transition: width .6s var(--spring); }
   .stage { margin: 0 0 18px; font-size: 14px; font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; gap: 12px; }
   .stage span:last-child { color: var(--mute); }
 
-  /* Result */
-  .lead { margin: 0; font-size: 13px; font-weight: 500; color: var(--mute); }
-  .size { margin: 0 0 6px -3px; font-size: clamp(76px, 27vw, 108px); line-height: .9; font-weight: 800; letter-spacing: -0.05em; }
-  .why { margin: 0 0 16px; font-size: 14.5px; max-width: 36ch; }
-  .measured { margin: 0 0 14px; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: var(--radius); }
-  .measured li { padding: 10px 12px; border-left: 1px solid var(--line); font-size: 12px; color: var(--mute); }
-  .measured li:first-child { border-left: 0; }
-  .measured b { display: block; font-size: 17px; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
-  /* Estimate only: sizes laid out like marks on a tape, filled by how likely each is. */
-  .tape { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; align-items: end; height: 72px; margin: 0 0 6px; border-bottom: 2px solid var(--ink); }
-  .tape div { position: relative; height: 100%; display: flex; align-items: flex-end; justify-content: center; }
-  .tape i { display: block; width: 62%; background: var(--ink); min-height: 0; }
-  .tape div:not(.pick) i { opacity: .25; }
-  .tape span { position: absolute; top: 0; font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; }
-  .chips { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin: 0 0 14px; gap: 4px; }
-  .chip { height: 40px; border: 0; background: none; color: inherit; font: inherit; font-size: 14px; cursor: pointer; border-radius: var(--radius); }
-  .chips.rel .chip { height: 50px; }
-  .chip small { display: block; font-size: 10px; font-weight: 400; color: var(--mute); line-height: 1; margin-top: 3px; }
-  .chip[aria-pressed="true"] { font-weight: 600; box-shadow: inset 0 0 0 1.5px var(--ink); }
-  .chip.out { color: var(--mute); text-decoration: line-through; }
-  .note { margin: 0 0 14px; font-size: 13px; padding: 10px 12px; background: var(--soft); border-radius: var(--radius); }
-  .secondary { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
-  .result-cta { margin-top: 10px; }
-  .cta-note { margin: 6px 0 0; font-size: 12px; color: var(--mute); text-align: center; }
-
-  /* Account icon: sign in to an existing Tryon account at any point. */
-  .acct { position: absolute; top: 10px; right: 52px; width: 40px; height: 40px; border: 0; background: none; color: inherit; cursor: pointer; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-  .acct:hover { background: var(--soft); }
-  .acct:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  /* Quiz: one question at a time; answered ones fold into editable rows. */
-  .answers { list-style: none; margin: 0 0 4px; padding: 0; border-top: 1px solid var(--line); }
-  .answers > li { border-bottom: 1px solid var(--line); }
-  .done { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; font-size: 14px; }
-  .done button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 0; border-radius: var(--radius); background: var(--soft); color: inherit; font: inherit; font-size: 14px; cursor: pointer; }
-  .done button:focus-visible, .pick:focus-visible, .fig:focus-visible, .ok:focus-visible, .units-seg button:focus-visible, .rl:focus-visible, .fit-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .ask { padding: 14px 0 16px; }
-  .ask-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
-  .ask h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
-  .ask .sub { margin: -6px 0 12px; font-size: 13px; color: var(--mute); }
-  .units-seg { display: inline-grid; grid-auto-flow: column; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; flex: none; }
-  .units-seg button { min-width: 44px; min-height: 36px; border: 0; border-left: 1px solid var(--line); background: none; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
-  .units-seg button:first-child { border-left: 0; }
-  .units-seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
-  .picks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .pick { min-height: 48px; border: 1px solid var(--ink); border-radius: var(--radius); background: var(--paper); color: inherit; font: inherit; font-size: 15px; cursor: pointer; }
-  .pick[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
-  .figs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .fig { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); color: color-mix(in srgb, var(--ink) 45%, transparent); font: inherit; font-size: 13px; cursor: pointer; }
-  .fig svg { width: 100%; max-width: 92px; height: auto; }
-  .fig span { color: var(--ink); }
-  .fig[aria-pressed="true"] { border: 2px solid var(--ink); color: var(--ink); padding: 9px 3px 7px; }
-  .ok { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 14px 0 0 auto; min-height: 48px; padding: 0 18px; border: 1px solid var(--btn-bg); border-radius: var(--btn-radius); background: var(--btn-bg); color: var(--btn-fg); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; }
+  /* ---- quiz ---- */
+  .answers { list-style: none; margin: 0 0 4px; padding: 0; }
+  .answers > li { view-transition-class: step; }
+  .done { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 4px 4px 14px; margin: 0 0 6px; font-size: 14px; border-radius: 14px; background: var(--soft); color: var(--mute); }
+  .done button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 0; border-radius: 11px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .2s, transform .18s var(--snap); }
+  .done button svg { color: var(--mute); }
+  .done button:hover { background: var(--paper); }
+  .ask { padding: 12px 0 8px; }
+  .ask-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; }
+  .ask h2 { margin: 0; font-size: 21px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; }
+  .ask .sub { margin: -8px 0 14px; font-size: 13.5px; color: var(--mute); }
+  .units-seg { display: inline-grid; grid-auto-flow: column; padding: 3px; gap: 2px; border-radius: 10px; background: var(--soft-2); flex: none; }
+  .units-seg button { min-width: 46px; min-height: 32px; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .25s var(--snap), box-shadow .25s; }
+  .units-seg button[aria-pressed="true"] { background: var(--paper); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 3px 8px rgba(0,0,0,.08); font-weight: 600; }
+  .picks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .pick { position: relative; min-height: 56px; border: 0; border-radius: 16px; background: var(--soft); color: inherit; font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+          transition: background .22s var(--snap), color .22s, transform .18s var(--snap), box-shadow .22s; }
+  .pick:hover { background: var(--soft-2); }
+  .pick[aria-pressed="true"] { background: var(--ink); color: var(--paper); box-shadow: 0 8px 20px color-mix(in srgb, var(--ink) 22%, transparent); }
+  .figs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .fig { --fill: color-mix(in srgb, var(--ink) 7%, transparent); --stroke: color-mix(in srgb, var(--ink) 38%, transparent); --arm: color-mix(in srgb, var(--ink) 5%, transparent);
+         display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 6px 10px; border: 0; border-radius: 18px; background: var(--soft); color: var(--ink);
+         font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; transition: background .22s var(--snap), box-shadow .22s, transform .18s var(--snap); }
+  .fig:hover { background: var(--soft-2); }
+  .fig svg { width: 100%; max-width: 96px; height: auto; overflow: visible; }
+  .fig[aria-pressed="true"] { background: var(--paper); box-shadow: inset 0 0 0 2px var(--ink), 0 8px 22px rgba(0,0,0,.08);
+                              --fill: color-mix(in srgb, var(--ink) 12%, transparent); --stroke: var(--ink); }
+  .fig .measure { color: var(--accent); }
+  .ok { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin: 16px 0 0; min-height: 52px; padding: 0 18px; border: 0; border-radius: var(--btn-radius);
+        background: var(--btn-bg); color: var(--btn-fg); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform .18s var(--snap), opacity .2s;
+        box-shadow: 0 6px 18px color-mix(in srgb, var(--btn-bg) 22%, transparent); font-variant-numeric: tabular-nums; }
   .ok::after { content: ''; width: 12px; height: 7px; border: solid currentColor; border-width: 0 0 2px 2px; transform: translateY(-2px) rotate(-45deg); }
-  /* Ruler: drag (or arrow keys) under a fixed needle. */
-  .ruler { position: relative; margin: 6px 0 0; }
-  .rl-val { text-align: center; font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; margin: 0 0 4px; }
-  .rl { overflow-x: scroll; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x mandatory; cursor: grab; touch-action: pan-x; border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); }
+  /* Ruler: swipe it under a fixed needle; it glides and settles on a value. */
+  .ruler { position: relative; margin: 4px 0 0; }
+  .rl-val { text-align: center; font-size: 44px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.04em; margin: 0 0 14px; }
+  .rl-val small { font-size: 18px; font-weight: 600; letter-spacing: 0; color: var(--mute); margin-left: 4px; }
+  .rl { position: relative; overflow-x: scroll; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x mandatory; cursor: grab; touch-action: pan-x;
+        border-radius: 16px; background: var(--soft);
+        -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); }
   .rl::-webkit-scrollbar { display: none; }
   .rl.dragging { cursor: grabbing; scroll-snap-type: none; }
-  .rl-track { display: inline-flex; padding: 0 calc(50% - 5px); height: 64px; align-items: flex-end; }
+  .rl-track { display: inline-flex; padding: 0 calc(50% - 5px); height: 76px; align-items: flex-end; }
   .rl-track span { position: relative; flex: none; width: 10px; height: 100%; scroll-snap-align: center; }
-  .rl-track span::before { content: ''; position: absolute; left: 4.5px; bottom: 0; width: 1px; height: 14px; background: color-mix(in srgb, var(--ink) 45%, transparent); }
-  .rl-track span.mj::before { height: 26px; background: var(--ink); }
-  .rl-track b { position: absolute; bottom: 30px; left: 5px; transform: translateX(-50%); font-size: 12px; font-weight: 500; color: var(--mute); user-select: none; }
-  .rl-needle { position: absolute; left: calc(50% - 1.5px); bottom: 2px; width: 3px; height: 36px; background: var(--ink); border-radius: 2px; pointer-events: none; }
-  .fit-range { width: 100%; margin: 10px 0 4px; accent-color: var(--ink); height: 32px; }
+  .rl-track span::before { content: ''; position: absolute; left: 4px; bottom: 14px; width: 2px; height: 14px; border-radius: 1px; background: color-mix(in srgb, var(--ink) 22%, transparent); }
+  .rl-track span.md::before { height: 20px; }
+  .rl-track span.mj::before { height: 30px; background: color-mix(in srgb, var(--ink) 55%, transparent); }
+  .rl-track b { position: absolute; top: 8px; left: 5px; transform: translateX(-50%); font-size: 12px; font-weight: 600; color: var(--mute); user-select: none; font-variant-numeric: tabular-nums; }
+  .rl-needle { position: absolute; left: calc(50% - 2px); bottom: 10px; width: 4px; height: 44px; background: var(--accent); border-radius: 2px; pointer-events: none;
+               box-shadow: 0 0 0 3px color-mix(in srgb, var(--paper) 70%, transparent); }
+  .fit-range { -webkit-appearance: none; appearance: none; width: 100%; height: 36px; margin: 6px 0 4px; background: none; cursor: pointer; }
+  .fit-range::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--soft-2); }
+  .fit-range::-moz-range-track { height: 6px; border-radius: 3px; background: var(--soft-2); }
+  .fit-range::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; margin-top: -11px; border-radius: 50%; background: var(--paper); box-shadow: 0 1px 3px rgba(0,0,0,.2), 0 4px 12px rgba(0,0,0,.14); transition: transform .2s var(--snap); }
+  .fit-range::-moz-range-thumb { width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--paper); box-shadow: 0 1px 3px rgba(0,0,0,.2), 0 4px 12px rgba(0,0,0,.14); }
+  .fit-range:active::-webkit-slider-thumb { transform: scale(1.12); }
   .fit-labels { display: flex; justify-content: space-between; font-size: 13px; color: var(--mute); }
+  .fit-labels span { transition: color .2s, font-weight .2s; }
   .fit-labels span[data-on] { color: var(--ink); font-weight: 600; }
-  .quiz-foot { display: flex; justify-content: space-between; gap: 12px; margin: 12px 0 0; font-size: 12px; color: var(--mute); }
+  .quiz-foot { margin: 14px 0 0; font-size: 12px; color: var(--mute); text-align: center; }
+
+  /* ---- thinking: a short beat before the size, so the answer lands ---- */
+  .thinking { display: grid; justify-items: center; gap: 14px; padding: 46px 0 40px; text-align: center; }
+  .thinking p { margin: 0; font-size: 15px; font-weight: 600; }
+  .sweep { position: relative; width: 180px; height: 6px; border-radius: 3px; background: var(--soft-2); overflow: hidden; }
+  .sweep i { position: absolute; inset: 0; width: 40%; border-radius: 3px; background: var(--accent); animation: sweep 1s var(--spring) infinite; }
+  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+
+  /* ---- result ---- */
+  .lead { margin: 0; font-size: 13px; font-weight: 600; color: var(--mute); }
+  .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin: 0 0 6px; }
+  .size { margin: 0 0 0 -3px; font-size: clamp(84px, 28vw, 112px); line-height: .88; font-weight: 800; letter-spacing: -0.06em; }
+  .match { display: grid; justify-items: end; margin-bottom: 6px; }
+  .ring { position: relative; width: 74px; height: 74px; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 7; }
+  .ring .track { stroke: var(--soft-2); }
+  .ring .arc { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 1.1s var(--spring); }
+  .ring b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 21px; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .match span { margin-top: 4px; font-size: 11px; font-weight: 600; color: var(--mute); }
+  .why { margin: 4px 0 16px; font-size: 15px; max-width: 36ch; }
+  .note { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 14px; font-size: 13.5px; padding: 12px 14px; background: color-mix(in srgb, var(--accent) 8%, var(--paper)); border-radius: 14px; }
+  .note::before { content: '!'; flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  .measured { margin: 0 0 14px; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .measured li { padding: 10px 12px; border-radius: 14px; background: var(--soft); font-size: 12px; color: var(--mute); }
+  .measured b { display: block; font-size: 17px; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 700; }
+  /* Every size, scored: tap one to see how it fits and to add it. */
+  .tiles { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; margin: 0 0 10px; }
+  .tile { position: relative; display: grid; justify-items: center; gap: 6px; padding: 10px 2px 9px; border: 0; border-radius: 16px; background: var(--soft); color: inherit; font: inherit; cursor: pointer;
+          transition: background .22s var(--snap), box-shadow .22s var(--snap), transform .18s var(--snap); }
+  .tile .lab { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+  .tile .meter { position: relative; width: 6px; height: 44px; border-radius: 3px; background: var(--soft-2); overflow: hidden; }
+  .tile .meter i { position: absolute; left: 0; right: 0; bottom: 0; height: 0; border-radius: 3px; background: color-mix(in srgb, var(--ink) 35%, transparent); transition: height .9s var(--spring); }
+  .tile .pct { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--mute); }
+  .tile.best .meter i { background: var(--accent); }
+  .tile.best .pct { color: var(--accent); }
+  .tile[aria-checked="true"] { background: var(--paper); box-shadow: inset 0 0 0 2px var(--ink), 0 8px 20px rgba(0,0,0,.08); }
+  .tile.out .lab { text-decoration: line-through; color: var(--mute); }
+  .tile .tag { position: absolute; top: -7px; left: 50%; transform: translateX(-50%); padding: 1px 6px; border-radius: 6px; font-size: 9.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+  .tile.best .tag { background: var(--accent); color: #fff; }
+  .tile.out .tag { background: var(--ink); color: var(--paper); }
+  .tile-line { min-height: 20px; margin: 0 0 16px; font-size: 13.5px; color: color-mix(in srgb, var(--ink) 72%, transparent); }
+  .tile-line b { color: var(--ink); }
+  .actions { position: sticky; bottom: calc(-20px - env(safe-area-inset-bottom)); z-index: 2; display: grid; gap: 8px; margin: 6px -20px 0; padding: 14px 20px calc(20px + env(safe-area-inset-bottom));
+             background: linear-gradient(to bottom, color-mix(in srgb, var(--paper) 0%, transparent), var(--paper) 22%); }
+  @media (min-width: 560px) { .actions { bottom: -24px; margin: 6px -26px 0; padding: 14px 26px 24px; } }
+  .cta-note { margin: 2px 0 0; font-size: 12px; color: var(--mute); text-align: center; }
+  .secondary { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; margin-top: 2px; }
   [hidden] { display: none !important; }
+
+  /* ---- motion ---- */
+  @media (prefers-reduced-motion: no-preference) {
+    body:not(.closed) .card { animation: sheet-in .55s var(--spring); }
+    body:not(.closed) .scrim { animation: fade-in .3s ease-out; }
+    body.leaving .card { transform: translateY(105%); transition: transform .32s cubic-bezier(.4, 0, 1, 1); }
+    body.leaving .scrim { opacity: 0; transition: opacity .32s ease-in; }
+    @keyframes sheet-in { from { transform: translateY(100%); } to { transform: none; } }
+    @keyframes fade-in { from { opacity: 0; } }
+    .card > section:not([hidden]), .card > form:not([hidden]) { animation: view-in .42s var(--spring) both; }
+    @keyframes view-in { from { opacity: 0; transform: translateY(10px) scale(.985); } }
+    .ask { animation: ask-in .46s var(--spring) both; }
+    @keyframes ask-in { from { opacity: 0; transform: translateY(14px); filter: blur(3px); } }
+    .reveal .size { animation: pop .7s var(--spring) both .05s; }
+    .reveal .match { animation: pop .7s var(--spring) both .15s; }
+    .reveal .why, .reveal .tile-line, .reveal .note { animation: view-in .5s var(--spring) both .25s; }
+    .reveal .tile { animation: tile-in .5s var(--spring) both; animation-delay: calc(.2s + var(--i) * 45ms); }
+    @keyframes pop { from { opacity: 0; transform: scale(.82) translateY(8px); } }
+    @keyframes tile-in { from { opacity: 0; transform: translateY(12px) scale(.94); } }
+    ::view-transition-group(*) { animation-duration: .42s; animation-timing-function: var(--spring); }
+    ::view-transition-old(*), ::view-transition-new(*) { animation-duration: .3s; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
 </style>
 </head>
 <body class="closed">
 <div class="scrim" id="scrim">
   <div class="card" role="dialog" aria-modal="true" aria-label="Find your size" id="card" tabindex="-1">
-    <button class="close" id="close" type="button" aria-label="Close">&#x2715;</button>
-    <button class="acct" id="acct" type="button" aria-label="Sign in to my Tryon account" title="My Tryon account">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="10.2"/><circle cx="12" cy="9.5" r="3.6"/><path d="M5.3 19.1c1.5-2.6 3.9-3.9 6.7-3.9s5.2 1.3 6.7 3.9"/></svg>
-    </button>
-    <p class="brand" id="brand">TRYON</p>
+    <div class="grab" aria-hidden="true"></div>
+    <header class="nav" id="nav">
+      <button class="nav-btn" id="back" type="button" aria-label="Back" hidden>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <p class="brand" id="brand">TRYON</p>
+      <div class="nav-right">
+        <button class="nav-btn" id="acct" type="button" aria-label="Sign in to my Tryon account" title="My Tryon account">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8.6" r="3.9"/><path d="M4.6 20c1.3-3.6 4.1-5.4 7.4-5.4s6.1 1.8 7.4 5.4" stroke-linecap="round"/></svg>
+        </button>
+        <button class="nav-btn" id="close" type="button" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="prog" id="prog" hidden><i id="prog-fill"></i></div>
     <div class="item" id="item" hidden>
       <img id="item-img" alt="">
       <p><span id="item-brand"></span><b id="item-name"></b></p>
@@ -368,16 +466,33 @@
       <h1>Find your size in 30 seconds</h1>
       <p class="product" data-product></p>
       <ol class="answers" id="answers"></ol>
-      <p class="quiz-foot"><span>No account needed. Your answers stay on this device.</span><span id="quiz-step"></span></p>
+      <p class="quiz-foot">No account needed. Your answers stay on this device.</p>
+    </section>
+
+    <section id="thinking" hidden>
+      <div class="thinking" role="status">
+        <div class="sweep" aria-hidden="true"><i></i></div>
+        <p>Finding your size…</p>
+      </div>
     </section>
 
     <section id="result" hidden>
       <p class="lead" id="result-lead">Your size</p>
-      <p class="size" id="result-size"></p>
+      <div class="hero">
+        <p class="size" id="result-size"></p>
+        <div class="match">
+          <div class="ring" aria-hidden="true">
+            <svg viewBox="0 0 74 74"><circle class="track" cx="37" cy="37" r="30"/><circle class="arc" id="ring-arc" cx="37" cy="37" r="30"/></svg>
+            <b id="ring-num">0</b>
+          </div>
+          <span>% match</span>
+        </div>
+      </div>
       <p class="why" id="result-why"></p>
+      <p class="note" id="result-note" hidden></p>
+      <div class="tiles" id="chips" role="radiogroup" aria-label="Every size, scored"></div>
+      <p class="tile-line" id="tile-line" aria-live="polite"></p>
       <ul class="measured" id="measured" hidden></ul>
-      <div class="tape" id="tape" aria-hidden="true" hidden></div>
-      <div class="chips" id="chips" role="group" aria-label="Sizes"></div>
       <fieldset>
         <legend>How I like it to fit</legend>
         <div class="seg" id="fit">
@@ -386,17 +501,18 @@
           <label><input type="radio" name="fit" value="loose">Looser</label>
         </div>
       </fieldset>
-      <p class="note" id="result-note" hidden></p>
-      <button class="primary" type="button" id="add"></button>
-      <div class="result-cta" id="passport-wrap" hidden>
-        <button class="ghost" type="button" id="passport"></button>
-        <p class="cta-note" id="passport-note"></p>
-      </div>
       <div class="secondary">
-        <button class="link" type="button" id="tryon" hidden>See it on your own body</button>
         <button class="link" type="button" id="edit" hidden>Change my answers</button>
       </div>
       <p class="foot" id="result-foot"></p>
+      <div class="actions" id="actions">
+        <button class="primary" type="button" id="add"></button>
+        <div class="result-cta" id="passport-wrap" hidden>
+          <button class="ghost" type="button" id="passport"></button>
+          <p class="cta-note" id="passport-note"></p>
+        </div>
+        <button class="ghost" type="button" id="tryon" hidden>See it on your own body</button>
+      </div>
     </section>
   </div>
 </div>
@@ -416,7 +532,7 @@ const JOB_KEY = 'tryon_size_job';                // a build in flight: { job_id,
 const LINK_TOKEN_KEY = 'tryon_link_token';       // shared with the Try On widget
 const LINK_TOKEN_TTL_MS = 60 * 60 * 1000;
 const BUILD_GIVE_UP_MS = 25 * 60 * 1000;
-const VIEWS = ['gate', 'signup', 'signin', 'details', 'photo', 'building', 'failed', 'nomeas', 'quiz', 'result'];
+const VIEWS = ['gate', 'signup', 'signin', 'details', 'photo', 'building', 'failed', 'nomeas', 'quiz', 'thinking', 'result'];
 
 // ---- look: Tryon's own by default; a store's colours only when the block asks (look=store) ----
 if (q.get('look') === 'store') {
@@ -520,7 +636,6 @@ if (flow === 'tryon') {
   $('add').before($('tryon'));
   $('passport').className = 'primary';
   $('add').before($('passport-wrap'));
-  $('passport-wrap').style.margin = '0 0 10px';
   document.body.classList.add('flow-tryon');
 }
 
@@ -529,10 +644,23 @@ const post = (type, payload) => { if (inFrame) window.parent.postMessage(payload
 window.addEventListener('message', (e) => {
   if (e.source !== window.parent || !e.data) return;
   const d = e.data;
-  if (d.type === 'TRYON_SIZE_PRODUCT' && d.payload) { product = normalizeProduct(d.payload); onProduct(); }
+  if (d.type === 'TRYON_SIZE_PRODUCT' && d.payload) {
+    adoptProfile(d.payload.profile);
+    product = normalizeProduct(d.payload);
+    onProduct();
+  }
   if (d.type === 'TRYON_SIZE_OPEN') open();
   if (d.type === 'TRYON_SIZE_HIDE') hide(false);
 });
+// The store keeps a copy of the quiz answers on its own site (first-party storage, which Safari
+// keeps; framed storage it may not). Use it when this frame has none.
+function adoptProfile(p) {
+  if (!p || typeof p !== 'object' || guest || readJson(GUEST_KEY)) return;
+  if (!['female', 'male'].includes(p.gender) || validateInput(p)) return;
+  guest = p;
+  write(GUEST_KEY, JSON.stringify(p));
+  if (p.fit && !read(FIT_KEY)) fit = p.fit;
+}
 function normalizeProduct(p) {
   const seen = new Set();
   const sizes = (p.sizes || []).map((s) => ({ label: String(s.label || '').trim(), available: s.available !== false }))
@@ -959,6 +1087,8 @@ function show(view) {
   if (view === 'quiz') renderQuiz();
   if (view === 'gate') $('gate-back-line').hidden = !(guest || readJson(GUEST_KEY));
   if (view === 'signin') $('social-wait').hidden = !Object.keys(polls).length;
+  if (view !== 'quiz') $('prog').hidden = true;
+  setBack();
   $('card').scrollTop = 0;
 }
 
@@ -972,53 +1102,75 @@ function compute() {
     if (!guest) return null;
     const r = quickSize({ gender: guest.gender, height: guest.height, weight: guest.weight, age: guest.age, shape: guest.shape },
       { sizes, category: garment.category, fitType: garment.fitType }, { preferredFit: fit, country: cfg.country });
-    return r && { ...r, basis: 'estimate' };
+    return r && { ...r, basis: 'estimate', scores: r.scores || {} };
   }
   if (!body) return null;
   const hasChart = Object.keys(garment.chart).length > 0;
   // Same call the Try On widget makes: body-anchored, the store's own size labels as the
-  // candidates; a merchant chart (flat, pit-to-pit) only adds the "snug around..." detail.
+  // candidates; a merchant chart (flat, pit-to-pit) only adds where a size is snug or loose.
   const r = recommendSize(body.measurements, garment.chart, fit, garment.category, garment.fitType,
     hasChart ? 'flat' : 'circumference', body.gender, sizes, cfg.country);
   if (!r || !r.recommendedSize) return null;
-  return { recommendedSize: r.recommendedSize, reasoning: r.reasoning, alternative: null, basis: 'measured' };
+  const feel = {};
+  const areas = {};
+  for (const s of r.allSizes) {
+    feel[s.size] = s.feel;
+    // The chart, when the store has one, says where: the worst-fitting area of this size.
+    const worst = (s.breakdown || []).filter((b) => b.score < 0.6).sort((a, b) => a.score - b.score)[0];
+    if (worst) areas[s.size] = (worst.ease < 0 ? 'snug at the ' : 'loose at the ') + worst.key.replace('_', ' ');
+  }
+  return { recommendedSize: r.recommendedSize, reasoning: r.reasoning, alternative: null, basis: 'measured', scores: r.scores || {}, confidence: r.confidence, feel, areas };
 }
 function escapeHtml(v) { return String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+const scoreOf = (label) => (last && last.scores && last.scores[label] != null ? last.scores[label] : 0);
+// How a size will feel, in words: the chart's area when there is one, else snug / your fit / roomy.
+function feelWord(label) {
+  if (!last) return '';
+  if (last.areas && last.areas[label]) return last.areas[label];
+  let f = last.feel && last.feel[label];
+  if (!f) {
+    const order = product.sizes.map((s) => s.label);
+    const d = order.indexOf(label) - order.indexOf(last.recommendedSize);
+    f = d < 0 ? 'snug' : d > 0 ? 'roomy' : 'right';
+  }
+  return f === 'snug' ? 'a closer fit' : f === 'roomy' ? 'a roomier fit' : 'your best fit';
+}
+let altAuto = null;
 function renderResult() {
   last = compute();
   if (!last) return false;
-  picked = last.recommendedSize;
+  const best = last.recommendedSize;
+  // Sold out: the best size stays on screen, marked; the pick moves to the best-scoring size in stock.
+  picked = best;
+  altAuto = null;
   let note = '';
-  if (isOut(picked)) {
-    if (last.alternative && !isOut(last.alternative)) { note = `${up(picked)} is sold out. ${up(last.alternative)} is your next most likely size.`; picked = last.alternative; }
-    else note = `${up(picked)} is sold out right now.`;
-  } else if (last.alternative && isOut(last.alternative)) {
-    note = `${up(last.alternative)} is sold out right now.`;
+  if (isOut(best)) {
+    const inStock = product.sizes.filter((s) => s.available).map((s) => s.label).sort((a, b) => scoreOf(b) - scoreOf(a));
+    if (inStock.length) {
+      picked = inStock[0];
+      altAuto = picked;
+      note = `${up(best)} is sold out. Next best is ${up(picked)}: ${scoreOf(picked)}% match, ${feelWord(picked)}.`;
+    } else note = `${up(best)} is sold out right now.`;
   }
   $('result-lead').textContent = last.basis === 'estimate' ? 'Your estimated size' : 'Your size';
-  $('result-size').textContent = up(last.recommendedSize);
+  $('result-size').textContent = up(best);
+  setRing(scoreOf(best));
   $('result-why').textContent = last.reasoning;
   $('result-note').textContent = note; $('result-note').hidden = !note;
   document.querySelectorAll('#fit input').forEach((r) => { r.checked = r.value === fit; });
-  const measuredEl = $('measured'), tape = $('tape');
+  const measuredEl = $('measured');
   if (last.basis === 'measured') {
     const m = body.measurements;
     const cells = [['Chest', m.chest], ['Waist', m.waist], ['Hips', m.hips]].filter((c) => c[1]);
     measuredEl.innerHTML = cells.map((c) => `<li><b>${Math.round(c[1])} cm</b>${c[0]}</li>`).join('');
-    measuredEl.hidden = cells.length === 0; tape.hidden = true;
+    measuredEl.hidden = cells.length === 0;
     $('result-foot').innerHTML = `Measured from your photo${displayName ? ', signed in as ' + escapeHtml(displayName) : ''}. <button class="link" type="button" id="signout-result">Use another account</button>`;
     $('signout-result').addEventListener('click', () => { forgetUser(); bodyState = 'signedout'; show('gate'); });
   } else {
-    const byLabel = Object.fromEntries(last.probabilities.map((x) => [x.size, x.p]));
-    const top = Math.max(...last.probabilities.map((x) => x.p));
-    tape.innerHTML = product.sizes.map((s) => {
-      const p = byLabel[s.label] || 0;
-      return `<div class="${s.label === last.recommendedSize ? 'pick' : ''}">${p >= 0.05 ? `<span>${Math.round(p * 100)}%</span>` : ''}<i style="height:${p ? Math.max(6, Math.round((p / top) * 70)) : 0}%"></i></div>`;
-    }).join('');
-    tape.hidden = false; measuredEl.hidden = true;
+    measuredEl.hidden = true;
     const acc = ACCURACY[normalizeGender(guest.gender)] || ACCURACY.female;
     const a = acc[last.anchor] || acc.chest;
-    $('result-foot').textContent = `An estimate from your answers, not a measurement: estimates like this match a tape measure about ${Math.round(a[0] * 10)} times in 10.`;
+    $('result-foot').textContent = `Match = how likely each size is to fit you, from your answers. Estimates like this match a tape measure about ${Math.round(a[0] * 10)} times in 10; a fit passport measures you.`;
   }
   $('edit').hidden = last.basis !== 'estimate';
   $('tryon').hidden = !(product.hasTryon && garment.has3d && last.basis === 'measured');
@@ -1032,36 +1184,74 @@ function renderResult() {
   renderChips();
   return true;
 }
+// The match ring: the arc fills and the number counts up to the best size's score.
+let ringRaf = 0;
+function setRing(n) {
+  const C = 2 * Math.PI * 30;
+  const arc = $('ring-arc');
+  arc.style.strokeDasharray = String(C);
+  arc.style.strokeDashoffset = String(C);
+  cancelAnimationFrame(ringRaf);
+  const animate = !silent && !document.body.classList.contains('closed') && !reduceMotion;
+  if (!animate) { arc.style.strokeDashoffset = String(C * (1 - n / 100)); $('ring-num').textContent = n; return; }
+  requestAnimationFrame(() => { arc.style.strokeDashoffset = String(C * (1 - n / 100)); });
+  const t0 = performance.now();
+  const step = (t) => {
+    const k = Math.min(1, (t - t0) / 1000);
+    $('ring-num').textContent = Math.round(n * (1 - Math.pow(1 - k, 3)));
+    if (k < 1) ringRaf = requestAnimationFrame(step);
+  };
+  ringRaf = requestAnimationFrame(step);
+}
 function renderChips() {
-  const recIdx = product.sizes.findIndex((s) => s.label === last.recommendedSize);
-  const relative = last.basis === 'measured';
-  $('chips').classList.toggle('rel', relative);
+  const best = last.recommendedSize;
   $('chips').innerHTML = product.sizes.map((s, i) => {
-    const rel = !relative ? '' : `<small>${i < recIdx ? 'tighter' : i > recIdx ? 'looser' : 'your size'}</small>`;
-    return `<button type="button" class="chip${s.available ? '' : ' out'}" data-size="${encodeURIComponent(s.label)}" aria-pressed="${s.label === picked}"${s.available ? '' : ' aria-label="' + up(s.label) + ', sold out"'}>${up(s.label)}${rel}</button>`;
+    const sc = scoreOf(s.label);
+    const cls = ['tile', s.label === best ? 'best' : '', s.available ? '' : 'out'].filter(Boolean).join(' ');
+    const tag = !s.available ? '<span class="tag">Sold out</span>' : s.label === best ? '<span class="tag">Best</span>' : '';
+    return `<button type="button" role="radio" class="${cls}" style="--i:${i}" data-size="${encodeURIComponent(s.label)}" aria-checked="${s.label === picked}"
+      aria-label="${escapeHtml(up(s.label))}, ${sc}% match${s.available ? '' : ', sold out'}">${tag}<span class="lab">${escapeHtml(up(s.label))}</span><span class="meter"><i data-h="${sc}"></i></span><span class="pct">${sc}</span></button>`;
   }).join('');
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    $('chips').querySelectorAll('.meter i').forEach((i) => { i.style.height = Math.max(4, Number(i.dataset.h)) + '%'; });
+  }));
+  renderPicked();
+}
+function renderPicked() {
+  $('chips').querySelectorAll('.tile').forEach((t) => t.setAttribute('aria-checked', String(decodeURIComponent(t.dataset.size) === picked)));
   const out = isOut(picked);
+  $('tile-line').innerHTML = `<b>${escapeHtml(up(picked))}</b> · ${scoreOf(picked)}% match · ${escapeHtml(feelWord(picked))}${out ? ' · sold out' : ''}`;
   $('add').textContent = out ? `${up(picked)} is sold out` : `Add ${up(picked)} to cart`;
   $('add').disabled = out;
 }
 $('chips').addEventListener('click', (e) => {
-  const b = e.target.closest('.chip'); if (!b) return;
-  picked = decodeURIComponent(b.dataset.size); renderChips();
-  track('size_selected', { size: picked.toLowerCase() });
+  const b = e.target.closest('.tile'); if (!b) return;
+  const size = decodeURIComponent(b.dataset.size);
+  if (size === picked) return;
+  picked = size;
+  haptic(6);
+  renderPicked();
+  track('size_selected', { size: picked.toLowerCase(), score: scoreOf(picked) });
+  if (isOut(last.recommendedSize) && picked !== last.recommendedSize) {
+    track('size_finder_alt_size_picked', { recommended: String(last.recommendedSize).toLowerCase(), size: picked.toLowerCase(), score: scoreOf(picked), reason: 'shopper' });
+  }
 });
 $('fit').addEventListener('change', (e) => {
   fit = e.target.value; write(FIT_KEY, fit);
-  if (renderResult()) post('TRYON_SIZE_RESULT', { size: last.recommendedSize });
+  haptic(5);
+  if (renderResult()) post('TRYON_SIZE_RESULT', { size: last.recommendedSize, score: scoreOf(last.recommendedSize) });
 });
 $('add').addEventListener('click', () => {
   if (!picked || isOut(picked)) return;
-  track('add_to_cart', { size: picked.toLowerCase(), recommended: String(last.recommendedSize).toLowerCase() });
+  track('add_to_cart', { size: picked.toLowerCase(), recommended: String(last.recommendedSize).toLowerCase(), score: scoreOf(picked) });
   post('TRYON_SIZE_ADD_TO_CART', { size: picked, session_id: sessionId });
   hide(true);
 });
 $('tryon').addEventListener('click', () => { post('TRYON_SIZE_OPEN_TRYON'); hide(flow !== 'tryon'); });
 $('edit').addEventListener('click', () => { quizAt = 0; show('quiz'); });
 $('passport').addEventListener('click', () => {
+  const tryable = garment && garment.has3d && product.hasTryon;
+  track('size_finder_passport_clicked', { cta: tryable ? 'try_on' : (userId ? 'finish_passport' : 'create_passport') });
   wantPassport = true;
   if (!userId) { show('gate'); return; }
   route(true);
@@ -1097,25 +1287,41 @@ async function route(fresh) {
     if (!guest) { if (visible) show('quiz'); return; }
   }
   if (!renderResult()) { if (visible) show(mode === 'guest' ? 'quiz' : 'gate'); return; }
-  post('TRYON_SIZE_RESULT', { size: last.recommendedSize });
+  post('TRYON_SIZE_RESULT', { size: last.recommendedSize, score: scoreOf(last.recommendedSize) });
   if (!visible) return;
   show('result');
+  // Replay the reveal (size, ring, tiles) each time the result is shown.
+  $('result').classList.remove('reveal'); void $('result').offsetWidth; $('result').classList.add('reveal');
   if (fresh) {
-    track('size_finder_completed', { size: String(last.recommendedSize).toLowerCase(), alternative: last.alternative || undefined, confidence: last.confidence });
-    track('size_recommended', { size: String(last.recommendedSize).toLowerCase() });
+    const size = String(last.recommendedSize).toLowerCase();
+    const scores = last.scores || {};
+    track('size_finder_completed', { size, alternative: last.alternative || undefined, confidence: last.confidence, scores });
+    track('size_recommended', { size });
+    if (last.basis === 'estimate') track('size_finder_estimate_shown', { size, alternative: last.alternative || undefined, confidence: last.confidence, scores, sold_out: isOut(last.recommendedSize) });
+    if (altAuto) track('size_finder_alt_size_picked', { recommended: size, size: altAuto.toLowerCase(), score: scoreOf(altAuto), reason: 'auto_sold_out' });
   }
 }
 
 // ---- the quiz: a quick estimate without an account, one question at a time ----
 // Who for, height, weight, age, two build questions, fit. Answered questions fold into rows
-// the shopper can reopen. The answers become `guest` (stored on this device only) and feed
-// quickSize(); the fit passport is offered on the result.
+// the shopper can reopen. The answers become `guest` (stored on this device, and a copy on the
+// store's own site via the host) and feed quickSize(); the fit passport is offered on the result.
 const AGE_BANDS = [['15-24', 20], ['25-34', 30], ['35-44', 40], ['45-54', 50], ['55-64', 60], ['65+', 70]];
 const FITS = [['slim', 'Tighter'], ['regular', 'Regular'], ['loose', 'Looser']];
 const LB = 0.45359237;
-const PENCIL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M16.5 3.5l4 4L8 20H4v-4z"/></svg>';
+const PENCIL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 3.5l4 4L8 20H4v-4z"/></svg>';
+const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 let draft = null;     // answers so far; becomes `guest` once the last one is in
 let quizAt = 0;       // the open question
+let quizTracked = false;
+
+// A light tick on phones that support it (Android); silent elsewhere.
+function haptic(ms) { try { if (navigator.vibrate) navigator.vibrate(ms || 6); } catch { /* not allowed */ } }
+// Morph the steps (answered rows <-> open question) where the browser can; plain swap otherwise.
+function morph(update) {
+  if (!reduceMotion && document.startViewTransition) document.startViewTransition(update);
+  else update();
+}
 
 function startDraft() {
   const g = guest || readJson(GUEST_KEY);
@@ -1142,9 +1348,9 @@ const fmtWeight = (kg) => (draft.units === 'imperial' ? Math.round(kg / LB) + ' 
 function answerText(st) {
   const v = st.get();
   if (st.id === 'gender') return v === 'male' ? 'Men' : 'Women';
-  if (st.id === 'height') return 'I am ' + fmtHeight(v);
-  if (st.id === 'weight') return 'I weigh ' + fmtWeight(v);
-  if (st.id === 'age') return 'I am ' + v;
+  if (st.id === 'height') return fmtHeight(v);
+  if (st.id === 'weight') return fmtWeight(v);
+  if (st.id === 'age') return v;
   if (st.kind === 'shape') return st.sq.options[v + 1];
   return (FITS.find((f) => f[0] === v) || FITS[1])[1];
 }
@@ -1158,6 +1364,7 @@ function el(tag, cls, text) {
 
 function renderQuiz() {
   if (!draft) startDraft();
+  if (!quizTracked) { quizTracked = true; track('size_finder_quiz_started'); }
   const steps = quizSteps();
   quizAt = Math.min(Math.max(quizAt, 0), steps.length - 1);
   const list = $('answers');
@@ -1166,26 +1373,36 @@ function renderQuiz() {
     const has = st.get() != null;
     if (i !== quizAt && !has) return;
     const li = document.createElement('li');
+    li.style.viewTransitionName = 'step-' + st.id;
     if (i === quizAt) li.appendChild(askPanel(st, i));
     else {
       li.className = 'done';
       li.innerHTML = `<span>${escapeHtml(st.label)}</span><button type="button">${escapeHtml(answerText(st))} ${PENCIL}</button>`;
       const b = li.querySelector('button');
       b.setAttribute('aria-label', `${st.label}: ${answerText(st)}. Change`);
-      b.addEventListener('click', () => { quizAt = i; renderQuiz(); });
+      b.addEventListener('click', () => morph(() => { quizAt = i; renderQuiz(); }));
     }
     list.appendChild(li);
   });
-  $('quiz-step').textContent = `${quizAt + 1} / ${steps.length}`;
+  const answeredCount = steps.filter((st) => st.get() != null).length;
+  $('prog').hidden = false;
+  $('prog-fill').style.width = `${Math.max(6, (answeredCount / steps.length) * 100)}%`;
+  setBack();
   const ask = list.querySelector('.ask');
-  if (ask) requestAnimationFrame(() => { ask.scrollIntoView({ block: 'nearest' }); const f = ask.querySelector('[aria-pressed="true"], .rl, .fit-range, .pick, .fig'); if (f) f.focus({ preventScroll: true }); });
+  if (ask) requestAnimationFrame(() => {
+    ask.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
+    const f = ask.querySelector('[aria-pressed="true"], .rl, .fit-range, .pick, .fig');
+    if (f) f.focus({ preventScroll: true });
+  });
 }
 // Next: the first unanswered question after this one, else any unanswered one, else done.
 function answered(i) {
   const steps = quizSteps();
+  track('size_finder_quiz_step', { step: steps[i].id, index: i, total: steps.length });
+  haptic(8);
   let next = steps.findIndex((st, j) => j > i && st.get() == null);
   if (next < 0) next = steps.findIndex((st) => st.get() == null);
-  if (next >= 0) { quizAt = next; renderQuiz(); return; }
+  if (next >= 0) { morph(() => { quizAt = next; renderQuiz(); }); return; }
   finishQuiz();
 }
 function finishQuiz() {
@@ -1195,11 +1412,29 @@ function finishQuiz() {
     age: band ? band[1] : null, ageBand: draft.ageBand, shape: { ...draft.shape }, units: draft.units, fit: draft.fit,
   };
   write(GUEST_KEY, JSON.stringify(guest));
+  post('TRYON_SIZE_PROFILE', { profile: guest });   // the store keeps a copy (Safari forgets framed storage)
   if (draft.fit) { fit = draft.fit; write(FIT_KEY, fit); }
   units = draft.units;
   draft = null;
-  route(true);
+  track('size_finder_quiz_completed');
+  // A short beat before the answer, so it lands instead of flickering in.
+  show('thinking');
+  setTimeout(() => route(true), reduceMotion ? 0 : 750);
 }
+// The back chevron: previous question in the quiz; back to the size from the account steps.
+function setBack() {
+  const v = VIEWS.find((x) => !$(x).hidden);
+  const can = (v === 'quiz' && quizAt > 0) || ((v === 'gate' || v === 'signin' || v === 'signup') && !!(guest || readJson(GUEST_KEY)))
+    || (v === 'quiz' && !!(guest || readJson(GUEST_KEY)));
+  $('back').hidden = !can;
+}
+$('back').addEventListener('click', () => {
+  const v = VIEWS.find((x) => !$(x).hidden);
+  if (v === 'quiz' && quizAt > 0) { morph(() => { quizAt -= 1; renderQuiz(); }); return; }
+  wantPassport = false;
+  draft = null;
+  route(false);
+});
 
 function askPanel(st, i) {
   const box = el('div', 'ask');
@@ -1207,21 +1442,28 @@ function askPanel(st, i) {
   head.appendChild(el('h2', null, st.ask));
   box.appendChild(head);
   if (st.sub) box.appendChild(el('p', 'sub', st.sub));
+  // Taps confirm with a short highlight, then move on by themselves.
+  const choose = (grid, b, apply) => {
+    grid.querySelectorAll('[aria-pressed]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    grid.style.pointerEvents = 'none';
+    apply();
+    setTimeout(() => answered(i), reduceMotion ? 0 : 260);
+  };
 
   if (st.kind === 'choice') {
     const grid = el('div', 'picks');
     grid.setAttribute('role', 'group');
     grid.setAttribute('aria-label', st.ask);
+    if (st.options.length > 2) grid.style.gridTemplateColumns = '1fr 1fr 1fr';
     st.options.forEach(([val, text]) => {
       const b = el('button', 'pick', text);
       b.setAttribute('aria-pressed', String(st.get() === val));
-      b.addEventListener('click', () => {
+      b.addEventListener('click', () => choose(grid, b, () => {
         if (st.id === 'gender') {
           if (draft.gender !== val) draft.shape = {};   // the build questions differ per body
           draft.gender = val;
         } else draft.ageBand = val;
-        answered(i);
-      });
+      }));
       grid.appendChild(b);
     });
     box.appendChild(grid);
@@ -1236,7 +1478,7 @@ function askPanel(st, i) {
       const b = el('button', 'fig');
       b.setAttribute('aria-pressed', String(st.get() === level));
       b.innerHTML = figure(st.sq.target, level, draft.gender) + `<span>${escapeHtml(text)}</span>`;
-      b.addEventListener('click', () => { draft.shape[st.sq.id] = level; answered(i); });
+      b.addEventListener('click', () => choose(grid, b, () => { draft.shape[st.sq.id] = level; }));
       grid.appendChild(b);
     });
     box.appendChild(grid);
@@ -1258,15 +1500,16 @@ function askPanel(st, i) {
     const cur = st.get() || (isH ? (male ? 178 : 166) : (male ? 80 : 64));
     const imp = draft.units === 'imperial';
     const spec = isH
-      ? (imp ? { min: 48, max: 90, major: 12, value: Math.round(cur / 2.54), tick: (v) => `${v / 12}′`, fmt: (v) => `${Math.floor(v / 12)}′${v % 12}″`, toBase: (v) => v * 2.54 }
-             : { min: 120, max: 230, major: 10, value: Math.round(cur), tick: String, fmt: (v) => v + ' cm', toBase: (v) => v })
-      : (imp ? { min: 66, max: 550, major: 10, value: Math.round(cur / LB), tick: String, fmt: (v) => v + ' lb', toBase: (v) => v * LB }
-             : { min: 30, max: 250, major: 10, value: Math.round(cur), tick: String, fmt: (v) => v + ' kg', toBase: (v) => v });
+      ? (imp ? { min: 48, max: 90, major: 12, mid: 6, value: Math.round(cur / 2.54), tick: (v) => `${v / 12}′`, fmt: (v) => `${Math.floor(v / 12)}′${v % 12}″`, unit: '', toBase: (v) => v * 2.54 }
+             : { min: 120, max: 230, major: 10, mid: 5, value: Math.round(cur), tick: String, fmt: String, unit: 'cm', toBase: (v) => v })
+      : (imp ? { min: 66, max: 550, major: 10, mid: 5, value: Math.round(cur / LB), tick: String, fmt: String, unit: 'lb', toBase: (v) => v * LB }
+             : { min: 30, max: 250, major: 10, mid: 5, value: Math.round(cur), tick: String, fmt: String, unit: 'kg', toBase: (v) => v });
     const wrap = el('div', 'ruler');
     box.appendChild(wrap);
     const ok = el('button', 'ok');
     let picked = spec.value;
-    buildRuler(wrap, { ...spec, label: st.ask, onChange: (v) => { picked = v; ok.textContent = (isH ? 'I am ' : 'I weigh ') + spec.fmt(v); } });
+    const say = (v) => (isH ? 'I am ' : 'I weigh ') + spec.fmt(v) + (spec.unit ? ' ' + spec.unit : '');
+    buildRuler(wrap, { ...spec, label: st.ask, onChange: (v) => { picked = v; ok.textContent = say(v); } });
     ok.addEventListener('click', () => { draft[st.id] = spec.toBase(picked); answered(i); });
     box.appendChild(ok);
   }
@@ -1285,7 +1528,9 @@ function askPanel(st, i) {
       range.setAttribute('aria-valuetext', FITS[k][1]);
       ok.textContent = FITS[k][1];
     };
-    range.addEventListener('input', paint);
+    range.addEventListener('input', () => { paint(); haptic(5); });
+    // Tap a label to jump there.
+    [...labels.children].forEach((s, j) => s.addEventListener('click', () => { range.value = j; paint(); haptic(5); }));
     ok.addEventListener('click', () => { draft.fit = FITS[Number(range.value)][0]; answered(i); });
     box.append(range, labels, ok);
     paint();
@@ -1293,47 +1538,72 @@ function askPanel(st, i) {
   return box;
 }
 
-// A ruler under a fixed needle: drag or swipe it, scroll it, or use the arrow keys.
-function buildRuler(host, { min, max, major, value, tick, fmt, label, onChange }) {
+// A ruler under a fixed needle: swipe it (it glides and snaps), drag it, scroll it, or use the arrow keys.
+function buildRuler(host, { min, max, major, mid, value, tick, fmt, unit, label, onChange }) {
   const TICK = 10;
-  host.innerHTML = '<div class="rl-val" aria-hidden="true"></div><div class="rl" tabindex="0" role="slider"><div class="rl-track"></div></div><i class="rl-needle"></i>';
+  host.innerHTML = '<div class="rl-val" aria-hidden="true"></div><div class="rl" tabindex="0" role="slider"><div class="rl-track"></div><i class="rl-needle"></i></div>';
   const rl = host.querySelector('.rl');
   const out = host.querySelector('.rl-val');
+  const needle = host.querySelector('.rl-needle');
   let marks = '';
-  for (let v = min; v <= max; v++) marks += v % major === 0 ? `<span class="mj"><b>${tick(v)}</b></span>` : '<span></span>';
+  for (let v = min; v <= max; v++) {
+    marks += v % major === 0 ? `<span class="mj"><b>${tick(v)}</b></span>` : `<span${mid && v % mid === 0 ? ' class="md"' : ''}></span>`;
+  }
   host.querySelector('.rl-track').innerHTML = marks;
+  // The needle stays put while the track scrolls under it.
+  host.appendChild(needle);
+  needle.style.bottom = '10px';
   rl.setAttribute('aria-label', label);
   rl.setAttribute('aria-valuemin', min);
   rl.setAttribute('aria-valuemax', max);
   const clamp = (v) => Math.min(max, Math.max(min, v));
   let cur = clamp(value);
   const paint = () => {
-    out.textContent = fmt(cur);
+    out.innerHTML = `${escapeHtml(fmt(cur))}${unit ? `<small>${unit}</small>` : ''}`;
     rl.setAttribute('aria-valuenow', cur);
-    rl.setAttribute('aria-valuetext', fmt(cur));
+    rl.setAttribute('aria-valuetext', fmt(cur) + (unit ? ' ' + unit : ''));
     onChange(cur);
   };
-  const place = () => { rl.scrollLeft = (cur - min) * TICK; };
+  const place = (smooth) => rl.scrollTo({ left: (cur - min) * TICK, behavior: smooth && !reduceMotion ? 'smooth' : 'auto' });
+  let lastTick = 0;
   rl.addEventListener('scroll', () => {
     const v = clamp(min + Math.round(rl.scrollLeft / TICK));
-    if (v !== cur) { cur = v; paint(); }
+    if (v !== cur) {
+      cur = v; paint();
+      const now = Date.now();
+      if (now - lastTick > 35) { haptic(3); lastTick = now; }
+    }
   }, { passive: true });
   rl.addEventListener('keydown', (e) => {
     const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -10, PageUp: 10 }[e.key];
     if (!step) return;
     e.preventDefault();
-    cur = clamp(cur + step); place(); paint();
+    cur = clamp(cur + step); place(false); paint();   // instant: a smooth scroll would fight the next key
   });
-  // A mouse does not drag-scroll by itself; touch and trackpads already do.
+  // A mouse does not drag-scroll by itself (touch and trackpads do); fling on release.
   let drag = null;
   rl.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'mouse') return;
-    drag = { x: e.clientX, s: rl.scrollLeft };
+    drag = { x: e.clientX, s: rl.scrollLeft, t: performance.now(), v: 0 };
     rl.classList.add('dragging');
     rl.setPointerCapture(e.pointerId);
   });
-  rl.addEventListener('pointermove', (e) => { if (drag) rl.scrollLeft = drag.s - (e.clientX - drag.x); });
-  const end = () => { if (!drag) return; drag = null; rl.classList.remove('dragging'); place(); };
+  rl.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const now = performance.now();
+    const next = drag.s - (e.clientX - drag.x);
+    drag.v = (next - rl.scrollLeft) / Math.max(1, now - drag.t);
+    drag.t = now;
+    rl.scrollLeft = next;
+  });
+  const end = () => {
+    if (!drag) return;
+    const fling = Math.max(-40, Math.min(40, Math.round((drag.v * 220) / TICK)));
+    drag = null;
+    rl.classList.remove('dragging');
+    cur = clamp(cur + fling);
+    place(true); paint();
+  };
   rl.addEventListener('pointerup', end);
   rl.addEventListener('pointercancel', end);
   rl.addEventListener('wheel', (e) => {
@@ -1342,28 +1612,68 @@ function buildRuler(host, { min, max, major, value, tick, fmt, label, onChange }
     rl.scrollLeft += e.deltaY;
   }, { passive: false });
   paint();
-  requestAnimationFrame(place);   // once it is laid out
+  requestAnimationFrame(() => place(false));   // once it is laid out
 }
 
-// A plain front-view torso for the build questions; the answer moves the part asked about.
+// ---- illustrations for the build questions ----
+// Front view (chest and shoulders, hips) or side view (belly, bust). The answer moves the part
+// asked about; a blue measuring arrow sits on that part. Drawn as smooth closed silhouettes.
+function smoothClosed(pts) {
+  const n = pts.length;
+  let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+  for (let k = 0; k < n; k++) {
+    const p0 = pts[(k - 1 + n) % n], p1 = pts[k], p2 = pts[(k + 1) % n], p3 = pts[(k + 2) % n];
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    d += ` C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  }
+  return d + 'Z';
+}
+function arrowH(x1, x2, y) {
+  const h = 3.2;
+  return `<g class="measure" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M${x1},${y} H${x2}" stroke-dasharray="2.6 2.6"/>
+    <path d="M${x1 + h},${y - h} L${x1},${y} L${x1 + h},${y + h}"/><path d="M${x2 - h},${y - h} L${x2},${y} L${x2 - h},${y + h}"/></g>`;
+}
 function figure(target, level, gender) {
   const male = gender === 'male';
-  let sh = male ? 33 : 29, ch = male ? 24 : 22, wa = male ? 20 : 16, hi = male ? 21 : 24;
-  if (target === 'chest') { sh += 3 * level; ch += 4 * level; }
-  if (target === 'waist') wa += 7 * level;
+  const side = target === 'waist' || (target === 'chest' && !male);
+  const shape = side ? sideFigure(target, level, male) : frontFigure(target, level, male);
+  return `<svg viewBox="0 0 120 150" aria-hidden="true">${shape}</svg>`;
+}
+function frontFigure(target, level, male) {
+  const c = 60;
+  let sh = male ? 31 : 26, ch = male ? 25 : 23, wa = male ? 21 : 17, hi = male ? 23 : 26;
+  if (target === 'chest') { sh += 3.5 * level; ch += 4 * level; }
   if (target === 'hips') hi += 5 * level;
-  const side = (s) => [[50 + s * 7, 4], [50 + s * 9, 14], [50 + s * sh, 22], [50 + s * ch, 44], [50 + s * wa, 66], [50 + s * hi, 86], [50 + s * (hi - 3), 106]];
-  const smooth = (pts) => {
-    let d = `M${pts[0]}`;
-    for (let k = 0; k < pts.length - 1; k++) {
-      const p0 = pts[k - 1] || pts[k], p1 = pts[k], p2 = pts[k + 1], p3 = pts[k + 2] || p2;
-      d += ` C${p1[0] + (p2[0] - p0[0]) / 6},${p1[1] + (p2[1] - p0[1]) / 6} ${p2[0] - (p3[0] - p1[0]) / 6},${p2[1] - (p3[1] - p1[1]) / 6} ${p2}`;
-    }
-    return d;
-  };
-  const arm = (s) => `M${50 + s * sh},22 C${50 + s * (sh + 5)},34 ${50 + s * (sh + 6)},56 ${50 + s * (sh + 4)},78`;
-  return `<svg viewBox="0 0 100 110" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-    <path d="${smooth(side(-1))}"/><path d="${smooth(side(1))}"/><path d="${arm(-1)}" opacity=".55"/><path d="${arm(1)}" opacity=".55"/></svg>`;
+  const half = [
+    [6.5, 27], [8, 34], [sh - 6, 39], [sh, 45], [sh - 1, 54], [ch, 64], [ch - 1.5, 76], [wa, 92], [hi - 1, 108], [hi, 118], [hi - 2, 132], [hi - 4, 150],
+  ];
+  const left = half.map(([x, y]) => [c - x, y]);
+  const right = half.slice().reverse().map(([x, y]) => [c + x, y]);
+  const body = smoothClosed([...left, [c, 150], ...right]);
+  const arm = (s) => `<path d="M${c + s * (sh - 1)},47 C${c + s * (sh + 5)},62 ${c + s * (sh + 6)},86 ${c + s * (sh + 4)},112" stroke="var(--arm)" stroke-width="9" stroke-linecap="round" fill="none"/>
+    <path d="M${c + s * (sh - 1)},47 C${c + s * (sh + 5)},62 ${c + s * (sh + 6)},86 ${c + s * (sh + 4)},112" stroke="var(--stroke)" stroke-width="1.4" stroke-linecap="round" fill="none" opacity=".55"/>`;
+  const head = `<ellipse cx="${c}" cy="14" rx="10.5" ry="12.5" fill="var(--fill)" stroke="var(--stroke)" stroke-width="1.6"/>`;
+  const legs = `<path d="M${c},128 V150" stroke="var(--stroke)" stroke-width="1.4" opacity=".5"/>`;
+  const y = target === 'chest' ? 62 : target === 'hips' ? 116 : 92;
+  const w = target === 'chest' ? ch : target === 'hips' ? hi : wa;
+  return `${arm(-1)}${arm(1)}<path d="${body}" fill="var(--fill)" stroke="var(--stroke)" stroke-width="1.6" stroke-linejoin="round"/>${legs}${head}${arrowH(c - w + 4, c + w - 4, y)}`;
+}
+function sideFigure(target, level, male) {
+  // Facing right: back on the left, front on the right.
+  const bust = male ? 0 : 7 + 3.5 * (target === 'chest' ? level : 0);
+  const belly = (male ? 9 : 6) + (target === 'waist' ? 7 * level : 0);
+  const pts = [
+    [58, 27], [57, 35], [50, 44], [47, 60], [49, 80], [50, 96], [45, 114], [47, 132], [50, 150],
+    [70, 150], [72, 132], [74, 118], [69 + belly * 0.55, 106], [68 + belly, 92], [66 + belly * 0.6, 80], [67 + bust * 0.4, 74], [68 + bust, 63], [67, 50], [65, 40], [64, 34], [64, 27],
+  ];
+  const body = smoothClosed(pts);
+  const head = `<ellipse cx="62" cy="14" rx="11" ry="12.5" fill="var(--fill)" stroke="var(--stroke)" stroke-width="1.6"/><path d="M72,15 l3,2.5 -3,1" fill="none" stroke="var(--stroke)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>`;
+  const arm = `<path d="M57,46 C60,64 60,86 58,110" stroke="var(--arm)" stroke-width="9" stroke-linecap="round" fill="none" opacity=".9"/><path d="M57,46 C60,64 60,86 58,110" stroke="var(--stroke)" stroke-width="1.4" stroke-linecap="round" fill="none" opacity=".55"/>`;
+  const y = target === 'chest' ? 63 : 92;
+  const x2 = target === 'chest' ? 68 + bust : 68 + belly;
+  return `<path d="${body}" fill="var(--fill)" stroke="var(--stroke)" stroke-width="1.6" stroke-linejoin="round"/>${arm}${head}${arrowH(48, x2 - 3, y)}`;
 }
 
 document.querySelectorAll('form').forEach((f) => f.addEventListener('input', () => { errorOf(f).textContent = ''; }));
@@ -1377,14 +1687,48 @@ async function open() {
   $('card').focus({ preventScroll: true });
 }
 function hide(tellHost) {
-  document.body.classList.add('closed');
-  if (tellHost) post('TRYON_SIZE_CLOSE');
+  const done = () => {
+    document.body.classList.remove('leaving');
+    document.body.classList.add('closed');
+    $('card').style.transform = ''; $('card').style.transition = '';
+    if (tellHost) post('TRYON_SIZE_CLOSE');
+  };
+  if (document.body.classList.contains('closed') || silent || reduceMotion) { done(); return; }
+  document.body.classList.add('leaving');
+  setTimeout(done, 320);
 }
+// Swipe the sheet down by its top bar to close it, like an iOS sheet.
+(() => {
+  const card = $('card');
+  let d = null;
+  $('nav').addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button') || card.scrollTop > 0) return;
+    d = { y: e.clientY, t: performance.now(), dy: 0 };
+    card.style.transition = 'none';
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!d) return;
+    const dy = e.clientY - d.y;
+    d.dy = dy > 0 ? dy : dy / 6;   // a little give upwards
+    card.style.transform = `translateY(${d.dy}px)`;
+  });
+  const end = () => {
+    if (!d) return;
+    const v = d.dy / Math.max(1, performance.now() - d.t);
+    const go = d.dy > 110 || (d.dy > 30 && v > 0.5);
+    d = null;
+    card.style.transition = 'transform .45s var(--spring)';
+    if (go) { card.style.transform = 'translateY(105%)'; setTimeout(() => { document.body.classList.add('closed'); card.style.transform = ''; card.style.transition = ''; post('TRYON_SIZE_CLOSE'); }, 300); }
+    else card.style.transform = '';
+  };
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+})();
 async function onProduct() {
   // Closed or hidden: a measured shopper still gets their size for this product, which the
   // store shows by the size picker without a click. A build in flight is picked up too.
   if (document.body.classList.contains('closed') || silent) await route(false);
-  else if (!$('result').hidden && renderResult()) post('TRYON_SIZE_RESULT', { size: last.recommendedSize });
+  else if (!$('result').hidden && renderResult()) post('TRYON_SIZE_RESULT', { size: last.recommendedSize, score: scoreOf(last.recommendedSize) });
 }
 $('close').addEventListener('click', () => hide(true));
 $('scrim').addEventListener('click', (e) => { if (e.target === $('scrim')) hide(true); });
