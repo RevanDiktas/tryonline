@@ -1,10 +1,14 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useRef, useState, FormEvent } from 'react';
+import React, { createContext, useContext, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useIsMobile } from './useIsMobile';
-import { SharedNav, NavLink, NavCta, AuthAwareSignInLink } from './SharedNav';
+import { SharedNav, NavCta, AuthAwareSignInLink } from './SharedNav';
+import { siteLinks } from './siteLinks';
+import { SiteFooter } from './SiteFooter';
+import { PLANS, TRIAL_DAYS } from '@/lib/plans';
 
 // Lazy-load AvatarHero so the Three.js bundle doesn't block first paint of the
 // home page. ssr:false because the Canvas needs WebGL.
@@ -24,12 +28,6 @@ const AvatarHero = dynamic(
 
 const COBALT = '#0040FF';
 const COBALT_HOVER = '#0030CC';
-
-const PROBLEM_VIGNETTES: string[] = [
-  'A shopper bought size M, returned it, then bought L. You paid for two shipments and a return label.',
-  'She measured small once, ordered medium, swam in it, returned. Two days later, ordered small. Two parcels, one customer.',
-  '70% of fashion returns are caused by fit. Solve fit, recover the margin.',
-];
 
 const PAL = {
   light: {
@@ -59,44 +57,6 @@ type Palette = typeof PAL.light;
 const ThemeCtx = createContext<Palette>(PAL.light);
 const useC = () => useContext(ThemeCtx);
 
-/* ─── helpers ─── */
-function useInView(ref: React.RefObject<HTMLElement>, threshold = 0.4) {
-  const [seen, setSeen] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || seen) return;
-    const io = new IntersectionObserver(([e]) => {
-      if (e.isIntersecting) setSeen(true);
-    }, { threshold });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [ref, seen, threshold]);
-  return seen;
-}
-
-function CountUp({ to, suffix = '', duration = 1200, decimals = 0, style }: {
-  to: number; suffix?: string; duration?: number; decimals?: number; style?: React.CSSProperties;
-}) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const inView = useInView(ref as React.RefObject<HTMLElement>);
-  const [v, setV] = useState(0);
-  useEffect(() => {
-    if (!inView) return;
-    const start = performance.now();
-    let raf: number;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setV(to * eased);
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [inView, to, duration]);
-  const display = decimals > 0 ? v.toFixed(decimals) : Math.round(v).toString();
-  return <span ref={ref} style={style}>{display}{suffix}</span>;
-}
-
 const headingStyle = (px: string): React.CSSProperties => ({
   fontFamily: 'var(--display)',
   fontWeight: 700,
@@ -113,19 +73,82 @@ const bodyStyle: React.CSSProperties = {
   lineHeight: 1.6,
 };
 
-/* ─── Hero: side-by-side, single viewport, no decorative borders ─── */
+
+/* ─── The example result every section points at: one size, every size scored ─── */
+const EXAMPLE_SCORES = [
+  { size: 'M', score: 31 },
+  { size: 'L', score: 96, best: true },
+  { size: 'XL', score: 23 },
+];
+
+function MatchStrip({ compact }: { compact?: boolean }) {
+  const C = useC();
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 8 : 10, flexWrap: 'wrap' }}>
+      <span style={{
+        fontFamily: 'var(--mono)', fontSize: compact ? 10 : 11, color: C.mute,
+        letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500, marginRight: 4,
+      }}>Example result</span>
+      {EXAMPLE_SCORES.map(s => (
+        <span key={s.size} style={{
+          fontFamily: 'var(--display)', fontSize: compact ? 13 : 14, fontWeight: s.best ? 700 : 500,
+          color: s.best ? C.ink : C.mute,
+          border: `1px solid ${s.best ? C.ink : C.line}`,
+          borderRadius: 9999, padding: compact ? '5px 11px' : '6px 13px',
+          fontVariantNumeric: 'tabular-nums',
+        }}>{s.size} · {s.score}%</span>
+      ))}
+    </div>
+  );
+}
+
+/* A drawn copy of the size card's result, so the card shows the real thing, not a stock photo. */
+function SizeResultMock() {
+  const C = useC();
+  return (
+    <div style={{
+      width: '100%', maxWidth: 300, background: C.surface, color: C.ink,
+      border: `1px solid ${C.line}`, borderRadius: 18, padding: '20px 20px 18px',
+      boxShadow: '0 12px 40px rgba(0,0,0,0.08)',
+    }}>
+      <div style={{
+        fontFamily: 'var(--mono)', fontSize: 10, color: C.mute,
+        letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
+      }}>Your size</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '6px 0 16px' }}>
+        <span style={{ fontFamily: 'var(--display)', fontSize: 44, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1 }}>L</span>
+        <span style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.mute, fontWeight: 500 }}>96% match</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+        {EXAMPLE_SCORES.map(s => (
+          <div key={s.size} style={{ display: 'grid', gridTemplateColumns: '28px 1fr 36px', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontFamily: 'var(--display)', fontSize: 13, fontWeight: s.best ? 700 : 500 }}>{s.size}</span>
+            <span style={{ height: 6, borderRadius: 3, background: C.line, overflow: 'hidden' }}>
+              <span style={{
+                display: 'block', height: '100%', width: `${s.score}%`,
+                background: s.best ? C.ink : C.mute, borderRadius: 3,
+              }} />
+            </span>
+            <span style={{
+              fontFamily: 'var(--display)', fontSize: 13, color: s.best ? C.ink : C.mute,
+              textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+            }}>{s.score}%</span>
+          </div>
+        ))}
+      </div>
+      <div style={{
+        marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.line}`,
+        fontFamily: 'var(--display)', fontSize: 12, color: C.mute, lineHeight: 1.45,
+      }}>Sold out in your size? You see the next best, and how it will fit.</div>
+    </div>
+  );
+}
+
+/* ─── Hero: lead with the size, the 3D avatar on the right ─── */
 function DesktopHero() {
   const C = useC();
   const router = useRouter();
-  const [vignetteIdx, setVignetteIdx] = useState(0);
   const [hovered, setHovered] = useState<'primary' | 'ghost' | null>(null);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setVignetteIdx((i) => (i + 1) % PROBLEM_VIGNETTES.length);
-    }, 5500);
-    return () => clearInterval(id);
-  }, []);
 
   return (
     <section style={{
@@ -151,7 +174,7 @@ function DesktopHero() {
             letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
             marginBottom: 28,
           }}>
-            Tryon · Fit before you buy
+            TryOn · Size and 3D try-on for Shopify
           </div>
 
           <h1 style={{
@@ -160,29 +183,20 @@ function DesktopHero() {
             letterSpacing: '-0.04em', lineHeight: 0.94,
             margin: '0 0 24px',
           }}>
-            Tryon before you buy.
+            Your size in 30&nbsp;seconds.
           </h1>
 
-          <div style={{
-            minHeight: 88,
-            fontFamily: 'var(--display)', fontSize: 18, lineHeight: 1.5,
+          <p style={{
+            fontFamily: 'var(--display)', fontSize: 20, lineHeight: 1.45,
             color: C.mute, fontWeight: 400, letterSpacing: '-0.005em',
-            maxWidth: 520, marginBottom: 28,
+            maxWidth: 520, margin: '0 0 32px',
           }}>
-            <span
-              key={vignetteIdx}
-              style={{
-                animation: 'ds-fade-in 0.6s cubic-bezier(0.22, 0.61, 0.36, 1)',
-                display: 'inline-block',
-              }}
-            >
-              {PROBLEM_VIGNETTES[vignetteIdx]}
-            </span>
-          </div>
+            On every product. No account. Try it on in 3D where you can.
+          </p>
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 32 }}>
             <button
-              onClick={() => router.push('/demo')}
+              onClick={() => router.push('/start')}
               onMouseEnter={() => setHovered('primary')}
               onMouseLeave={() => setHovered(null)}
               style={{
@@ -196,16 +210,16 @@ function DesktopHero() {
                 transition: 'all 180ms cubic-bezier(0.4, 0, 0.2, 1)',
               }}
             >
-              Try the demo <span>→</span>
+              Start free <span>→</span>
             </button>
             <button
-              onClick={() => router.push('/signup')}
+              onClick={() => router.push('/product')}
               onMouseEnter={() => setHovered('ghost')}
               onMouseLeave={() => setHovered(null)}
               style={{
-                background: hovered === 'ghost' ? 'rgba(0, 64, 255, 0.08)' : 'transparent',
-                color: hovered === 'ghost' ? COBALT : C.ink,
-                border: `1px solid ${hovered === 'ghost' ? COBALT : C.ink}`,
+                background: hovered === 'ghost' ? (C.ink === '#0A0A0A' ? 'rgba(10,10,10,0.05)' : 'rgba(255,255,255,0.08)') : 'transparent',
+                color: C.ink,
+                border: `1px solid ${C.ink}`,
                 padding: '14px 26px', borderRadius: 9999,
                 fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600,
                 letterSpacing: '-0.005em',
@@ -213,26 +227,11 @@ function DesktopHero() {
                 transition: 'all 180ms cubic-bezier(0.4, 0, 0.2, 1)',
               }}
             >
-              Build your passport
+              See how it works
             </button>
           </div>
 
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-          }}>
-            {PROBLEM_VIGNETTES.map((_, i) => (
-              <span
-                key={i}
-                aria-hidden
-                style={{
-                  width: i === vignetteIdx ? 22 : 6, height: 2,
-                  background: i === vignetteIdx ? COBALT : C.line,
-                  transition: 'all 400ms cubic-bezier(0.22, 0.61, 0.36, 1)',
-                  display: 'inline-block',
-                }}
-              />
-            ))}
-          </div>
+          <MatchStrip />
         </div>
 
         {/* Right column: avatar bleeds onto the page, no card, no border */}
@@ -252,7 +251,7 @@ function DesktopHero() {
               pointerEvents: 'none',
             }}
           >
-            Ramin Studios · Size M
+            Your shopper · Size M
           </div>
         </div>
       </div>
@@ -260,7 +259,7 @@ function DesktopHero() {
   );
 }
 
-/* ─── Brand/Shopper tiles, moved out of the hero into their own section ─── */
+/* ─── Brand/Shopper tiles ─── */
 function DesktopBrandShopperTiles() {
   const C = useC();
   const router = useRouter();
@@ -280,7 +279,7 @@ function DesktopBrandShopperTiles() {
         <p style={{
           ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 40,
         }}>
-          Brands cut returns and lift conversion. Shoppers wear every brand without ever guessing a size again.
+          Brands cut returns and lift conversion. Shoppers get their size on every product without guessing.
         </p>
         <div style={{
           display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20,
@@ -288,20 +287,583 @@ function DesktopBrandShopperTiles() {
           <PathTile
             tag="For brands"
             title="I am a brand"
-            sub="Cut returns. Lift conversion. Pay less than the cost of one return per day."
-            cta="See pricing →"
-            onClick={() => router.push('/pricing')}
+            sub="One button for every product, added in your Shopify theme editor. Free to start."
+            cta="Start free →"
+            onClick={() => router.push('/start')}
             C={C}
           />
           <PathTile
             tag="For shoppers"
             title="I am a shopper"
-            sub="Build your fit passport once. Wear every brand on Earth. Free, forever."
-            cta="Sign up free →"
-            onClick={() => router.push('/signup')}
+            sub="Get your size free, no account. Seven quick questions, about 30 seconds."
+            cta="Try Find my size →"
+            onClick={() => router.push('/demo')}
             C={C}
           />
         </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── One button, three pieces ─── */
+const PIECES = [
+  {
+    tag: 'Find my size',
+    desc: 'Seven quick questions, no account. Every size scored as a % match. Sold out in yours? The next best, and how it will fit.',
+    visual: 'mock' as const,
+  },
+  {
+    tag: 'Fit passport',
+    desc: 'The upgrade. One photo gives a measured size, not an estimate, and a photoreal 3D avatar to try clothes on.',
+    image: '/redesign/fit-passport.jpg',
+  },
+  {
+    tag: 'Insights for brands',
+    desc: 'ROI and attribution, fit intelligence, the size finder funnel and returns by size, in one dashboard.',
+    image: '/redesign/fit-report.jpg',
+  },
+];
+
+function PieceVisual({ piece, pad }: { piece: typeof PIECES[number]; pad: number }) {
+  const C = useC();
+  return (
+    <div style={{
+      aspectRatio: '4/5',
+      background: 'visual' in piece ? C.bg : '#ffffff',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+      padding: pad, boxSizing: 'border-box',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      {'visual' in piece ? (
+        <SizeResultMock />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={piece.image} alt={piece.tag} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+      )}
+    </div>
+  );
+}
+
+function DesktopComponents() {
+  const C = useC();
+  return (
+    <section style={{
+      background: C.surface, color: C.ink,
+      padding: '88px 32px',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+        <h2 style={{
+          ...headingStyle('clamp(36px, 4.5vw, 64px)'),
+          marginBottom: 14, maxWidth: 920,
+        }}>
+          One button. Every product.
+        </h2>
+        <p style={{ ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 40 }}>
+          On products with a 3D garment the button reads Try On. On every other product with sizes it reads Find my size. One install covers the whole catalogue.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
+          {PIECES.map(it => (
+            <div key={it.tag} style={{
+              border: `1px solid ${C.line}`,
+              borderRadius: 16,
+              background: C.bg,
+              overflow: 'hidden',
+              display: 'flex', flexDirection: 'column',
+            }}>
+              <PieceVisual piece={it} pad={20} />
+              <div style={{ padding: '20px 22px 24px' }}>
+                <div style={{
+                  fontFamily: 'var(--display)', fontSize: 17, fontWeight: 600,
+                  color: C.ink, marginBottom: 6,
+                }}>{it.tag}</div>
+                <div style={{ ...bodyStyle, fontSize: 14, color: C.mute }}>{it.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Pricing summary: straight from lib/plans, never hard-coded here ─── */
+function PlanSummary({ mobile }: { mobile?: boolean }) {
+  const C = useC();
+  const router = useRouter();
+  return (
+    <div>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14, gap: 12,
+      }}>
+        <div style={{ fontFamily: 'var(--display)', fontSize: mobile ? 13 : 14, fontWeight: 600, color: C.ink }}>
+          Pricing
+        </div>
+        <Link href="/pricing" style={{
+          fontFamily: 'var(--display)', fontSize: mobile ? 13 : 14, color: C.ink, fontWeight: 600, textDecoration: 'none',
+        }}>See full pricing →</Link>
+      </div>
+      <div style={{
+        display: mobile ? 'flex' : 'grid',
+        flexDirection: mobile ? 'column' : undefined,
+        gridTemplateColumns: mobile ? undefined : `repeat(${PLANS.length}, 1fr)`,
+        border: `1px solid ${C.line}`,
+        background: C.bg,
+      }}>
+        {PLANS.map((p, i) => (
+          <button
+            key={p.id}
+            onClick={() => router.push('/pricing')}
+            style={{
+              background: p.highlight ? C.cardBg : 'transparent',
+              color: p.highlight ? C.cardInk : C.ink,
+              border: 'none',
+              borderRight: !mobile && i < PLANS.length - 1 ? `1px solid ${C.line}` : 'none',
+              borderBottom: mobile && i < PLANS.length - 1 ? `1px solid ${C.line}` : 'none',
+              padding: mobile ? '16px 18px' : '24px 20px',
+              textAlign: 'left', cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', gap: mobile ? 4 : 8,
+            }}
+          >
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, width: '100%',
+            }}>
+              <span style={{
+                fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
+                color: p.highlight ? C.cardMute : C.mute,
+              }}>{p.name}</span>
+              {mobile && (
+                <span style={{ fontFamily: 'var(--display)', fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em' }}>
+                  {p.price}{p.period === 'per month' ? <span style={{ fontSize: 12, fontWeight: 500 }}>/mo</span> : null}
+                </span>
+              )}
+            </div>
+            {!mobile && (
+              <div style={{
+                fontFamily: 'var(--display)', fontSize: 28, fontWeight: 700,
+                letterSpacing: '-0.02em', lineHeight: 1,
+              }}>
+                {p.price}
+                {p.period === 'per month' && (
+                  <span style={{ fontSize: 13, fontWeight: 500, color: p.highlight ? C.cardMute : C.mute }}> /mo</span>
+                )}
+              </div>
+            )}
+            <div style={{
+              fontFamily: 'var(--display)', fontSize: 13, lineHeight: 1.45,
+              color: p.highlight ? C.cardMute : C.mute,
+            }}>{p.pitch}</div>
+          </button>
+        ))}
+      </div>
+      <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute, marginTop: 12 }}>
+        {TRIAL_DAYS}-day free trial on every paid plan. Prices in USD.
+      </div>
+    </div>
+  );
+}
+
+/* ─── For Brands ─── */
+function DesktopBrands() {
+  const C = useC();
+  const cmp = [
+    {
+      name: 'Google VTO',
+      bullets: ['Flat 2D image generation.', 'No body measurements.', 'Happens on Google. Brand loses the data.'],
+      muted: true,
+    },
+    {
+      name: 'True Fit',
+      bullets: ['Size recommendation only.', 'No 3D, no avatar.', 'Enterprise pricing, sold by order volume.'],
+      muted: true,
+    },
+    {
+      name: 'TryOn',
+      bullets: ['A size on every product, 3D try-on where you have it.', 'Every size scored as a % match.', 'Brand keeps the data and the PDP.'],
+      muted: false,
+    },
+  ];
+
+  return (
+    <section style={{
+      background: C.surface, color: C.ink,
+      padding: '88px 32px',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+        <h2 style={{
+          ...headingStyle('clamp(36px, 4.5vw, 64px)'),
+          marginBottom: 14, maxWidth: 920,
+        }}>
+          Pay less than the cost of one return per day.
+        </h2>
+        <p style={{
+          ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48,
+        }}>
+          Built for Shopify fashion brands. Start free with Find my size on every product. Add measured sizes and 3D try-on when you are ready.
+        </p>
+
+        <div style={{ marginBottom: 56 }}>
+          <div style={{
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 14,
+          }}>Why TryOn</div>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0,
+            border: `1px solid ${C.line}`,
+          }}>
+            {cmp.map((col, i) => (
+              <div key={col.name} style={{
+                background: col.muted ? C.bg : C.cardBg,
+                color: col.muted ? C.ink : C.cardInk,
+                padding: '28px 24px',
+                borderRight: i < cmp.length - 1 ? `1px solid ${C.line}` : 'none',
+                display: 'flex', flexDirection: 'column', gap: 16,
+              }}>
+                <div style={{
+                  fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
+                  color: col.muted ? C.mute : C.cardMute,
+                }}>{col.name}</div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {col.bullets.map(b => (
+                    <li key={b} style={{
+                      fontFamily: 'var(--display)', fontSize: 14, lineHeight: 1.5,
+                      color: col.muted ? C.ink : C.cardInk,
+                      fontWeight: col.muted ? 400 : 500,
+                    }}>{b}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 56, maxWidth: 720 }}>
+          <div style={{
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 10,
+          }}>Shopify integration</div>
+          <h3 style={{ ...headingStyle('clamp(26px, 3vw, 40px)'), marginBottom: 12 }}>
+            One button, added in your Shopify theme editor.
+          </h3>
+          <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, maxWidth: 560 }}>
+            Install the app and drop the TryOn block onto your product page. It reads Try On on products with a 3D garment and Find my size on the rest. No code, no SDK, no agency.
+          </p>
+        </div>
+
+        <PlanSummary />
+      </div>
+    </section>
+  );
+}
+
+/* ─── For Shoppers: a size needs no account; the passport is the upgrade ─── */
+const PASSPORT_STEPS = [
+  { k: '30 seconds', title: 'Seven questions, your size.', sub: 'Who for, height, weight, age, two body-shape drawings, fit preference. No account.' },
+  { k: 'One photo', title: 'Your size, measured.', sub: 'The fit passport measures you from one photo, so the size is measured, not estimated.' },
+  { k: 'In 3D', title: 'See it on your own body.', sub: 'A photoreal avatar of you, with real cloth simulation on products in 3D.' },
+];
+
+function DesktopShoppers() {
+  const C = useC();
+  const router = useRouter();
+
+  return (
+    <section style={{
+      background: C.bg, color: C.ink,
+      padding: '88px 32px',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40, alignItems: 'center' }}>
+          <div>
+            <h2 style={{
+              ...headingStyle('clamp(36px, 4.5vw, 64px)'),
+              marginBottom: 18,
+            }}>
+              No account for your size. One passport for every brand.
+            </h2>
+            <p style={{
+              ...bodyStyle, color: C.mute, maxWidth: 480, marginBottom: 26,
+            }}>
+              Find my size is free and needs no sign-up. Your answers are remembered on every product and every TryOn store. Want more? The fit passport measures you from one photo and builds your 3D avatar.
+            </p>
+
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => router.push('/demo')}
+                style={{
+                  background: COBALT, color: '#FFFFFF', border: 'none',
+                  padding: '14px 24px', borderRadius: 9999,
+                  fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600,
+                  letterSpacing: '-0.005em', cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 10,
+                }}
+              >Get your size free <span>→</span></button>
+              <button
+                onClick={() => router.push('/signup')}
+                style={{
+                  background: 'transparent', color: C.ink, border: `1px solid ${C.ink}`,
+                  padding: '14px 24px', borderRadius: 9999,
+                  fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600,
+                  letterSpacing: '-0.005em', cursor: 'pointer',
+                }}
+              >Build a fit passport</button>
+            </div>
+          </div>
+
+          <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface }}>
+            {PASSPORT_STEPS.map((s, i) => (
+              <div key={s.k} style={{
+                padding: '22px 26px',
+                borderBottom: i < PASSPORT_STEPS.length - 1 ? `1px solid ${C.line}` : 'none',
+              }}>
+                <div style={{
+                  fontFamily: 'var(--mono)', fontSize: 11, color: C.mute, fontWeight: 500,
+                  letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8,
+                }}>{s.k}</div>
+                <div style={{
+                  fontFamily: 'var(--display)', fontSize: 19, fontWeight: 600,
+                  color: C.ink, lineHeight: 1.3, letterSpacing: '-0.01em',
+                }}>{s.title}</div>
+                <div style={{ ...bodyStyle, fontSize: 14, color: C.mute, marginTop: 6 }}>{s.sub}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Mobile sections (compressed but same content) ─── */
+function MobileHero() {
+  const C = useC();
+  const router = useRouter();
+
+  return (
+    <section style={{
+      background: C.bg, color: C.ink,
+      padding: '32px 18px 36px',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      <div style={{
+        fontFamily: 'var(--mono)', fontSize: 11, color: C.mute,
+        letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
+        marginBottom: 18,
+      }}>
+        TryOn · Size and 3D try-on
+      </div>
+      <h1 style={{
+        fontFamily: 'var(--display)', fontWeight: 900,
+        fontSize: 'clamp(40px, 11vw, 64px)',
+        letterSpacing: '-0.04em', lineHeight: 0.92,
+        margin: '0 0 16px',
+      }}>
+        Your size in 30&nbsp;seconds.
+      </h1>
+      <p style={{
+        fontFamily: 'var(--display)', fontSize: 17, lineHeight: 1.45,
+        color: C.mute, fontWeight: 400, letterSpacing: '-0.005em',
+        margin: '0 0 6px',
+      }}>
+        On every product. No account. Try it on in 3D where you can.
+      </p>
+
+      <div style={{
+        position: 'relative',
+        marginBottom: 18,
+        minHeight: 380,
+      }}>
+        <AvatarHero height="52vh" interactive={false} rotateSpeed={0.7} />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute', bottom: 6, left: 0, right: 0,
+            textAlign: 'center',
+            fontFamily: 'var(--mono)', fontSize: 10, color: C.mute,
+            letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 500,
+            pointerEvents: 'none',
+          }}
+        >
+          Your shopper · Size M
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+        <button
+          onClick={() => router.push('/start')}
+          style={{
+            background: COBALT, color: '#FFFFFF', border: 'none',
+            padding: '14px 22px', borderRadius: 9999,
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+            letterSpacing: '-0.005em',
+            cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}
+        >Start free <span>→</span></button>
+        <button
+          onClick={() => router.push('/product')}
+          style={{
+            background: 'transparent', color: C.ink,
+            border: `1px solid ${C.ink}`,
+            padding: '14px 22px', borderRadius: 9999,
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+            letterSpacing: '-0.005em',
+            cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}
+        >See how it works</button>
+      </div>
+
+      <MatchStrip compact />
+    </section>
+  );
+}
+
+function MobileBrandShopperTiles() {
+  const C = useC();
+  const router = useRouter();
+  return (
+    <section style={{
+      background: C.bg, color: C.ink, padding: '52px 18px',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      <h2 style={{ ...headingStyle('30px'), marginBottom: 14 }}>
+        Built for both sides.
+      </h2>
+      <p style={{ ...bodyStyle, fontSize: 14, color: C.mute, marginBottom: 22 }}>
+        Brands cut returns. Shoppers get their size without guessing.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <PathTile
+          tag="For brands"
+          title="I am a brand"
+          sub="One button for every product. Free to start."
+          cta="Start free →"
+          onClick={() => router.push('/start')}
+          C={C}
+        />
+        <PathTile
+          tag="For shoppers"
+          title="I am a shopper"
+          sub="Get your size free, no account."
+          cta="Try Find my size →"
+          onClick={() => router.push('/demo')}
+          C={C}
+        />
+      </div>
+    </section>
+  );
+}
+
+function MobileComponents() {
+  const C = useC();
+  return (
+    <section style={{
+      background: C.surface, color: C.ink,
+      padding: '52px 18px',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      <h2 style={{ ...headingStyle('30px'), marginBottom: 12 }}>
+        One button. Every product.
+      </h2>
+      <p style={{ ...bodyStyle, fontSize: 14, color: C.mute, marginBottom: 22 }}>
+        Try On on products with a 3D garment. Find my size on every other product with sizes. One install.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {PIECES.map(it => (
+          <div key={it.tag} style={{
+            border: `1px solid ${C.line}`, borderRadius: 16, background: C.bg, overflow: 'hidden',
+          }}>
+            <PieceVisual piece={it} pad={14} />
+            <div style={{ padding: '16px 18px 20px' }}>
+              <div style={{ fontFamily: 'var(--display)', fontSize: 16, fontWeight: 600, color: C.ink, marginBottom: 4 }}>
+                {it.tag}
+              </div>
+              <div style={{ ...bodyStyle, fontSize: 13.5, color: C.mute }}>{it.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MobileBrands() {
+  const C = useC();
+  return (
+    <section style={{ background: C.surface, color: C.ink, padding: '52px 18px', borderBottom: `1px solid ${C.line}` }}>
+      <h2 style={{ ...headingStyle('30px'), marginBottom: 12 }}>
+        Pay less than one return per day.
+      </h2>
+      <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginBottom: 22 }}>
+        Start free with Find my size on every product. Add measured sizes and 3D try-on when you are ready.
+      </p>
+
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 8 }}>
+          Shopify integration
+        </div>
+        <h3 style={{ ...headingStyle('22px'), marginBottom: 8 }}>
+          One button, added in your Shopify theme editor.
+        </h3>
+        <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute }}>
+          Drop the TryOn block onto your product page. No code, no SDK.
+        </p>
+      </div>
+
+      <PlanSummary mobile />
+    </section>
+  );
+}
+
+function MobileShoppers() {
+  const C = useC();
+  const router = useRouter();
+  return (
+    <section style={{ background: C.bg, color: C.ink, padding: '52px 18px', borderBottom: `1px solid ${C.line}` }}>
+      <h2 style={{ ...headingStyle('30px'), marginBottom: 12 }}>
+        No account for your size.
+      </h2>
+      <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginBottom: 18 }}>
+        Free, no sign-up, remembered on every TryOn store. The fit passport is the upgrade: one photo, a measured size and your 3D avatar.
+      </p>
+
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface, marginBottom: 18 }}>
+        {PASSPORT_STEPS.map((s, i) => (
+          <div key={s.k} style={{
+            padding: '14px 16px',
+            borderBottom: i < PASSPORT_STEPS.length - 1 ? `1px solid ${C.line}` : 'none',
+          }}>
+            <div style={{
+              fontFamily: 'var(--mono)', fontSize: 10, color: C.mute, fontWeight: 500,
+              letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4,
+            }}>{s.k}</div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>
+              {s.title}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <button
+          onClick={() => router.push('/demo')}
+          style={{
+            background: COBALT, color: '#FFFFFF', border: 'none',
+            padding: '14px 20px', borderRadius: 9999,
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}
+        >Get your size free <span>→</span></button>
+        <button
+          onClick={() => router.push('/signup')}
+          style={{
+            background: 'transparent', color: C.ink, border: `1px solid ${C.ink}`,
+            padding: '14px 20px', borderRadius: 9999,
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          }}
+        >Build a fit passport</button>
       </div>
     </section>
   );
@@ -357,256 +919,129 @@ function PathTile({
   );
 }
 
-/* ─── Components grid: 3 pieces of the protocol ─── */
-function DesktopComponents() {
+/* ─── Why fit matters: industry figures, each linked to its source ───
+   Other companies' results and published studies, shown as theirs, never as TryOn's.
+   Only figures checked against the primary page go here. */
+type Stat = { value: string; line: string; source: string; href: string };
+const STAT_GROUPS: { title: string; stats: Stat[]; note?: string }[] = [
+  {
+    title: 'More sales',
+    stats: [
+      {
+        value: '30%',
+        line: 'Size advice lifted conversion 30% and order value 47% for ARMEDANGELS.',
+        source: 'Fit Analytics, ARMEDANGELS A/B test, 2024',
+        href: 'https://fitanalytics.com/case-studies/armedangels',
+      },
+      {
+        value: '59%',
+        line: 'of online shoppers say clothes looked different on them than expected.',
+        source: 'Google / Ipsos, 2023',
+        href: 'https://blog.google/products-and-platforms/products/shopping/ai-virtual-try-on-google-shopping/',
+      },
+    ],
+  },
+  {
+    title: 'Fewer returns',
+    stats: [
+      {
+        value: '70%',
+        line: 'of clothing returns come down to fit or style.',
+        source: 'McKinsey, Returns management in apparel',
+        href: 'https://www.mckinsey.com/industries/retail/our-insights/returning-to-order-improving-returns-management-for-apparel-companies',
+      },
+      {
+        value: '10%',
+        line: 'fewer size-related returns at Zalando with size advice.',
+        source: 'Zalando, 2023',
+        href: 'https://corporate.zalando.com/en/technology/zalando-launches-size-recommendations-based-customers-own-body-measurements',
+      },
+      {
+        value: '$850B',
+        line: 'of goods sent back by US shoppers in 2025, nearly 1 in 5 online orders.',
+        source: 'NRF & Happy Returns, 2025',
+        href: 'https://nrf.com/media-center/press-releases/consumers-expected-to-return-nearly-850-billion-in-merchandise-in-2025',
+      },
+    ],
+  },
+  {
+    title: 'Know what fits your customers',
+    stats: [
+      {
+        value: '4 in 10',
+        line: 'shoppers say poor size guides stop them buying.',
+        source: 'Zalando & YouGov, 2024',
+        href: 'https://corporate.zalando.com/en/fashion/fitting-room-frustration-new-research-reveals-low-confidence-among-fashion-shoppers',
+      },
+      {
+        value: '51%',
+        line: 'of Gen Z order several sizes and send the rest back.',
+        source: 'NRF & Happy Returns, 2024',
+        href: 'https://happyreturns.com/2024-nrf-returns-report',
+      },
+    ],
+    note: 'TryOn shows you which sizes your shoppers really need, product by product: fewer surprises in stock, fewer returns.',
+  },
+];
+
+const RULEBOOK = [
+  { date: 'Jul 2026', title: 'EU bans destruction of unsold apparel.', sub: 'Central Digital Product Passport registry goes live.' },
+  { date: 'Sep 2026', title: 'ECGT applies. Anti-greenwashing.', sub: 'Words like "sustainable" become regulated. Claims need proof.' },
+  { date: '2028', title: 'DPP mandatory for textiles.', sub: 'Every garment sold in the EU carries a digital twin.' },
+];
+
+function StatBlock({ s, compact }: { s: Stat; compact?: boolean }) {
   const C = useC();
-  const items = [
-    {
-      tag: 'Fit Passport',
-      desc: 'A 3D avatar of you, rigged from 12 measurements. Built once. Yours forever.',
-      image: '/redesign/fit-passport.jpg',
-    },
-    {
-      tag: 'Garment Bind',
-      desc: 'Real cloth physics on real product photography. Every body shape, not just sample size.',
-      image: '/redesign/garment-bind.jpg',
-    },
-    {
-      tag: 'Fit Report',
-      desc: 'Per-SKU confidence and size signal. The brand knows what fits and what does not.',
-      image: '/redesign/fit-report.jpg',
-    },
-  ];
   return (
-    <section style={{
-      background: C.surface, color: C.ink,
-      padding: '88px 32px',
-      borderBottom: `1px solid ${C.line}`,
-    }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <h2 style={{
-          ...headingStyle('clamp(36px, 4.5vw, 64px)'),
-          marginBottom: 40, maxWidth: 760,
-        }}>
-          The protocol. Three pieces.
-        </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
-          {items.map(it => (
-            <div key={it.tag} style={{
-              border: `1px solid ${C.line}`,
-              borderRadius: 16,
-              background: C.bg,
-              overflow: 'hidden',
-              display: 'flex', flexDirection: 'column',
-            }}>
-              <div style={{
-                aspectRatio: '4/5', background: '#ffffff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                padding: 20, boxSizing: 'border-box',
-                borderBottom: `1px solid ${C.line}`,
-              }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={it.image} alt={it.tag} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
-              </div>
-              <div style={{ padding: '20px 22px 24px' }}>
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 17, fontWeight: 600,
-                  color: C.ink, marginBottom: 6,
-                }}>{it.tag}</div>
-                <div style={{ ...bodyStyle, fontSize: 14, color: C.mute }}>{it.desc}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
+    <div style={{ padding: compact ? '16px 18px' : '22px 24px', borderTop: `1px solid ${C.line}` }}>
+      <div style={{
+        fontFamily: 'var(--display)', fontWeight: 700,
+        fontSize: compact ? 36 : 48, letterSpacing: '-0.035em', lineHeight: 1, color: C.ink,
+      }}>{s.value}</div>
+      <div style={{ ...bodyStyle, fontSize: compact ? 14 : 15, color: C.ink, marginTop: 10, lineHeight: 1.45 }}>{s.line}</div>
+      <a
+        href={s.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          display: 'inline-block', marginTop: 8,
+          fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
+          textDecoration: 'underline', textUnderlineOffset: 3, textDecorationColor: C.line,
+        }}
+      >Source: {s.source} ↗</a>
+    </div>
   );
 }
 
-/* ─── Evidence: pilot + waste ledger + EU rulebook ─── */
+function StatGroup({ g, compact }: { g: typeof STAT_GROUPS[number]; compact?: boolean }) {
+  const C = useC();
+  return (
+    <div style={{
+      border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface,
+      display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    }}>
+      <div style={{
+        padding: compact ? '14px 18px' : '18px 24px',
+        fontFamily: 'var(--mono)', fontSize: 11, color: C.mute, fontWeight: 500,
+        letterSpacing: '0.08em', textTransform: 'uppercase',
+      }}>{g.title}</div>
+      {g.stats.map((s) => <StatBlock key={s.value} s={s} compact={compact} />)}
+      {g.note && (
+        <div style={{
+          marginTop: 'auto', padding: compact ? '16px 18px' : '20px 24px',
+          borderTop: `1px solid ${C.line}`, background: C.cardBg, color: C.cardInk,
+          fontFamily: 'var(--display)', fontSize: compact ? 14 : 15, fontWeight: 500, lineHeight: 1.45,
+        }}>{g.note}</div>
+      )}
+    </div>
+  );
+}
+
 function DesktopEvidence() {
   const C = useC();
-  const wasteRows = [
-    { k: 'Returns avoided', v: 20, suffix: '%', sub: 'less reverse logistics, less landfill.' },
-    { k: 'Overproduction cut', v: 18, suffix: '%', sub: 'closer to real demand.' },
-    { k: 'CO₂e saved per order', v: 2.4, suffix: 'kg', sub: 'when a return is prevented.', decimals: 1 },
-  ];
-  const rulebook = [
-    { date: 'Jul 2026', title: 'EU bans destruction of unsold apparel.', sub: 'Central Digital Product Passport registry goes live.' },
-    { date: 'Sep 2026', title: 'ECGT applies. Anti-greenwashing.', sub: 'Words like "sustainable" become regulated. Claims need proof.' },
-    { date: '2028', title: 'DPP mandatory for textiles.', sub: 'Every garment sold in the EU carries a digital twin.' },
-  ];
-
   return (
     <section style={{
       background: C.bg, color: C.ink,
-      padding: '88px 32px',
-      borderBottom: `1px solid ${C.line}`,
-    }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <h2 style={{
-          ...headingStyle('clamp(36px, 4.5vw, 64px)'),
-          marginBottom: 18, maxWidth: 920,
-        }}>
-          Fit is a climate problem.
-        </h2>
-        <p style={{
-          ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48,
-        }}>
-          70% of fashion returns are caused by fit (McKinsey, 2024). In 2022, 9.5 billion pounds of US returns went to landfill, emitting 24 million tonnes of CO₂ (Optoro). Tryon kills the return before the order. Fewer trucks. Less plastic. Less polyester pulled out of the ground for stock that nobody wears.
-        </p>
-
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 24, alignItems: 'start',
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <div style={{
-              border: `1px solid ${C.line}`, borderRadius: 16,
-              background: C.surface, padding: 28,
-            }}>
-              <div style={{
-                fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500, marginBottom: 10,
-              }}>Ramin Studios pilot, Amsterdam</div>
-              <div style={{
-                fontFamily: 'var(--display)', fontWeight: 700,
-                fontSize: 80, letterSpacing: '-0.04em', lineHeight: 1, color: C.ink,
-              }}>
-                <CountUp to={94} />%
-              </div>
-              <div style={{ ...bodyStyle, fontSize: 14, color: C.mute, marginTop: 10 }}>
-                of widget opens convert to a try-on. Live data, last 14 days.
-              </div>
-              <div style={{
-                marginTop: 18, paddingTop: 18,
-                borderTop: `1px solid ${C.line}`,
-                display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14,
-              }}>
-                {[
-                  { k: 'Opens', v: 100 },
-                  { k: 'Try-ons', v: 94 },
-                  { k: 'ATC', v: 34 },
-                  { k: 'Avg session', v: '38s' },
-                ].map(row => (
-                  <div key={row.k}>
-                    <div style={{
-                      fontFamily: 'var(--display)', fontSize: 12, color: C.mute, fontWeight: 500,
-                    }}>{row.k}</div>
-                    <div style={{
-                      fontFamily: 'var(--display)', fontSize: 20, fontWeight: 600,
-                      color: C.ink, letterSpacing: '-0.01em',
-                    }}>
-                      {typeof row.v === 'number' ? <CountUp to={row.v} /> : row.v}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{
-              border: `1px solid ${C.line}`, borderRadius: 16,
-              background: C.surface,
-            }}>
-              <div style={{
-                padding: '14px 24px', borderBottom: `1px solid ${C.line}`,
-                display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-              }}>
-                <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink }}>
-                  Waste ledger
-                </div>
-                <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
-                  per 1,000 orders
-                </div>
-              </div>
-              {wasteRows.map((r, i) => (
-                <div key={r.k} style={{
-                  padding: '16px 24px',
-                  borderBottom: i < wasteRows.length - 1 ? `1px solid ${C.line}` : 'none',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16,
-                }}>
-                  <div>
-                    <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 500, color: C.ink }}>{r.k}</div>
-                    <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute, marginTop: 2 }}>{r.sub}</div>
-                  </div>
-                  <div style={{
-                    fontFamily: 'var(--display)', fontSize: 26, fontWeight: 600,
-                    letterSpacing: '-0.02em', color: C.ink, whiteSpace: 'nowrap',
-                  }}>
-                    −<CountUp to={r.v} decimals={r.decimals || 0} />{r.suffix}
-                  </div>
-                </div>
-              ))}
-              <div style={{
-                padding: '12px 24px', borderTop: `1px solid ${C.line}`,
-                fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
-              }}>Sources: McKinsey 2024, Optoro 2022, Tryon Ramin pilot 2026.</div>
-            </div>
-          </div>
-
-          <div>
-            <div style={{
-              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 14,
-            }}>The EU rulebook, 2026 to 2028.</div>
-            <div style={{
-              border: `1px solid ${C.line}`, borderRadius: 16,
-              background: C.surface,
-            }}>
-              {rulebook.map((r, i) => (
-                <div key={r.date} style={{
-                  padding: '20px 24px',
-                  borderBottom: i < rulebook.length - 1 ? `1px solid ${C.line}` : 'none',
-                }}>
-                  <div style={{
-                    fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500, marginBottom: 8,
-                  }}>{r.date}</div>
-                  <div style={{
-                    fontFamily: 'var(--display)', fontSize: 18, fontWeight: 600,
-                    color: C.ink, lineHeight: 1.3, letterSpacing: '-0.01em',
-                  }}>{r.title}</div>
-                  <div style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginTop: 6 }}>{r.sub}</div>
-                </div>
-              ))}
-            </div>
-            <p style={{ ...bodyStyle, fontSize: 14, color: C.mute, marginTop: 14 }}>
-              Every garment we render is already a 3D digital twin. DPP-ready by design. While other VTO vendors will be deleting "sustainable" from their landing pages in September, we will be quoting the regulation.
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ─── For Brands ─── */
-function DesktopBrands() {
-  const C = useC();
-  const router = useRouter();
-  const cmp = [
-    {
-      name: 'Google VTO',
-      bullets: ['Flat 2D image generation.', 'No body measurements.', 'Happens on Google. Brand loses the data.'],
-      muted: true,
-    },
-    {
-      name: 'True Fit',
-      bullets: ['Size recommendation only.', 'No 3D, no avatar.', 'Reportedly $10K to $50K/mo enterprise.'],
-      muted: true,
-    },
-    {
-      name: 'Tryon',
-      bullets: ['Real 3D avatar, real cloth physics.', 'Per-SKU fit confidence.', 'Brand keeps the data and the PDP.'],
-      muted: false,
-    },
-  ];
-  const tiers = [
-    { name: 'Free', price: '$0', sub: '200 sessions' },
-    { name: 'Studio', price: '$149', sub: '2,500 sessions' },
-    { name: 'Brand', price: '$2,490', sub: '40,000 sessions' },
-    { name: 'Scale', price: 'Talk to us', sub: 'Multi-brand' },
-  ];
-
-  return (
-    <section style={{
-      background: C.surface, color: C.ink,
       padding: '88px 32px',
       borderBottom: `1px solid ${C.line}`,
     }}>
@@ -615,418 +1050,38 @@ function DesktopBrands() {
           ...headingStyle('clamp(36px, 4.5vw, 64px)'),
           marginBottom: 14, maxWidth: 920,
         }}>
-          Pay less than the cost of one return per day.
+          Why fit matters.
         </h2>
-        <p style={{
-          ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48,
-        }}>
-          Built for Shopify Plus fashion brands losing six figures a month to returns. Save tens of thousands per month, charged less than the cost of one return per day.
+        <p style={{ ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 40 }}>
+          Published industry figures and other brands&apos; results, each linked to its source.
         </p>
 
-        <div style={{ marginBottom: 56 }}>
-          <div style={{
-            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 14,
-          }}>Why Tryon</div>
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0,
-            border: `1px solid ${C.line}`,
-          }}>
-            {cmp.map((col, i) => (
-              <div key={col.name} style={{
-                background: col.muted ? C.bg : C.cardBg,
-                color: col.muted ? C.ink : C.cardInk,
-                padding: '28px 24px',
-                borderRight: i < cmp.length - 1 ? `1px solid ${C.line}` : 'none',
-                display: 'flex', flexDirection: 'column', gap: 16,
-              }}>
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
-                  color: col.muted ? C.mute : C.cardMute,
-                }}>{col.name}</div>
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {col.bullets.map(b => (
-                    <li key={b} style={{
-                      fontFamily: 'var(--display)', fontSize: 14, lineHeight: 1.5,
-                      color: col.muted ? C.ink : C.cardInk,
-                      fontWeight: col.muted ? 400 : 500,
-                    }}>{b}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, alignItems: 'stretch', marginBottom: 56 }}>
+          {STAT_GROUPS.map((g) => <StatGroup key={g.title} g={g} />)}
         </div>
 
-        <div style={{ marginBottom: 56, maxWidth: 720 }}>
-          <div style={{
-            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 10,
-          }}>Shopify integration</div>
-          <h3 style={{ ...headingStyle('clamp(26px, 3vw, 40px)'), marginBottom: 12 }}>
-            8 lines. Live in a week.
-          </h3>
-          <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, maxWidth: 560 }}>
-            Drop the theme block onto any Shopify store. Embed the widget on your PDP. The widget fetches a fit report from our API. No SDK install, no model upload, no agency.
-          </p>
-        </div>
-
-        <div>
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14,
-          }}>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink }}>
-              Pricing
-            </div>
-            <button
-              onClick={() => router.push('/pricing')}
-              style={{
-                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 600,
-              }}
-            >See full pricing →</button>
-          </div>
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0,
-            border: `1px solid ${C.line}`,
-          }}>
-            {tiers.map((t, i) => (
-              <button
-                key={t.name}
-                onClick={() => router.push('/pricing')}
-                style={{
-                  background: C.bg,
-                  borderRight: i < tiers.length - 1 ? `1px solid ${C.line}` : 'none',
-                  border: 'none',
-                  padding: '24px 22px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  display: 'flex', flexDirection: 'column', gap: 8,
-                  color: C.ink,
-                }}
-              >
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 600,
-                }}>{t.name}</div>
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 28, fontWeight: 700,
-                  letterSpacing: '-0.02em', lineHeight: 1, color: C.ink,
-                }}>{t.price}</div>
-                <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>{t.sub}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ─── For Shoppers ─── */
-function DesktopShoppers() {
-  const C = useC();
-  const router = useRouter();
-  const [email, setEmail] = useState('');
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    const trimmed = email.trim();
-    router.push(trimmed ? `/signup?email=${encodeURIComponent(trimmed)}` : '/signup');
-  };
-
-  return (
-    <section style={{
-      background: C.bg, color: C.ink,
-      padding: '88px 32px',
-      borderBottom: `1px solid ${C.line}`,
-    }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40, alignItems: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.1fr', gap: 40, alignItems: 'start' }}>
           <div>
-            <h2 style={{
-              ...headingStyle('clamp(36px, 4.5vw, 64px)'),
-              marginBottom: 18,
-            }}>
-              One login. Every brand.
-            </h2>
-            <p style={{
-              ...bodyStyle, color: C.mute, maxWidth: 480, marginBottom: 26,
-            }}>
-              Free, forever. Build your fit passport once. Wear every garment we host across every brand on Earth. Build outfits, save what you love, see what fits before you check out.
+            <h3 style={{ ...headingStyle('clamp(26px, 3vw, 40px)'), marginBottom: 12 }}>
+              The EU rulebook, 2026 to 2028.
+            </h3>
+            <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, maxWidth: 480 }}>
+              Every garment we render is already a 3D digital twin. DPP-ready by design. While other VTO vendors will be deleting &quot;sustainable&quot; from their landing pages, we will be quoting the regulation.
             </p>
-
-            <form onSubmit={submit} style={{
-              display: 'flex', alignItems: 'stretch',
-              border: `1px solid ${C.line}`,
-              borderRadius: 9999,
-              overflow: 'hidden',
-              maxWidth: 520,
-              background: C.surface,
-              padding: 4,
-            }}>
-              <input
-                type="email"
-                placeholder="you@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                style={{
-                  background: 'transparent', border: 'none', outline: 'none',
-                  padding: '10px 18px', flex: 1,
-                  fontFamily: 'var(--display)', fontSize: 15, fontWeight: 500,
-                  color: C.ink,
-                }}
-              />
-              <button
-                type="submit"
-                style={{
-                  background: COBALT, color: '#FFFFFF',
-                  padding: '0 22px', border: 'none', borderRadius: 9999,
-                  fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600,
-                  letterSpacing: '-0.005em',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
-                }}
-              >Get my passport <span>→</span></button>
-            </form>
           </div>
-
-          <div style={{
-            border: `1px solid ${C.line}`,
-            background: '#ffffff',
-            aspectRatio: '4/3', overflow: 'hidden',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: 20, boxSizing: 'border-box',
-          }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/redesign/wishlist.png"
-              alt="Closet and wishlist"
-              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
-            />
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ─── Footer ─── */
-function DesktopFooter() {
-  const C = useC();
-  const router = useRouter();
-  return (
-    <section style={{
-      background: C.bg, color: C.ink, padding: '40px 32px 48px',
-    }}>
-      <div style={{
-        maxWidth: 1280, margin: '0 auto',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 24,
-        flexWrap: 'wrap',
-      }}>
-        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-            alt="Tryon"
-            style={{ height: 14, width: 'auto', display: 'block' }}
-          />
-          <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
-            Tryon, 2026
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 22 }}>
-          {[
-            { label: 'Pricing', href: '/pricing' },
-            { label: 'Demo', href: '/demo' },
-            { label: 'Privacy', href: '/privacy' },
-            { label: 'Sign in', href: '/login' },
-          ].map(it => (
-            <button
-              key={it.label}
-              onClick={() => router.push(it.href)}
-              style={{
-                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500,
-              }}
-            >{it.label}</button>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ─── Mobile sections (compressed but same content) ─── */
-function MobileHero() {
-  const C = useC();
-  const router = useRouter();
-  const [vignetteIdx, setVignetteIdx] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setVignetteIdx((i) => (i + 1) % PROBLEM_VIGNETTES.length);
-    }, 5500);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <section style={{
-      background: C.bg, color: C.ink,
-      padding: '32px 18px 36px',
-      borderBottom: `1px solid ${C.line}`,
-    }}>
-      <div style={{
-        fontFamily: 'var(--mono)', fontSize: 11, color: C.mute,
-        letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
-        marginBottom: 18,
-      }}>
-        Tryon · Fit before you buy
-      </div>
-      <h1 style={{
-        fontFamily: 'var(--display)', fontWeight: 900,
-        fontSize: 'clamp(40px, 11vw, 64px)',
-        letterSpacing: '-0.04em', lineHeight: 0.92,
-        margin: '0 0 22px',
-      }}>
-        Tryon before you buy.
-      </h1>
-
-      <div style={{
-        position: 'relative',
-        marginBottom: 18,
-        minHeight: 380,
-      }}>
-        <AvatarHero height="56vh" interactive={false} rotateSpeed={0.7} />
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute', bottom: 6, left: 0, right: 0,
-            textAlign: 'center',
-            fontFamily: 'var(--mono)', fontSize: 10, color: C.mute,
-            letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 500,
-            pointerEvents: 'none',
-          }}
-        >
-          Ramin Studios · Size M
-        </div>
-      </div>
-
-      <div style={{
-        minHeight: 100,
-        fontFamily: 'var(--display)', fontSize: 16, lineHeight: 1.45,
-        color: C.mute, fontWeight: 400, letterSpacing: '-0.005em',
-        marginBottom: 22,
-      }}>
-        <span
-          key={vignetteIdx}
-          style={{
-            animation: 'ds-fade-in 0.6s cubic-bezier(0.22, 0.61, 0.36, 1)',
-            display: 'inline-block',
-          }}
-        >
-          {PROBLEM_VIGNETTES[vignetteIdx]}
-        </span>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <button
-          onClick={() => router.push('/demo')}
-          style={{
-            background: COBALT, color: '#FFFFFF', border: 'none',
-            padding: '14px 22px', borderRadius: 9999,
-            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
-            letterSpacing: '-0.005em',
-            cursor: 'pointer',
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          }}
-        >Try the demo <span>→</span></button>
-        <button
-          onClick={() => router.push('/signup')}
-          style={{
-            background: 'transparent', color: C.ink,
-            border: `1px solid ${C.ink}`,
-            padding: '14px 22px', borderRadius: 9999,
-            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
-            letterSpacing: '-0.005em',
-            cursor: 'pointer',
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          }}
-        >Build your passport</button>
-      </div>
-    </section>
-  );
-}
-
-function MobileBrandShopperTiles() {
-  const C = useC();
-  const router = useRouter();
-  return (
-    <section style={{
-      background: C.bg, color: C.ink, padding: '52px 18px',
-      borderBottom: `1px solid ${C.line}`,
-    }}>
-      <h2 style={{ ...headingStyle('30px'), marginBottom: 14 }}>
-        Built for both sides.
-      </h2>
-      <p style={{ ...bodyStyle, fontSize: 14, color: C.mute, marginBottom: 22 }}>
-        Brands cut returns. Shoppers wear every brand without guessing a size.
-      </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <PathTile
-          tag="For brands"
-          title="I am a brand"
-          sub="Cut returns. Lift conversion."
-          cta="See pricing →"
-          onClick={() => router.push('/pricing')}
-          C={C}
-        />
-        <PathTile
-          tag="For shoppers"
-          title="I am a shopper"
-          sub="Free, forever. One passport, every brand."
-          cta="Sign up free →"
-          onClick={() => router.push('/signup')}
-          C={C}
-        />
-      </div>
-    </section>
-  );
-}
-
-function MobileComponents() {
-  const C = useC();
-  const items = [
-    { tag: 'Fit Passport', desc: 'A 3D avatar of you, rigged from 12 measurements.', image: '/redesign/fit-passport.jpg' },
-    { tag: 'Garment Bind', desc: 'Real cloth physics on real photography.', image: '/redesign/garment-bind.jpg' },
-    { tag: 'Fit Report', desc: 'Per-SKU confidence and size signal.', image: '/redesign/fit-report.jpg' },
-  ];
-  return (
-    <section style={{
-      background: C.surface, color: C.ink,
-      padding: '52px 18px',
-      borderBottom: `1px solid ${C.line}`,
-    }}>
-      <h2 style={{ ...headingStyle('30px'), marginBottom: 22 }}>
-        The protocol. Three pieces.
-      </h2>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {items.map(it => (
-          <div key={it.tag} style={{
-            border: `1px solid ${C.line}`, borderRadius: 16, background: C.bg, overflow: 'hidden',
-          }}>
-            <div style={{
-              aspectRatio: '4/5', background: '#ffffff',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-              padding: 14, boxSizing: 'border-box',
-              borderBottom: `1px solid ${C.line}`,
-            }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={it.image} alt={it.tag} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
-            </div>
-            <div style={{ padding: '16px 18px 20px' }}>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 16, fontWeight: 600, color: C.ink, marginBottom: 4 }}>
-                {it.tag}
+          <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface }}>
+            {RULEBOOK.map((r, i) => (
+              <div key={r.date} style={{
+                padding: '20px 24px',
+                borderBottom: i < RULEBOOK.length - 1 ? `1px solid ${C.line}` : 'none',
+              }}>
+                <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500, marginBottom: 8 }}>{r.date}</div>
+                <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 600, color: C.ink, lineHeight: 1.3, letterSpacing: '-0.01em' }}>{r.title}</div>
+                <div style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginTop: 6 }}>{r.sub}</div>
               </div>
-              <div style={{ ...bodyStyle, fontSize: 13.5, color: C.mute }}>{it.desc}</div>
-            </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
     </section>
   );
@@ -1034,260 +1089,36 @@ function MobileComponents() {
 
 function MobileEvidence() {
   const C = useC();
-  const wasteRows = [
-    { k: 'Returns avoided', v: 20, suffix: '%', sub: 'less landfill, less reverse logistics.' },
-    { k: 'Overproduction cut', v: 18, suffix: '%', sub: 'closer to real demand.' },
-    { k: 'CO₂e per order', v: 2.4, suffix: 'kg', sub: 'when a return is prevented.', decimals: 1 },
-  ];
-  const rulebook = [
-    { date: 'Jul 2026', title: 'EU bans destruction of unsold apparel.' },
-    { date: 'Sep 2026', title: 'ECGT applies. Anti-greenwashing.' },
-    { date: '2028', title: 'DPP mandatory for textiles.' },
-  ];
   return (
     <section style={{
       background: C.bg, color: C.ink, padding: '52px 18px',
       borderBottom: `1px solid ${C.line}`,
     }}>
-      <h2 style={{ ...headingStyle('30px'), marginBottom: 14 }}>
-        Fit is a climate problem.
+      <h2 style={{ ...headingStyle('30px'), marginBottom: 12 }}>
+        Why fit matters.
       </h2>
       <p style={{ ...bodyStyle, fontSize: 14, color: C.mute, marginBottom: 22 }}>
-        70% of fashion returns are caused by fit (McKinsey). In 2022, 9.5 billion pounds of US returns went to landfill, emitting 24 million tonnes of CO₂ (Optoro).
+        Published industry figures and other brands&apos; results, each linked to its source.
       </p>
 
-      <div style={{
-        border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface,
-        padding: 22, marginBottom: 16,
-      }}>
-        <div style={{
-          fontFamily: 'var(--display)', fontSize: 12, color: C.mute, fontWeight: 500, marginBottom: 6,
-        }}>Ramin pilot, 14 days</div>
-        <div style={{
-          fontFamily: 'var(--display)', fontSize: 56, fontWeight: 700,
-          letterSpacing: '-0.04em', lineHeight: 1, color: C.ink,
-        }}>
-          <CountUp to={94} />%
-        </div>
-        <div style={{ ...bodyStyle, fontSize: 13, color: C.mute, marginTop: 6 }}>
-          of widget opens convert to a try-on.
-        </div>
-      </div>
-
-      <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface, marginBottom: 22 }}>
-        <div style={{
-          padding: '12px 16px', borderBottom: `1px solid ${C.line}`,
-          display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-        }}>
-          <div style={{ fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, color: C.ink }}>
-            Waste ledger
-          </div>
-          <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute }}>per 1,000 orders</div>
-        </div>
-        {wasteRows.map((r, i) => (
-          <div key={r.k} style={{
-            padding: '12px 16px',
-            borderBottom: i < wasteRows.length - 1 ? `1px solid ${C.line}` : 'none',
-          }}>
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4, gap: 12,
-            }}>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 13, fontWeight: 500, color: C.ink }}>{r.k}</div>
-              <div style={{
-                fontFamily: 'var(--display)', fontSize: 20, fontWeight: 600,
-                letterSpacing: '-0.02em', color: C.ink,
-              }}>
-                −<CountUp to={r.v} decimals={r.decimals || 0} />{r.suffix}
-              </div>
-            </div>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute }}>{r.sub}</div>
-          </div>
-        ))}
-        <div style={{
-          padding: '10px 16px', borderTop: `1px solid ${C.line}`,
-          fontFamily: 'var(--display)', fontSize: 11, color: C.mute,
-        }}>Sources: McKinsey, Optoro, Tryon pilot 2026.</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 32 }}>
+        {STAT_GROUPS.map((g) => <StatGroup key={g.title} g={g} compact />)}
       </div>
 
       <div style={{
         fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 10,
       }}>EU rulebook, 2026 to 2028</div>
       <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface }}>
-        {rulebook.map((r, i) => (
+        {RULEBOOK.map((r, i) => (
           <div key={r.date} style={{
             padding: '14px 16px',
-            borderBottom: i < rulebook.length - 1 ? `1px solid ${C.line}` : 'none',
+            borderBottom: i < RULEBOOK.length - 1 ? `1px solid ${C.line}` : 'none',
           }}>
-            <div style={{
-              fontFamily: 'var(--display)', fontSize: 12, color: C.mute, fontWeight: 500, marginBottom: 4,
-            }}>{r.date}</div>
-            <div style={{
-              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, lineHeight: 1.3,
-            }}>{r.title}</div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, fontWeight: 500, marginBottom: 4 }}>{r.date}</div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{r.title}</div>
           </div>
         ))}
       </div>
-    </section>
-  );
-}
-
-function MobileBrands() {
-  const C = useC();
-  const router = useRouter();
-  const tiers = [
-    { name: 'Free', price: '$0', sub: '200 sessions' },
-    { name: 'Studio', price: '$149', sub: '2,500 sessions' },
-    { name: 'Brand', price: '$2,490', sub: '40,000 sessions' },
-    { name: 'Scale', price: 'Talk to us', sub: 'Multi-brand' },
-  ];
-  return (
-    <section style={{ background: C.surface, color: C.ink, padding: '52px 18px', borderBottom: `1px solid ${C.line}` }}>
-      <h2 style={{ ...headingStyle('30px'), marginBottom: 12 }}>
-        Pay less than one return per day.
-      </h2>
-      <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginBottom: 22 }}>
-        Built for Shopify Plus brands losing six figures a month to returns.
-      </p>
-
-      <div style={{
-        border: `1px solid ${C.line}`, marginBottom: 18, background: C.bg,
-      }}>
-        {tiers.map((t, i) => (
-          <button
-            key={t.name}
-            onClick={() => router.push('/pricing')}
-            style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              width: '100%', padding: '16px 18px',
-              borderBottom: i < tiers.length - 1 ? `1px solid ${C.line}` : 'none',
-              background: 'transparent', border: 'none', cursor: 'pointer',
-              color: C.ink, textAlign: 'left',
-            }}
-          >
-            <div>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 12.5, color: C.mute, fontWeight: 600, marginBottom: 4 }}>
-                {t.name}
-              </div>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em' }}>
-                {t.price}
-              </div>
-            </div>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 12.5, color: C.mute }}>{t.sub} →</div>
-          </button>
-        ))}
-      </div>
-
-      <button
-        onClick={() => router.push('/pricing')}
-        style={{
-          background: COBALT, color: '#FFFFFF', border: 'none',
-          padding: '14px 20px', width: '100%',
-          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
-          letterSpacing: '-0.005em', cursor: 'pointer',
-          borderRadius: 9999,
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-        }}
-      >See full pricing <span>→</span></button>
-    </section>
-  );
-}
-
-function MobileShoppers() {
-  const C = useC();
-  const router = useRouter();
-  const [email, setEmail] = useState('');
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    const trimmed = email.trim();
-    router.push(trimmed ? `/signup?email=${encodeURIComponent(trimmed)}` : '/signup');
-  };
-  return (
-    <section style={{ background: C.bg, color: C.ink, padding: '52px 18px', borderBottom: `1px solid ${C.line}` }}>
-      <h2 style={{ ...headingStyle('30px'), marginBottom: 12 }}>
-        One login. Every brand.
-      </h2>
-      <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginBottom: 18 }}>
-        Free, forever. Build your fit passport once.
-      </p>
-
-      <div style={{
-        border: `1px solid ${C.line}`, background: '#ffffff',
-        aspectRatio: '4/3',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-        padding: 14, boxSizing: 'border-box', marginBottom: 18,
-      }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/redesign/wishlist.png" alt="Closet and wishlist"
-          style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
-        />
-      </div>
-
-      <form onSubmit={submit} style={{
-        display: 'flex', alignItems: 'stretch',
-        border: `1px solid ${C.line}`,
-        borderRadius: 9999,
-        overflow: 'hidden',
-        background: C.surface,
-        padding: 4,
-      }}>
-        <input
-          type="email"
-          placeholder="you@email.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={{
-            background: 'transparent', border: 'none', outline: 'none',
-            padding: '10px 16px', flex: 1,
-            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500, color: C.ink, minWidth: 0,
-          }}
-        />
-        <button
-          type="submit"
-          style={{
-            background: COBALT, color: '#FFFFFF',
-            padding: '0 16px', border: 'none', borderRadius: 9999,
-            fontFamily: 'var(--display)', fontSize: 12.5, fontWeight: 600,
-            letterSpacing: '-0.005em',
-            cursor: 'pointer', whiteSpace: 'nowrap',
-          }}
-        >Get my passport</button>
-      </form>
-    </section>
-  );
-}
-
-function MobileFooter() {
-  const C = useC();
-  const router = useRouter();
-  return (
-    <section style={{
-      background: C.bg, color: C.ink, padding: '24px 18px 36px',
-      display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start',
-    }}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-        alt="Tryon"
-        style={{ height: 13, width: 'auto', display: 'block' }}
-      />
-      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-        {[
-          { label: 'Pricing', href: '/pricing' },
-          { label: 'Demo', href: '/demo' },
-          { label: 'Privacy', href: '/privacy' },
-          { label: 'Sign in', href: '/login' },
-        ].map(it => (
-          <button
-            key={it.label}
-            onClick={() => router.push(it.href)}
-            style={{
-              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-              fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500,
-            }}
-          >{it.label}</button>
-        ))}
-      </div>
-      <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute }}>Tryon, 2026</div>
     </section>
   );
 }
@@ -1296,14 +1127,6 @@ function MobileFooter() {
 export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
   const C = dark ? PAL.dark : PAL.light;
   const mobile = useIsMobile();
-  const router = useRouter();
-
-  const navLinks = [
-    { label: 'Pricing', href: '/pricing' },
-    { label: 'Demo', href: '/demo' },
-    { label: 'Deck', href: '/pitch-deck.html', external: true },
-    { label: 'Book a call', href: '/book' },
-  ];
 
   return (
     <ThemeCtx.Provider value={C}>
@@ -1313,13 +1136,13 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
       }}>
         <SharedNav
           dark={dark}
-          links={navLinks}
+          links={siteLinks('/')}
           rightSlot={mobile ? (
-            <NavCta dark={dark} label="Try demo" onClick={() => router.push('/demo')} />
+            <NavCta dark={dark} label="Start free" href="/start" />
           ) : (
             <>
               <AuthAwareSignInLink dark={dark} />
-              <NavCta dark={dark} label="Try the demo →" onClick={() => router.push('/demo')} />
+              <NavCta dark={dark} label="Start free →" href="/start" />
             </>
           )}
         />
@@ -1331,7 +1154,6 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
             <MobileEvidence />
             <MobileBrands />
             <MobileShoppers />
-            <MobileFooter />
           </>
         ) : (
           <>
@@ -1341,9 +1163,9 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
             <DesktopEvidence />
             <DesktopBrands />
             <DesktopShoppers />
-            <DesktopFooter />
           </>
         )}
+        <SiteFooter dark={dark} />
       </div>
     </ThemeCtx.Provider>
   );

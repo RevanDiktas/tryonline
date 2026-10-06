@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { SharedNav, NavCta, AuthAwareSignInLink } from '@/components/redesign/SharedNav';
 import { useIsMobile } from '@/components/redesign/useIsMobile';
+import { siteLinks } from '@/components/redesign/siteLinks';
+import { SiteFooter } from '@/components/redesign/SiteFooter';
 
 const PAL = {
   light: {
@@ -36,62 +38,197 @@ const mockPassport = {
   measurements: { chest: 98, waist: 78, hips: 92 },
 };
 
-function ProductPanel({ C, mobile, onTryOn }: { C: Palette; mobile: boolean; onTryOn: () => void }) {
+// The second product has no 3D garment, so the store button reads "Find my size" and opens
+// the real size card. The card is hosted the way the Shopify block hosts it
+// (shopify_app/.../tryon-size.js): a full-screen transparent frame, READY -> PRODUCT + OPEN.
+// No shop is passed, so nothing is tracked against a brand.
+const SIZE_FINDER_URL = 'https://tryon.global/size-finder.html';
+const SIZE_PRODUCT = {
+  name: 'Black T-shirt',
+  brand: 'TryOn demo',
+  price: '€29.00',
+  image: '/redesign/originals-black-tshirt.png',
+  // The card loads from tryon.global and only shows https images.
+  cardImage: 'https://tryon.global/redesign/originals-black-tshirt.png',
+  sizes: ['XS', 'S', 'M', 'L', 'XL'],
+  soldOut: ['L'],
+};
+const sizeFinderSrc = () => {
+  const q = new URLSearchParams({
+    product_name: SIZE_PRODUCT.name,
+    brand_name: SIZE_PRODUCT.brand,
+    product_type: 'T-shirt',
+    sizes: SIZE_PRODUCT.sizes.join(','),
+    sold_out: SIZE_PRODUCT.soldOut.join(','),
+    product_image: SIZE_PRODUCT.cardImage,
+  });
+  return `${SIZE_FINDER_URL}?${q.toString()}`;
+};
+
+type SizeResult = { size: string; score?: number };
+
+/** Mounts the size card on first use and keeps it mounted, so a second open is instant and
+ *  remembers the answers. */
+function useSizeFinder() {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const readyRef = useRef(false);
+  const wantOpenRef = useRef(false);
+  const [mounted, setMounted] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [result, setResult] = useState<SizeResult | null>(null);
+  const [added, setAdded] = useState<string | null>(null);
+
+  const post = useCallback((type: string, payload?: unknown) => {
+    const w = frameRef.current?.contentWindow;
+    if (w) w.postMessage(payload ? { type, payload } : { type }, '*');
+  }, []);
+  const sendProduct = useCallback(() => {
+    post('TRYON_SIZE_PRODUCT', {
+      sizes: SIZE_PRODUCT.sizes.map((label) => ({ label, available: !SIZE_PRODUCT.soldOut.includes(label) })),
+      image: SIZE_PRODUCT.cardImage,
+      hasTryon: false,
+    });
+  }, [post]);
+
+  const show = useCallback(() => {
+    setOpen(true);
+    if (!readyRef.current) { wantOpenRef.current = true; setMounted(true); return; }
+    sendProduct();
+    post('TRYON_SIZE_OPEN');
+  }, [post, sendProduct]);
+
+  const close = useCallback((fromCard: boolean) => {
+    setOpen(false);
+    if (!fromCard) post('TRYON_SIZE_HIDE');
+  }, [post]);
+
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (!frameRef.current || e.source !== frameRef.current.contentWindow || !e.data) return;
+      const d = e.data as { type?: string; payload?: { size?: string; score?: number } };
+      if (d.type === 'TRYON_SIZE_READY') {
+        readyRef.current = true;
+        setReady(true);
+        sendProduct();
+        if (wantOpenRef.current) { wantOpenRef.current = false; post('TRYON_SIZE_OPEN'); }
+      }
+      if (d.type === 'TRYON_SIZE_RESULT' && d.payload?.size) setResult({ size: d.payload.size, score: d.payload.score });
+      if (d.type === 'TRYON_SIZE_CLOSE') setOpen(false);
+      if (d.type === 'TRYON_SIZE_ADD_TO_CART' && d.payload?.size) { setAdded(d.payload.size); setOpen(false); }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [post, sendProduct]);
+
+  // The page behind the sheet must not scroll while it is open.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  const frame = mounted ? (
+    <>
+      <iframe
+        ref={frameRef}
+        src={sizeFinderSrc()}
+        title="Find your size"
+        style={{
+          display: open ? 'block' : 'none',
+          position: 'fixed', inset: 0, width: '100%', height: '100%',
+          zIndex: 90, border: 'none', background: 'transparent',
+        }}
+      />
+      {open && !ready && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 89, background: 'rgba(10,10,10,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <button
+            onClick={() => close(false)}
+            aria-label="Close"
+            style={{
+              position: 'fixed', top: 12, right: 12, zIndex: 91, width: 36, height: 36,
+              borderRadius: 18, border: 'none', background: '#FFFFFF', color: '#0A0A0A',
+              fontSize: 18, cursor: 'pointer',
+            }}
+          >×</button>
+          <div className="animate-spin" style={{
+            width: 28, height: 28, borderRadius: 14,
+            border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#FFFFFF',
+          }} />
+        </div>
+      )}
+    </>
+  ) : null;
+
+  return { show, frame, result, added };
+}
+
+function ProductCard({
+  C, mobile, eyebrow, name, price, image, cta, onCta, note, status,
+}: {
+  C: Palette; mobile: boolean;
+  eyebrow: string; name: string; price: string; image: string;
+  cta: string; onCta: () => void; note: string; status?: React.ReactNode;
+}) {
   return (
     <div style={{
-      width: mobile ? '100%' : 380,
-      padding: mobile ? '24px 20px 32px' : '48px 40px',
-      display: 'flex', flexDirection: 'column', justifyContent: 'center',
-      background: C.bg, color: C.ink,
-      borderLeft: mobile ? 'none' : `1px solid ${C.line}`,
-      borderTop: mobile ? `1px solid ${C.line}` : 'none',
+      border: `1px solid ${C.line}`, borderRadius: 16, background: C.bg, overflow: 'hidden',
+      display: 'flex', flexDirection: 'column', minWidth: 0,
     }}>
       <div style={{
-        fontFamily: 'var(--display)', fontSize: 11, color: C.mute, fontWeight: 600,
-        letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10,
-      }}>Originals</div>
-      <h1 style={{
-        fontFamily: 'var(--display)', fontSize: mobile ? 24 : 26, fontWeight: 700,
-        letterSpacing: '-0.02em', lineHeight: 1.15, margin: '0 0 10px',
-        color: C.ink,
-      }}>Zipup</h1>
-      <div style={{
-        fontFamily: 'var(--display)', fontSize: mobile ? 18 : 20, fontWeight: 500,
-        color: C.ink, marginBottom: mobile ? 20 : 28,
-      }}>€49.00</div>
-
-      <button
-        onClick={onTryOn}
-        style={{
-          background: '#0040FF', color: '#FFFFFF',
-          padding: mobile ? '14px 20px' : '15px 24px', border: 'none', borderRadius: 9999,
-          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
-          letterSpacing: '-0.005em', cursor: 'pointer',
-          marginBottom: 10,
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-          transition: 'background 180ms cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
-      >Try on <span>→</span></button>
-
-      <button
-        style={{
-          background: 'transparent', color: C.ink,
-          padding: mobile ? '13px 20px' : '14px 24px', border: `1px solid ${C.ink}`, borderRadius: 9999,
-          fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500,
-          letterSpacing: '-0.005em', cursor: 'pointer',
-        }}
-      >Add to cart</button>
-
-      <div style={{
-        marginTop: 22, padding: '12px 14px',
-        border: `1px solid ${C.line}`, background: C.surface,
+        background: '#FFFFFF', borderBottom: `1px solid ${C.line}`,
+        height: mobile ? 300 : 420,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, boxSizing: 'border-box',
       }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={image} alt={name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', mixBlendMode: 'multiply' }} />
+      </div>
+      <div style={{ padding: mobile ? '20px 18px 22px' : '24px 26px 28px', display: 'flex', flexDirection: 'column', flex: 1 }}>
         <div style={{
-          fontFamily: 'var(--display)', fontSize: 12.5, fontWeight: 600, color: C.ink, marginBottom: 4,
-        }}>Demo mode</div>
+          fontFamily: 'var(--mono)', fontSize: 11, color: C.mute, fontWeight: 500,
+          letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8,
+        }}>{eyebrow}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 18 }}>
+          <h2 style={{
+            fontFamily: 'var(--display)', fontSize: mobile ? 22 : 24, fontWeight: 700,
+            letterSpacing: '-0.02em', lineHeight: 1.15, margin: 0, color: C.ink,
+          }}>{name}</h2>
+          <div style={{ fontFamily: 'var(--display)', fontSize: 17, fontWeight: 500, color: C.ink, whiteSpace: 'nowrap' }}>{price}</div>
+        </div>
+
+        <button
+          onClick={onCta}
+          style={{
+            background: '#0040FF', color: '#FFFFFF',
+            padding: '14px 22px', border: 'none', borderRadius: 9999,
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
+            letterSpacing: '-0.005em', cursor: 'pointer', marginBottom: 10,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+          }}
+        >{cta} <span>→</span></button>
+        <button
+          style={{
+            background: 'transparent', color: C.ink,
+            padding: '13px 22px', border: `1px solid ${C.ink}`, borderRadius: 9999,
+            fontFamily: 'var(--display)', fontSize: 14, fontWeight: 500,
+            letterSpacing: '-0.005em', cursor: 'pointer',
+          }}
+        >Add to cart</button>
+
+        {status && (
+          <div style={{
+            marginTop: 12, fontFamily: 'var(--display)', fontSize: 13, color: C.ink, fontWeight: 500,
+          }}>{status}</div>
+        )}
+
         <div style={{
-          fontFamily: 'var(--display)', fontSize: 11.5, color: C.mute, lineHeight: 1.5,
-        }}>Using sample fit passport data. No signup needed.</div>
+          marginTop: 'auto', paddingTop: 18,
+          fontFamily: 'var(--display)', fontSize: 12.5, color: C.mute, lineHeight: 1.5,
+        }}>{note}</div>
       </div>
     </div>
   );
@@ -285,15 +422,13 @@ export default function DemoPage() {
   const C = dark ? PAL.dark : PAL.light;
   const mobile = useIsMobile();
   const [showWidget, setShowWidget] = useState(false);
+  const sizeFinder = useSizeFinder();
 
-  const links = [
-    { label: 'Home', href: '/' },
-    { label: 'Pricing', href: '/pricing' },
-    { label: 'Demo', href: '/demo', active: true },
-    { label: 'Shoppers', href: '/signup' },
-    { label: 'Deck', href: '/pitch-deck.html', external: true },
-    { label: 'Book a call', href: '/book' },
-  ];
+  const sizeStatus = sizeFinder.added
+    ? <>Added size {sizeFinder.added} to the cart. (Demo, nothing is ordered.)</>
+    : sizeFinder.result
+      ? <>Your size: {sizeFinder.result.size}{sizeFinder.result.score != null ? ` · ${sizeFinder.result.score}% match` : ''}</>
+      : null;
 
   return (
     <div className="tryon-redesign-root" style={{
@@ -302,46 +437,64 @@ export default function DemoPage() {
     }}>
       <SharedNav
         dark={dark}
-        links={links}
+        links={siteLinks('/demo')}
         rightSlot={mobile ? (
-          <NavCta dark={dark} label="Contact us" onClick={() => { window.location.href = 'mailto:revan@tryon.global?subject=Tryon%20for%20my%20brand'; }} />
+          <NavCta dark={dark} label="Start free" href="/start" />
         ) : (
           <>
             <AuthAwareSignInLink dark={dark} />
-            <NavCta dark={dark} label="Contact us" onClick={() => { window.location.href = 'mailto:revan@tryon.global?subject=Tryon%20for%20my%20brand'; }} />
+            <NavCta dark={dark} label="Start free →" href="/start" />
           </>
         )}
       />
 
-      <div style={{
-        display: 'flex',
-        flexDirection: mobile ? 'column' : 'row',
-        minHeight: 'calc(100vh - 60px)',
+      <section style={{
+        padding: mobile ? '32px 18px 48px' : '64px 32px 88px',
+        borderBottom: `1px solid ${C.line}`,
       }}>
-        <div style={{
-          flex: 1,
-          background: C.surface,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: mobile ? '24px 20px' : 32,
-          borderRight: mobile ? 'none' : `1px solid ${C.line}`,
-          minHeight: mobile ? 320 : 'auto',
-        }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/redesign/zipup_demo.webp"
-            alt="Originals Zipup"
-            style={{
-              maxWidth: mobile ? '60%' : 360,
-              maxHeight: mobile ? 280 : 480,
-              width: 'auto', height: 'auto',
-              objectFit: 'contain', display: 'block',
-            }}
-          />
+        <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+          <div style={{
+            fontFamily: 'var(--mono)', fontSize: mobile ? 11 : 12, color: C.mute,
+            letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500, marginBottom: mobile ? 14 : 18,
+          }}>Demo store</div>
+          <h1 style={{
+            fontFamily: 'var(--display)', fontWeight: 800,
+            fontSize: mobile ? 34 : 'clamp(40px, 4.6vw, 60px)',
+            letterSpacing: '-0.03em', lineHeight: 1.02, margin: '0 0 14px',
+          }}>One button. Two products.</h1>
+          <p style={{
+            fontFamily: 'var(--display)', fontSize: mobile ? 15 : 17, lineHeight: 1.55,
+            color: C.mute, maxWidth: 620, margin: `0 0 ${mobile ? 28 : 40}px`,
+          }}>
+            The same TryOn block on both product pages. This zip-up has a 3D garment, so the button reads Try On. The T-shirt does not, so it reads Find my size. No account needed for either.
+          </p>
+
+          <div style={{
+            display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 16 : 24,
+          }}>
+            <ProductCard
+              C={C} mobile={mobile}
+              eyebrow="Has a 3D garment"
+              name="Zipup" price="€49.00" image="/redesign/zipup_demo.webp"
+              cta="Try on" onCta={() => setShowWidget(true)}
+              note="Demo mode: the avatar uses a sample fit passport."
+            />
+            <ProductCard
+              C={C} mobile={mobile}
+              eyebrow="No 3D garment"
+              name={SIZE_PRODUCT.name} price={SIZE_PRODUCT.price} image={SIZE_PRODUCT.image}
+              cta="Find my size" onCta={sizeFinder.show}
+              status={sizeStatus}
+              note={`The real size card: seven questions, every size scored. Size ${SIZE_PRODUCT.soldOut.join(', ')} is sold out here, so you can see the next best.`}
+            />
+          </div>
         </div>
-        <ProductPanel C={C} mobile={mobile} onTryOn={() => setShowWidget(true)} />
-      </div>
+      </section>
+
+      <SiteFooter dark={dark} />
 
       {showWidget && <Widget C={C} mobile={mobile} onClose={() => setShowWidget(false)} />}
+      {sizeFinder.frame}
     </div>
   );
 }

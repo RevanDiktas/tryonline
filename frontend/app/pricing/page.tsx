@@ -5,40 +5,10 @@ import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
 import { SharedNav, NavCta, AuthAwareSignInLink } from '@/components/redesign/SharedNav';
 import { useIsMobile } from '@/components/redesign/useIsMobile';
-
-const PAL = {
-  light: {
-    bg: '#FAFAF8', surface: '#FFFFFF',
-    ink: '#0A0A0A', mute: '#6E6E6E',
-    line: 'rgba(10,10,10,0.10)',
-    cardBg: '#0A0A0A', cardInk: '#FAFAF8',
-    cardLine: 'rgba(255,255,255,0.14)', cardMute: '#9A9A9A',
-  },
-  dark: {
-    bg: '#0A0A0A', surface: '#121212',
-    ink: '#F2F1EC', mute: '#8A8A8A',
-    line: 'rgba(255,255,255,0.10)',
-    cardBg: '#F2F1EC', cardInk: '#0A0A0A',
-    cardLine: 'rgba(0,0,0,0.10)', cardMute: '#6E6E6E',
-  },
-};
-type Palette = typeof PAL.light;
-
-const headingStyle = (px: string): React.CSSProperties => ({
-  fontFamily: 'var(--display)',
-  fontWeight: 700,
-  fontSize: px,
-  letterSpacing: '-0.022em',
-  lineHeight: 1.04,
-  margin: 0,
-});
-
-const bodyStyle: React.CSSProperties = {
-  fontFamily: 'var(--display)',
-  fontWeight: 400,
-  fontSize: 16,
-  lineHeight: 1.6,
-};
+import { siteLinks } from '@/components/redesign/siteLinks';
+import { SiteFooter } from '@/components/redesign/SiteFooter';
+import { PAL, type Palette, headingStyle, bodyStyle } from '@/components/redesign/marketing';
+import { PLANS, TRIAL_DAYS } from '@/lib/plans';
 
 function Hero({ C }: { C: Palette }) {
   return (
@@ -48,17 +18,17 @@ function Hero({ C }: { C: Palette }) {
           ...headingStyle('clamp(44px, 5.5vw, 80px)'),
           maxWidth: 1100, marginBottom: 18,
         }}>
-          Pay less than the cost of one return per day.
+          Start free. Pay when it pays.
         </h1>
         <p style={{
           ...bodyStyle, fontSize: 17, color: C.mute, maxWidth: 720, marginBottom: 8,
         }}>
-          Tryon costs less than the value of returns we save you. Every paid tier prices at well under 30% of the dollar value of returns prevented at conservative assumptions.
+          Find my size is free on every product, for good. Upgrade for measured sizes, full analytics and 3D try-on. Every paid plan starts with a {TRIAL_DAYS}-day free trial.
         </p>
         <p style={{
           ...bodyStyle, fontSize: 13.5, color: C.mute, maxWidth: 720,
         }}>
-          Built for Shopify Plus fashion brands losing six figures a month to returns. Pricing in USD, billed monthly. EU and UK customers invoiced in EUR or GBP.
+          For Shopify fashion brands of every size. Prices in USD, billed monthly through Shopify. Cancel any time.
         </p>
       </div>
     </section>
@@ -67,76 +37,16 @@ function Hero({ C }: { C: Palette }) {
 
 function Tiers({ C }: { C: Palette }) {
   const router = useRouter();
-  const tiers: {
-    name: string; price: string; priceSub?: string; setup?: string;
-    headline: string; features: string[]; cta: string; ctaHref: string; highlight?: boolean;
-  }[] = [
-    {
-      name: 'Free', price: '$0', priceSub: 'forever',
-      headline: 'Try it on your store in 10 minutes.',
-      features: [
-        '200 try-on sessions per month',
-        '3 garment uploads',
-        'Branded Tryon widget',
-        'Basic funnel analytics',
-        '10-minute install',
-        'Community support',
-      ],
-      cta: 'Book a call', ctaHref: '/book',
-    },
-    {
-      name: 'Studio', price: '$149', priceSub: 'per month',
-      headline: 'For SMB Shopify brands testing 3D try-on.',
-      features: [
-        '2,500 try-on sessions per month',
-        '15 garment uploads',
-        'Custom-branded widget',
-        'Size recommendation v1',
-        'Basic analytics dashboard',
-        'Email support, 48h SLA',
-      ],
-      cta: 'Book a call', ctaHref: '/book',
-    },
-    {
-      name: 'Brand', price: '$2,490', priceSub: 'per month',
-      setup: '+ $1,500 one-time setup',
-      highlight: true,
-      headline: 'For Shopify Plus brands losing $5K to $50K a month to returns.',
-      features: [
-        '40,000 try-on sessions per month',
-        '100 garment uploads',
-        'Full cohort + funnel analytics',
-        'Size recommendation v2 with confidence',
-        'Return-reason export',
-        'Cohort dashboards + A/B testing',
-        'Shopify webhook integration',
-        'Slack support, 24h SLA',
-      ],
-      cta: 'Book a call', ctaHref: '/book',
-    },
-    {
-      name: 'Scale', price: 'Custom', priceSub: 'talk to us',
-      setup: '+ $7,500 onboarding',
-      headline: 'For multi-brand houses and DTC scale-ups losing six figures a month.',
-      features: [
-        '250,000 sessions included',
-        'Unlimited garment uploads',
-        'Multi-brand workspace',
-        'Custom avatar pipeline',
-        'Stressmaps and dedicated CSM',
-        'SLA and security documentation',
-        'Custom analytics export',
-        'White-label option',
-      ],
-      cta: 'Book a call', ctaHref: '/book',
-    },
-  ];
+  const tiers = PLANS.map((p) => ({
+    name: p.name, price: p.price, priceSub: p.period, setup: p.limits,
+    headline: p.pitch, features: p.features, cta: p.cta.label, ctaHref: p.cta.href, highlight: p.highlight,
+  }));
 
   return (
     <section style={{ padding: '24px 20px 64px', background: C.bg }}>
       <div style={{
         maxWidth: 1280, margin: '0 auto',
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 0,
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 0,
         border: `1px solid ${C.line}`, background: C.surface,
       }}>
         {tiers.map((t, i) => {
@@ -162,7 +72,7 @@ function Tiers({ C }: { C: Palette }) {
                       background: ink, color: bg,
                       padding: '2px 8px',
                       fontSize: 10, fontWeight: 700,
-                    }}>Most popular</span>
+                    }}>Recommended</span>
                   )}
                 </div>
                 <div style={{
@@ -229,20 +139,20 @@ function Tiers({ C }: { C: Palette }) {
 function ROI({ C }: { C: Palette }) {
   const cases = [
     { label: 'Starting brand', orders: '600 orders / month', aov: '$70 AOV', returnRate: '25% return rate',
-      monthlyReturnCost: '$2,700', ourPrice: '$149', monthlySavings: '$540', tier: 'Studio' },
-    { label: 'Mid-tier brand', orders: '10,000 orders / month', aov: '$115 AOV', returnRate: '30% return rate',
-      monthlyReturnCost: '$96,000', ourPrice: '$2,490', monthlySavings: '$19,200', tier: 'Brand' },
-    { label: 'Scale brand', orders: '80,000 orders / month', aov: '$160 AOV', returnRate: '35% return rate',
-      monthlyReturnCost: '$1,260,000', ourPrice: 'Custom', monthlySavings: '$252,000', tier: 'Scale' },
+      monthlyReturnCost: '$2,700', ourPrice: '$29', monthlySavings: '$540', tier: 'Size Pro' },
+    { label: 'Growing brand', orders: '3,000 orders / month', aov: '$90 AOV', returnRate: '30% return rate',
+      monthlyReturnCost: '$20,250', ourPrice: '$109', monthlySavings: '$4,050', tier: 'Try-On' },
+    { label: 'Established brand', orders: '10,000 orders / month', aov: '$115 AOV', returnRate: '30% return rate',
+      monthlyReturnCost: '$96,000', ourPrice: '$279', monthlySavings: '$19,200', tier: 'Scale' },
   ];
   return (
     <section style={{ background: C.surface, color: C.ink, padding: '64px 20px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <h2 style={{ ...headingStyle('clamp(32px, 4.5vw, 64px)'), marginBottom: 14, maxWidth: 1000 }}>
-          Three brands. Every ROI positive.
+          What one fewer return is worth.
         </h2>
         <p style={{ ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48 }}>
-          Industry data, conservative assumptions. Capital One Shopping puts apparel return rates at 25 to 40 percent. Zeta and Optoro put cost-per-return at $18 to $45. Conservative virtual try-on return reduction sits at 20 percent.
+          Industry data, conservative assumptions. Capital One Shopping puts apparel return rates at 25 to 40 percent. Zeta and Optoro put cost-per-return at $18 to $45. The examples assume TryOn removes 20 percent of returns; your dashboard shows your real number.
         </p>
 
         <div style={{
@@ -274,7 +184,7 @@ function ROI({ C }: { C: Palette }) {
               </div>
               <div>
                 <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4 }}>
-                  Monthly savings with Tryon
+                  Monthly savings with TryOn
                 </div>
                 <div style={{
                   fontFamily: 'var(--display)', fontSize: 28, fontWeight: 700,
@@ -313,25 +223,25 @@ function ROI({ C }: { C: Palette }) {
 
 function FAQ({ C }: { C: Palette }) {
   const items = [
-    { q: 'How do you count a try-on session?',
-      a: 'A session is one shopper opening the Tryon widget on a product page and rendering at least one garment. Page views without a render do not count. Session counts reset monthly.' },
-    { q: 'Do you charge per garment upload?',
-      a: 'No. Garment counts are tier limits, not per-garment fees. We do not believe in per-asset pricing because it punishes brands for adding inventory.' },
-    { q: 'What happens if I exceed my tier limit?',
-      a: 'Free and Studio hard-cap at the monthly limit. Brand and Scale tiers allow overage at $0.04 per session billed monthly in arrears. We will warn you at 80 and 100 percent before charging.' },
-    { q: 'How long does Shopify integration take?',
-      a: '8 lines of code in your theme. Brands usually go live in under a week. Studio and above get a Slack channel with our team during install.' },
-    { q: 'Are you EU Digital Product Passport ready?',
-      a: 'Every garment we render is structurally a 3D digital twin. We are aligning our metadata schema with the ESPR textile delegated act due late 2026 / early 2027 so brands can plug Tryon assets into their DPP records when the regulation lands.' },
-    { q: 'Can I try before I commit?',
-      a: 'Yes. Free tier is forever-free, no credit card. 200 sessions per month is enough to validate the experience on your store before upgrading.' },
+    { q: 'Do I need 3D garments to start?',
+      a: 'No. Find my size works on every product with sizes from the first minute, using the product and the shopper\'s answers. Try On appears on the products we have made in 3D for you; that is included in the Try-On and Scale plans.' },
+    { q: 'How does it get on my store?',
+      a: 'Install TryOn, then add the TryOn block next to your size picker in your Shopify theme editor. No code. One block covers every product: it reads Try On on products in 3D and Find my size on the rest.' },
+    { q: 'What counts as a size recommendation?',
+      a: 'One shopper getting their size on one product. Opening the same product again does not count again. The Free plan includes 500 a month; every paid plan is unlimited.' },
+    { q: 'What is an avatar, and why is it counted?',
+      a: 'A shopper\'s own 3D body, built once from one photo and reused on every garment they try. Building it runs on GPUs, so plans include a monthly number and extra avatars cost a few cents. Trying on more garments never costs more.' },
+    { q: 'How am I billed?',
+      a: `Through your Shopify bill, monthly. Free stays free. Every paid plan starts with a ${TRIAL_DAYS}-day free trial, and you can change or cancel any time from Shopify.` },
+    { q: 'What about shopper privacy?',
+      a: 'Shoppers get a size without an account; their answers stay on their device. The optional fit passport photo is used only to measure them and build their avatar. See our privacy policy for details.' },
   ];
   const [open, setOpen] = useState<number | null>(0);
   return (
     <section style={{ background: C.bg, color: C.ink, padding: '64px 20px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 880, margin: '0 auto' }}>
         <h2 style={{ ...headingStyle('clamp(28px, 4vw, 56px)'), marginBottom: 28 }}>
-          Questions we get from brands.
+          Questions brands ask.
         </h2>
         <div style={{ border: `1px solid ${C.line}`, background: C.surface }}>
           {items.map((it, i) => {
@@ -383,14 +293,14 @@ function FinalCTA({ C }: { C: Palette }) {
     <section style={{ background: C.surface, color: C.ink, padding: '64px 20px 80px', borderTop: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center' }}>
         <h2 style={{ ...headingStyle('clamp(36px, 4.5vw, 64px)'), marginBottom: 14 }}>
-          Start with a call. Live within a week.
+          Live on your store today.
         </h2>
         <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, margin: '0 auto 28px', maxWidth: 540 }}>
-          Every plan starts with a short call. We install the widget on your store with you, you watch the conversion data, and if it is not better than your last marketing spend, you do not pay.
+          Tell us your store and we send your install link within one working day. Find my size is live on every product from the first minute; upgrade when the numbers say so.
         </p>
         <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
           <button
-            onClick={() => { router.push('/book'); }}
+            onClick={() => { router.push('/start'); }}
             style={{
               background: '#0040FF', color: '#FFFFFF', border: 'none',
               padding: '14px 24px',
@@ -400,9 +310,9 @@ function FinalCTA({ C }: { C: Palette }) {
               borderRadius: 9999,
               transition: 'background 180ms cubic-bezier(0.4, 0, 0.2, 1)',
             }}
-          >Book a call <span>→</span></button>
+          >Start free <span>→</span></button>
           <button
-            onClick={() => router.push('/demo')}
+            onClick={() => router.push('/book')}
             style={{
               background: 'transparent', color: C.ink,
               border: `1px solid ${C.ink}`,
@@ -412,49 +322,7 @@ function FinalCTA({ C }: { C: Palette }) {
               display: 'inline-flex', alignItems: 'center', gap: 10,
               borderRadius: 9999,
             }}
-          >Try the demo</button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function Footer({ C }: { C: Palette }) {
-  const router = useRouter();
-  return (
-    <section style={{ background: C.bg, color: C.ink, padding: '36px 32px 44px' }}>
-      <div style={{
-        maxWidth: 1280, margin: '0 auto',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 24,
-        flexWrap: 'wrap',
-      }}>
-        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={C.ink === '#0A0A0A' ? '/redesign/wordmark.png' : '/redesign/wordmark-white.png'}
-            alt="Tryon"
-            style={{ height: 14, width: 'auto', display: 'block' }}
-          />
-          <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
-            Tryon, 2026
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 22 }}>
-          {[
-            { label: 'Home', href: '/' },
-            { label: 'Demo', href: '/demo' },
-            { label: 'Privacy', href: '/privacy' },
-            { label: 'Sign in', href: '/login' },
-          ].map(it => (
-            <button
-              key={it.label}
-              onClick={() => router.push(it.href)}
-              style={{
-                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500,
-              }}
-            >{it.label}</button>
-          ))}
+          >Book a call</button>
         </div>
       </div>
     </section>
@@ -468,13 +336,7 @@ export default function PricingPage() {
   const router = useRouter();
   const mobile = useIsMobile();
 
-  const links = [
-    { label: 'Home', href: '/' },
-    { label: 'Pricing', href: '/pricing', active: true },
-    { label: 'Demo', href: '/demo' },
-    { label: 'Shoppers', href: '/signup' },
-    { label: 'Deck', href: '/pitch-deck.html', external: true },
-  ];
+  const links = siteLinks('/pricing');
 
   return (
     <div className="tryon-redesign-root" style={{
@@ -485,11 +347,11 @@ export default function PricingPage() {
         dark={dark}
         links={links}
         rightSlot={mobile ? (
-          <NavCta dark={dark} label="Book a call" onClick={() => { router.push('/book'); }} />
+          <NavCta dark={dark} label="Start free" onClick={() => { router.push('/start'); }} />
         ) : (
           <>
             <AuthAwareSignInLink dark={dark} />
-            <NavCta dark={dark} label="Book a call →" onClick={() => { router.push('/book'); }} />
+            <NavCta dark={dark} label="Start free →" onClick={() => { router.push('/start'); }} />
           </>
         )}
       />
@@ -498,7 +360,7 @@ export default function PricingPage() {
       <ROI C={C} />
       <FAQ C={C} />
       <FinalCTA C={C} />
-      <Footer C={C} />
+      <SiteFooter dark={dark} />
     </div>
   );
 }
