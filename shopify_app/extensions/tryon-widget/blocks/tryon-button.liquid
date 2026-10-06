@@ -360,6 +360,12 @@
       }
 
       function refreshCartAfterAdd(addResp) {
+        // Baseline (Pixel Union, La Fam) re-reads the cart and opens its drawer when told.
+        var theme = window.Shopify && window.Shopify.theme;
+        if ((theme && theme.schema_name === 'Baseline') || (document.querySelector('[data-cart-drawer]') && window.Spruce)) {
+          document.body.dispatchEvent(new CustomEvent('baseline:modalcart:afteradditem'));
+          return;
+        }
         var themeCart = document.querySelector('cart-drawer') || document.querySelector('cart-notification');
 
         if (themeCart && typeof themeCart.renderContents === 'function' && addResp && addResp.sections) {

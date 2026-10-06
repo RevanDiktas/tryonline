@@ -218,7 +218,21 @@
       .catch(function () {});
   }
 
+  /* Themes that re-read the cart themselves when told (their own count, drawer and opening). Baseline (Pixel Union, La Fam) listens for this event. True when such a theme took over. */
+  function themeRefreshesItself() {
+    var t = window.Shopify && window.Shopify.theme;
+    if ((t && t.schema_name === 'Baseline') || (document.querySelector('[data-cart-drawer]') && window.Spruce)) {
+      document.body.dispatchEvent(new CustomEvent('baseline:modalcart:afteradditem'));
+      return true;
+    }
+    return false;
+  }
+
   function refreshCartUI(addResponse) {
+    if (themeRefreshesItself()) {
+      window.dispatchEvent(new CustomEvent('tryon:cart_added', { detail: addResponse }));
+      return;
+    }
     var themeCart = document.querySelector('cart-drawer') || document.querySelector('cart-notification');
     if (themeCart && typeof themeCart.renderContents === 'function' && addResponse && addResponse.sections) {
       /* Dawn (and compatible themes): use the theme’s own update so drawer and icon update like native Add to cart */

@@ -209,6 +209,7 @@
         .then(function (r) { return r.json(); })
         .then(function (data) {
           if (!data.items) { console.warn('[TryOn size] Cart rejected:', data.message || data.description || ''); return; }
+          if (themeRefreshesItself()) return;
           if (themeCart && typeof themeCart.renderContents === 'function' && data.sections) {
             try { themeCart.renderContents(data); document.dispatchEvent(new CustomEvent('cart:refresh', { detail: data })); return; } catch (e) {}
           }
@@ -265,6 +266,16 @@
       if ('requestIdleCallback' in window) window.requestIdleCallback(preload, { timeout: 3000 });
       else setTimeout(preload, 1500);
     }
+  }
+
+  // Themes that re-read the cart themselves when told (their own count, drawer and opening). Baseline (Pixel Union, La Fam) listens for this event. True when such a theme took over.
+  function themeRefreshesItself() {
+    var t = window.Shopify && window.Shopify.theme;
+    if ((t && t.schema_name === 'Baseline') || (document.querySelector('[data-cart-drawer]') && window.Spruce)) {
+      document.body.dispatchEvent(new CustomEvent('baseline:modalcart:afteradditem'));
+      return true;
+    }
+    return false;
   }
 
   window.TryonSizeCard = { mount: mount };
