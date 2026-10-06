@@ -18,12 +18,12 @@ function Hero({ C }: { C: Palette }) {
           ...headingStyle('clamp(44px, 5.5vw, 80px)'),
           maxWidth: 1100, marginBottom: 18,
         }}>
-          Start free. Pay when it pays.
+          Try it free for {TRIAL_DAYS} days.
         </h1>
         <p style={{
           ...bodyStyle, fontSize: 17, color: C.mute, maxWidth: 720, marginBottom: 8,
         }}>
-          Find my size is free on every product, for good. Upgrade for measured sizes, full analytics and 3D try-on. Every paid plan starts with a {TRIAL_DAYS}-day free trial.
+          Find my size on every product from $29 a month. Add 3D try-on when you are ready. Every plan starts with a {TRIAL_DAYS}-day free trial. Try-ons are never limited.
         </p>
         <p style={{
           ...bodyStyle, fontSize: 13.5, color: C.mute, maxWidth: 720,
@@ -38,7 +38,7 @@ function Hero({ C }: { C: Palette }) {
 function Tiers({ C }: { C: Palette }) {
   const router = useRouter();
   const tiers = PLANS.map((p) => ({
-    name: p.name, price: p.price, priceSub: p.period, setup: p.limits,
+    name: p.name, price: p.price, priceSub: p.period, setup: p.setup ? `${p.setup}. ${p.limits}` : p.limits,
     headline: p.pitch, features: p.features, cta: p.cta.label, ctaHref: p.cta.href, highlight: p.highlight,
   }));
 
@@ -224,15 +224,15 @@ function ROI({ C }: { C: Palette }) {
 function FAQ({ C }: { C: Palette }) {
   const items = [
     { q: 'Do I need 3D garments to start?',
-      a: 'No. Find my size works on every product with sizes from the first minute, using the product and the shopper\'s answers. Try On appears on the products we have made in 3D for you; that is included in the Try-On and Scale plans.' },
+      a: 'No. Find my size works on every product with sizes from the first minute, using the product and the shopper\'s answers. Try On appears on the products we have made in 3D for you; that is included in the Try-On, Scale and Brand plans.' },
     { q: 'How does it get on my store?',
       a: 'Install TryOn, then add the TryOn block next to your size picker in your Shopify theme editor. No code. One block covers every product: it reads Try On on products in 3D and Find my size on the rest.' },
-    { q: 'What counts as a size recommendation?',
-      a: 'One shopper getting their size on one product. Opening the same product again does not count again. The Free plan includes 500 a month; every paid plan is unlimited.' },
-    { q: 'What is an avatar, and why is it counted?',
-      a: 'A shopper\'s own 3D body, built once from one photo and reused on every garment they try. Building it runs on GPUs, so plans include a monthly number and extra avatars cost a few cents. Trying on more garments never costs more.' },
+    { q: 'Is Find my size limited?',
+      a: 'No. Find my size is unlimited on every plan, on every product.' },
+    { q: 'Are try-ons limited?',
+      a: 'Never. A busy weekend should not cost you more, so try-ons and shopper avatars are unlimited on every plan with 3D. Plans differ in how many of your garments we make in 3D: 40 on Try-On, 200 on Scale, 400 and up on Brand.' },
     { q: 'How am I billed?',
-      a: `Through your Shopify bill, monthly. Free stays free. Every paid plan starts with a ${TRIAL_DAYS}-day free trial, and you can change or cancel any time from Shopify.` },
+      a: `Through your Shopify bill, monthly. Every plan starts with a ${TRIAL_DAYS}-day free trial, and you can change or cancel any time from Shopify. Brand adds a one-time setup fee.` },
     { q: 'What about shopper privacy?',
       a: 'Shoppers get a size without an account; their answers stay on their device. The optional fit passport photo is used only to measure them and build their avatar. See our privacy policy for details.' },
   ];
@@ -296,7 +296,7 @@ function FinalCTA({ C }: { C: Palette }) {
           Live on your store today.
         </h2>
         <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, margin: '0 auto 28px', maxWidth: 540 }}>
-          Tell us your store and we send your install link within one working day. Find my size is live on every product from the first minute; upgrade when the numbers say so.
+          Tell us your store and we send your install link within one working day. Find my size is live on every product from the first minute; free for the first 30 days.
         </p>
         <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
           <button
@@ -310,7 +310,7 @@ function FinalCTA({ C }: { C: Palette }) {
               borderRadius: 9999,
               transition: 'background 180ms cubic-bezier(0.4, 0, 0.2, 1)',
             }}
-          >Start free <span>→</span></button>
+          >Start free trial <span>→</span></button>
           <button
             onClick={() => router.push('/book')}
             style={{
@@ -347,11 +347,11 @@ export default function PricingPage() {
         dark={dark}
         links={links}
         rightSlot={mobile ? (
-          <NavCta dark={dark} label="Start free" onClick={() => { router.push('/start'); }} />
+          <NavCta dark={dark} label="Free trial" onClick={() => { router.push('/start'); }} />
         ) : (
           <>
             <AuthAwareSignInLink dark={dark} />
-            <NavCta dark={dark} label="Start free →" onClick={() => { router.push('/start'); }} />
+            <NavCta dark={dark} label="Start free trial →" onClick={() => { router.push('/start'); }} />
           </>
         )}
       />

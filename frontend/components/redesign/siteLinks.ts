@@ -15,7 +15,7 @@ export const FOOTER_LINKS = [
   { label: 'Product', href: '/product' },
   { label: 'Pricing', href: '/pricing' },
   { label: 'Demo', href: '/demo' },
-  { label: 'Start free', href: '/start' },
+  { label: 'Free trial', href: '/start' },
   { label: 'Sign in', href: '/login' },
   { label: 'Privacy', href: '/privacy' },
 ];

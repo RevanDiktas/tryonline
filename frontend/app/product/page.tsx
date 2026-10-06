@@ -9,7 +9,7 @@ import { siteLinks } from '@/components/redesign/siteLinks';
 import { SiteFooter } from '@/components/redesign/SiteFooter';
 import LiveSizeDemo from '@/components/redesign/LiveSizeDemo';
 import { PAL, type Palette, headingStyle, bodyStyle, eyebrowStyle, pillButton, ACCENT } from '@/components/redesign/marketing';
-import { PLANS, TRIAL_DAYS } from '@/lib/plans';
+import { PLANS, TRIAL_DAYS, ENTRY_PLAN } from '@/lib/plans';
 
 /* /product: what TryOn is. One button on the store; Find my size on every product, Try On on
    products in 3D; the fit passport as the upgrade; what the brand gets. With the real card live. */
@@ -34,11 +34,11 @@ function Hero({ C, mobile }: { C: Palette; mobile: boolean }) {
             On products you have in 3D, the same button reads <b style={{ color: C.ink }}>Try On</b>: they see your clothes on their own body.
           </p>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button type="button" style={pillButton('primary', C)} onClick={() => router.push('/start')}>Start free <span>→</span></button>
+            <button type="button" style={pillButton('primary', C)} onClick={() => router.push('/start')}>Start free trial <span>→</span></button>
             <button type="button" style={pillButton('ghost', C)} onClick={() => router.push('/demo')}>See the 3D try-on</button>
           </div>
           <p style={{ ...bodyStyle, fontSize: 13, color: C.mute, marginTop: 16 }}>
-            Free forever plan. Paid plans from {PLANS.find((p) => p.id === 'size_pro')?.price}/month with a {TRIAL_DAYS}-day trial.
+            From {ENTRY_PLAN.price} a month, with a {TRIAL_DAYS}-day free trial on every plan.
           </p>
         </div>
         <LiveSizeDemo C={C} />
@@ -172,12 +172,12 @@ function ForBrands({ C, mobile }: { C: Palette; mobile: boolean }) {
 
 function PlansStrip({ C, mobile }: { C: Palette; mobile: boolean }) {
   const router = useRouter();
-  const shown = PLANS.filter((p) => p.id !== 'enterprise');
+  const shown = PLANS;
   return (
     <section style={{ background: C.bg, color: C.ink, padding: mobile ? '56px 20px' : '88px 32px', borderBottom: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1180, margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap', marginBottom: 32 }}>
-          <h2 style={{ ...headingStyle('clamp(30px, 4vw, 52px)'), maxWidth: 680 }}>Start free. Upgrade when it pays.</h2>
+          <h2 style={{ ...headingStyle('clamp(30px, 4vw, 52px)'), maxWidth: 680 }}>Try it free for {TRIAL_DAYS} days.</h2>
           <button type="button" style={pillButton('ghost', C)} onClick={() => router.push('/pricing')}>All plans <span>→</span></button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : `repeat(${shown.length}, 1fr)`, border: `1px solid ${C.line}`, background: C.surface }}>
@@ -189,7 +189,7 @@ function PlansStrip({ C, mobile }: { C: Palette; mobile: boolean }) {
             }}>
               <div style={{ fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, color: C.mute }}>{p.name}</div>
               <div style={{ fontFamily: 'var(--display)', fontSize: 32, fontWeight: 700, letterSpacing: '-0.025em', margin: '6px 0 4px' }}>{p.price}</div>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 12.5, color: C.mute }}>{p.period}</div>
+              <div style={{ fontFamily: 'var(--display)', fontSize: 12.5, color: C.mute }}>{p.period}{p.setup ? ` ${p.setup}` : ''}</div>
               <p style={{ ...bodyStyle, fontSize: 13.5, margin: '12px 0 0', color: C.ink, opacity: 0.8 }}>{p.pitch}</p>
             </div>
           ))}
@@ -206,10 +206,10 @@ function FinalCTA({ C }: { C: Palette }) {
       <div style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center' }}>
         <h2 style={{ ...headingStyle('clamp(34px, 4.5vw, 60px)'), marginBottom: 14 }}>Put it on your store today.</h2>
         <p style={{ ...bodyStyle, color: C.mute, margin: '0 auto 28px', maxWidth: 520 }}>
-          Tell us your store. We send your install link within one working day, and Find my size is live on every product from the first minute.
+          Tell us your store. We send your install link within one working day, and Find my size is live on every product from the first minute. Free for 30 days.
         </p>
         <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <button type="button" style={pillButton('primary', C)} onClick={() => router.push('/start')}>Start free <span>→</span></button>
+          <button type="button" style={pillButton('primary', C)} onClick={() => router.push('/start')}>Start free trial <span>→</span></button>
           <button type="button" style={pillButton('ghost', C)} onClick={() => router.push('/book')}>Book a call</button>
         </div>
       </div>
@@ -229,11 +229,11 @@ export default function ProductPage() {
         dark={dark}
         links={siteLinks('/product')}
         rightSlot={mobile ? (
-          <NavCta dark={dark} label="Start free" onClick={() => router.push('/start')} />
+          <NavCta dark={dark} label="Free trial" onClick={() => router.push('/start')} />
         ) : (
           <>
             <AuthAwareSignInLink dark={dark} />
-            <NavCta dark={dark} label="Start free →" onClick={() => router.push('/start')} />
+            <NavCta dark={dark} label="Start free trial →" onClick={() => router.push('/start')} />
           </>
         )}
       />

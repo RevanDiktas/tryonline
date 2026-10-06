@@ -439,11 +439,11 @@ export default function DemoPage() {
         dark={dark}
         links={siteLinks('/demo')}
         rightSlot={mobile ? (
-          <NavCta dark={dark} label="Start free" href="/start" />
+          <NavCta dark={dark} label="Free trial" href="/start" />
         ) : (
           <>
             <AuthAwareSignInLink dark={dark} />
-            <NavCta dark={dark} label="Start free →" href="/start" />
+            <NavCta dark={dark} label="Start free trial →" href="/start" />
           </>
         )}
       />

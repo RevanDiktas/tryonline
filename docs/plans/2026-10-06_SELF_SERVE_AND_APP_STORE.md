@@ -34,12 +34,14 @@ Shopify's billing. 3D garments stay a done-for-you service inside the Try-On and
 - Result: the reviewer only needs a Shopify login to the dev store. §4.5.5 can no longer fail on our side.
 
 ### Step 2: billing through Shopify (Managed Pricing)
-- Plans in the Partner dashboard as Managed Pricing: Free, Size Pro $29, Try-On $109 (+ usage
-  for extra avatars), Scale $279; 30-day trial. Shopify hosts the plan page; we read the active
-  subscription and gate features.
-- Gates: Free = 500 size recommendations a month + badge; Size Pro = unlimited + fit passport +
-  full analytics; Try-On/Scale = 3D try-on, avatar allowance, garment limits.
-- Usage charges for extra avatars via a capped usage line item.
+- Plans in the Partner dashboard as Managed Pricing: Size Pro $29 (Find my size, no 3D),
+  Try-On $109 (40 garments in 3D), Scale $279 (200), Brand $2,490 + $1,500 setup (400+).
+  No free plan, a 30-day trial on every plan. Nothing metered: try-ons and avatars unlimited.
+  Shopify hosts the plan page; we read the active subscription and gate features.
+- Gates: Size Pro = Find my size + fit passport + analytics (no Try On button); Try-On/Scale/Brand =
+  3D try-on with garment limits (40 / 200 / 400+). No usage charges. Brand's setup fee as a one-time charge.
+- Watch GPU cost: unlimited try-ons are affordable because drapes are cached per body cluster x
+  garment x size; track drape cost per brand on the dashboard.
 - The listing text and plan names match the app exactly (the §1.2.1 failure).
 
 ### Step 3: guided setup inside Shopify admin
@@ -79,5 +81,4 @@ About 1.5-2 weeks of work, then Shopify's review time.
 
 ## Decisions for Revan
 1. Find and share the last reviewer email (after the 2026-05-09 resubmit).
-2. Free plan badge: show "Powered by TryOn" on Free (helps growth) — yes/no.
-3. Orders/refunds webhooks on the public app: file the data request now, or launch without return analytics and add it later.
+2. Orders/refunds webhooks on the public app: file the data request now, or launch without return analytics and add it later.

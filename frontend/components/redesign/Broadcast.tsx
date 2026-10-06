@@ -210,7 +210,7 @@ function DesktopHero() {
                 transition: 'all 180ms cubic-bezier(0.4, 0, 0.2, 1)',
               }}
             >
-              Start free <span>→</span>
+              Start free trial <span>→</span>
             </button>
             <button
               onClick={() => router.push('/product')}
@@ -287,8 +287,8 @@ function DesktopBrandShopperTiles() {
           <PathTile
             tag="For brands"
             title="I am a brand"
-            sub="One button for every product, added in your Shopify theme editor. Free to start."
-            cta="Start free →"
+            sub="One button for every product, added in your Shopify theme editor. 30-day free trial."
+            cta="Start free trial →"
             onClick={() => router.push('/start')}
             C={C}
           />
@@ -458,7 +458,7 @@ function PlanSummary({ mobile }: { mobile?: boolean }) {
         ))}
       </div>
       <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute, marginTop: 12 }}>
-        {TRIAL_DAYS}-day free trial on every paid plan. Prices in USD.
+        {TRIAL_DAYS}-day free trial on every plan. Prices in USD.
       </div>
     </div>
   );
@@ -501,7 +501,7 @@ function DesktopBrands() {
         <p style={{
           ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48,
         }}>
-          Built for Shopify fashion brands. Start free with Find my size on every product. Add measured sizes and 3D try-on when you are ready.
+          Built for Shopify fashion brands. Start with Find my size on every product, from $29 a month with a 30-day free trial. Add 3D try-on when you are ready.
         </p>
 
         <div style={{ marginBottom: 56 }}>
@@ -700,7 +700,7 @@ function MobileHero() {
             cursor: 'pointer',
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
-        >Start free <span>→</span></button>
+        >Start free trial <span>→</span></button>
         <button
           onClick={() => router.push('/product')}
           style={{
@@ -738,8 +738,8 @@ function MobileBrandShopperTiles() {
         <PathTile
           tag="For brands"
           title="I am a brand"
-          sub="One button for every product. Free to start."
-          cta="Start free →"
+          sub="One button for every product. 30-day free trial."
+          cta="Start free trial →"
           onClick={() => router.push('/start')}
           C={C}
         />
@@ -797,7 +797,7 @@ function MobileBrands() {
         Pay less than one return per day.
       </h2>
       <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginBottom: 22 }}>
-        Start free with Find my size on every product. Add measured sizes and 3D try-on when you are ready.
+        Start with Find my size on every product, from $29 a month with a 30-day free trial. Add 3D try-on when you are ready.
       </p>
 
       <div style={{ marginBottom: 28 }}>
@@ -1138,11 +1138,11 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
           dark={dark}
           links={siteLinks('/')}
           rightSlot={mobile ? (
-            <NavCta dark={dark} label="Start free" href="/start" />
+            <NavCta dark={dark} label="Free trial" href="/start" />
           ) : (
             <>
               <AuthAwareSignInLink dark={dark} />
-              <NavCta dark={dark} label="Start free →" href="/start" />
+              <NavCta dark={dark} label="Start free trial →" href="/start" />
             </>
           )}
         />

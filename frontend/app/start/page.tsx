@@ -21,7 +21,7 @@ const field: React.CSSProperties = {
 function StartForm({ C }: { C: Palette }) {
   const params = useSearchParams();
   const router = useRouter();
-  const initialPlan = (PLANS.find((p) => p.id === params.get('plan'))?.id || 'free') as Plan['id'];
+  const initialPlan = (PLANS.find((p) => p.id === params.get('plan'))?.id || 'size_pro') as Plan['id'];
   const [plan, setPlan] = useState<Plan['id']>(initialPlan);
   const [form, setForm] = useState({ brand_name: '', contact_name: '', email: '', shop_domain: '', notes: '' });
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
@@ -78,7 +78,7 @@ function StartForm({ C }: { C: Palette }) {
             }}>
               <input type="radio" name="plan" value={p.id} checked={plan === p.id} onChange={() => setPlan(p.id)} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }} />
               <span style={{ fontFamily: 'var(--display)', fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
-              <span style={{ fontFamily: 'var(--display)', fontSize: 12.5, color: C.mute }}>{p.price}{p.period && p.price !== 'Custom' ? (p.period === 'forever' ? '' : '/mo') : ''}</span>
+              <span style={{ fontFamily: 'var(--display)', fontSize: 12.5, color: C.mute }}>{p.price}/mo{p.setup ? ' + setup' : ''}</span>
             </label>
           ))}
         </div>
@@ -103,7 +103,7 @@ function StartForm({ C }: { C: Palette }) {
         {state === 'sending' ? 'Sending…' : <>Send me my install link <span>→</span></>}
       </button>
       <p style={{ ...bodyStyle, fontSize: 12.5, color: C.mute, margin: 0 }}>
-        Free stays free. Paid plans start with a {TRIAL_DAYS}-day trial and are billed through Shopify.
+        Every plan starts with a {TRIAL_DAYS}-day free trial and is billed through Shopify. Cancel any time.
       </p>
     </form>
   );
@@ -125,7 +125,7 @@ export default function StartPage() {
       <section style={{ padding: mobile ? '36px 20px 64px' : '72px 32px 96px' }}>
         <div style={{ maxWidth: 1120, margin: '0 auto', display: 'grid', gap: mobile ? 36 : 72, gridTemplateColumns: mobile ? '1fr' : '0.95fr 1.05fr', alignItems: 'start' }}>
           <div>
-            <p style={eyebrowStyle(C)}>Start free · For Shopify brands</p>
+            <p style={eyebrowStyle(C)}>{TRIAL_DAYS}-day free trial · For Shopify brands</p>
             <h1 style={{ ...headingStyle('clamp(40px, 5.4vw, 72px)'), marginBottom: 18 }}>Get TryOn on your store.</h1>
             <p style={{ ...bodyStyle, fontSize: 17.5, color: C.mute, maxWidth: 460, marginBottom: 32 }}>
               Your shoppers get their size on every product in 30 seconds. You get fewer returns, and the data to prove it.
