@@ -15,7 +15,8 @@
     colours, corner radius and font instead.
   - A signed-in shopper sees "Your size: L" on every product without clicking.
   - If the Try On block is on the same page, the card offers the avatar try-on as a next step.
-  - Optional (off by default): a quick estimate for shoppers without an account.
+  - No login wall: a shopper without an account answers seven quick questions for an estimate,
+    then is offered the fit passport (one photo) for their measured size.
 
   All Liquid values reach the script through the JSON config below; the script itself has no
   Liquid in it, so it can be read (and tested) as plain JavaScript.
@@ -101,7 +102,6 @@
       "productImage": {{ product.featured_image | image_url: width: 400 | json }},
       "brandName": {{ shop.name | json }},
       "returnUrl": {{ shop.url | append: product.url | json }},
-      "guest": {{ block.settings.allow_guest | json }},
       "look": {{ block.settings.card_look | json }},
       "variantId": {{ variant.id | json }},
       "country": {{ country_code | json }},
@@ -129,20 +129,13 @@
   "settings": [
     {
       "type": "paragraph",
-      "content": "Shoppers sign in to their Tryon account and get their size from their measurements, on every product with sizes. No 3D garment needed. Place it next to the size picker."
+      "content": "Shoppers get their size in about 30 seconds without an account, and their measured size once they have a Tryon fit passport. Works on every product with sizes, no 3D garment needed. Place it next to the size picker."
     },
     {
       "type": "text",
       "id": "button_label",
       "label": "Label",
       "default": "Find my size"
-    },
-    {
-      "type": "checkbox",
-      "id": "allow_guest",
-      "label": "Offer a quick estimate without an account",
-      "info": "From height, weight and build. Less accurate than measured sizes; shown as an estimate.",
-      "default": false
     },
     {
       "type": "text",

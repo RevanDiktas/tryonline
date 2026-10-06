@@ -109,7 +109,6 @@
         country: cfg.country || '', brand_name: cfg.brandName || '', return_url: cfg.returnUrl || '',
         product_image: imageNow(), v: VERSION
       });
-      if (cfg.guest) p.set('guest', '1');
       if (cfg.look === 'store') {
         var look = storeLook();
         p.set('look', 'store');

@@ -20,9 +20,16 @@
   So a shopper who starts here can open the Try On widget later and their avatar is already
   there, and the other way round.
 
-  The whole onboarding happens in this card, on the store's product page:
+  No login wall first. A shopper without a measured fit passport answers seven quick
+  questions (who for, height, weight, age, two body-shape questions, fit) and gets an
+  estimated size straight away (size-estimator.js). The result then offers the fit passport:
+  "Try On" on products with a 3D garment, "Create my fit passport" on the others. Both lead
+  into the same onboarding, in this card, on the store's product page:
 
-      gate -> account (create or sign in) -> details -> photo -> building -> size
+      quiz -> estimate -> gate -> account (create or sign in) -> details (prefilled) -> photo -> building -> measured size
+
+  A shopper who is already measured skips the questions: their measured size, and in the
+  Try On flow (flow=tryon) straight to the avatar.
 
   - The card holds its own Supabase session (email + password, straight against the auth
     REST API; keys come from /widget-config). Upload, create and status are the same
@@ -36,9 +43,6 @@
 
   No 3D garment is needed for a size, so this answers on every product with sizes, in every
   store with the block: one account, every store.
-
-  Optional, off by default (?guest=1): a quick estimate from height, weight and build for
-  shoppers without an account (size-estimator.js).
 
   Look: Tryon's own (Inter, black on white), the same as the Try On widget. A store can ask
   for its own colours instead (?look=store plus ink / paper / btn_bg / btn_fg / radius / font).
@@ -167,6 +171,54 @@
   .chip.out { color: var(--mute); text-decoration: line-through; }
   .note { margin: 0 0 14px; font-size: 13px; padding: 10px 12px; background: var(--soft); border-radius: var(--radius); }
   .secondary { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  .result-cta { margin-top: 10px; }
+  .cta-note { margin: 6px 0 0; font-size: 12px; color: var(--mute); text-align: center; }
+
+  /* Account icon: sign in to an existing Tryon account at any point. */
+  .acct { position: absolute; top: 10px; right: 52px; width: 40px; height: 40px; border: 0; background: none; color: inherit; cursor: pointer; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .acct:hover { background: var(--soft); }
+  .acct:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Quiz: one question at a time; answered ones fold into editable rows. */
+  .answers { list-style: none; margin: 0 0 4px; padding: 0; border-top: 1px solid var(--line); }
+  .answers > li { border-bottom: 1px solid var(--line); }
+  .done { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; font-size: 14px; }
+  .done button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 0; border-radius: var(--radius); background: var(--soft); color: inherit; font: inherit; font-size: 14px; cursor: pointer; }
+  .done button:focus-visible, .pick:focus-visible, .fig:focus-visible, .ok:focus-visible, .units-seg button:focus-visible, .rl:focus-visible, .fit-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ask { padding: 14px 0 16px; }
+  .ask-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
+  .ask h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  .ask .sub { margin: -6px 0 12px; font-size: 13px; color: var(--mute); }
+  .units-seg { display: inline-grid; grid-auto-flow: column; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; flex: none; }
+  .units-seg button { min-width: 44px; min-height: 36px; border: 0; border-left: 1px solid var(--line); background: none; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+  .units-seg button:first-child { border-left: 0; }
+  .units-seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  .picks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pick { min-height: 48px; border: 1px solid var(--ink); border-radius: var(--radius); background: var(--paper); color: inherit; font: inherit; font-size: 15px; cursor: pointer; }
+  .pick[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  .figs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .fig { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); color: color-mix(in srgb, var(--ink) 45%, transparent); font: inherit; font-size: 13px; cursor: pointer; }
+  .fig svg { width: 100%; max-width: 92px; height: auto; }
+  .fig span { color: var(--ink); }
+  .fig[aria-pressed="true"] { border: 2px solid var(--ink); color: var(--ink); padding: 9px 3px 7px; }
+  .ok { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 14px 0 0 auto; min-height: 48px; padding: 0 18px; border: 1px solid var(--btn-bg); border-radius: var(--btn-radius); background: var(--btn-bg); color: var(--btn-fg); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; }
+  .ok::after { content: ''; width: 12px; height: 7px; border: solid currentColor; border-width: 0 0 2px 2px; transform: translateY(-2px) rotate(-45deg); }
+  /* Ruler: drag (or arrow keys) under a fixed needle. */
+  .ruler { position: relative; margin: 6px 0 0; }
+  .rl-val { text-align: center; font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; margin: 0 0 4px; }
+  .rl { overflow-x: scroll; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x mandatory; cursor: grab; touch-action: pan-x; border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); }
+  .rl::-webkit-scrollbar { display: none; }
+  .rl.dragging { cursor: grabbing; scroll-snap-type: none; }
+  .rl-track { display: inline-flex; padding: 0 calc(50% - 5px); height: 64px; align-items: flex-end; }
+  .rl-track span { position: relative; flex: none; width: 10px; height: 100%; scroll-snap-align: center; }
+  .rl-track span::before { content: ''; position: absolute; left: 4.5px; bottom: 0; width: 1px; height: 14px; background: color-mix(in srgb, var(--ink) 45%, transparent); }
+  .rl-track span.mj::before { height: 26px; background: var(--ink); }
+  .rl-track b { position: absolute; bottom: 30px; left: 5px; transform: translateX(-50%); font-size: 12px; font-weight: 500; color: var(--mute); user-select: none; }
+  .rl-needle { position: absolute; left: calc(50% - 1.5px); bottom: 2px; width: 3px; height: 36px; background: var(--ink); border-radius: 2px; pointer-events: none; }
+  .fit-range { width: 100%; margin: 10px 0 4px; accent-color: var(--ink); height: 32px; }
+  .fit-labels { display: flex; justify-content: space-between; font-size: 13px; color: var(--mute); }
+  .fit-labels span[data-on] { color: var(--ink); font-weight: 600; }
+  .quiz-foot { display: flex; justify-content: space-between; gap: 12px; margin: 12px 0 0; font-size: 12px; color: var(--mute); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -174,6 +226,9 @@
 <div class="scrim" id="scrim">
   <div class="card" role="dialog" aria-modal="true" aria-label="Find your size" id="card" tabindex="-1">
     <button class="close" id="close" type="button" aria-label="Close">&#x2715;</button>
+    <button class="acct" id="acct" type="button" aria-label="Sign in to my Tryon account" title="My Tryon account">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="10.2"/><circle cx="12" cy="9.5" r="3.6"/><path d="M5.3 19.1c1.5-2.6 3.9-3.9 6.7-3.9s5.2 1.3 6.7 3.9"/></svg>
+    </button>
     <p class="brand" id="brand">TRYON</p>
     <div class="item" id="item" hidden>
       <img id="item-img" alt="">
@@ -181,15 +236,15 @@
     </div>
 
     <section id="gate" hidden>
-      <h1>Find your size</h1>
+      <h1>Your fit passport</h1>
       <p class="product" data-product></p>
-      <p class="lede">One photo gives us your measurements. After that you get your size on every product here, and in every other store that uses Tryon.</p>
+      <p class="lede">One photo measures you: your exact size on every product here and in every other store that uses Tryon, and your own 3D avatar.</p>
       <div class="stack">
         <button class="primary" type="button" data-go="signup">Create my account</button>
         <button class="ghost" type="button" data-go="signin">Sign in</button>
       </div>
       <p class="wait" id="gate-wait" hidden></p>
-      <p class="foot" id="guest-line" hidden><button class="link" type="button" id="guest">Get a quick estimate without an account</button></p>
+      <p class="foot" id="gate-back-line" hidden><button class="link" type="button" id="gate-back">Back to my size</button></p>
     </section>
 
     <form id="signup" novalidate hidden>
@@ -309,34 +364,12 @@
       <p class="foot"><button class="link" type="button" data-signout>Use another account</button></p>
     </section>
 
-    <form id="form" novalidate hidden>
-      <h1>A quick estimate</h1>
+    <section id="quiz" hidden>
+      <h1>Find your size in 30 seconds</h1>
       <p class="product" data-product></p>
-      <fieldset>
-        <legend>I shop for</legend>
-        <div class="seg" id="gender">
-          <label><input type="radio" name="gender" value="female">Women</label>
-          <label><input type="radio" name="gender" value="male">Men</label>
-        </div>
-      </fieldset>
-      <div class="row" data-metric>
-        <div><label class="lab" for="h-cm">Height</label><div class="field u"><input id="h-cm" inputmode="decimal" autocomplete="off"><span class="unit">cm</span></div></div>
-        <div><label class="lab" for="w-kg">Weight</label><div class="field u"><input id="w-kg" inputmode="decimal" autocomplete="off"><span class="unit">kg</span></div></div>
-        <div><label class="lab" for="age">Age <span class="opt">optional</span></label><div class="field"><input id="age" inputmode="numeric" autocomplete="off"></div></div>
-      </div>
-      <div class="row" data-imperial hidden>
-        <div><label class="lab" for="h-ft">Height</label><div class="pair">
-          <div class="field u"><input id="h-ft" inputmode="numeric" autocomplete="off" aria-label="Feet"><span class="unit">ft</span></div>
-          <div class="field u"><input id="h-in" inputmode="numeric" autocomplete="off" aria-label="Inches"><span class="unit">in</span></div></div></div>
-        <div><label class="lab" for="w-lb">Weight</label><div class="field u"><input id="w-lb" inputmode="decimal" autocomplete="off"><span class="unit">lb</span></div></div>
-        <div><label class="lab" for="age-i">Age <span class="opt">optional</span></label><div class="field"><input id="age-i" inputmode="numeric" autocomplete="off"></div></div>
-      </div>
-      <div class="units"><button type="button" class="link" data-units-toggle>Use feet and pounds</button></div>
-      <div id="shape"></div>
-      <p class="error" data-error role="alert"></p>
-      <button class="primary" type="submit">Show my estimate</button>
-      <p class="foot">These answers stay on this device. <button class="link" type="button" id="back-to-gate">Use my account instead</button></p>
-    </form>
+      <ol class="answers" id="answers"></ol>
+      <p class="quiz-foot"><span>No account needed. Your answers stay on this device.</span><span id="quiz-step"></span></p>
+    </section>
 
     <section id="result" hidden>
       <p class="lead" id="result-lead">Your size</p>
@@ -355,6 +388,10 @@
       </fieldset>
       <p class="note" id="result-note" hidden></p>
       <button class="primary" type="button" id="add"></button>
+      <div class="result-cta" id="passport-wrap" hidden>
+        <button class="ghost" type="button" id="passport"></button>
+        <p class="cta-note" id="passport-note"></p>
+      </div>
       <div class="secondary">
         <button class="link" type="button" id="tryon" hidden>See it on your own body</button>
         <button class="link" type="button" id="edit" hidden>Change my answers</button>
@@ -379,7 +416,7 @@ const JOB_KEY = 'tryon_size_job';                // a build in flight: { job_id,
 const LINK_TOKEN_KEY = 'tryon_link_token';       // shared with the Try On widget
 const LINK_TOKEN_TTL_MS = 60 * 60 * 1000;
 const BUILD_GIVE_UP_MS = 25 * 60 * 1000;
-const VIEWS = ['gate', 'signup', 'signin', 'details', 'photo', 'building', 'failed', 'nomeas', 'form', 'result'];
+const VIEWS = ['gate', 'signup', 'signin', 'details', 'photo', 'building', 'failed', 'nomeas', 'quiz', 'result'];
 
 // ---- look: Tryon's own by default; a store's colours only when the block asks (look=store) ----
 if (q.get('look') === 'store') {
@@ -415,7 +452,6 @@ const cfg = {
   brandName: q.get('brand_name') || '',
   returnUrl: httpsUrl(q.get('return_url')) || httpsUrl(document.referrer),
   country: (q.get('country') || '').toUpperCase() || null,
-  guestAllowed: q.get('guest') === '1',
 };
 let session = readJson(SESSION_KEY);             // { access_token, refresh_token, expires_at, user_id, email }
 // Signed-in shopper: this card's session, else the sign-in redirect (?user_id=), else the id
@@ -444,6 +480,10 @@ const flow = q.get('flow') === 'tryon' ? 'tryon' : 'size';
 // they get the size screen instead of bouncing between the two.
 let measuredHere = false;
 let handedOff = false;
+// The shopper asked for the fit passport (result's Try On / Create my fit passport, or a new
+// account): a signed-in shopper without measurements goes on to details and photo instead of
+// back to their estimate.
+let wantPassport = false;
 let sessionId = null;                            // analytics session (tryon_sessions row)
 let sessionPromise = null;
 let last = null;
@@ -471,7 +511,6 @@ function setItemImage(raw) {
 $('item-img').addEventListener('error', () => { $('item').hidden = true; document.body.classList.remove('has-item'); });
 setItemImage(q.get('product_image'));
 if (silent) document.body.classList.add('silent');
-$('guest-line').hidden = !cfg.guestAllowed;
 if (flow === 'tryon') {
   document.querySelector('#gate h1').textContent = 'Try it on yourself';
   document.querySelector('#gate .lede').textContent = 'One photo gives us your measurements. You get your size, then see this on your own 3D body.';
@@ -479,6 +518,9 @@ if (flow === 'tryon') {
   $('tryon').className = 'primary';
   $('add').className = 'ghost';
   $('add').before($('tryon'));
+  $('passport').className = 'primary';
+  $('add').before($('passport-wrap'));
+  $('passport-wrap').style.margin = '0 0 10px';
   document.body.classList.add('flow-tryon');
 }
 
@@ -619,6 +661,7 @@ $('signup').addEventListener('submit', async (e) => {
     const d = await authCall('signup', { email, password: pass, data: { name, user_type: 'shopper' } });
     if (!keepSession(d)) { err.textContent = 'Check your email to confirm your account, then sign in here.'; return; }
     await ensureProfile(name);
+    wantPassport = true;
     track('size_finder_account_created');
     await route(true);
   } catch (ex) { err.textContent = ex.message; } finally { busy(btn, false); }
@@ -740,7 +783,11 @@ function setUnits(u) {
 }
 document.querySelectorAll('[data-units-toggle]').forEach((el) => el.addEventListener('click', () => setUnits(units === 'metric' ? 'imperial' : 'metric')));
 function fillDetails() {
-  const d = loadDetails() || (passport && { gender: passport.gender, height: passport.height, weight: passport.weight }) || {};
+  // Prefilled from what the shopper already told us: this account's details, its passport,
+  // else the quiz answers on this device.
+  const g = guest || readJson(GUEST_KEY);
+  const d = loadDetails() || (passport && passport.height && { gender: passport.gender, height: passport.height, weight: passport.weight })
+    || (g && { gender: g.gender, height: Math.round(g.height), weight: Math.round(g.weight), units: g.units }) || {};
   document.querySelectorAll('input[name=d-gender]').forEach((r) => { r.checked = r.value === d.gender; });
   if (d.height) { $('d-h-cm').value = d.height; const inches = d.height / 2.54; $('d-h-ft').value = Math.floor(inches / 12); $('d-h-in').value = Math.round(inches % 12); }
   if (d.weight) { $('d-w-kg').value = d.weight; $('d-w-lb').value = Math.round(d.weight / 0.45359237); }
@@ -909,7 +956,8 @@ function show(view) {
   document.querySelectorAll('[data-error]').forEach((el) => { el.textContent = ''; });
   if (view === 'nomeas') { $('nomeas-name').textContent = displayName ? ' as ' + displayName : ''; $('nomeas-note').hidden = true; $('onboard').href = siteUrl('/onboarding', { link_state: linkToken() }); }
   if (view === 'details') fillDetails();
-  if (view === 'form') fillForm();
+  if (view === 'quiz') renderQuiz();
+  if (view === 'gate') $('gate-back-line').hidden = !(guest || readJson(GUEST_KEY));
   if (view === 'signin') $('social-wait').hidden = !Object.keys(polls).length;
   $('card').scrollTop = 0;
 }
@@ -970,10 +1018,17 @@ function renderResult() {
     tape.hidden = false; measuredEl.hidden = true;
     const acc = ACCURACY[normalizeGender(guest.gender)] || ACCURACY.female;
     const a = acc[last.anchor] || acc.chest;
-    $('result-foot').textContent = `An estimate from height, weight and build, not a measurement. Estimates like this match a tape measure about ${Math.round(a[0] * 10)} times in 10. Create an account for your measured size.`;
+    $('result-foot').textContent = `An estimate from your answers, not a measurement: estimates like this match a tape measure about ${Math.round(a[0] * 10)} times in 10.`;
   }
   $('edit').hidden = last.basis !== 'estimate';
   $('tryon').hidden = !(product.hasTryon && garment.has3d && last.basis === 'measured');
+  // Estimate: the next step is the fit passport. On a product we can show in 3D it is "Try On".
+  const tryable = garment.has3d && product.hasTryon;
+  $('passport-wrap').hidden = last.basis !== 'estimate';
+  $('passport').textContent = tryable ? 'Try On' : (userId ? 'Finish my fit passport' : 'Create my fit passport');
+  $('passport-note').textContent = tryable
+    ? 'See it on your own 3D body. One photo, about 2 minutes.'
+    : 'One photo measures you: your exact size here and in every store that uses Tryon.';
   renderChips();
   return true;
 }
@@ -1005,31 +1060,43 @@ $('add').addEventListener('click', () => {
   hide(true);
 });
 $('tryon').addEventListener('click', () => { post('TRYON_SIZE_OPEN_TRYON'); hide(flow !== 'tryon'); });
-$('edit').addEventListener('click', () => show('form'));
+$('edit').addEventListener('click', () => { quizAt = 0; show('quiz'); });
+$('passport').addEventListener('click', () => {
+  wantPassport = true;
+  if (!userId) { show('gate'); return; }
+  route(true);
+});
+$('gate-back').addEventListener('click', () => { wantPassport = false; route(false); });
+$('acct').addEventListener('click', () => { if (userId) route(true); else show('signin'); });
 
 // Decide what the shopper sees. `fresh` = a visible open or a new step (tracked once).
 async function route(fresh) {
   await garmentReady;
   const visible = !silent && !document.body.classList.contains('closed');
-  if (mode === 'account') {
-    if (bodyState === 'unknown' || fresh) await loadPassport();
-    if (bodyState === 'building') { if (visible) show('building'); watchBuild(); return; }
-    if (bodyState !== 'ready') {
-      if (!visible) return;
-      if (bodyState === 'signedout') show('gate');
-      else if (bodyState === 'failed') show('failed');
-      else if (bodyState === 'none') show(session ? (loadDetails() ? 'photo' : 'details') : 'nomeas');
-      else { show('gate'); $('gate-wait').textContent = 'We could not load your measurements. Check your connection and try again.'; $('gate-wait').hidden = false; }
-      return;
-    }
+  if (bodyState === 'unknown' || fresh) await loadPassport();
+  if (bodyState === 'building') { mode = 'account'; if (visible) show('building'); watchBuild(); return; }
+  if (bodyState === 'ready') {
+    mode = 'account';
     if (flow === 'tryon' && visible && !measuredHere && !handedOff) {
       handedOff = true;
       post('TRYON_SIZE_OPEN_TRYON');
       hide(false);
       return;
     }
+  } else if (bodyState === 'failed' || bodyState === 'error' || (bodyState === 'none' && wantPassport)) {
+    mode = 'account';
+    if (!visible) return;
+    if (bodyState === 'failed') show('failed');
+    else if (bodyState === 'none') show(session ? (loadDetails() ? 'photo' : 'details') : 'nomeas');
+    else { show('gate'); $('gate-wait').textContent = 'We could not load your measurements. Check your connection and try again.'; $('gate-wait').hidden = false; }
+    return;
+  } else {
+    // Signed out, or signed in without measurements yet: the quick estimate from the quiz.
+    mode = 'guest';
+    guest = guest || readJson(GUEST_KEY);
+    if (!guest) { if (visible) show('quiz'); return; }
   }
-  if (!renderResult()) { if (visible) show(mode === 'guest' ? 'form' : 'gate'); return; }
+  if (!renderResult()) { if (visible) show(mode === 'guest' ? 'quiz' : 'gate'); return; }
   post('TRYON_SIZE_RESULT', { size: last.recommendedSize });
   if (!visible) return;
   show('result');
@@ -1039,46 +1106,266 @@ async function route(fresh) {
   }
 }
 
-// ---- optional estimate without an account ----
-function renderShape(gender) {
-  const saved = (guest && guest.gender === gender && guest.shape) || {};
-  $('shape').innerHTML = SHAPE_QUESTIONS[gender].map((sq) => `
-    <fieldset>
-      <legend>${sq.label} <span class="opt">for my height and weight</span></legend>
-      <div class="seg">${sq.options.map((o, i) => `<label><input type="radio" name="shape-${sq.id}" value="${i - 1}"${(saved[sq.id] ?? 0) === i - 1 ? ' checked' : ''}>${o}</label>`).join('')}</div>
-    </fieldset>`).join('');
+// ---- the quiz: a quick estimate without an account, one question at a time ----
+// Who for, height, weight, age, two build questions, fit. Answered questions fold into rows
+// the shopper can reopen. The answers become `guest` (stored on this device only) and feed
+// quickSize(); the fit passport is offered on the result.
+const AGE_BANDS = [['15-24', 20], ['25-34', 30], ['35-44', 40], ['45-54', 50], ['55-64', 60], ['65+', 70]];
+const FITS = [['slim', 'Tighter'], ['regular', 'Regular'], ['loose', 'Looser']];
+const LB = 0.45359237;
+const PENCIL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M16.5 3.5l4 4L8 20H4v-4z"/></svg>';
+let draft = null;     // answers so far; becomes `guest` once the last one is in
+let quizAt = 0;       // the open question
+
+function startDraft() {
+  const g = guest || readJson(GUEST_KEY);
+  draft = g ? { ...g, shape: { ...(g.shape || {}) } } : { shape: {} };
+  if (!draft.units) draft.units = units;
 }
-function fillForm() {
-  guest = guest || readJson(GUEST_KEY);
-  const g = (guest && guest.gender) || null;
-  document.querySelectorAll('input[name=gender]').forEach((r) => { r.checked = r.value === g; });
-  renderShape(g || 'female');
-  $('shape').hidden = !g;
-  if (guest) {
-    if (guest.height) { $('h-cm').value = guest.height; const inches = guest.height / 2.54; $('h-ft').value = Math.floor(inches / 12); $('h-in').value = Math.round(inches % 12); }
-    if (guest.weight) { $('w-kg').value = guest.weight; $('w-lb').value = Math.round(guest.weight / 0.45359237); }
-    if (guest.age) { $('age').value = guest.age; $('age-i').value = guest.age; }
+function quizSteps() {
+  const sqs = SHAPE_QUESTIONS[draft.gender === 'male' ? 'male' : 'female'];
+  return [
+    { id: 'gender', label: 'Shopping for', kind: 'choice', ask: 'Who are you shopping for?', options: [['female', 'Women'], ['male', 'Men']], get: () => draft.gender },
+    { id: 'height', label: 'Height', kind: 'ruler', ask: 'How tall are you?', get: () => draft.height },
+    { id: 'weight', label: 'Weight', kind: 'ruler', ask: 'What do you weigh?', get: () => draft.weight },
+    { id: 'age', label: 'Age', kind: 'choice', ask: 'How old are you?', options: AGE_BANDS.map(([b]) => [b, b]), get: () => draft.ageBand },
+    ...sqs.map((sq) => ({ id: 'shape-' + sq.id, label: sq.label, kind: 'shape', sq, ask: sq.label, sub: 'Compared with people of your height and weight.', get: () => draft.shape[sq.id] })),
+    { id: 'fit', label: 'Fit', kind: 'fit', ask: 'How do you like your clothes to fit?', get: () => draft.fit },
+  ];
+}
+const fmtHeight = (cm) => {
+  if (draft.units !== 'imperial') return Math.round(cm) + ' cm';
+  const i = Math.round(cm / 2.54);
+  return `${Math.floor(i / 12)}′${i % 12}″`;
+};
+const fmtWeight = (kg) => (draft.units === 'imperial' ? Math.round(kg / LB) + ' lb' : Math.round(kg) + ' kg');
+function answerText(st) {
+  const v = st.get();
+  if (st.id === 'gender') return v === 'male' ? 'Men' : 'Women';
+  if (st.id === 'height') return 'I am ' + fmtHeight(v);
+  if (st.id === 'weight') return 'I weigh ' + fmtWeight(v);
+  if (st.id === 'age') return 'I am ' + v;
+  if (st.kind === 'shape') return st.sq.options[v + 1];
+  return (FITS.find((f) => f[0] === v) || FITS[1])[1];
+}
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (tag === 'button') n.type = 'button';
+  if (text != null) n.textContent = text;
+  return n;
+}
+
+function renderQuiz() {
+  if (!draft) startDraft();
+  const steps = quizSteps();
+  quizAt = Math.min(Math.max(quizAt, 0), steps.length - 1);
+  const list = $('answers');
+  list.innerHTML = '';
+  steps.forEach((st, i) => {
+    const has = st.get() != null;
+    if (i !== quizAt && !has) return;
+    const li = document.createElement('li');
+    if (i === quizAt) li.appendChild(askPanel(st, i));
+    else {
+      li.className = 'done';
+      li.innerHTML = `<span>${escapeHtml(st.label)}</span><button type="button">${escapeHtml(answerText(st))} ${PENCIL}</button>`;
+      const b = li.querySelector('button');
+      b.setAttribute('aria-label', `${st.label}: ${answerText(st)}. Change`);
+      b.addEventListener('click', () => { quizAt = i; renderQuiz(); });
+    }
+    list.appendChild(li);
+  });
+  $('quiz-step').textContent = `${quizAt + 1} / ${steps.length}`;
+  const ask = list.querySelector('.ask');
+  if (ask) requestAnimationFrame(() => { ask.scrollIntoView({ block: 'nearest' }); const f = ask.querySelector('[aria-pressed="true"], .rl, .fit-range, .pick, .fig'); if (f) f.focus({ preventScroll: true }); });
+}
+// Next: the first unanswered question after this one, else any unanswered one, else done.
+function answered(i) {
+  const steps = quizSteps();
+  let next = steps.findIndex((st, j) => j > i && st.get() == null);
+  if (next < 0) next = steps.findIndex((st) => st.get() == null);
+  if (next >= 0) { quizAt = next; renderQuiz(); return; }
+  finishQuiz();
+}
+function finishQuiz() {
+  const band = AGE_BANDS.find(([b]) => b === draft.ageBand);
+  guest = {
+    gender: draft.gender, height: Math.round(draft.height), weight: Math.round(draft.weight),
+    age: band ? band[1] : null, ageBand: draft.ageBand, shape: { ...draft.shape }, units: draft.units, fit: draft.fit,
+  };
+  write(GUEST_KEY, JSON.stringify(guest));
+  if (draft.fit) { fit = draft.fit; write(FIT_KEY, fit); }
+  units = draft.units;
+  draft = null;
+  route(true);
+}
+
+function askPanel(st, i) {
+  const box = el('div', 'ask');
+  const head = el('div', 'ask-head');
+  head.appendChild(el('h2', null, st.ask));
+  box.appendChild(head);
+  if (st.sub) box.appendChild(el('p', 'sub', st.sub));
+
+  if (st.kind === 'choice') {
+    const grid = el('div', 'picks');
+    grid.setAttribute('role', 'group');
+    grid.setAttribute('aria-label', st.ask);
+    st.options.forEach(([val, text]) => {
+      const b = el('button', 'pick', text);
+      b.setAttribute('aria-pressed', String(st.get() === val));
+      b.addEventListener('click', () => {
+        if (st.id === 'gender') {
+          if (draft.gender !== val) draft.shape = {};   // the build questions differ per body
+          draft.gender = val;
+        } else draft.ageBand = val;
+        answered(i);
+      });
+      grid.appendChild(b);
+    });
+    box.appendChild(grid);
   }
-  setUnits((guest && guest.units) || units);
+
+  if (st.kind === 'shape') {
+    const grid = el('div', 'figs');
+    grid.setAttribute('role', 'group');
+    grid.setAttribute('aria-label', st.ask);
+    st.sq.options.forEach((text, k) => {
+      const level = k - 1;
+      const b = el('button', 'fig');
+      b.setAttribute('aria-pressed', String(st.get() === level));
+      b.innerHTML = figure(st.sq.target, level, draft.gender) + `<span>${escapeHtml(text)}</span>`;
+      b.addEventListener('click', () => { draft.shape[st.sq.id] = level; answered(i); });
+      grid.appendChild(b);
+    });
+    box.appendChild(grid);
+  }
+
+  if (st.kind === 'ruler') {
+    const isH = st.id === 'height';
+    const seg = el('div', 'units-seg');
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', 'Units');
+    [['metric', isH ? 'cm' : 'kg'], ['imperial', isH ? 'ft' : 'lb']].forEach(([u, t]) => {
+      const b = el('button', null, t);
+      b.setAttribute('aria-pressed', String(draft.units === u));
+      b.addEventListener('click', () => { if (draft.units !== u) { draft.units = u; renderQuiz(); } });
+      seg.appendChild(b);
+    });
+    head.appendChild(seg);
+    const male = draft.gender === 'male';
+    const cur = st.get() || (isH ? (male ? 178 : 166) : (male ? 80 : 64));
+    const imp = draft.units === 'imperial';
+    const spec = isH
+      ? (imp ? { min: 48, max: 90, major: 12, value: Math.round(cur / 2.54), tick: (v) => `${v / 12}′`, fmt: (v) => `${Math.floor(v / 12)}′${v % 12}″`, toBase: (v) => v * 2.54 }
+             : { min: 120, max: 230, major: 10, value: Math.round(cur), tick: String, fmt: (v) => v + ' cm', toBase: (v) => v })
+      : (imp ? { min: 66, max: 550, major: 10, value: Math.round(cur / LB), tick: String, fmt: (v) => v + ' lb', toBase: (v) => v * LB }
+             : { min: 30, max: 250, major: 10, value: Math.round(cur), tick: String, fmt: (v) => v + ' kg', toBase: (v) => v });
+    const wrap = el('div', 'ruler');
+    box.appendChild(wrap);
+    const ok = el('button', 'ok');
+    let picked = spec.value;
+    buildRuler(wrap, { ...spec, label: st.ask, onChange: (v) => { picked = v; ok.textContent = (isH ? 'I am ' : 'I weigh ') + spec.fmt(v); } });
+    ok.addEventListener('click', () => { draft[st.id] = spec.toBase(picked); answered(i); });
+    box.appendChild(ok);
+  }
+
+  if (st.kind === 'fit') {
+    const start = Math.max(0, FITS.findIndex((f) => f[0] === (st.get() || fit || 'regular')));
+    const range = el('input', 'fit-range');
+    Object.assign(range, { type: 'range', min: 0, max: 2, step: 1, value: start });
+    range.setAttribute('aria-label', st.ask);
+    const labels = el('div', 'fit-labels');
+    labels.innerHTML = FITS.map(([, t]) => `<span>${t}</span>`).join('');
+    const ok = el('button', 'ok');
+    const paint = () => {
+      const k = Number(range.value);
+      [...labels.children].forEach((s, j) => { if (j === k) s.setAttribute('data-on', ''); else s.removeAttribute('data-on'); });
+      range.setAttribute('aria-valuetext', FITS[k][1]);
+      ok.textContent = FITS[k][1];
+    };
+    range.addEventListener('input', paint);
+    ok.addEventListener('click', () => { draft.fit = FITS[Number(range.value)][0]; answered(i); });
+    box.append(range, labels, ok);
+    paint();
+  }
+  return box;
 }
-$('gender').addEventListener('change', (e) => { renderShape(e.target.value); $('shape').hidden = false; });
-$('guest').addEventListener('click', () => { mode = 'guest'; show('form'); });
-$('back-to-gate').addEventListener('click', () => { mode = 'account'; route(false); });
-$('form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const gender = (document.querySelector('input[name=gender]:checked') || {}).value;
-  const m = units === 'imperial' ? toMetric('imperial', $('h-ft').value, $('h-in').value, $('w-lb').value) : toMetric('metric', $('h-cm').value, null, $('w-kg').value);
-  const age = (units === 'imperial' ? $('age-i').value : $('age').value).trim();
-  const shape = {};
-  if (gender) for (const sq of SHAPE_QUESTIONS[gender]) { const c = document.querySelector(`input[name="shape-${sq.id}"]:checked`); shape[sq.id] = c ? Number(c.value) : 0; }
-  const p = { gender, height: m.height, weight: m.weight, age: age === '' ? null : Number(age), shape, units };
-  const err = !gender ? 'Choose Women or Men.' : validateInput(p);
-  if (err) { errorOf(e.currentTarget).textContent = err; return; }
-  guest = p;
-  write(GUEST_KEY, JSON.stringify(p));
-  mode = 'guest';
-  await route(true);
-});
+
+// A ruler under a fixed needle: drag or swipe it, scroll it, or use the arrow keys.
+function buildRuler(host, { min, max, major, value, tick, fmt, label, onChange }) {
+  const TICK = 10;
+  host.innerHTML = '<div class="rl-val" aria-hidden="true"></div><div class="rl" tabindex="0" role="slider"><div class="rl-track"></div></div><i class="rl-needle"></i>';
+  const rl = host.querySelector('.rl');
+  const out = host.querySelector('.rl-val');
+  let marks = '';
+  for (let v = min; v <= max; v++) marks += v % major === 0 ? `<span class="mj"><b>${tick(v)}</b></span>` : '<span></span>';
+  host.querySelector('.rl-track').innerHTML = marks;
+  rl.setAttribute('aria-label', label);
+  rl.setAttribute('aria-valuemin', min);
+  rl.setAttribute('aria-valuemax', max);
+  const clamp = (v) => Math.min(max, Math.max(min, v));
+  let cur = clamp(value);
+  const paint = () => {
+    out.textContent = fmt(cur);
+    rl.setAttribute('aria-valuenow', cur);
+    rl.setAttribute('aria-valuetext', fmt(cur));
+    onChange(cur);
+  };
+  const place = () => { rl.scrollLeft = (cur - min) * TICK; };
+  rl.addEventListener('scroll', () => {
+    const v = clamp(min + Math.round(rl.scrollLeft / TICK));
+    if (v !== cur) { cur = v; paint(); }
+  }, { passive: true });
+  rl.addEventListener('keydown', (e) => {
+    const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -10, PageUp: 10 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    cur = clamp(cur + step); place(); paint();
+  });
+  // A mouse does not drag-scroll by itself; touch and trackpads already do.
+  let drag = null;
+  rl.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    drag = { x: e.clientX, s: rl.scrollLeft };
+    rl.classList.add('dragging');
+    rl.setPointerCapture(e.pointerId);
+  });
+  rl.addEventListener('pointermove', (e) => { if (drag) rl.scrollLeft = drag.s - (e.clientX - drag.x); });
+  const end = () => { if (!drag) return; drag = null; rl.classList.remove('dragging'); place(); };
+  rl.addEventListener('pointerup', end);
+  rl.addEventListener('pointercancel', end);
+  rl.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    e.preventDefault();
+    rl.scrollLeft += e.deltaY;
+  }, { passive: false });
+  paint();
+  requestAnimationFrame(place);   // once it is laid out
+}
+
+// A plain front-view torso for the build questions; the answer moves the part asked about.
+function figure(target, level, gender) {
+  const male = gender === 'male';
+  let sh = male ? 33 : 29, ch = male ? 24 : 22, wa = male ? 20 : 16, hi = male ? 21 : 24;
+  if (target === 'chest') { sh += 3 * level; ch += 4 * level; }
+  if (target === 'waist') wa += 7 * level;
+  if (target === 'hips') hi += 5 * level;
+  const side = (s) => [[50 + s * 7, 4], [50 + s * 9, 14], [50 + s * sh, 22], [50 + s * ch, 44], [50 + s * wa, 66], [50 + s * hi, 86], [50 + s * (hi - 3), 106]];
+  const smooth = (pts) => {
+    let d = `M${pts[0]}`;
+    for (let k = 0; k < pts.length - 1; k++) {
+      const p0 = pts[k - 1] || pts[k], p1 = pts[k], p2 = pts[k + 1], p3 = pts[k + 2] || p2;
+      d += ` C${p1[0] + (p2[0] - p0[0]) / 6},${p1[1] + (p2[1] - p0[1]) / 6} ${p2[0] - (p3[0] - p1[0]) / 6},${p2[1] - (p3[1] - p1[1]) / 6} ${p2}`;
+    }
+    return d;
+  };
+  const arm = (s) => `M${50 + s * sh},22 C${50 + s * (sh + 5)},34 ${50 + s * (sh + 6)},56 ${50 + s * (sh + 4)},78`;
+  return `<svg viewBox="0 0 100 110" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <path d="${smooth(side(-1))}"/><path d="${smooth(side(1))}"/><path d="${arm(-1)}" opacity=".55"/><path d="${arm(1)}" opacity=".55"/></svg>`;
+}
+
 document.querySelectorAll('form').forEach((f) => f.addEventListener('input', () => { errorOf(f).textContent = ''; }));
 
 // ---- open / close ----
