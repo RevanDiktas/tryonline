@@ -20,6 +20,9 @@ settings = get_settings()
 # deployed before 2026-10-04 write, so carts made on those still attribute.
 TRYON_SESSION_ATTR = "_tryon_session_id"
 TRYON_SESSION_ATTRS = (TRYON_SESSION_ATTR, "tryon_session_id")
+# Cart attribute the store block sets once the widget has shown this shopper a size, so an
+# order placed with the store's own button still counts as a widget order.
+TRYON_VISITOR_ATTR = "_tryon_visitor_id"
 
 # Compliance webhook topics (Shopify mandatory for App Store)
 COMPLIANCE_TOPICS = {"customers/data_request", "customers/redact", "shop/redact"}
@@ -48,6 +51,13 @@ def _get_session_id_from_order(order: dict[str, Any]) -> str | None:
             if isinstance(p, dict) and p.get("name") in TRYON_SESSION_ATTRS:
                 v = p.get("value")
                 return str(v) if v else None
+    return None
+
+
+def _get_visitor_id_from_order(order: dict[str, Any]) -> str | None:
+    for a in order.get("note_attributes") or []:
+        if isinstance(a, dict) and a.get("name") == TRYON_VISITOR_ATTR and a.get("value"):
+            return str(a["value"])[:64]
     return None
 
 
@@ -165,6 +175,9 @@ async def shopify_orders_paid(request: Request):
     }
     if tryon_items:
         event_data["items"] = tryon_items
+    visitor_id = _get_visitor_id_from_order(order)
+    if visitor_id:
+        event_data["tryon_visitor_id"] = visitor_id
 
     # Include raw line_items for closet population + per-SKU purchase analytics
     # (product_id, title, price, variant_id, sku)

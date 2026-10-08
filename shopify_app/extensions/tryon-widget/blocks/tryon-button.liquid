@@ -181,6 +181,7 @@
   ></div>
   <style>@keyframes tryon-spin-{{ block.id }} { to { transform: rotate(360deg); } }</style>
 
+  <script src="{{ 'tryon-traffic.js' | asset_url }}" data-shop="{{ shop.permanent_domain }}" data-product="{{ product.id }}" data-base="https://tryon.global" defer></script>
   <script>
     (function() {
       var root = document.getElementById('tryon-root-{{ block.id }}');
@@ -416,6 +417,8 @@
       }
 
       btn.addEventListener('click', function() {
+        // Counted as a shopper who used the widget (conversion comparison), cart tagged.
+        try { if (window.TryonTraffic) window.TryonTraffic.used(); } catch (e) {}
         if (isOpen || mode !== 'tryon') return;
         isOpen = true;
         // Re-parent iframe + close button to <body> so position:fixed escapes any ancestor
