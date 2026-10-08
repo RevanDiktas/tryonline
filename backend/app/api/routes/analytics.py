@@ -82,8 +82,30 @@ def fetch_events(columns: str, shop: str, start_ts: str, end_ts: str, **eq: Any)
         )
         for col, val in eq.items():
             q = q.eq(col, val)
+        if "event_type" not in eq:
+            # One row per store visitor per day: only ever counted (count_events), never
+            # scanned with the widget's own events.
+            try:
+                q = q.not_.in_("event_type", list(STORE_TRAFFIC_EVENTS))
+            except AttributeError:
+                pass
         return q
     return fetch_all(make)
+
+
+STORE_TRAFFIC_EVENTS = ("store_visit", "store_widget_used")
+
+
+def count_events(shop: str, event_type: str, start_ts: str, end_ts: str) -> int:
+    """How many rows of one event type ONE shop has in [start_ts, end_ts], without reading them."""
+    r = (
+        supabase_service.client.table("analytics_events")
+        .select("id", count="exact")
+        .eq("shop_domain", shop).eq("event_type", event_type)
+        .gte("created_at", start_ts).lte("created_at", end_ts)
+        .limit(1).execute()
+    )
+    return int(getattr(r, "count", None) or 0)
 
 
 # Longest window a dashboard query may span (inclusive days). 1y + a leap day.
@@ -1691,6 +1713,124 @@ async def get_cohort_comparison(
             c.purchases >= MIN_ORDERS_FOR_COMPARISON
             and len(c.baseline_orders) >= MIN_ORDERS_FOR_COMPARISON
         ),
+    )
+    _cache[key] = result
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Conversion: shoppers who used the widget vs shoppers who did not
+# ---------------------------------------------------------------------------
+
+MIN_VISITORS_FOR_LIFT = 100   # per group, before a lift is shown as a number to trust
+
+
+class ConversionLiftResponse(BaseModel):
+    # Counted from the day the store block started reporting visits (tracking_since), so
+    # orders and visitors cover the same days. Visitors are visitor-days: one per
+    # browser per day on a product page that has our button.
+    tracking: bool = False
+    tracking_since: Optional[str] = None
+    visitors: int = 0
+    widget_visitors: int = 0
+    other_visitors: int = 0
+    orders: int = 0
+    widget_orders: int = 0
+    other_orders: int = 0
+    widget_revenue: float = 0.0
+    other_revenue: float = 0.0
+    widget_conversion_rate: Optional[float] = None
+    other_conversion_rate: Optional[float] = None
+    lift: Optional[float] = None          # widget rate / other rate - 1
+    comparable: bool = False
+    min_orders_for_comparison: int = MIN_ORDERS_FOR_COMPARISON
+    min_visitors_for_comparison: int = MIN_VISITORS_FOR_LIFT
+    note: str = (
+        "Widget = shoppers the widget showed a size to. Their orders are recognised by a tag "
+        "on the cart. Shoppers who choose to use a size tool are often keener to buy, so a "
+        "higher rate is a signal, not proof."
+    )
+
+
+def conversion_lift_numbers(
+    visitors: int, widget_visitors: int, widget_orders: int, other_orders: int,
+) -> tuple[Optional[float], Optional[float], Optional[float], bool]:
+    """(widget rate, other rate, lift, comparable) from the four counts."""
+    widget_visitors = max(widget_visitors, 0)
+    visitors = max(visitors, widget_visitors)          # someone who used it also visited
+    other_visitors = visitors - widget_visitors
+    widget_rate = widget_orders / widget_visitors if widget_visitors else None
+    other_rate = other_orders / other_visitors if other_visitors else None
+    lift = (widget_rate / other_rate - 1) if widget_rate is not None and other_rate else None
+    comparable = (
+        widget_visitors >= MIN_VISITORS_FOR_LIFT and other_visitors >= MIN_VISITORS_FOR_LIFT
+        and widget_orders >= MIN_ORDERS_FOR_COMPARISON and other_orders >= MIN_ORDERS_FOR_COMPARISON
+    )
+    return widget_rate, other_rate, lift, comparable
+
+
+@router.get("/conversion-lift", response_model=ConversionLiftResponse)
+async def get_conversion_lift(
+    start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    shop: str = Depends(get_brand_shop),
+):
+    key = _cache_key("conversion_lift", start=start, end=end, shop=shop)
+    if key in _cache:
+        return _cache[key]
+    start_d, end_d, _, _ = parse_range(start, end, 30)
+    start_dt, end_dt = _day_bounds(start_d, end_d)
+
+    first = (
+        supabase_service.client.table("analytics_events").select("created_at")
+        .eq("shop_domain", shop).eq("event_type", "store_visit")
+        .order("created_at").limit(1).execute()
+    )
+    since = parse_ts(first.data[0]["created_at"]) if first.data else None
+    if since is None or since > end_dt:
+        result = ConversionLiftResponse(tracking=False, tracking_since=since.isoformat() if since else None)
+        _cache[key] = result
+        return result
+
+    from_dt = max(start_dt, since)
+    from_ts, end_ts = from_dt.isoformat(), end_dt.isoformat()
+    visitors = count_events(shop, "store_visit", from_ts, end_ts)
+    widget_visitors = count_events(shop, "store_widget_used", from_ts, end_ts)
+
+    widget_orders: set[str] = set()
+    other_orders: set[str] = set()
+    widget_revenue = other_revenue = 0.0
+    for e in fetch_events("session_id,event_data,created_at", shop, from_ts, end_ts, event_type="purchase"):
+        ed = e.get("event_data") or {}
+        order_id = str(ed.get("order_id") or "")
+        if not order_id or order_id in widget_orders or order_id in other_orders:
+            continue
+        amount = _num(ed.get("amount")) or 0.0
+        if e.get("session_id") or ed.get("tryon_visitor_id"):
+            widget_orders.add(order_id)
+            widget_revenue += amount
+        else:
+            other_orders.add(order_id)
+            other_revenue += amount
+
+    widget_rate, other_rate, lift, comparable = conversion_lift_numbers(
+        visitors, widget_visitors, len(widget_orders), len(other_orders))
+    visitors = max(visitors, widget_visitors)
+    result = ConversionLiftResponse(
+        tracking=True,
+        tracking_since=since.isoformat(),
+        visitors=visitors,
+        widget_visitors=widget_visitors,
+        other_visitors=visitors - widget_visitors,
+        orders=len(widget_orders) + len(other_orders),
+        widget_orders=len(widget_orders),
+        other_orders=len(other_orders),
+        widget_revenue=round(widget_revenue, 2),
+        other_revenue=round(other_revenue, 2),
+        widget_conversion_rate=_r(widget_rate),
+        other_conversion_rate=_r(other_rate),
+        lift=_r(lift),
+        comparable=comparable,
     )
     _cache[key] = result
     return result

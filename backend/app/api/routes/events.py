@@ -1,7 +1,11 @@
 """
 Analytics event tracking endpoints — Category A
 """
-from fastapi import APIRouter, HTTPException, Request
+import json
+import re
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, HTTPException, Request, Response
 from slowapi import Limiter
 from app.api.rate_limit import client_key
 
@@ -70,3 +74,62 @@ async def create_tryon_session(body: CreateTryonSessionRequest):
     if not result:
         raise HTTPException(status_code=500, detail="Failed to create try-on session")
     return CreateTryonSessionResponse(session_id=result["session_id"], session_token=result["session_token"])
+
+
+# ---------------------------------------------------------------------------
+# Store traffic, for the conversion comparison.
+#
+# The store block (assets/tryon-size.js) sends one "visit" per visitor per day when a
+# product page with our button loads, and one "used" per visitor per day when the widget
+# shows that shopper a size. With paid orders (orders/paid webhook) that gives a conversion
+# rate for shoppers who used the widget and for those who did not.
+#
+# It arrives from the store's own domain via navigator.sendBeacon as text/plain, so the
+# browser needs no CORS preflight. The visitor id is a random id kept in the store's
+# localStorage: no account, no cookie, nothing personal.
+# ---------------------------------------------------------------------------
+STORE_BEACON_TYPES = {"visit": "store_visit", "used": "store_widget_used"}
+_VISITOR_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+@router.post("/store-beacon")
+@limiter.limit("30/minute")
+async def store_beacon(request: Request):
+    """Always answers 204: a beacon's response is never read, and a store page must not
+    see errors from us."""
+    done = Response(status_code=204)
+    try:
+        raw = await request.body()
+        if not raw or len(raw) > 2048:
+            return done
+        data = json.loads(raw)
+        event_type = STORE_BEACON_TYPES.get(str(data.get("t") or ""))
+        shop = str(data.get("shop") or "").strip().lower()
+        vid = str(data.get("vid") or "")
+        if not event_type or not shop or not _VISITOR_ID_RE.match(vid):
+            return done
+        # Only stores we know: this is an open endpoint.
+        if not supabase_service.get_brand_by_shopify_domain(shop):
+            return done
+        # One row per visitor per day and type, whatever the page sends.
+        day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        seen = (
+            supabase_service.client.table("analytics_events").select("id")
+            .eq("event_type", event_type).eq("shop_domain", shop)
+            .eq("event_data->>visitor_id", vid).gte("created_at", day_start.isoformat())
+            .limit(1).execute()
+        )
+        if seen.data:
+            return done
+        product_id = str(data.get("product_id") or "")[:64] or None
+        user_agent, _ip = _get_client_info(request)
+        await supabase_service.track_event(
+            event_type=event_type,
+            shop_domain=shop,
+            product_id=product_id,
+            event_data={"visitor_id": vid},
+            user_agent=user_agent,
+        )
+    except Exception as e:
+        print(f"[store-beacon] dropped: {e}")
+    return done

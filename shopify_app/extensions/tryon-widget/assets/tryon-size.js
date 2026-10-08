@@ -244,7 +244,12 @@
         // isOpen: the card reloaded itself while showing (sign-in fallback); open it again.
         if (wantOpen || isOpen) { wantOpen = false; show(); }
       }
-      if (d.type === 'TRYON_SIZE_RESULT' && d.payload) setResult(d.payload.size, d.payload.score);
+      if (d.type === 'TRYON_SIZE_RESULT' && d.payload) {
+        setResult(d.payload.size, d.payload.score);
+        // The widget showed this shopper a size: count them as a widget shopper and tag
+        // the cart, so their order counts whichever Add to cart button they use.
+        try { if (d.payload.size && window.TryonTraffic) window.TryonTraffic.used(); } catch (e3) {}
+      }
       if (d.type === 'TRYON_SIZE_PROFILE' && d.payload && d.payload.profile) {
         try { localStorage.setItem(PROFILE_KEY, JSON.stringify(d.payload.profile)); localStorage.setItem(KNOWN_KEY, '1'); } catch (e2) {}
       }

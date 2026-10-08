@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { TryonLogo } from '@/components/TryonLogo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getCurrentUser, logout, type User } from '@/lib/supabase-auth';
-import { api, getMyBrand, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse, type DwellMetrics, type DeviceMetricsResponse, type FitConfidenceResponse, type RepeatVisitorsResponse, type BodyShapeInsightsResponse, type ReturnMetricsData, type CohortComparisonData, type ReturnRiskResponse, type TimeSeriesResponse, type FitPurchaseCorrelationResponse, type SizeFinderAnalytics } from '@/lib/api';
+import { api, getMyBrand, type ConversionLift, type AnalyticsMetrics, type FitMetrics, type VelocityMetrics, type AtRiskProductsResponse, type ExplorationTrendPoint, type SizeStressItem, type RegionalSizeData, type MetricsByProductResponse, type DwellMetrics, type DeviceMetricsResponse, type FitConfidenceResponse, type RepeatVisitorsResponse, type BodyShapeInsightsResponse, type ReturnMetricsData, type CohortComparisonData, type ReturnRiskResponse, type TimeSeriesResponse, type FitPurchaseCorrelationResponse, type SizeFinderAnalytics } from '@/lib/api';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
 import { formatBucket } from '@/lib/dateBuckets';
@@ -211,6 +211,7 @@ export default function BrandDashboardPage() {
   const [timeSeries, setTimeSeries] = useState<TimeSeriesResponse | null>(null);
   const [fitPurchaseCorrelation, setFitPurchaseCorrelation] = useState<FitPurchaseCorrelationResponse | null>(null);
   const [sizeFinder, setSizeFinder] = useState<SizeFinderAnalytics | null>(null);
+  const [conversionLift, setConversionLift] = useState<ConversionLift | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   // Range lives in the URL (?range=3m) so a view can be bookmarked or shared.
@@ -267,6 +268,7 @@ export default function BrandDashboardPage() {
       () => api.getTimeSeries(params),
       () => api.getFitPurchaseCorrelation(params),
       () => api.getSizeFinderAnalytics(params),
+      () => api.getConversionLift(params),
     ];
     const results = await Promise.allSettled(calls.map((fn) => fn()));
     if (fetchId !== fetchIdRef.current) return; // superseded by a newer range/shop
@@ -304,6 +306,7 @@ export default function BrandDashboardPage() {
     setTimeSeries(val(16) as TimeSeriesResponse | null);
     setFitPurchaseCorrelation(val(17) as FitPurchaseCorrelationResponse | null);
     setSizeFinder(val(18) as SizeFinderAnalytics | null);
+    setConversionLift(val(19) as ConversionLift | null);
     setMetricsLoading(false);
   }, [metricsRange, metricsShop]);
 
@@ -551,6 +554,39 @@ export default function BrandDashboardPage() {
               <LoadingSpinner dark={dark} />
             ) : metrics ? (
               <>
+                {/* Conversion: shoppers who used the widget vs those who did not */}
+                {conversionLift && (
+                  <div className={`${panelClass} p-5`}>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-1 ${labelCl}`}>Conversion: with and without the widget</p>
+                    {!conversionLift.tracking ? (
+                      <p className={`text-xs ${dark ? 'text-white/50' : 'text-black/50'}`}>
+                        Not measuring yet. Store visits are counted from the next release of the store block; orders made through the widget are already shown below.
+                      </p>
+                    ) : (
+                      <>
+                        <p className={`text-xs mb-4 ${dark ? 'text-white/40' : 'text-black/40'}`}>
+                          Paid orders divided by product-page visitors (one per browser per day), since {(conversionLift.tracking_since || '').slice(0, 10)}. {conversionLift.note}
+                        </p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <MetricCell label="Used the widget" value={`${fmtPct(conversionLift.widget_conversion_rate)}`} highlight dark={dark} />
+                          <MetricCell label="Did not" value={fmtPct(conversionLift.other_conversion_rate)} dark={dark} />
+                          <MetricCell
+                            label="Difference"
+                            value={conversionLift.lift == null ? '-' : conversionLift.comparable ? `${conversionLift.lift >= 0 ? '+' : ''}${(conversionLift.lift * 100).toFixed(0)}%` : 'Too early'}
+                            highlight={conversionLift.comparable}
+                            dark={dark}
+                          />
+                          <MetricCell label="Widget orders" value={`${conversionLift.widget_orders} of ${conversionLift.orders}`} dark={dark} />
+                        </div>
+                        <p className={`text-xs mt-3 ${dark ? 'text-white/40' : 'text-black/40'}`}>
+                          {conversionLift.widget_orders} orders from {conversionLift.widget_visitors} widget visitors; {conversionLift.other_orders} orders from {conversionLift.other_visitors} other visitors.
+                          {!conversionLift.comparable && ` A difference is shown once each side has ${conversionLift.min_visitors_for_comparison} visitors and ${conversionLift.min_orders_for_comparison} orders.`}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {/* Full Funnel Overview */}
                 <div className={`${panelClass} p-5`}>
                   <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] mb-1 ${labelCl}`}>Full funnel overview</p>

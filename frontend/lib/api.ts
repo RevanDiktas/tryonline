@@ -368,6 +368,26 @@ export interface FitPurchaseCorrelationResponse {
 }
 
 /** Size card analytics. Counts are distinct size-card sessions; purchases are distinct orders. */
+export interface ConversionLift {
+  tracking: boolean;
+  tracking_since: string | null;
+  visitors: number;
+  widget_visitors: number;
+  other_visitors: number;
+  orders: number;
+  widget_orders: number;
+  other_orders: number;
+  widget_revenue: number;
+  other_revenue: number;
+  widget_conversion_rate: number | null;
+  other_conversion_rate: number | null;
+  lift: number | null;
+  comparable: boolean;
+  min_orders_for_comparison: number;
+  min_visitors_for_comparison: number;
+  note: string;
+}
+
 export interface SizeFinderFunnelStep {
   step: 'opened' | 'quiz_started' | 'quiz_completed' | 'estimate_shown' | 'passport_clicked' | 'build_started' | 'build_completed' | 'add_to_cart' | 'purchase' | string;
   sessions: number;
@@ -607,6 +627,10 @@ export const api = {
 
   async getFitPurchaseCorrelation(params: { start: string; end: string; shop?: string }): Promise<FitPurchaseCorrelationResponse> {
     return fetchApi('/api/analytics/fit-purchase-correlation', { params: params as Record<string, string> });
+  },
+
+  async getConversionLift(params: { start: string; end: string; shop?: string }): Promise<ConversionLift> {
+    return fetchApi('/api/analytics/conversion-lift', { params: params as Record<string, string> });
   },
 
   async getSizeFinderAnalytics(params: { start: string; end: string; shop?: string }): Promise<SizeFinderAnalytics> {
