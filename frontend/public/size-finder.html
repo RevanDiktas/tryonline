@@ -27,6 +27,7 @@
   into the same onboarding, in this card, on the store's product page:
 
       quiz -> estimate -> gate -> account (create or sign in) -> details (prefilled) -> photo -> building -> measured size
+      quiz -> estimate -> "save this size" -> account -> estimate, saved (quiz_profiles): the same answers in every store
 
   A shopper who is already measured skips the questions: their measured size, and in the
   Try On flow (flow=tryon) straight to the avatar.
@@ -346,16 +347,16 @@
     </section>
 
     <form id="signup" novalidate hidden>
-      <p class="progress">Step 1 of 3</p>
+      <p class="progress" id="su-step">Step 1 of 3</p>
       <h1>Create your account</h1>
-      <p class="product">Free, and it works in every store that uses Tryon.</p>
+      <p class="product" id="su-lede">Free, and it works in every store that uses Tryon.</p>
       <label class="lab" for="su-name">Name</label>
       <div class="field"><input id="su-name" autocomplete="name"></div>
       <label class="lab" for="su-email">Email</label>
       <div class="field"><input id="su-email" type="email" autocomplete="email" inputmode="email" autocapitalize="off"></div>
       <label class="lab" for="su-pass">Password <span class="opt">8 characters or more</span></label>
       <div class="field"><input id="su-pass" type="password" autocomplete="new-password"></div>
-      <label class="check"><input type="checkbox" id="su-consent"><span>I agree that Tryon stores my photo and body measurements to work out my size, as described in the <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>
+      <label class="check"><input type="checkbox" id="su-consent"><span id="su-consent-text">I agree that Tryon stores my photo and body measurements to work out my size, as described in the <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>
       <p class="error" data-error role="alert"></p>
       <button class="primary" type="submit">Create account</button>
       <p class="foot">Already have one? <button class="link" type="button" data-go="signin">Sign in</button></p>
@@ -466,7 +467,7 @@
       <h1>Find your size in 30 seconds</h1>
       <p class="product" data-product></p>
       <ol class="answers" id="answers"></ol>
-      <p class="quiz-foot">No account needed. Your answers stay on this device.</p>
+      <p class="quiz-foot">No account needed. Your answers stay on this device. <button class="link" type="button" id="quiz-signin">Saved your size before? Sign in</button></p>
     </section>
 
     <section id="thinking" hidden>
@@ -510,6 +511,7 @@
         <div class="result-cta" id="passport-wrap" hidden>
           <button class="ghost" type="button" id="passport"></button>
           <p class="cta-note" id="passport-note"></p>
+          <p class="cta-note" id="save-line" hidden><button class="link" type="button" id="save-size">Or just save this size to a free account</button></p>
         </div>
         <button class="ghost" type="button" id="tryon" hidden>See it on your own body</button>
       </div>
@@ -519,13 +521,14 @@
 
 <script type="module">
 import { recommendSize } from './sizing-engine.js';
-import { quickSize, validateInput, inferCategory, toMetric, SHAPE_QUESTIONS, ACCURACY, normalizeGender, INPUT_LIMITS } from './size-estimator.js';
+import { quickSize, estimateBody, validateInput, inferCategory, toMetric, SHAPE_QUESTIONS, ACCURACY, normalizeGender, INPUT_LIMITS } from './size-estimator.js';
 
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
 const inFrame = window.self !== window.top;
 const GUEST_KEY = 'tryon_size_profile_v1';
 const FIT_KEY = 'tryon_size_fit';
+const PROFILE_DIRTY_KEY = 'tryon_size_profile_dirty';   // quiz answers on this device the account has not got yet
 const TOKEN_KEY = 'tryon_widget_token';
 const SESSION_KEY = 'tryon_size_session';        // this card's own Supabase session
 const JOB_KEY = 'tryon_size_job';                // a build in flight: { job_id, user_id, started }
@@ -600,6 +603,11 @@ let handedOff = false;
 // account): a signed-in shopper without measurements goes on to details and photo instead of
 // back to their estimate.
 let wantPassport = false;
+// The shopper asked only to save their estimated size to an account (no photo for now).
+let saveOnly = false;
+// The account holds the quiz answers this card is showing.
+let profileSaved = false;
+let profileSyncedFor = null;
 let sessionId = null;                            // analytics session (tryon_sessions row)
 let sessionPromise = null;
 let last = null;
@@ -761,6 +769,7 @@ async function ensureProfile(name) {
 }
 function forgetUser() {
   userId = null; displayName = ''; widgetToken = null; session = null; passport = null; body = null;
+  profileSaved = false; profileSyncedFor = null;
   ['tryon_user_id', 'tryon_user_name', TOKEN_KEY, SESSION_KEY, JOB_KEY, 'tryon_size_details'].forEach(drop);
   stopBuildWatch();
 }
@@ -789,7 +798,8 @@ $('signup').addEventListener('submit', async (e) => {
     const d = await authCall('signup', { email, password: pass, data: { name, user_type: 'shopper' } });
     if (!keepSession(d)) { err.textContent = 'Check your email to confirm your account, then sign in here.'; return; }
     await ensureProfile(name);
-    wantPassport = true;
+    wantPassport = !saveOnly;
+    saveOnly = false;
     track('size_finder_account_created');
     await route(true);
   } catch (ex) { err.textContent = ex.message; } finally { busy(btn, false); }
@@ -892,6 +902,65 @@ async function loadPassport() {
       bodyState = passport.status === 'processing' ? 'building' : passport.status === 'failed' ? 'failed' : 'none';
     }
   } catch { bodyState = 'error'; }
+}
+
+// ---- the quiz answers on the account: an estimated size in every store, no photo needed ----
+// The photo fit passport stays the real thing (measured, and the 3D try-on needs it); this is
+// what a shopper keeps until they add one. A completed fit passport always wins over it.
+const usableProfile = (p) => !!p && typeof p === 'object' && ['female', 'male'].includes(p.gender) && !validateInput(p);
+async function saveProfile(quiet) {
+  const g = guest || readJson(GUEST_KEY);
+  if (!userId || !usableProfile(g)) return false;
+  try {
+    const h = await authHeaders();
+    if (!h.Authorization && !h['X-Widget-Token']) return false;   // an id alone cannot write
+    const est = estimateBody({ gender: g.gender, height: g.height, weight: g.weight, age: g.age, shape: g.shape });
+    const m = (est && est.measurements) || {};
+    const r = await fetch(`${cfg.api}/api/measurements/quiz-profile/${encodeURIComponent(userId)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', ...h },
+      body: JSON.stringify({ profile: { ...g, fit }, estimate: { chest: m.chest, waist: m.waist, hips: m.hips }, shop_domain: cfg.shop || undefined }),
+    });
+    if (!r.ok) return false;
+    profileSaved = true;
+    drop(PROFILE_DIRTY_KEY);
+    if (!quiet) track('size_finder_profile_saved');
+    return true;
+  } catch { return false; }
+}
+async function fetchProfile() {
+  try {
+    const r = await fetch(`${cfg.api}/api/measurements/quiz-profile/${encodeURIComponent(userId)}`, { headers: await authHeaders() });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return usableProfile(d.profile) ? d.profile : null;
+  } catch { return null; }
+}
+// Once per signed-in shopper per page. Answers just given on this device go up to the account;
+// otherwise the account's saved answers come down (that is the cross-store part); otherwise
+// answers that were on this device before the account are saved.
+async function syncProfile() {
+  if (!userId || profileSyncedFor === userId) return;
+  const uid = userId;
+  const local = guest || readJson(GUEST_KEY);
+  if (usableProfile(local) && read(PROFILE_DIRTY_KEY)) {
+    if (await saveProfile()) profileSyncedFor = uid;
+    return;
+  }
+  const saved = await fetchProfile();
+  if (userId !== uid) return;
+  if (saved) {
+    const hadLocal = usableProfile(local);
+    guest = saved;
+    write(GUEST_KEY, JSON.stringify(saved));
+    post('TRYON_SIZE_PROFILE', { profile: saved });
+    if (saved.fit) { fit = saved.fit; write(FIT_KEY, fit); }
+    if (saved.units) units = saved.units;
+    profileSaved = true;
+    profileSyncedFor = uid;
+    if (!hadLocal) track('size_finder_profile_loaded');
+    return;
+  }
+  if (usableProfile(local) && await saveProfile()) profileSyncedFor = uid;
 }
 
 // ---- details -> photo -> build (the same endpoints tryon.global/onboarding uses) ----
@@ -1084,6 +1153,13 @@ function show(view) {
   document.querySelectorAll('[data-error]').forEach((el) => { el.textContent = ''; });
   if (view === 'nomeas') { $('nomeas-name').textContent = displayName ? ' as ' + displayName : ''; $('nomeas-note').hidden = true; $('onboard').href = siteUrl('/onboarding', { link_state: linkToken() }); }
   if (view === 'details') fillDetails();
+  if (view === 'signup') {
+    $('su-step').hidden = saveOnly;
+    $('su-lede').textContent = saveOnly ? 'Free. Your size is saved for every store that uses Tryon.' : 'Free, and it works in every store that uses Tryon.';
+    $('su-consent-text').firstChild.textContent = saveOnly
+      ? 'I agree that Tryon stores my answers and estimated body measurements to work out my size, as described in the '
+      : 'I agree that Tryon stores my photo and body measurements to work out my size, as described in the ';
+  }
   if (view === 'quiz') renderQuiz();
   if (view === 'gate') $('gate-back-line').hidden = !(guest || readJson(GUEST_KEY));
   if (view === 'signin') $('social-wait').hidden = !Object.keys(polls).length;
@@ -1170,7 +1246,13 @@ function renderResult() {
     measuredEl.hidden = true;
     const acc = ACCURACY[normalizeGender(guest.gender)] || ACCURACY.female;
     const a = acc[last.anchor] || acc.chest;
-    $('result-foot').textContent = `Match = how likely each size is to fit you, from your answers. Estimates like this match a tape measure about ${Math.round(a[0] * 10)} times in 10; a fit passport measures you.`;
+    const about = `Estimates like this match a tape measure about ${Math.round(a[0] * 10)} times in 10; a photo measures you.`;
+    if (userId && profileSaved) {
+      $('result-foot').innerHTML = `<b>Saved to your Tryon account</b>${displayName ? ' (' + escapeHtml(displayName) + ')' : ''}: sign in at any store that uses Tryon and your size is there. ${about} <button class="link" type="button" id="signout-result">Use another account</button>`;
+      $('signout-result').addEventListener('click', () => { forgetUser(); bodyState = 'signedout'; show('gate'); });
+    } else {
+      $('result-foot').textContent = `Match = how likely each size is to fit you, from your answers. ${about}`;
+    }
   }
   $('edit').hidden = last.basis !== 'estimate';
   $('tryon').hidden = !(product.hasTryon && garment.has3d && last.basis === 'measured');
@@ -1181,6 +1263,9 @@ function renderResult() {
   $('passport-note').textContent = tryable
     ? 'See it on your own 3D body. One photo, about 2 minutes.'
     : 'One photo measures you: your exact size here and in every store that uses Tryon.';
+  // The lighter option under it: keep the estimate on an account. The photo stays the main offer.
+  $('save-line').hidden = last.basis !== 'estimate' || (!!userId && profileSaved);
+  $('save-size').textContent = userId ? 'Or just save this size to my account' : 'Or just save this size to a free account';
   renderChips();
   return true;
 }
@@ -1238,6 +1323,7 @@ $('chips').addEventListener('click', (e) => {
 });
 $('fit').addEventListener('change', (e) => {
   fit = e.target.value; write(FIT_KEY, fit);
+  if (userId && profileSaved && mode === 'guest') saveProfile(true);
   haptic(5);
   if (renderResult()) post('TRYON_SIZE_RESULT', { size: last.recommendedSize, score: scoreOf(last.recommendedSize) });
 });
@@ -1253,10 +1339,20 @@ $('passport').addEventListener('click', () => {
   const tryable = garment && garment.has3d && product.hasTryon;
   track('size_finder_passport_clicked', { cta: tryable ? 'try_on' : (userId ? 'finish_passport' : 'create_passport') });
   wantPassport = true;
+  saveOnly = false;
   if (!userId) { show('gate'); return; }
   route(true);
 });
-$('gate-back').addEventListener('click', () => { wantPassport = false; route(false); });
+$('save-size').addEventListener('click', async () => {
+  track('size_finder_passport_clicked', { cta: 'save_size' });
+  wantPassport = false;
+  if (!userId) { saveOnly = true; show('signup'); return; }
+  const ok = await saveProfile();
+  if (!ok && !session) { saveOnly = true; show('signin'); return; }   // signed in by id only: prove it to save
+  renderResult();
+});
+$('quiz-signin').addEventListener('click', () => { wantPassport = false; if (userId) route(true); else show('signin'); });
+$('gate-back').addEventListener('click', () => { wantPassport = false; saveOnly = false; route(false); });
 $('acct').addEventListener('click', () => { if (userId) route(true); else show('signin'); });
 
 // Decide what the shopper sees. `fresh` = a visible open or a new step (tracked once).
@@ -1264,6 +1360,8 @@ async function route(fresh) {
   await garmentReady;
   const visible = !silent && !document.body.classList.contains('closed');
   if (bodyState === 'unknown' || fresh) await loadPassport();
+  // Signed in without a finished fit passport: keep the quiz answers on the account.
+  if (userId && bodyState !== 'ready' && bodyState !== 'signedout') await syncProfile();
   if (bodyState === 'building') { mode = 'account'; if (visible) show('building'); watchBuild(); return; }
   if (bodyState === 'ready') {
     mode = 'account';
@@ -1416,6 +1514,7 @@ function finishQuiz() {
     age: band ? band[1] : null, ageBand: draft.ageBand, shape: { ...draft.shape }, units: draft.units, fit: draft.fit,
   };
   write(GUEST_KEY, JSON.stringify(guest));
+  write(PROFILE_DIRTY_KEY, '1'); profileSaved = false; profileSyncedFor = null;   // newer than the account's copy
   post('TRYON_SIZE_PROFILE', { profile: guest });   // the store keeps a copy (Safari forgets framed storage)
   if (draft.fit) { fit = draft.fit; write(FIT_KEY, fit); }
   units = draft.units;
@@ -1436,6 +1535,7 @@ $('back').addEventListener('click', () => {
   const v = VIEWS.find((x) => !$(x).hidden);
   if (v === 'quiz' && quizAt > 0) { morph(() => { quizAt -= 1; renderQuiz(); }); return; }
   wantPassport = false;
+  saveOnly = false;
   draft = null;
   route(false);
 });
