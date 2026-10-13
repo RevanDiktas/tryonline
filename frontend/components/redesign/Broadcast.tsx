@@ -154,7 +154,6 @@ function DesktopHero() {
     <section style={{
       background: C.bg, color: C.ink,
       padding: '0 48px',
-      borderBottom: `1px solid ${C.line}`,
       height: 'calc(100vh - 64px)',
       minHeight: 640,
       maxHeight: 920,
@@ -274,7 +273,6 @@ function Partners({ mobile }: { mobile?: boolean }) {
     <section aria-label="Our partners" style={{
       background: C.bg, color: C.ink,
       padding: mobile ? '28px 18px 32px' : '40px 48px',
-      borderBottom: `1px solid ${C.line}`,
     }}>
       <div style={{
         maxWidth: 1280, margin: '0 auto',
@@ -696,7 +694,6 @@ function MobileHero() {
     <section style={{
       background: C.bg, color: C.ink,
       padding: '32px 18px 36px',
-      borderBottom: `1px solid ${C.line}`,
     }}>
       <div style={{
         fontFamily: 'var(--mono)', fontSize: 11, color: C.mute,
