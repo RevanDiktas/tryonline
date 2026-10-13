@@ -154,8 +154,9 @@ function DesktopHero() {
     <section style={{
       background: C.bg, color: C.ink,
       padding: '0 48px',
-      height: 'calc(100vh - 64px)',
-      minHeight: 640,
+      // Leaves room for the partners strip (152px) on the first screen.
+      height: 'calc(100vh - 64px - 164px)',
+      minHeight: 500,
       maxHeight: 920,
       display: 'flex', alignItems: 'center',
       position: 'relative',
@@ -272,7 +273,7 @@ function Partners({ mobile }: { mobile?: boolean }) {
   return (
     <section aria-label="Our partners" style={{
       background: C.bg, color: C.ink,
-      padding: mobile ? '28px 18px 32px' : '40px 48px',
+      padding: mobile ? '28px 18px 32px' : '0 48px 40px',
     }}>
       <div style={{
         maxWidth: 1280, margin: '0 auto',
@@ -295,7 +296,7 @@ function Partners({ mobile }: { mobile?: boolean }) {
             minWidth: 0,
           }}>
             <img
-              src={p.src} alt={p.name} width={p.w} height={p.h} loading="lazy"
+              src={p.src} alt={p.name} width={p.w} height={p.h}
               style={{
                 width: 'auto', height: 'auto',
                 maxWidth: p.maxW, maxHeight: mobile ? p.maxH.mobile : p.maxH.desktop,
