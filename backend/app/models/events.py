@@ -45,6 +45,9 @@ class EventType(str, Enum):
     size_finder_estimate_shown = "size_finder_estimate_shown"
     size_finder_passport_clicked = "size_finder_passport_clicked"
     size_finder_alt_size_picked = "size_finder_alt_size_picked"
+    # The quiz answers saved to an account, and a saved one loaded in another store.
+    size_finder_profile_saved = "size_finder_profile_saved"
+    size_finder_profile_loaded = "size_finder_profile_loaded"
 
     # Size events (Category B)
     size_recommended = "size_recommended"
