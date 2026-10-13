@@ -262,9 +262,10 @@ function DesktopHero() {
 /* ─── Brand/Shopper tiles ─── */
 /* ─── Partners: the two brands running Tryon, right under the hero ─── */
 const PARTNERS = [
-  // Logos are artwork on white, so each sits on a white plate in both themes.
-  { name: 'La Fam', src: '/partners/lafam.webp', w: 900, h: 588, maxH: { desktop: 92, mobile: 64 }, maxW: '70%' },
-  { name: 'Ramin', src: '/partners/ramin.webp', w: 1000, h: 118, maxH: { desktop: 30, mobile: 20 }, maxW: '72%' },
+  // Transparent logos, straight on the page. `mono` marks a black wordmark, which is
+  // flipped to light in the dark theme; La Fam keeps its own colours in both.
+  { name: 'La Fam', src: '/partners/lafam.webp', w: 900, h: 585, maxH: { desktop: 104, mobile: 72 }, maxW: '78%', mono: false },
+  { name: 'Ramin', src: '/partners/ramin.webp', w: 1000, h: 112, maxH: { desktop: 30, mobile: 20 }, maxW: '78%', mono: true },
 ];
 
 function Partners({ mobile }: { mobile?: boolean }) {
@@ -291,10 +292,7 @@ function Partners({ mobile }: { mobile?: boolean }) {
         </div>
         {PARTNERS.map(p => (
           <div key={p.name} style={{
-            background: '#FFFFFF',
-            border: `1px solid ${C.line}`,
-            borderRadius: 16,
-            height: mobile ? 96 : 132,
+            height: mobile ? 80 : 112,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             minWidth: 0,
           }}>
@@ -304,6 +302,7 @@ function Partners({ mobile }: { mobile?: boolean }) {
                 width: 'auto', height: 'auto',
                 maxWidth: p.maxW, maxHeight: mobile ? p.maxH.mobile : p.maxH.desktop,
                 display: 'block',
+                filter: p.mono && C.bg === PAL.dark.bg ? 'invert(1)' : undefined,
               }}
             />
           </div>
