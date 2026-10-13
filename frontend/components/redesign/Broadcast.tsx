@@ -260,6 +260,59 @@ function DesktopHero() {
 }
 
 /* ─── Brand/Shopper tiles ─── */
+/* ─── Partners: the two brands running Tryon, right under the hero ─── */
+const PARTNERS = [
+  // Logos are artwork on white, so each sits on a white plate in both themes.
+  { name: 'La Fam', src: '/partners/lafam.webp', w: 900, h: 588, maxH: { desktop: 92, mobile: 64 }, maxW: '70%' },
+  { name: 'Ramin', src: '/partners/ramin.webp', w: 1000, h: 118, maxH: { desktop: 30, mobile: 20 }, maxW: '72%' },
+];
+
+function Partners({ mobile }: { mobile?: boolean }) {
+  const C = useC();
+  return (
+    <section aria-label="Our partners" style={{
+      background: C.bg, color: C.ink,
+      padding: mobile ? '28px 18px 32px' : '40px 48px',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      <div style={{
+        maxWidth: 1280, margin: '0 auto',
+        display: 'grid',
+        gridTemplateColumns: mobile ? '1fr 1fr' : '200px 1fr 1fr',
+        gap: mobile ? 12 : 20,
+        alignItems: 'center',
+      }}>
+        <div style={{
+          gridColumn: mobile ? '1 / -1' : 'auto',
+          fontFamily: 'var(--mono)', fontSize: mobile ? 11 : 12,
+          letterSpacing: '0.12em', textTransform: 'uppercase', color: C.mute,
+        }}>
+          Our partners
+        </div>
+        {PARTNERS.map(p => (
+          <div key={p.name} style={{
+            background: '#FFFFFF',
+            border: `1px solid ${C.line}`,
+            borderRadius: 16,
+            height: mobile ? 96 : 132,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            minWidth: 0,
+          }}>
+            <img
+              src={p.src} alt={p.name} width={p.w} height={p.h} loading="lazy"
+              style={{
+                width: 'auto', height: 'auto',
+                maxWidth: p.maxW, maxHeight: mobile ? p.maxH.mobile : p.maxH.desktop,
+                display: 'block',
+              }}
+            />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function DesktopBrandShopperTiles() {
   const C = useC();
   const router = useRouter();
@@ -1149,6 +1202,7 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
         {mobile ? (
           <>
             <MobileHero />
+            <Partners mobile />
             <MobileComponents />
             <MobileBrandShopperTiles />
             <MobileEvidence />
@@ -1158,6 +1212,7 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
         ) : (
           <>
             <DesktopHero />
+            <Partners />
             <DesktopComponents />
             <DesktopBrandShopperTiles />
             <DesktopEvidence />
