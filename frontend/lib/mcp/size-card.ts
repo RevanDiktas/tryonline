@@ -80,12 +80,13 @@ function render(d) {
     return '<span class="' + cls + '"><b>' + esc(up(s.label)) + '</b>' + score + '%</span>';
   }).join('');
   let note = '';
-  if (a.soldOut) note = up(a.size) + ' is sold out.' + (a.nextInStock ? ' Next best in stock: ' + up(a.nextInStock) + ' (' + Math.round(a.scores[a.nextInStock] || 0) + '% match).' : ' None of the sizes in stock is likely to fit you.');
+  if (a.allSoldOut) note = 'Sold out in every size right now.';
+  else if (a.soldOut) note = up(a.size) + ' is sold out.' + (a.nextInStock ? ' Next best in stock: ' + up(a.nextInStock) + ' (' + Math.round(a.scores[a.nextInStock] || 0) + '% match).' : ' None of the sizes in stock is likely to fit you.');
   else if (a.between) note = 'You are between ' + up(a.size) + ' and ' + up(a.between) + '.';
   card.innerHTML =
     '<div class="top">' +
       '<div class="img" style="' + (p.image ? "background-image:url('" + esc(p.image) + "')" : '') + '"></div>' +
-      '<div><p class="title">' + esc(p.title) + '</p><p class="store">' + esc(p.storeName || p.host || '') + (p.price ? ' · ' + esc(p.price) + ' ' + esc(p.currency || '') : '') + '</p></div>' +
+      '<div><p class="title">' + esc(p.title) + '</p><p class="store">' + esc(p.storeName || p.host || '') + '</p></div>' +
     '</div>' +
     '<div class="result">' +
       '<div class="ring" style="--p:' + Math.round(a.match || 0) + '"><div><div><div class="size">' + esc(up(a.size)) + '</div><div class="pct">' + Math.round(a.match || 0) + '% match</div></div></div></div>' +

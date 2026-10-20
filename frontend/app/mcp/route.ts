@@ -57,10 +57,12 @@ const INSTRUCTIONS = [
 ].join(' ');
 
 const fitSchema = z.enum(['slim', 'regular', 'loose']).optional()
-  .describe('How the shopper likes clothes to fit. Leave out to use their saved preference (regular by default).');
+  .describe('Only set this when the shopper has asked in this conversation for a closer or looser fit. Otherwise leave it out: TryOn uses their own saved fit preference.');
 
 export interface SizeCardData {
-  product: Pick<ShopifyProduct, 'url' | 'host' | 'title' | 'image' | 'price' | 'currency' | 'storeName' | 'sizes'>;
+  // No price: we read the store from a US server, so Shopify Markets converts it to USD while
+  // the store says EUR (La Fam: EUR 110 came back as 127). The store page has the real price.
+  product: Pick<ShopifyProduct, 'url' | 'host' | 'title' | 'image' | 'storeName' | 'sizes'>;
   answer: SizeAnswer;
   brandChart: boolean;
 }
@@ -70,7 +72,8 @@ function describeAnswer(p: ShopifyProduct, a: SizeAnswer, brandChart: boolean): 
     `${a.basis === 'measured' ? 'Size' : 'Estimated size'} for ${p.title}${p.storeName ? ` (${p.storeName})` : ''}: ${up(a.size)}, ${a.match}% match.`,
     a.reasoning,
   ];
-  if (a.soldOut) lines.push(a.nextInStock ? `${up(a.size)} is sold out; the best size in stock is ${up(a.nextInStock)} (${Math.round(a.scores[a.nextInStock] || 0)}% match).` : `${up(a.size)} is sold out, and none of the sizes in stock is likely to fit this shopper. Do not suggest buying another size; suggest checking back or a similar product.`);
+  if (a.allSoldOut) lines.push(`Every size is sold out right now. Do not suggest buying it; suggest checking back or a similar product.`);
+  else if (a.soldOut) lines.push(a.nextInStock ? `${up(a.size)} is sold out; the best size in stock is ${up(a.nextInStock)} (${Math.round(a.scores[a.nextInStock] || 0)}% match).` : `${up(a.size)} is sold out, and none of the sizes in stock is likely to fit this shopper. Do not suggest buying another size; suggest checking back or a similar product.`);
   else if (a.between) lines.push(`Between ${up(a.size)} and ${up(a.between)}.`);
   lines.push(`All sizes: ${p.sizes.map((s) => `${up(s.label)} ${Math.round(a.scores[s.label] || 0)}%${s.available ? '' : ' (sold out)'}`).join(', ')}.`);
   lines.push(a.basis === 'measured'
@@ -168,7 +171,7 @@ const handler = createMcpHandler(
         if (!answer) return fail('Could not work out a size for this product.');
         const brandChart = !!brand && Object.keys(brand.chart).length > 0;
         const data: SizeCardData = {
-          product: { url: product.url, host: product.host, title: product.title, image: product.image, price: product.price, currency: product.currency, storeName: product.storeName || product.vendor, sizes: product.sizes },
+          product: { url: product.url, host: product.host, title: product.title, image: product.image, storeName: product.storeName || product.vendor, sizes: product.sizes },
           answer,
           brandChart,
         };
@@ -180,7 +183,7 @@ const handler = createMcpHandler(
       'find_products',
       {
         title: 'Find products in a store',
-        description: 'Product page links in a Shopify store, to pass to recommend_size. Give the store (a link to any page of it, a collection page, or just its domain, e.g. lafamamsterdam.com) and what the shopper is after (e.g. "hoodie", "black jeans"). Returns up to 10 products with title, link, price and whether anything is in stock.',
+        description: 'Product page links in a Shopify store, to pass to recommend_size. Give the store (a link to any page of it, a collection page, or just its domain, e.g. lafamamsterdam.com) and what the shopper is after (e.g. "hoodie", "black jeans"). Returns up to 10 products with title, link and whether anything is in stock. Prices are not included: quote them from the store page.',
         inputSchema: z.object({
           store: z.string().min(3).describe('Store link or domain, e.g. https://lafamamsterdam.com/collections/t-shirts or lafamamsterdam.com'),
           query: z.string().max(80).optional().describe('What to look for, e.g. "t-shirt" or "striped hoodie". Leave out to list a collection.'),
@@ -195,10 +198,10 @@ const handler = createMcpHandler(
         if (recentlyRateLimited() && (!found || !found.products.length)) return fail('The store is busy right now (Shopify is limiting requests). Try again in a minute.');
         if (!found) return fail('Could not read products from that store. TryOn reads Shopify stores.');
         if (!found.products.length) return fail(`No products matching "${args.query || ''}" in ${found.storeName || found.origin}. Try a broader word, or a collection page link.`);
-        const lines = found.products.map((p, i) => `${i + 1}. ${p.title}${p.price ? ` (${p.price})` : ''}${p.available ? '' : ' (sold out)'}: ${p.url}`);
+        const lines = found.products.map((p, i) => `${i + 1}. ${p.title}${p.available ? '' : ' (sold out)'}: ${p.url}`);
         return {
           ...text(`${found.storeName || found.origin}: ${found.products.length} product${found.products.length === 1 ? '' : 's'}${args.query ? ` for "${args.query}"` : ''}.\n${lines.join('\n')}\nCall recommend_size with the link of the one the shopper means (or the two or three most likely).`),
-          structuredContent: { store: found.storeName || found.origin, products: found.products } as unknown as Record<string, unknown>,
+          structuredContent: { store: found.storeName || found.origin, products: found.products.map(({ price: _p, ...rest }) => rest) } as unknown as Record<string, unknown>,
         };
       },
     );
@@ -246,6 +249,8 @@ const handler = createMcpHandler(
               },
               prefersBorder: false,
             },
+            // ChatGPT's own key for the same policy (it also reads ui.csp).
+            'openai/widgetCSP': { resource_domains: [new URL(EXT_APPS_URL).origin, 'https://cdn.shopify.com'], connect_domains: [] },
           },
         }],
       }),

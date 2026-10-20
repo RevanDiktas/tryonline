@@ -47,6 +47,8 @@ export interface SizeAnswer {
   /** Quiz only: a second size the shopper is between, or null */
   between: string | null;
   soldOut: boolean;
+  /** Every size is sold out */
+  allSoldOut: boolean;
   /** Best-scoring size in stock when the best size is sold out, if it scores >= MIN_FALLBACK_MATCH */
   nextInStock: string | null;
 }
@@ -79,6 +81,7 @@ export function sizeFor(body: Body, sizes: ProductSize[], garment: Garment, fit:
   const scores: Record<string, number> = r.scores || {};
   const size: string = r.recommendedSize;
   const soldOut = sizes.some((s) => s.label === size && !s.available);
+  const allSoldOut = sizes.every((s) => !s.available);
   let nextInStock: string | null = null;
   if (soldOut) {
     const inStock = sizes.filter((s) => s.available).map((s) => s.label).sort((x, y) => (scores[y] || 0) - (scores[x] || 0));
@@ -87,6 +90,6 @@ export function sizeFor(body: Body, sizes: ProductSize[], garment: Garment, fit:
   }
   return {
     size, basis: body.basis, scores, match: Math.round(scores[size] || 0), reasoning: String(r.reasoning || ''),
-    between, soldOut, nextInStock,
+    between, soldOut, allSoldOut, nextInStock,
   };
 }
