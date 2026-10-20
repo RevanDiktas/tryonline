@@ -368,13 +368,20 @@ export interface OAuthRequestDetails {
 export async function getOAuthRequest(authorizationId: string): Promise<{ details: OAuthRequestDetails | null; error: string | null }> {
   const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
   if (error || !data) return { details: null, error: error?.message || 'This sign-in link has expired.' };
+  // Supabase sends the client's plain redirect_uri with every request. Only a finished
+  // redirect (an earlier consent: it carries ?code= or ?error=) may skip the consent screen.
+  let finished: string | undefined;
+  try {
+    const u = data.redirect_uri ? new URL(data.redirect_uri) : null;
+    if (u && (u.searchParams.has('code') || u.searchParams.has('error'))) finished = u.toString();
+  } catch { /* not a URL: show the consent screen */ }
   return {
     details: {
       clientName: data.client?.client_name || 'An app',
       clientUri: data.client?.client_uri || undefined,
       scope: data.scope || '',
       email: data.user?.email || '',
-      redirectUrl: data.redirect_uri || undefined,
+      redirectUrl: finished,
     },
     error: null,
   };
