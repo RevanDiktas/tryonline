@@ -8,6 +8,7 @@
  * size card (lib/mcp/sizing.ts), from the shopper's fit passport or their size quiz answers.
  *
  * Tools (annotations matter: both directories reject tools without them):
+ *   find_products         read    products in a Shopify store, to get product links
  *   get_my_fit_passport   read    what TryOn knows about the shopper's body
  *   save_my_size_profile  write   the seven quiz answers, given in the chat
  *   recommend_size        read    the size for a product link, with the in-chat size card
@@ -17,7 +18,7 @@ import { createMcpHandler, withMcpAuth } from 'mcp-handler';
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { z } from 'zod';
 import { verifyAccessToken } from '@/lib/mcp/auth';
-import { fetchShopifyProduct, ProductUrlError, type ShopifyProduct } from '@/lib/mcp/product';
+import { fetchShopifyProduct, findShopifyProducts, ProductUrlError, recentlyRateLimited, type ShopifyProduct } from '@/lib/mcp/product';
 import { garmentFromProduct, sizeFor, type Fit, type QuizAnswers, type SizeAnswer } from '@/lib/mcp/sizing';
 import { addToWishlist, bodyFor, getBrandGarment, getPassport, getQuizAnswers, saveQuizAnswers } from '@/lib/mcp/tryon-api';
 import { EXT_APPS_URL, SIZE_CARD_HTML, SIZE_CARD_URI } from '@/lib/mcp/size-card';
@@ -43,6 +44,17 @@ function who(ctx: Ctx): { userId: string; token: string } {
 const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] });
 const fail = (t: string) => ({ ...text(t), isError: true });
 const up = (s: string) => s.toUpperCase();
+
+// Sent to the assistant when it connects. Claude reaches for a connected tool on its own;
+// ChatGPT waits unless told when the app applies, and it asked the shopper to type
+// measurements TryOn already had (2026-10-20). So say when to use it, in so many words.
+const INSTRUCTIONS = [
+  'TryOn knows this shopper\'s body (a measured fit passport, or their size quiz answers) and works out their size for clothing on any Shopify store.',
+  'Use TryOn whenever the shopper asks what size to get, whether something will fit, or is choosing or buying clothes or shoes with sizes. Do this without being asked to use TryOn.',
+  'Never ask the shopper for their measurements or sizes: call recommend_size, which uses what TryOn has. Only if it reports that TryOn has nothing yet, ask the quiz questions and call save_my_size_profile.',
+  'recommend_size needs a single product page link. If you only have a store, a collection page or a product name, call find_products first, then recommend_size for the product (or the two or three most likely ones).',
+  'If the best size is sold out and no in-stock size is likely to fit, say so; do not suggest buying another size.',
+].join(' ');
 
 const fitSchema = z.enum(['slim', 'regular', 'loose']).optional()
   .describe('How the shopper likes clothes to fit. Leave out to use their saved preference (regular by default).');
@@ -74,7 +86,7 @@ const handler = createMcpHandler(
       'get_my_fit_passport',
       {
         title: 'Get my fit passport',
-        description: 'What TryOn knows about the signed-in shopper\'s body: their measured fit passport (chest, waist, hips and more, in cm) or, if they have not measured, their size quiz answers. Use before talking about the shopper\'s size in general. Returns nothing personal beyond body sizes.',
+        description: 'What TryOn knows about the signed-in shopper\'s body: their measured fit passport (chest, waist, hips and more, in cm) or, if they have not measured, their size quiz answers. For a size in a specific product use recommend_size instead; use this when the shopper asks about their measurements or size in general. Returns nothing personal beyond body sizes.',
         inputSchema: z.object({}),
         annotations: { title: 'Get my fit passport', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       },
@@ -128,7 +140,7 @@ const handler = createMcpHandler(
       'recommend_size',
       {
         title: 'Recommend my size',
-        description: 'The shopper\'s size for a clothing product, from a product page link on any Shopify store: the best size with a % match for every size, stock, and a short reason. Uses their measured fit passport, else their size quiz answers. Call whenever the shopper looks at or is about to buy clothes or shoes with sizes.',
+        description: 'Use this whenever the shopper asks what size to get or whether a clothing item will fit. Returns their size for one product page link on any Shopify store: the best size with a % match for every size, what is in stock, and a short reason, from their measured fit passport or their size quiz answers. Do not ask the shopper for measurements first. No product link yet? Call find_products to get one.',
         inputSchema: z.object({
           product_url: z.string().url().describe('The product page link, e.g. https://store.com/products/linen-shirt'),
           fit: fitSchema,
@@ -161,6 +173,33 @@ const handler = createMcpHandler(
           brandChart,
         };
         return { ...text(describeAnswer(product, answer, brandChart)), structuredContent: data as unknown as Record<string, unknown> };
+      },
+    );
+
+    server.registerTool(
+      'find_products',
+      {
+        title: 'Find products in a store',
+        description: 'Product page links in a Shopify store, to pass to recommend_size. Give the store (a link to any page of it, a collection page, or just its domain, e.g. lafamamsterdam.com) and what the shopper is after (e.g. "hoodie", "black jeans"). Returns up to 10 products with title, link, price and whether anything is in stock.',
+        inputSchema: z.object({
+          store: z.string().min(3).describe('Store link or domain, e.g. https://lafamamsterdam.com/collections/t-shirts or lafamamsterdam.com'),
+          query: z.string().max(80).optional().describe('What to look for, e.g. "t-shirt" or "striped hoodie". Leave out to list a collection.'),
+        }),
+        annotations: { title: 'Find products in a store', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      },
+      async (args: { store: string; query?: string }) => {
+        let found;
+        try { found = await findShopifyProducts(args.store, args.query || ''); } catch (e) {
+          return fail(e instanceof ProductUrlError ? e.message : 'Could not read that store.');
+        }
+        if (recentlyRateLimited() && (!found || !found.products.length)) return fail('The store is busy right now (Shopify is limiting requests). Try again in a minute.');
+        if (!found) return fail('Could not read products from that store. TryOn reads Shopify stores.');
+        if (!found.products.length) return fail(`No products matching "${args.query || ''}" in ${found.storeName || found.origin}. Try a broader word, or a collection page link.`);
+        const lines = found.products.map((p, i) => `${i + 1}. ${p.title}${p.price ? ` (${p.price})` : ''}${p.available ? '' : ' (sold out)'}: ${p.url}`);
+        return {
+          ...text(`${found.storeName || found.origin}: ${found.products.length} product${found.products.length === 1 ? '' : 's'}${args.query ? ` for "${args.query}"` : ''}.\n${lines.join('\n')}\nCall recommend_size with the link of the one the shopper means (or the two or three most likely).`),
+          structuredContent: { store: found.storeName || found.origin, products: found.products } as unknown as Record<string, unknown>,
+        };
       },
     );
 
@@ -212,7 +251,7 @@ const handler = createMcpHandler(
       }),
     );
   },
-  { serverInfo: { name: 'TryOn', version: '1.0.0' } },
+  { serverInfo: { name: 'TryOn', version: '1.1.0' }, instructions: INSTRUCTIONS },
 );
 
 const authed = withMcpAuth(handler, (_req, token) => verifyAccessToken(token), {

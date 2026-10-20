@@ -58,7 +58,34 @@ export function parseProductUrl(raw: string): { origin: string; host: string; ha
   return { origin: `https://${u.hostname}`, host: u.hostname.toLowerCase(), handle: decodeURIComponent(m[1]).toLowerCase(), variantId: Number.isFinite(variant) ? variant : null };
 }
 
-async function getJson(url: string, hops = 0): Promise<any | null> {
+// Shopify rate-limits its public storefront JSON per IP (429), and every chat reaches it from
+// the same few server IPs. Successful reads are kept for 2 minutes per server instance, and a
+// 429 gets one retry after Shopify's Retry-After (at most 2 s).
+const CACHE_MS = 2 * 60 * 1000;
+const cache = new Map<string, { at: number; value: any }>();
+
+async function getJson(url: string): Promise<any | null> {
+  const hit = cache.get(url);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
+  let value = await fetchJson(url);
+  if (value === RATE_LIMITED) {
+    await new Promise((r) => setTimeout(r, retryAfterMs));
+    value = await fetchJson(url);
+  }
+  if (value === RATE_LIMITED) { lastRateLimitedAt = Date.now(); return null; }
+  if (value === null) return null;
+  if (cache.size > 500) cache.clear();
+  cache.set(url, { at: Date.now(), value });
+  return value;
+}
+
+const RATE_LIMITED = Symbol('rate-limited');
+let lastRateLimitedAt = 0;
+/** True when Shopify throttled one of our reads in the last few seconds (for an honest message). */
+export const recentlyRateLimited = () => Date.now() - lastRateLimitedAt < 10_000;
+let retryAfterMs = 1000;
+
+async function fetchJson(url: string, hops = 0): Promise<any | typeof RATE_LIMITED | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
@@ -68,7 +95,12 @@ async function getJson(url: string, hops = 0): Promise<any | null> {
       if (!loc || hops >= 2) return null;
       const next = new URL(loc, url);
       if (next.protocol !== 'https:' || !publicHost(next.hostname)) return null;
-      return getJson(next.toString(), hops + 1);
+      return fetchJson(next.toString(), hops + 1);
+    }
+    if (r.status === 429) {
+      const ra = Number(r.headers.get('retry-after'));
+      retryAfterMs = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 2000) : 1000;
+      return RATE_LIMITED;
     }
     if (!r.ok) return null;
     const len = Number(r.headers.get('content-length') || 0);
@@ -148,4 +180,65 @@ export async function fetchShopifyProduct(rawUrl: string): Promise<ShopifyProduc
     storeName: typeof meta?.name === 'string' ? meta.name : null,
     storeCountry: typeof meta?.country === 'string' ? meta.country : null,
   };
+}
+
+export interface ProductHit { title: string; url: string; price: string | null; available: boolean; image: string | null; productType: string }
+
+/** A store (link to any page of it, or just its domain) -> the store's origin, and the
+ *  collection handle when the link is a collection page. Same guards as product links. */
+export function parseStoreUrl(raw: string): { origin: string; collection: string | null } {
+  const text = raw.trim();
+  let u: URL;
+  try { u = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`); } catch { throw new ProductUrlError('That is not a store link.'); }
+  if (u.protocol !== 'https:') throw new ProductUrlError('Only https store links are supported.');
+  if (u.username || u.password || u.port || !publicHost(u.hostname)) throw new ProductUrlError('That link is not a public store.');
+  const m = u.pathname.match(/\/collections\/([a-z0-9][a-z0-9\-_.%]*)/i);
+  return { origin: `https://${u.hostname.toLowerCase()}`, collection: m ? decodeURIComponent(m[1]).toLowerCase() : null };
+}
+
+const words = (q: string) => q.toLowerCase().split(/[^a-z0-9à-ÿ]+/).filter((w) => w.length > 1);
+const matches = (p: any, q: string[]) => {
+  if (!q.length) return true;
+  const hay = `${p.title || ''} ${p.product_type || p.type || ''} ${(Array.isArray(p.tags) ? p.tags.join(' ') : p.tags) || ''}`.toLowerCase();
+  // "t-shirt" should find "tee" and "shirt" products too: any query word is enough.
+  return q.some((w) => hay.includes(w) || (w === 'tshirt' && hay.includes('shirt')));
+};
+
+/** Products in a Shopify store (optionally one collection), matching `query`. Up to `limit`. */
+export async function findShopifyProducts(store: string, query: string, limit = 10): Promise<{ origin: string; storeName: string | null; products: ProductHit[] } | null> {
+  const { origin, collection } = parseStoreUrl(store);
+  // Shopify throttles /products.json and /collections/x/products.json hard (a 60 s Retry-After
+  // after a few calls from one IP), while /search/suggest.json holds up. So search first; a
+  // collection link with no query is searched by its own name ("t-shirts").
+  const searchFor = (query || '').trim() || (collection ? collection.replace(/[-_]+/g, ' ') : '');
+  const q = words(searchFor);
+  const meta = await getJson(`${origin}/meta.json`);
+  let hits: ProductHit[] = [];
+  const fromList = (list: any[], filterBy: string[]) => list.filter((p) => matches(p, filterBy)).map((p) => ({
+    title: String(p.title || ''),
+    url: `${origin}/products/${p.handle}`,
+    price: p.variants?.[0]?.price != null ? String(p.variants[0].price) : null,
+    available: Array.isArray(p.variants) ? p.variants.some((v: any) => v.available) : true,
+    image: p.images?.[0]?.src || null,
+    productType: String(p.product_type || ''),
+  }));
+  if (searchFor) {
+    const d = await getJson(`${origin}/search/suggest.json?q=${encodeURIComponent(searchFor)}&resources%5Btype%5D=product&resources%5Blimit%5D=${limit}`);
+    const list = d?.resources?.results?.products;
+    if (Array.isArray(list)) hits = list.map((p: any) => ({
+      title: String(p.title || ''), url: `${origin}/products/${p.handle}`, price: p.price != null ? String(p.price) : null,
+      available: p.available !== false, image: p.image || null, productType: String(p.type || ''),
+    }));
+  }
+  if (!hits.length && collection) {
+    const d = await getJson(`${origin}/collections/${encodeURIComponent(collection)}/products.json?limit=60`);
+    // The whole collection unless the shopper named something within it.
+    if (d && Array.isArray(d.products)) hits = fromList(d.products, words(query || ''));
+  }
+  if (!hits.length) {
+    const d = await getJson(`${origin}/products.json?limit=60`);
+    if (d && Array.isArray(d.products)) hits = fromList(d.products, q);
+    else if (!meta) return null;
+  }
+  return { origin, storeName: typeof meta?.name === 'string' ? meta.name : null, products: hits.slice(0, limit) };
 }
