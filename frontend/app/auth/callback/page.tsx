@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ensureUserProfile, isProfileComplete, hasFitPassport, getSession } from '@/lib/supabase-auth';
 import { completeWidgetLink, shopperHomePath, widgetStateHeaders } from '@/lib/widgetReturn';
+import { pendingOAuthConsentPath } from '@/lib/oauthConsent';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,6 +81,13 @@ function AuthCallbackInner() {
       // /login), then keep this tab on the normal onboarding route.
       await completeWidgetLink(user);
       if (cancelled) return;
+
+      // Signed in from the MCP consent page (an AI app asking for access): finish that first.
+      const consentPath = pendingOAuthConsentPath();
+      if (consentPath) {
+        router.replace(consentPath);
+        return;
+      }
 
       if (!isProfileComplete(user)) {
         router.replace('/auth/complete-profile');

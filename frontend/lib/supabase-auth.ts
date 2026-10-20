@@ -354,6 +354,42 @@ export async function logout(): Promise<void> {
   await supabase.auth.signOut();
 }
 
+// ---- OAuth consent (Supabase Auth as the OAuth 2.1 server for the TryOn MCP; /oauth/consent) ----
+
+export interface OAuthRequestDetails {
+  clientName: string;
+  clientUri?: string;
+  scope: string;
+  email: string;
+  /** Present when the shopper already approved this client: send them straight back. */
+  redirectUrl?: string;
+}
+
+export async function getOAuthRequest(authorizationId: string): Promise<{ details: OAuthRequestDetails | null; error: string | null }> {
+  const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
+  if (error || !data) return { details: null, error: error?.message || 'This sign-in link has expired.' };
+  return {
+    details: {
+      clientName: data.client?.client_name || 'An app',
+      clientUri: data.client?.client_uri || undefined,
+      scope: data.scope || '',
+      email: data.user?.email || '',
+      redirectUrl: data.redirect_uri || undefined,
+    },
+    error: null,
+  };
+}
+
+/** Approve or deny; returns where to send the browser (back to Claude, ChatGPT, ...). */
+export async function decideOAuthRequest(authorizationId: string, approve: boolean): Promise<{ redirectUrl: string | null; error: string | null }> {
+  const opts = { skipBrowserRedirect: true };
+  const { data, error } = approve
+    ? await supabase.auth.oauth.approveAuthorization(authorizationId, opts)
+    : await supabase.auth.oauth.denyAuthorization(authorizationId, opts);
+  if (error || !data?.redirect_url) return { redirectUrl: null, error: error?.message || 'Could not finish. Please try again.' };
+  return { redirectUrl: data.redirect_url, error: null };
+}
+
 export async function hasFitPassport(userId: string): Promise<boolean> {
   const { data } = await supabase.from('fit_passports').select('id, avatar_url, status').eq('user_id', userId).single();
   return !!(data && (data.avatar_url || data.status === 'completed'));

@@ -9,6 +9,7 @@ import { isShopifyMode } from '@/lib/app-mode';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
 import { captureWidgetReturn, completeWidgetLink, widgetReturnQuery } from '@/lib/widgetReturn';
+import { pendingOAuthConsentPath } from '@/lib/oauthConsent';
 import {
   AuthSignUp, type SignUpData,
   AuthBrandSignUp, type BrandSignUpData,
@@ -87,7 +88,8 @@ function ShopperSignupView({
       if (error) { setFormError(error); return; }
       if (!user) { setFormError('Signup failed. Please try again.'); return; }
       await completeWidgetLink(user);
-      router.push('/onboarding');
+      // Came from an AI app's "connect TryOn" (MCP consent): finish that, then onboarding.
+      router.push(pendingOAuthConsentPath() || '/onboarding');
     } catch {
       setFormError('Something went wrong. Please try again.');
     } finally {
