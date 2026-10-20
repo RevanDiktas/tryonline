@@ -25,7 +25,9 @@ import { EXT_APPS_URL, SIZE_CARD_HTML, SIZE_CARD_URI } from '@/lib/mcp/size-card
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const RESOURCE_URL = 'https://tryon.global/mcp';
+// withMcpAuth builds resource_metadata as <origin> + METADATA_PATH, so this is the ORIGIN
+// (the resource itself, https://tryon.global/mcp, is named in lib/mcp/resource-metadata.ts).
+const PUBLIC_ORIGIN = 'https://tryon.global';
 const METADATA_PATH = '/.well-known/oauth-protected-resource/mcp';
 const MEASURE_URL = 'https://tryon.global/onboarding';
 
@@ -216,7 +218,7 @@ const handler = createMcpHandler(
 const authed = withMcpAuth(handler, (_req, token) => verifyAccessToken(token), {
   required: true,
   resourceMetadataPath: METADATA_PATH,
-  resourceUrl: RESOURCE_URL,
+  resourceUrl: PUBLIC_ORIGIN,
 });
 
 export { authed as GET, authed as POST, authed as DELETE };
