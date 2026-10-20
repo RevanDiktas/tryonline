@@ -23,7 +23,7 @@ function Hero({ C }: { C: Palette }) {
         <p style={{
           ...bodyStyle, fontSize: 17, color: C.mute, maxWidth: 720, marginBottom: 8,
         }}>
-          Find my size on every product from $29 a month. Add 3D try-on when you are ready. Every plan starts with a {TRIAL_DAYS}-day free trial. Try-ons are never limited.
+          Find my size on every product from {PLANS[0].price} a month. Add 3D try-on when you are ready. Every plan starts with a {TRIAL_DAYS}-day free trial. Try-ons are never limited.
         </p>
         <p style={{
           ...bodyStyle, fontSize: 13.5, color: C.mute, maxWidth: 720,
@@ -139,7 +139,7 @@ function Tiers({ C }: { C: Palette }) {
 function ROI({ C }: { C: Palette }) {
   const cases = [
     { label: 'Starting brand', orders: '600 orders / month', aov: '$70 AOV', returnRate: '25% return rate',
-      monthlyReturnCost: '$2,700', ourPrice: '$29', monthlySavings: '$540', tier: 'Size Pro' },
+      monthlyReturnCost: '$2,700', ourPrice: '$19', monthlySavings: '$540', tier: 'Size Pro' },
     { label: 'Growing brand', orders: '3,000 orders / month', aov: '$90 AOV', returnRate: '30% return rate',
       monthlyReturnCost: '$20,250', ourPrice: '$109', monthlySavings: '$4,050', tier: 'Try-On' },
     { label: 'Established brand', orders: '10,000 orders / month', aov: '$115 AOV', returnRate: '30% return rate',

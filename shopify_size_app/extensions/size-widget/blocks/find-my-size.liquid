@@ -1,0 +1,235 @@
+{% comment %}
+  TryOn Size: the "Find my size" app block for product pages (the TryOn Size app, on its own).
+
+  Shows only while the shop has an active TryOn Size plan (trial included): the backend mirrors
+  the plan into the app-data metafield tryon_size.active (backend/app/api/routes/size_app.py),
+  so the storefront makes no request to find out. In the theme editor a shop without a plan
+  sees a note instead of nothing.
+
+  Opens tryon.global/size-finder.html in a modal iframe: seven quick questions for an estimate
+  (no account), then the optional fit passport (one photo) for a measured size. Renders only on
+  products with two or more sizes. Same block as the Tryon app's, minus the 3D try-on.
+
+  All Liquid values reach the script through the JSON config below; the script has no Liquid.
+{% endcomment %}
+{% assign tryon_size_on = app.metafields.tryon_size.active.value %}
+{% if template.name == 'product' and tryon_size_on != true and request.design_mode %}
+<p style="margin:8px 0;padding:10px 12px;border:1px dashed currentColor;font-size:13px;opacity:.75;" {{ block.shopify_attributes }}>
+  Find my size: choose a plan in the TryOn Size app (Apps &gt; TryOn Size) to show this button to shoppers.
+</p>
+{% elsif template.name == 'product' and tryon_size_on == true %}
+{% liquid
+  # Which product option is the size? Don't assume option1: colour often comes first.
+  assign size_pos = -1
+  for opt in product.options_with_values
+    assign opt_name = opt.name | downcase
+    if opt_name contains 'size' or opt_name contains 'maat' or opt_name contains 'taille' or opt_name contains 'talla' or opt_name contains 'größe' or opt_name contains 'grösse' or opt_name contains 'groesse'
+      assign size_pos = forloop.index0
+      break
+    endif
+  endfor
+  # A lone option not named as a size counts only when every value looks like a clothing
+  # size (S, XL, 3XL, One size, 38, 32/34). Gift card amounts, colours and bundles do not.
+  if size_pos == -1 and product.options.size == 1
+    assign letter_sizes = ',xxxs,xxs,xs,s,m,l,xl,xxl,xxxl,2xs,3xs,2xl,3xl,4xl,5xl,x-small,small,medium,large,x-large,xx-large,one size,os,'
+    assign all_sizes = true
+    for value in product.options_with_values[0].values
+      assign v = value | downcase | strip
+      assign needle = ',' | append: v | append: ','
+      unless letter_sizes contains needle
+        assign first = v | split: '/' | first
+        assign n = first | plus: 0
+        assign n_text = n | append: ''
+        if n_text != first or n < 20 or n > 60
+          assign all_sizes = false
+          break
+        endif
+      endunless
+    endfor
+    if all_sizes
+      assign size_pos = 0
+    endif
+  endif
+  assign size_count = 0
+  if size_pos >= 0 and product.gift_card? == false
+    assign size_count = product.options_with_values[size_pos].values.size
+  endif
+
+  assign country_code = ''
+  if customer.default_address.country_code != blank
+    assign country_code = customer.default_address.country_code
+  elsif localization.country.iso_code != blank
+    assign country_code = localization.country.iso_code
+  endif
+  assign variant = product.selected_or_first_available_variant
+%}
+{% comment %} One size (or no size option): there is nothing to recommend, so render nothing. {% endcomment %}
+{% if size_count > 1 %}
+<div
+  id="tryon-size-root-{{ block.id }}"
+  class="tryon-size-block tryon-size-block--{{ block.settings.button_style }}"
+  data-tryon-size-root
+  {{ block.shopify_attributes }}
+>
+  <style>
+    #tryon-size-root-{{ block.id }} { margin: {{ block.settings.margin_top | default: 8 }}px 0 {{ block.settings.margin_bottom | default: 8 }}px; text-align: {{ block.settings.alignment | default: 'left' }}; }
+    #tryon-size-root-{{ block.id }} .tryon-size-btn {
+      font: inherit; color: inherit; background: none; cursor: pointer; max-width: 100%;
+      font-size: {{ block.settings.font_size | default: 14 }}px; line-height: 1.3; min-height: 44px;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    #tryon-size-root-{{ block.id }}.tryon-size-block--link .tryon-size-btn { border: 0; padding: 0; text-decoration: underline; text-underline-offset: 3px; }
+    #tryon-size-root-{{ block.id }}.tryon-size-block--outline .tryon-size-btn { border: 1px solid currentColor; padding: 10px 18px; border-radius: {{ block.settings.corner_radius | default: 6 }}px; }
+    #tryon-size-root-{{ block.id }} .tryon-size-btn:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+    #tryon-size-root-{{ block.id }} .tryon-size-btn[data-has-size] .tryon-size-label { font-weight: 600; }
+  </style>
+
+  <button type="button" class="tryon-size-btn" data-tryon-size-open>
+    <span class="tryon-size-label" data-tryon-size-label>{{ block.settings.button_label }}</span>
+  </button>
+
+  <script type="application/json" data-tryon-size-config>
+    {
+      "widgetBase": "https://tryon.global",
+      "shop": {{ shop.permanent_domain | json }},
+      "productId": {{ product.handle | json }},
+      "productName": {{ product.title | json }},
+      "productType": {{ product.type | json }},
+      "productImage": {{ product.featured_image | image_url: width: 400 | json }},
+      "brandName": {{ shop.name | json }},
+      "returnUrl": {{ shop.url | append: product.url | json }},
+      "look": {{ block.settings.card_look | json }},
+      "variantId": {{ variant.id | json }},
+      "country": {{ country_code | json }},
+      "sizePos": {{ size_pos }},
+      "variants": {{ product.variants | json }},
+      "label": {{ block.settings.button_label | json }},
+      "resultLabel": {{ block.settings.result_label | json }},
+      "accentBg": {{ block.settings.accent_background | json }},
+      "accentFg": {{ block.settings.accent_text | json }}
+    }
+  </script>
+
+  <script src="{{ 'tryon-traffic.js' | asset_url }}" data-shop="{{ shop.permanent_domain }}" data-product="{{ product.id }}" data-base="https://tryon.global" defer></script>
+  <script src="{{ 'tryon-size.js' | asset_url }}" defer></script>
+</div>
+{% endif %}
+{% endif %}
+
+{% schema %}
+{
+  "name": "Find my size",
+  "target": "section",
+  "enabled_on": {
+    "templates": ["product"]
+  },
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Shoppers get their size in about 30 seconds without an account, and their measured size once they have a Tryon fit passport. Works on every product with sizes, no size chart needed. Place it next to the size picker."
+    },
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "Label",
+      "default": "Find my size"
+    },
+    {
+      "type": "text",
+      "id": "result_label",
+      "label": "Label once the shopper has a size",
+      "info": "[size] is replaced by the shopper's size for the product.",
+      "default": "Your size: [size]"
+    },
+    {
+      "type": "select",
+      "id": "button_style",
+      "label": "Style",
+      "options": [
+        { "value": "link", "label": "Text link" },
+        { "value": "outline", "label": "Outlined button" }
+      ],
+      "default": "link"
+    },
+    {
+      "type": "select",
+      "id": "alignment",
+      "label": "Alignment",
+      "options": [
+        { "value": "left", "label": "Left" },
+        { "value": "center", "label": "Center" },
+        { "value": "right", "label": "Right" }
+      ],
+      "default": "left"
+    },
+    {
+      "type": "range",
+      "id": "font_size",
+      "min": 12,
+      "max": 20,
+      "step": 1,
+      "unit": "px",
+      "label": "Font size",
+      "default": 14
+    },
+    {
+      "type": "range",
+      "id": "corner_radius",
+      "min": 0,
+      "max": 40,
+      "step": 1,
+      "unit": "px",
+      "label": "Corner radius (outlined button)",
+      "default": 6
+    },
+    {
+      "type": "header",
+      "content": "Size card"
+    },
+    {
+      "type": "select",
+      "id": "card_look",
+      "label": "Look",
+      "options": [
+        { "value": "tryon", "label": "Tryon" },
+        { "value": "store", "label": "Match my store" }
+      ],
+      "default": "tryon"
+    },
+    {
+      "type": "paragraph",
+      "content": "With \"Match my store\" the card takes your theme's colours, font and button shape. The two colours below then override its main button."
+    },
+    {
+      "type": "color",
+      "id": "accent_background",
+      "label": "Main button background"
+    },
+    {
+      "type": "color",
+      "id": "accent_text",
+      "label": "Main button text"
+    },
+    {
+      "type": "range",
+      "id": "margin_top",
+      "min": 0,
+      "max": 48,
+      "step": 2,
+      "unit": "px",
+      "label": "Space above",
+      "default": 8
+    },
+    {
+      "type": "range",
+      "id": "margin_bottom",
+      "min": 0,
+      "max": 48,
+      "step": 2,
+      "unit": "px",
+      "label": "Space below",
+      "default": 8
+    }
+  ]
+}
+{% endschema %}

@@ -10,6 +10,7 @@ const SHOPIFY_HOST = 'app.tryon.global';
 
 const ALLOWED_PATH_PREFIXES = [
   '/app',
+  '/size-app',
   '/brand',
   '/onboarding',
   '/login',

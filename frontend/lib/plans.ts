@@ -12,7 +12,7 @@
 export type Plan = {
   id: 'size_pro' | 'try_on' | 'scale' | 'brand';
   name: string;
-  price: string;          // as shown, e.g. "$29"
+  price: string;          // as shown, e.g. "$19"
   period: string;         // e.g. "per month"
   setup?: string;         // one-time fee, when there is one
   pitch: string;          // one line under the name
@@ -28,7 +28,7 @@ export const PLANS: Plan[] = [
   {
     id: 'size_pro',
     name: 'Size Pro',
-    price: '$29',
+    price: '$19',
     period: 'per month',
     pitch: 'The Find my size button on every product. No 3D.',
     features: [
@@ -90,5 +90,5 @@ export const PLANS: Plan[] = [
   },
 ];
 
-/** The cheapest plan, for "from $29/month" lines. */
+/** The cheapest plan, for "from $19/month" lines. */
 export const ENTRY_PLAN = PLANS[0];

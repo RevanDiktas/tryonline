@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     shopify_client_secret_lafam: str = ""
     # Comma-separated *.myshopify.com hostnames served by the la fam app (default: Lafam Amsterdam store)
     shopify_lafam_shops: str = "la-fam-ams.myshopify.com"
+    # Fourth app: "TryOn Size", the public Find my size app (app/api/routes/size_app.py). Any
+    # shop can install it, so it is told apart by the session token's audience, not a shop list.
+    shopify_client_id_size: str = "4a902807121d5f2b63a81c31bbf91429"  # public, as in shopify_size_app/shopify.app.toml
+    shopify_client_secret_size: str = ""
+    # The app's handle in the Partner dashboard, for the Managed Pricing plan page URL.
+    shopify_app_handle_size: str = "tryon-size"
     frontend_app_url_lafam: str = ""  # Override for shopify_lafam_shops; falls back to the pilot frontend (tryon.global)
     frontend_app_url: str = "https://tryon-shopify-theta.vercel.app"  # Base URL of Shopify app frontend for OAuth redirect (primary app)
     frontend_app_url_pilot: str = ""  # Override for shopify_pilot_shops (e.g. Ramin Studios stays on tryon.global; App Store submission lives on app.tryon.global)

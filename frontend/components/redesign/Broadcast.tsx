@@ -552,7 +552,7 @@ function DesktopBrands() {
         <p style={{
           ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48,
         }}>
-          Built for Shopify fashion brands. Start with Find my size on every product, from $29 a month with a 30-day free trial. Add 3D try-on when you are ready.
+          Built for Shopify fashion brands. Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on when you are ready.
         </p>
 
         <div style={{ marginBottom: 56 }}>
@@ -847,7 +847,7 @@ function MobileBrands() {
         Pay less than one return per day.
       </h2>
       <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginBottom: 22 }}>
-        Start with Find my size on every product, from $29 a month with a 30-day free trial. Add 3D try-on when you are ready.
+        Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on when you are ready.
       </p>
 
       <div style={{ marginBottom: 28 }}>

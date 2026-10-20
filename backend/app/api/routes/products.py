@@ -333,6 +333,10 @@ async def get_tryon_config(
     try:
         brand = supabase_service.get_brand_by_shopify_domain(shop) if shop and shop.strip() else None
         brand_id = str(brand["id"]) if brand and brand.get("id") else None
+        # A named shop with no brand (e.g. a TryOn Size install) has no garments: never fall
+        # through to the all-brands search, or a common handle returns another store's chart.
+        if shop and shop.strip() and not brand_id:
+            raise HTTPException(status_code=404, detail="Garment not found")
 
         row = _find_garment_row(product_id, brand_id)
         if not row:

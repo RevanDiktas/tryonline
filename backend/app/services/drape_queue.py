@@ -345,7 +345,9 @@ def drape_product_first(user_id: str, shop_domain: Optional[str], product_id: Op
         from app.api.routes.products import _find_garment_row
         from app.services.drape_dispatcher import wake_dispatcher
         brand = supabase_service.get_brand_by_shopify_domain(shop_domain)
-        row = _find_garment_row(product_id, str(brand["id"]) if brand and brand.get("id") else None)
+        if not brand or not brand.get("id"):
+            return []  # no brand, no garments (never the all-brands search)
+        row = _find_garment_row(product_id, str(brand["id"]))
         if not row or not row.get("id"):
             return []
         g = supabase_service.client.table("garments").select("obj_sizes").eq("id", row["id"]).limit(1).execute()

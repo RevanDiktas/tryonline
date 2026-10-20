@@ -1,0 +1,4 @@
+api_version = "2026-10"
+
+name = "TryOn Size"
+type = "theme"

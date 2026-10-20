@@ -1,0 +1,30 @@
+# TryOn Size: the public Find my size app (Shopify App Store). Separate from the Tryon / Ramin /
+# La Fam apps in ../shopify_app, so a deploy here can never touch their stores.
+# Learn more: https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "4a902807121d5f2b63a81c31bbf91429"
+name = "TryOn Size"
+application_url = "https://app.tryon.global/size-app"
+embedded = true
+
+[webhooks]
+api_version = "2026-10"
+
+# One URL for every topic; backend/app/api/routes/size_app.py tells them apart by X-Shopify-Topic
+# and verifies each with this app's secret only.
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled", "app_subscriptions/update"]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "https://heroic-celebration-production-9f72.up.railway.app/api/size-app/webhooks"
+
+# No Admin API scopes: the app reads only its own subscription and writes only its own
+# app-data metafield, which need none. No orders, no customers, no protected customer data.
+[access_scopes]
+scopes = ""
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = ["https://app.tryon.global/size-app"]
+
+[pos]
+embedded = false
