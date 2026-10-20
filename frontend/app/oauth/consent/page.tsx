@@ -30,7 +30,7 @@ const WHAT_IT_CAN_DO = [
   'Save products to your TryOn wishlist',
 ];
 
-type Stage = 'loading' | 'signin' | 'consent' | 'redirecting' | 'error';
+type Stage = 'loading' | 'signin' | 'consent' | 'redirecting' | 'error' | 'switched';
 
 function Consent() {
   const params = useSearchParams();
@@ -46,6 +46,7 @@ function Consent() {
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [backUrl, setBackUrl] = useState<string | null>(null);
 
   const load = useCallback(async (id: string) => {
     setStage('loading');
@@ -94,7 +95,19 @@ function Consent() {
     window.location.href = redirectUrl;
   };
 
-  const switchAccount = async () => { await logout(); setDetails(null); setStage('signin'); };
+  // Supabase ties this request to the account that opened it, so another account cannot
+  // finish it. Decline it (the app shows it was cancelled), sign out, and send the shopper
+  // back to connect again: the new request then belongs to whoever signs in.
+  const switchAccount = async () => {
+    if (!authId) return;
+    setBusy(true);
+    const { redirectUrl } = await decideOAuthRequest(authId, false);
+    clearOAuthConsent();
+    await logout();
+    setBusy(false);
+    setBackUrl(redirectUrl);
+    setStage('switched');
+  };
 
   if (stage === 'signin') {
     return (
@@ -123,6 +136,19 @@ function Consent() {
   if (stage === 'loading' || stage === 'redirecting') {
     return shell(<p style={{ margin: 0, color: C.dim }}>{stage === 'loading' ? 'Loading…' : 'Taking you back…'}</p>);
   }
+  if (stage === 'switched') {
+    return shell(<>
+      <h1 style={{ fontSize: 22, margin: '0 0 8px', fontWeight: 600 }}>Signed out</h1>
+      <p style={{ margin: '0 0 20px', color: C.dim, lineHeight: 1.5 }}>
+        Go back to {details?.clientName && details.clientName !== 'An app' ? details.clientName : 'the app'} and connect TryOn again. You will be asked to sign in, so you can use the other account.
+      </p>
+      {backUrl && (
+        <a href={backUrl} style={{ display: 'block', textAlign: 'center', padding: '12px 16px', borderRadius: 12, background: '#0040FF', color: '#fff', fontWeight: 600, textDecoration: 'none' }}>
+          Back to {details?.clientName && details.clientName !== 'An app' ? details.clientName : 'the app'}
+        </a>
+      )}
+    </>);
+  }
   if (stage === 'error' || !details) {
     return shell(<>
       <h1 style={{ fontSize: 22, margin: '0 0 8px', fontWeight: 600 }}>That did not work</h1>
@@ -135,7 +161,7 @@ function Consent() {
       {details.clientName} wants to use your TryOn sizes
     </h1>
     <p style={{ margin: '0 0 20px', color: C.dim, fontSize: 14 }}>
-      Signed in as {details.email}. <button type="button" onClick={switchAccount} style={{ background: 'none', border: 0, padding: 0, color: '#0040FF', cursor: 'pointer', font: 'inherit' }}>Not you?</button>
+      Signed in as {details.email}. <button type="button" disabled={busy} onClick={switchAccount} style={{ background: 'none', border: 0, padding: 0, color: '#0040FF', cursor: 'pointer', font: 'inherit' }}>Not you?</button>
     </p>
     <div style={{ fontSize: 12, letterSpacing: '0.04em', textTransform: 'uppercase', color: C.dim, marginBottom: 10 }}>It will be able to</div>
     <ul style={{ margin: '0 0 20px', paddingLeft: 18, lineHeight: 1.6, fontSize: 14, listStyle: 'disc' }}>

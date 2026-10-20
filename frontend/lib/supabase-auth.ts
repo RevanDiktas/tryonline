@@ -367,7 +367,14 @@ export interface OAuthRequestDetails {
 
 export async function getOAuthRequest(authorizationId: string): Promise<{ details: OAuthRequestDetails | null; error: string | null }> {
   const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
-  if (error || !data) return { details: null, error: error?.message || 'This sign-in link has expired.' };
+  if (error || !data) {
+    // Supabase ties a request to the first account that opened it; any other account gets
+    // "authorization not found", as does an expired request (10 minutes).
+    const msg = /not found/i.test(error?.message || '')
+      ? 'This sign-in request has expired or was started with another account. Go back to the app and connect again.'
+      : error?.message || 'This sign-in request has expired. Go back to the app and connect again.';
+    return { details: null, error: msg };
+  }
   // Supabase sends the client's plain redirect_uri with every request. Only a finished
   // redirect (an earlier consent: it carries ?code= or ?error=) may skip the consent screen.
   let finished: string | undefined;
@@ -375,10 +382,13 @@ export async function getOAuthRequest(authorizationId: string): Promise<{ detail
     const u = data.redirect_uri ? new URL(data.redirect_uri) : null;
     if (u && (u.searchParams.has('code') || u.searchParams.has('error'))) finished = u.toString();
   } catch { /* not a URL: show the consent screen */ }
+  // The server sends client.name / client.uri (supabase/auth ClientDetailsResponse); auth-js's
+  // types say client_name / client_uri. Read both.
+  const client = (data.client || {}) as { name?: string; client_name?: string; uri?: string; client_uri?: string };
   return {
     details: {
-      clientName: data.client?.client_name || 'An app',
-      clientUri: data.client?.client_uri || undefined,
+      clientName: client.name || client.client_name || 'An app',
+      clientUri: client.uri || client.client_uri || undefined,
       scope: data.scope || '',
       email: data.user?.email || '',
       redirectUrl: finished,
