@@ -1,4 +1,5 @@
 api_version = "2026-10"
 
 name = "TryOn Size"
+uid = "9625a71b-d1aa-208d-0f99-04b248c1bcdc3063b1ff"
 type = "theme"
