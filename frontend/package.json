@@ -9,18 +9,23 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^2.0.3",
+    "@modelcontextprotocol/server": "^2.3.1",
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
     "@supabase/auth-helpers-nextjs": "^0.15.0",
     "@supabase/supabase-js": "^2.78.0",
     "framer-motion": "^10.18.0",
+    "jose": "^6.2.13",
     "lucide-react": "^0.303.0",
+    "mcp-handler": "^2.3.0",
     "next": "14.0.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "recharts": "^3.7.0",
     "three": "^0.160.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^20.10.6",
