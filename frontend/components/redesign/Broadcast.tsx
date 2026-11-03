@@ -175,7 +175,7 @@ function DesktopHero() {
             letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
             marginBottom: 28,
           }}>
-            TryOn · Fit intelligence for fashion brands
+            TryOn · Amsterdam
           </div>
 
           <h1 style={{
@@ -184,7 +184,7 @@ function DesktopHero() {
             letterSpacing: '-0.04em', lineHeight: 0.94,
             margin: '0 0 24px',
           }}>
-            Know who you&apos;re dressing.
+            We measure the people who buy your clothes.
           </h1>
 
           <p style={{
@@ -192,7 +192,7 @@ function DesktopHero() {
             color: C.mute, fontWeight: 400, letterSpacing: '-0.005em',
             maxWidth: 520, margin: '0 0 32px',
           }}>
-            Your shoppers get their size in 30 seconds. You get, for the first time, what your customers&apos; bodies actually look like. Then we make the clothes to fit them.
+            A size button on every product. Your customers&apos; measurements, every month. The next run graded to them. Live with La Fam Amsterdam.
           </p>
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 32 }}>
@@ -362,7 +362,7 @@ function DesktopBrandShopperTiles() {
 const PIECES = [
   {
     tag: 'Customer Body Report',
-    desc: 'Monthly. Shape distribution, grading gaps, the size curve per style and returns by size. The data a design team has never had.',
+    desc: 'Once a month. Your customers\u2019 measurements, the sizes that don\u2019t fit them, and the size run for the next drop.',
     image: '/redesign/fit-report.jpg',
   },
   {
@@ -380,16 +380,16 @@ const PIECES = [
 /* ─── Bodies: what the brand sees that it never saw before ─── */
 const BODY_CARDS = [
   {
-    tag: 'Shape distribution',
-    desc: 'Who actually buys from you, by body shape, not by size label. Shoulders, chest, waist, hips, height.',
+    tag: 'Measurements',
+    desc: 'Shoulders, chest, waist, hips, height. Where your customers sit, and how many of them.',
   },
   {
-    tag: 'Grading gaps',
-    desc: 'Which of your sizes are a compromise, and for how many of your customers. Where M is cut for a body only a quarter of your buyers have.',
+    tag: 'Sizes',
+    desc: 'Which of your sizes nobody wears. Which sizes you don\u2019t cut that people need.',
   },
   {
-    tag: 'Size curve per style',
-    desc: 'How many of each size to cut for the next drop, from the bodies that buy, not from last season’s sales.',
+    tag: 'Next run',
+    desc: 'How many of each size to make for the next drop, per style.',
   },
 ];
 
@@ -409,10 +409,6 @@ function BodyCards({ mobile }: { mobile?: boolean }) {
           borderBottom: mobile && i < BODY_CARDS.length - 1 ? `1px solid ${C.line}` : 'none',
           display: 'flex', flexDirection: 'column', gap: 10,
         }}>
-          <div style={{
-            fontFamily: 'var(--mono)', fontSize: 11, color: C.mute, fontWeight: 500,
-            letterSpacing: '0.08em', textTransform: 'uppercase',
-          }}>0{i + 1}</div>
           <div style={{ fontFamily: 'var(--display)', fontSize: mobile ? 17 : 19, fontWeight: 600, color: C.ink }}>{b.tag}</div>
           <div style={{ ...bodyStyle, fontSize: mobile ? 13.5 : 14.5, color: C.mute }}>{b.desc}</div>
         </div>
@@ -434,16 +430,16 @@ function DesktopBodies() {
           ...headingStyle('clamp(36px, 4.5vw, 64px)'),
           marginBottom: 14, maxWidth: 980,
         }}>
-          Brands know their customers&apos; postcodes. We show them their bodies.
+          What the report shows.
         </h2>
         <p style={{ ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 40 }}>
-          Every size check and every fit passport teaches you something about the people who buy from you. Three things you have never been able to see, in one report.
+          Every month, from the people who used the size button on your store.
         </p>
         <BodyCards />
         <div style={{
           marginTop: 20, fontFamily: 'var(--display)', fontSize: 14, color: C.mute,
         }}>
-          Live with La Fam Amsterdam. First case study with numbers: January 2027.
+          Live with La Fam Amsterdam. Numbers in January.
         </div>
       </div>
     </section>
@@ -458,14 +454,14 @@ function MobileBodies() {
       borderBottom: `1px solid ${C.line}`,
     }}>
       <h2 style={{ ...headingStyle('30px'), marginBottom: 12 }}>
-        Brands know their customers&apos; postcodes. We show them their bodies.
+        What the report shows.
       </h2>
       <p style={{ ...bodyStyle, fontSize: 14, color: C.mute, marginBottom: 22 }}>
-        Three things you have never been able to see, in one report.
+        Every month, from the people who used the size button on your store.
       </p>
       <BodyCards mobile />
       <div style={{ marginTop: 14, fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
-        Live with La Fam Amsterdam. First case study with numbers: January 2027.
+        Live with La Fam Amsterdam. Numbers in January.
       </div>
     </section>
   );
@@ -497,7 +493,7 @@ function MakeIt({ mobile }: { mobile?: boolean }) {
           ...bodyStyle, fontSize: mobile ? 14 : 16, color: C.cardMute,
           maxWidth: 640, marginBottom: 28,
         }}>
-          The data doesn&apos;t stop at a dashboard. Send us the size curve and the design, and we source, sample and produce it, graded from your customers&apos; bodies. Denim first.
+          Send us the design and the size run. We source the fabric, make the sample, grade it to your customers and ship the order. Denim first.
         </p>
         <a
           href={FRAVASH_URL}
@@ -655,7 +651,7 @@ function PlanSummary({ mobile }: { mobile?: boolean }) {
         ))}
       </div>
       <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute, marginTop: 12 }}>
-        {TRIAL_DAYS}-day free trial on every plan. Prices in USD. Larger catalogues and production: <Link href="/pricing" style={{ color: C.ink }}>see full pricing</Link> or <a href={FRAVASH_URL} target="_blank" rel="noopener noreferrer" style={{ color: C.ink }}>talk to Fravash</a>.
+        {TRIAL_DAYS}-day free trial on every plan. Prices in USD. Bigger catalogues and production: <Link href="/pricing" style={{ color: C.ink }}>see full pricing</Link> or <a href={FRAVASH_URL} target="_blank" rel="noopener noreferrer" style={{ color: C.ink }}>talk to Fravash</a>.
       </div>
     </div>
   );
@@ -667,17 +663,17 @@ function DesktopBrands() {
   const cmp = [
     {
       name: 'Google VTO',
-      bullets: ['Flat 2D image generation.', 'No body measurements.', 'Happens on Google. Brand loses the data.', 'Nothing goes into production.'],
+      bullets: ['Flat 2D image generation.', 'No body measurements.', 'Happens on Google. Brand loses the data.', 'Stops at the screen.'],
       muted: true,
     },
     {
       name: 'True Fit',
-      bullets: ['Size recommendation only.', 'No 3D, no avatar.', 'Enterprise pricing, sold by order volume.', 'Nothing goes into production.'],
+      bullets: ['Size recommendation only.', 'No 3D, no avatar.', 'Enterprise pricing, sold by order volume.', 'Stops at the screen.'],
       muted: true,
     },
     {
       name: 'TryOn',
-      bullets: ['A size on every product, 3D try-on where you have it.', 'Every size scored as a % match.', 'Brand keeps the data and the PDP.', 'Your size curve goes into production.'],
+      bullets: ['A size on every product, 3D try-on where you have it.', 'Every size scored as a % match.', 'Brand keeps the data and the PDP.', 'Your size run goes to the factory.'],
       muted: false,
     },
   ];
@@ -698,7 +694,7 @@ function DesktopBrands() {
         <p style={{
           ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48,
         }}>
-          Built for Shopify fashion brands. Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on, then the Customer Body Report when you want to know who you are dressing.
+          Built for Shopify fashion brands. Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on, then the report.
         </p>
 
         <div style={{ marginBottom: 56 }}>
@@ -847,7 +843,7 @@ function MobileHero() {
         letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
         marginBottom: 18,
       }}>
-        TryOn · Fit intelligence for fashion brands
+        TryOn · Amsterdam
       </div>
       <h1 style={{
         fontFamily: 'var(--display)', fontWeight: 900,
@@ -855,14 +851,14 @@ function MobileHero() {
         letterSpacing: '-0.04em', lineHeight: 0.92,
         margin: '0 0 16px',
       }}>
-        Know who you&apos;re dressing.
+        We measure the people who buy your clothes.
       </h1>
       <p style={{
         fontFamily: 'var(--display)', fontSize: 17, lineHeight: 1.45,
         color: C.mute, fontWeight: 400, letterSpacing: '-0.005em',
         margin: '0 0 6px',
       }}>
-        Shoppers get their size in 30 seconds. You see what your customers&apos; bodies actually look like. Then we make the clothes to fit them.
+        A size button on every product. Your customers&apos; measurements, every month. The next run graded to them.
       </p>
 
       <div style={{
@@ -993,7 +989,7 @@ function MobileBrands() {
         Pay less than one return per day.
       </h2>
       <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginBottom: 22 }}>
-        Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on, then the Customer Body Report.
+        Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on, then the report.
       </p>
 
       <div style={{ marginBottom: 28 }}>
@@ -1152,7 +1148,7 @@ const STAT_GROUPS: { title: string; stats: Stat[]; note?: string }[] = [
         href: 'https://happyreturns.com/2024-nrf-returns-report',
       },
     ],
-    note: 'Every one of those is a body your size chart did not describe. TryOn shows you which sizes your shoppers really need, product by product.',
+    note: 'Most of these are a size that was wrong for that body. TryOn shows you which sizes your shoppers need, product by product.',
   },
 ];
 

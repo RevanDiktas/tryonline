@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 
 export const SITE_URL = 'https://tryon.global';
 export const SITE_NAME = 'TryOn';
-export const DEFAULT_TITLE = 'TryOn: know who you are dressing';
+export const DEFAULT_TITLE = 'TryOn: size and body data for fashion brands';
 export const DEFAULT_DESCRIPTION =
-  'Fit intelligence for fashion brands. Shoppers get their size in 30 seconds on every product; you see what your customers\' bodies actually look like, and we make the clothes to fit them. One button for Shopify stores.';
+  'A size button on every product. Your customers\' measurements, every month. The next run graded to them. Built in Amsterdam, live with La Fam.';
 
 /**
  * Metadata for one public page. Sets the canonical URL and the Open Graph / Twitter copy
