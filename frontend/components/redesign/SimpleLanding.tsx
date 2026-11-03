@@ -7,18 +7,19 @@ import dynamic from 'next/dynamic';
 import { useIsMobile } from './useIsMobile';
 import { PLANS } from '@/lib/plans';
 
-/* Home page in the Fravash system (fravash.ai): white, ink #141416, hairline rules #C9C7C2,
-   Hanken Grotesk light display set in uppercase, JetBrains Mono eyebrows, pill buttons with
-   a "+" and numbered sections. The 3D avatar is the hero, on white. */
+/* Home page in the Fravash v6 system: off-white and navy and cobalt, mono eyebrows,
+   sentence-case headlines set tight, pill buttons, one hairline per list row and no more.
+   Sections alternate light / dark / cobalt. The 3D avatar is the hero visual. */
 
 const AvatarHero = dynamic(() => import('./AvatarHero').then((m) => m.AvatarHero), { ssr: false });
 
-const INK = '#141416';
-const BODY = '#3A3A3F';
-const MUTE = '#6E6E73';
-const RULE = '#C9C7C2';
-const RULE2 = '#E1DFDA';
+const INK = '#0A0A0A';
+const GREY = '#6E6E73';
+const PAPER = '#F4F4F2';
 const WHITE = '#FFFFFF';
+const NAVY = '#0B0F1A';
+const COBALT = '#1F3BFF';
+const RULE = 'rgba(10,10,10,0.12)';
 const SANS = "'Hanken Grotesk', 'Manrope', system-ui, sans-serif";
 const MONO = "'JetBrains Mono', monospace";
 const FRAVASH_URL = 'https://fravash.ai';
@@ -29,11 +30,12 @@ const CSS = `
 .rv{opacity:0;transform:translateY(18px);transition:opacity .9s cubic-bezier(.2,.7,.2,1),transform .9s cubic-bezier(.2,.7,.2,1)}
 .rv.in{opacity:1;transform:none}
 .rv-d1{transition-delay:.12s}.rv-d2{transition-delay:.24s}.rv-d3{transition-delay:.36s}
-.fr{position:relative;overflow:hidden;background:#FFFFFF;border:1px solid #E1DFDA}
-.fr img{display:block;width:100%;height:100%;object-fit:cover;transform:scale(1.02);transition:transform 1.4s cubic-bezier(.2,.7,.2,1)}
-.fr:hover img{transform:scale(1.06)}
-.plogo{height:100%;width:auto;max-width:100%;object-fit:contain;display:block;opacity:.9}
-@media (prefers-reduced-motion: reduce){.fv-up,.rv{animation:none !important;opacity:1 !important;transform:none !important;transition:none !important}.fr img{transition:none}}
+@keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+.dot{animation:pulse 2.4s ease-in-out infinite}
+.pill{transition:transform .18s cubic-bezier(.2,.7,.2,1),background .18s,color .18s}
+.pill:hover{transform:translateY(-1px)}
+.plogo{object-fit:contain;display:block;opacity:.85}
+@media (prefers-reduced-motion: reduce){.fv-up,.rv,.dot{animation:none !important;opacity:1 !important;transform:none !important;transition:none !important}}
 `;
 
 function useReveal() {
@@ -49,343 +51,325 @@ function useReveal() {
   }, []);
 }
 
-const mono: React.CSSProperties = { fontFamily: MONO, fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase' };
-const disp = (size: string, extra?: React.CSSProperties): React.CSSProperties => ({
-  fontFamily: SANS, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '-0.02em', lineHeight: 0.98, margin: 0, fontSize: size, color: INK, ...extra,
-});
-const body = (size = 18): React.CSSProperties => ({ fontFamily: SANS, fontSize: size, lineHeight: 1.55, color: BODY, margin: 0 });
+const eyebrow = (color = GREY): React.CSSProperties => ({ fontFamily: MONO, fontSize: 12, letterSpacing: '0.2em', textTransform: 'uppercase', color, fontWeight: 500 });
+const h = (size: string, color = INK, weight = 600): React.CSSProperties => ({ fontFamily: SANS, fontWeight: weight, fontSize: size, letterSpacing: '-0.035em', lineHeight: 1.02, margin: 0, color });
+const sub = (size = 20, color = GREY): React.CSSProperties => ({ fontFamily: SANS, fontSize: size, lineHeight: 1.4, color, margin: 0, letterSpacing: '-0.01em' });
 
-function Pill({ children, href, external, mobile }: { children: React.ReactNode; href: string; external?: boolean; mobile: boolean }) {
-  const [hover, setHover] = useState(false);
-  const style: React.CSSProperties = {
-    display: 'inline-flex', alignItems: 'center', justifyContent: mobile ? 'space-between' : 'flex-start',
-    gap: mobile ? 16 : 28, padding: mobile ? '18px 22px' : '30px 36px',
-    border: `1px solid ${INK}`, borderRadius: 999, textDecoration: 'none',
-    color: hover ? WHITE : INK, background: hover ? INK : 'transparent',
-    fontFamily: SANS, fontSize: mobile ? 16 : 20, lineHeight: 1.25,
-    maxWidth: mobile ? 'none' : 460, width: mobile ? '100%' : undefined, boxSizing: 'border-box',
-    transition: 'background 160ms, color 160ms',
+function Pill({ children, href, kind = 'solid', on = 'light', external }: { children: React.ReactNode; href: string; kind?: 'solid' | 'outline' | 'white'; on?: 'light' | 'dark' | 'cobalt'; external?: boolean }) {
+  const styles: Record<string, React.CSSProperties> = {
+    solid: { background: COBALT, color: WHITE, border: `1px solid ${COBALT}` },
+    outline: { background: 'transparent', color: on === 'light' ? INK : WHITE, border: `1px solid ${on === 'light' ? RULE : 'rgba(255,255,255,0.35)'}` },
+    white: { background: WHITE, color: COBALT, border: `1px solid ${WHITE}` },
   };
-  const plus = <span style={{ fontSize: mobile ? 22 : 28, lineHeight: 1 }}>+</span>;
-  const props = { style, onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false) };
-  if (external) return <a href={href} target="_blank" rel="noopener noreferrer" {...props}><span>{children}</span>{plus}</a>;
-  return <Link href={href} {...props}><span>{children}</span>{plus}</Link>;
+  const style: React.CSSProperties = {
+    ...styles[kind], display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    padding: '16px 30px', borderRadius: 999, textDecoration: 'none',
+    fontFamily: SANS, fontSize: 17, fontWeight: 500, letterSpacing: '-0.01em', lineHeight: 1,
+  };
+  if (external) return <a className="pill" href={href} target="_blank" rel="noopener noreferrer" style={style}>{children}</a>;
+  return <Link className="pill" href={href} style={style}>{children}</Link>;
 }
 
-const PlusBox = ({ dark }: { dark?: boolean }) => (
-  <span style={{
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20,
-    border: `1px solid ${dark ? WHITE : INK}`, fontSize: 13, lineHeight: 1,
-  }}>+</span>
-);
-
-const Wordmark = () => (
-  // eslint-disable-next-line @next/next/no-img-element
-  <img src="/redesign/wordmark.png" alt="TryOn" style={{ height: 18, width: 'auto', display: 'block' }} />
-);
-
-/* ─── Header: the Fravash grid, on white ─── */
-const NAV_PAIRS = [
-  { href: '#s01', a: '01 The problem', b: '02 The answer' },
-  { href: '#s03', a: '03 Production', b: '04 Pricing' },
-  { href: '#s05', a: '05 Where this goes', b: '06 Contact' },
-];
-
-function Header({ mobile }: { mobile: boolean }) {
-  const cell: React.CSSProperties = { borderRight: `1px solid ${RULE}`, display: 'flex', alignItems: 'center' };
+/* ─── Nav ─── */
+function Nav({ mobile }: { mobile: boolean }) {
+  const [open, setOpen] = useState(false);
+  const links = [
+    { label: 'How it works', href: '#how' }, { label: 'The report', href: '#report' },
+    { label: 'Production', href: '#production' }, { label: 'Pricing', href: '/pricing' },
+  ];
   return (
-    <header style={{ width: '100%', borderBottom: `1px solid ${RULE}` }}>
-      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr auto auto' : 'minmax(220px, 2.2fr) repeat(3, minmax(0, 1fr)) minmax(0, 1fr) auto' }}>
-        <Link href="/" style={{ ...cell, gap: 14, padding: mobile ? '18px 20px' : '24px 32px', textDecoration: 'none', color: INK, fontFamily: SANS, fontSize: 17, lineHeight: 1.15 }}>
-          <Wordmark />
-          {!mobile && <span style={{ opacity: 0.75 }}>Size and body data</span>}
+    <header style={{ background: PAPER, position: 'sticky', top: 0, zIndex: 20 }}>
+      <div style={{ maxWidth: 1360, margin: '0 auto', padding: mobile ? '18px 20px' : '26px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
+        <Link href="/" aria-label="TryOn home" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/redesign/wordmark.png" alt="TryOn" style={{ height: mobile ? 20 : 24, width: 'auto', display: 'block' }} />
         </Link>
-        {!mobile && NAV_PAIRS.map((n) => (
-          <a key={n.href} href={n.href} style={{ ...cell, ...mono, flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 6, padding: '18px 24px', color: 'rgba(20,20,22,0.7)', textDecoration: 'none' }}>
-            <span>{n.a}</span><span>{n.b}</span>
-          </a>
-        ))}
-        <Link href="/login" style={{ ...cell, ...mono, flexDirection: mobile ? 'row' : 'column', alignItems: mobile ? 'center' : 'flex-start', justifyContent: 'center', gap: 6, padding: mobile ? '0 18px' : '18px 24px', color: 'rgba(20,20,22,0.7)', textDecoration: 'none' }}>
-          <span>Log in</span>{!mobile && <span style={{ opacity: 0.6 }}>Brand dashboard</span>}
-        </Link>
-        <Link href="/start" style={{ ...mono, display: 'inline-flex', alignItems: 'center', gap: 12, padding: mobile ? '0 20px' : '0 32px', color: INK, textDecoration: 'none', whiteSpace: 'nowrap' }}>
-          Start <PlusBox />
-        </Link>
+        {!mobile && (
+          <nav style={{ display: 'flex', alignItems: 'center', gap: 36 }}>
+            {links.map((l) => <a key={l.href} href={l.href} style={{ fontFamily: SANS, fontSize: 18, color: GREY, textDecoration: 'none', letterSpacing: '-0.01em' }}>{l.label}</a>)}
+            <Pill href="/book" kind="outline">Contact</Pill>
+            <Pill href="/start">Start free trial</Pill>
+          </nav>
+        )}
+        {mobile && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <Pill href="/start">Start</Pill>
+            <button type="button" aria-label={open ? 'Close menu' : 'Menu'} onClick={() => setOpen((o) => !o)} style={{ width: 44, height: 44, borderRadius: 999, border: `1px solid ${RULE}`, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ width: 18 }}>
+                <span style={{ display: 'block', height: 1.5, background: INK, marginBottom: 4 }} />
+                <span style={{ display: 'block', height: 1.5, background: INK, marginBottom: 4 }} />
+                <span style={{ display: 'block', height: 1.5, background: INK }} />
+              </span>
+            </button>
+          </div>
+        )}
       </div>
+      {mobile && open && (
+        <nav style={{ padding: '8px 20px 28px', display: 'flex', flexDirection: 'column', gap: 18, background: PAPER }}>
+          {[...links, { label: 'Contact', href: '/book' }, { label: 'Sign in', href: '/login' }].map((l) => (
+            <a key={l.href} href={l.href} onClick={() => setOpen(false)} style={{ fontFamily: SANS, fontSize: 26, fontWeight: 500, color: INK, textDecoration: 'none', letterSpacing: '-0.02em' }}>{l.label}</a>
+          ))}
+        </nav>
+      )}
     </header>
   );
 }
 
-/* ─── Sticky status bar ─── */
-const SECTIONS = ['Home', 'The problem', 'The answer', 'Production', 'Pricing', 'Where this goes', 'Contact'];
-function StatusBar({ mobile, section }: { mobile: boolean; section: string }) {
-  const cell: React.CSSProperties = { padding: mobile ? '13px 16px' : '20px 32px', borderRight: `1px solid ${RULE}`, display: 'flex', alignItems: 'center', gap: mobile ? 10 : 14, ...mono, color: INK };
-  return (
-    <div aria-hidden style={{
-      position: 'sticky', top: 0, zIndex: 5, background: 'rgba(255,255,255,0.86)', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)',
-      borderBottom: `1px solid ${RULE}`, display: 'grid',
-      gridTemplateColumns: mobile ? 'auto 1fr auto' : 'minmax(220px, 2.2fr) minmax(0, 1fr) minmax(0, 1.2fr) auto',
-    }}>
-      <span style={{ ...cell, fontFamily: SANS, fontSize: 15, letterSpacing: 0, textTransform: 'none' }}><Wordmark /></span>
-      {!mobile && <span style={cell}><span style={{ opacity: 0.65 }}>Page:</span><span>Home</span></span>}
-      <span style={cell}><span style={{ opacity: 0.65 }}>Section:</span><span>{section}</span></span>
-      <Link href="/start" style={{ ...cell, borderRight: 0, textDecoration: 'none' }}>Start <PlusBox /></Link>
-    </div>
-  );
-}
-
-/* ─── Hero: the avatar, on white ─── */
+/* ─── Hero: the avatar, and the one line ─── */
 function Hero({ mobile }: { mobile: boolean }) {
   return (
-    <section id="top" style={{ position: 'relative', width: '100%', minHeight: mobile ? '100svh' : '100vh', background: WHITE, color: INK, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <Header mobile={mobile} />
-      <div style={{
-        position: 'relative', flex: '1 1 auto',
-        display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)',
-        alignItems: 'center', gap: mobile ? 8 : 32,
-        padding: mobile ? '40px 20px 0' : '40px 64px 0',
-      }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: mobile ? 20 : 32, paddingBottom: mobile ? 0 : 48 }}>
-          <h1 className="fv-up fv-d1" style={disp(mobile ? 'clamp(38px, 11.5vw, 54px)' : 'clamp(40px, 5.2vw, 84px)')}>Size and body data<br />for fashion brands</h1>
-          <p className="fv-up fv-d2" style={{ ...body(mobile ? 16 : 18), maxWidth: mobile ? 340 : 480 }}>
-            One button on every product. Your customers&apos; measurements, every month.
-          </p>
-          <div className="fv-up fv-d3" style={{ display: 'flex', gap: 28, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Link href="/start" style={{ ...mono, display: 'inline-flex', alignItems: 'center', gap: 12, color: INK, textDecoration: 'none' }}>Start free trial <PlusBox /></Link>
-            <Link href="/product" style={{ ...mono, color: MUTE, textDecoration: 'none' }}>How it works</Link>
+    <section style={{ background: PAPER }}>
+      <div style={{ maxWidth: 1360, margin: '0 auto', padding: mobile ? '32px 20px 0' : '64px 48px 0', display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1.05fr 1fr', gap: mobile ? 24 : 48, alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: mobile ? 22 : 30, paddingBottom: mobile ? 0 : 64 }}>
+          <div className="fv-up" style={eyebrow()}>Fit, measured</div>
+          <h1 className="fv-up fv-d1" style={h(mobile ? 'clamp(40px, 11vw, 56px)' : 'clamp(52px, 5.4vw, 92px)')}>Clothes made for the bodies that buy them.</h1>
+          <p className="fv-up fv-d2" style={{ ...sub(mobile ? 18 : 22), maxWidth: 560 }}>One button measures your shoppers. The next run is cut to them.</p>
+          <div className="fv-up fv-d3" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <Pill href="/start">Start free trial</Pill>
+            <Pill href="#how" kind="outline">How it works</Pill>
           </div>
         </div>
-        <div className="fv-up fv-d2" style={{ position: 'relative', height: mobile ? '54vh' : 'calc(100vh - 160px)', minHeight: mobile ? 380 : 560, maxHeight: 900 }}>
+        <div className="fv-up fv-d2" style={{ position: 'relative', height: mobile ? '56vh' : 'calc(100vh - 200px)', minHeight: mobile ? 400 : 560, maxHeight: 860 }}>
           <AvatarHero height="100%" interactive={false} rotateSpeed={0.6} />
-          <div aria-hidden style={{ position: 'absolute', bottom: 12, left: 0, right: 0, textAlign: 'center', ...mono, color: MUTE }}>Your shopper · Size M · live 3D</div>
+          <div aria-hidden style={{ position: 'absolute', bottom: 8, left: 0, right: 0, textAlign: 'center', ...eyebrow(), fontSize: 11 }}>Your shopper · size M · live 3D</div>
         </div>
       </div>
-    </section>
-  );
-}
-
-/* ─── Partners: the brands running TryOn ─── */
-const PARTNERS = [
-  { name: 'La Fam Amsterdam', src: '/partners/lafam.webp', h: { d: 72, m: 48 } },
-  { name: 'Ramin Studios', src: '/partners/ramin.webp', h: { d: 22, m: 16 } },
-];
-function Partners({ mobile }: { mobile: boolean }) {
-  return (
-    <section aria-label="Live with" style={{ borderTop: `1px solid ${RULE}`, borderBottom: `1px solid ${RULE}`, background: WHITE }}>
-      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(220px, 2.2fr) repeat(2, minmax(0, 1fr))' }}>
-        <span style={{ ...mono, color: MUTE, padding: mobile ? '16px 20px 0' : '36px 32px', borderRight: mobile ? 0 : `1px solid ${RULE}`, display: 'flex', alignItems: 'center' }}>Live with</span>
-        {PARTNERS.map((p, i) => (
-          <div key={p.name} className={`rv rv-d${i + 1}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: mobile ? '20px 20px' : '36px 32px', height: mobile ? 96 : 140, boxSizing: 'border-box', borderRight: !mobile && i === 0 ? `1px solid ${RULE}` : 0, borderTop: mobile ? `1px solid ${RULE2}` : 0 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={p.src} alt={p.name} className="plogo" style={{ height: mobile ? p.h.m : p.h.d }} />
-          </div>
-        ))}
+      <div style={{ maxWidth: 1360, margin: '0 auto', padding: mobile ? '40px 20px 56px' : '48px 48px 96px', display: 'flex', alignItems: 'center', gap: mobile ? 28 : 56, flexWrap: 'wrap' }}>
+        <span style={eyebrow()}>Live with</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/partners/lafam.webp" alt="La Fam Amsterdam" className="plogo rv" style={{ height: mobile ? 44 : 64 }} />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/partners/ramin.webp" alt="Ramin Studios" className="plogo rv rv-d1" style={{ height: mobile ? 14 : 20 }} />
       </div>
     </section>
   );
 }
 
-/* ─── Sections ─── */
-function Pad({ children, mobile, style }: { children: React.ReactNode; mobile: boolean; style?: React.CSSProperties }) {
-  return <div style={{ padding: mobile ? '72px 20px 64px' : '128px 64px 112px', boxSizing: 'border-box', ...style }}>{children}</div>;
-}
-
-function Two({ left, right, mobile, cols = 'minmax(0, 1fr) minmax(0, 2fr)', align = 'start' }: { left: React.ReactNode; right: React.ReactNode; mobile: boolean; cols?: string; align?: string }) {
+/* ─── Phone: the size result, drawn ─── */
+const SCORES = [{ s: 'M', v: 31 }, { s: 'L', v: 96, best: true }, { s: 'XL', v: 23 }];
+function Phone({ mobile }: { mobile: boolean }) {
+  const w = mobile ? 280 : 340;
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : cols, gap: mobile ? 28 : 48, alignItems: mobile ? 'start' : align }}>
-      {left}{right}
+    <div className="rv rv-d1" style={{ width: w, margin: '0 auto', background: '#0A0A0A', borderRadius: 48, padding: 12, boxShadow: '0 30px 80px rgba(10,10,10,0.18)' }}>
+      <div style={{ background: WHITE, borderRadius: 38, padding: '22px 22px 26px', minHeight: w * 2.05, display: 'flex', flexDirection: 'column', fontFamily: SANS, color: INK }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600 }}><span>9:41</span><span style={{ width: 90, height: 24, background: '#0A0A0A', borderRadius: 999 }} /><span>●●●</span></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 28, ...eyebrow(), fontSize: 11 }}><span>TryOn</span><span style={{ color: COBALT }}>03 / 04</span></div>
+        <div style={{ ...h('26px'), marginTop: 18 }}>Your size at La Fam</div>
+        <div style={{ ...eyebrow(), fontSize: 11, marginTop: 36, textAlign: 'center' }}>best match</div>
+        <div style={{ fontFamily: MONO, fontSize: 64, color: COBALT, textAlign: 'center', letterSpacing: '-0.04em', lineHeight: 1, marginTop: 10 }}>L · 96%</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 30 }}>
+          {SCORES.map((x) => (
+            <div key={x.s} style={{ display: 'grid', gridTemplateColumns: '28px 1fr 42px', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 14, fontWeight: x.best ? 700 : 500 }}>{x.s}</span>
+              <span style={{ height: 6, borderRadius: 3, background: 'rgba(10,10,10,0.08)', overflow: 'hidden' }}><span style={{ display: 'block', height: '100%', width: `${x.v}%`, background: x.best ? COBALT : '#B8B8BC', borderRadius: 3 }} /></span>
+              <span style={{ fontSize: 13, color: x.best ? INK : GREY, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{x.v}%</span>
+            </div>
+          ))}
+        </div>
+        <p style={{ ...sub(14), textAlign: 'center', marginTop: 24 }}>Sold out in L? You see the next best, and how it fits.</p>
+        <div style={{ marginTop: 'auto', background: '#EAF5EE', color: '#1E6B3A', borderRadius: 999, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 15, fontWeight: 500 }}>
+          <span className="dot" style={{ width: 8, height: 8, borderRadius: 999, background: '#1E6B3A' }} /> measured · true
+        </div>
+      </div>
     </div>
   );
 }
 
-function Problem({ mobile }: { mobile: boolean }) {
+/* ─── How it works: four steps, one active ─── */
+const STEPS = [
+  { n: '01', t: 'Shopper taps Find my size', d: '' },
+  { n: '02', t: 'Seven questions, or one photo', d: '' },
+  { n: '03', t: 'Every size scored', d: 'A match for each size on the product, in 30 seconds. No account.', active: true },
+  { n: '04', t: 'You get the measurements', d: '' },
+];
+function How({ mobile }: { mobile: boolean }) {
   return (
-    <section id="s01" data-sec="The problem" style={{ background: WHITE }}>
-      <Pad mobile={mobile}>
-        <Two mobile={mobile}
-          left={<span style={{ ...mono, color: MUTE }}>01 — The problem</span>}
-          right={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
-              <h2 className="rv" style={disp(mobile ? '30px' : 'clamp(32px, 4.4vw, 64px)')}>Brands know who buys<br />Not what they measure</h2>
-            </div>
-          }
-        />
-      </Pad>
+    <section id="how" style={{ background: PAPER }}>
+      <div style={{ maxWidth: 1360, margin: '0 auto', padding: mobile ? '72px 20px 80px' : '140px 48px 160px', display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1.3fr 1fr', gap: mobile ? 48 : 64, alignItems: 'center' }}>
+        <div>
+          <div className="rv" style={eyebrow()}>Four steps</div>
+          <h2 className="rv rv-d1" style={{ ...h(mobile ? 'clamp(32px, 9vw, 44px)' : 'clamp(40px, 4.2vw, 68px)'), marginTop: 18 }}>One button, and you know your customers.</h2>
+          <div className="rv rv-d2" style={{ display: 'inline-block', marginTop: 24, ...eyebrow(INK), fontSize: 11, border: `1px solid ${RULE}`, borderRadius: 999, padding: '10px 18px' }}>Under 30 seconds</div>
+          <ol style={{ listStyle: 'none', margin: mobile ? '40px 0 0' : '56px 0 0', padding: 0 }}>
+            {STEPS.map((s, i) => (
+              <li key={s.n} className={`rv rv-d${Math.min(i, 3)}`} style={{
+                display: 'grid', gridTemplateColumns: '44px 1fr', gap: 16, padding: mobile ? '22px 0' : '28px 0',
+                borderTop: i === 0 ? `1px solid ${RULE}` : 0, borderBottom: `1px solid ${RULE}`,
+                borderLeft: s.active ? `2px solid ${COBALT}` : '2px solid transparent', paddingLeft: 16, marginLeft: -18,
+              }}>
+                <span style={{ ...eyebrow(s.active ? COBALT : GREY), fontSize: 12, paddingTop: 10 }}>{s.n}</span>
+                <div>
+                  <div style={{ ...h(mobile ? '24px' : '32px', INK, 500), letterSpacing: '-0.025em' }}>{s.t}</div>
+                  {s.d && <p style={{ ...sub(mobile ? 16 : 19), marginTop: 12, maxWidth: 520 }}>{s.d}</p>}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+        <Phone mobile={mobile} />
+      </div>
     </section>
   );
 }
 
-function Answer({ mobile }: { mobile: boolean }) {
-  const items = [
-    { k: 'Size', v: 'Seven questions. Every size scored.', img: '/redesign/widget.jpg', ar: '4 / 5' },
-    { k: 'Try-On', v: 'Their body. Your clothes. In 3D.', img: '/redesign/fit-passport.jpg', ar: '4 / 5' },
-    { k: 'Report', v: 'Measurements. Sizes that don\u2019t fit. The next run.', img: '/redesign/fit-intelligence.jpg', ar: '4 / 5' },
+/* ─── The report: on navy ─── */
+const OUT = [
+  { k: 'Measurements', v: 'chest · waist · hips' },
+  { k: 'Sizes that miss', v: 'M · 27%' },
+  { k: 'Next run', v: 'S 12 · M 41 · L 35 · XL 12' },
+];
+function Report({ mobile }: { mobile: boolean }) {
+  const card: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, padding: mobile ? '18px 20px' : '26px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 };
+  return (
+    <section id="report" style={{ background: NAVY, color: WHITE, position: 'relative', overflow: 'hidden' }}>
+      <div aria-hidden style={{ position: 'absolute', inset: 0, background: 'radial-gradient(60% 50% at 70% 60%, rgba(31,59,255,0.18) 0%, rgba(11,15,26,0) 70%)' }} />
+      <div style={{ position: 'relative', maxWidth: 1360, margin: '0 auto', padding: mobile ? '80px 20px 88px' : '150px 48px 160px' }}>
+        <div className="rv" style={eyebrow('rgba(255,255,255,0.55)')}>The report</div>
+        <h2 className="rv rv-d1" style={{ ...h(mobile ? 'clamp(34px, 9.5vw, 48px)' : 'clamp(44px, 4.6vw, 76px)', WHITE), marginTop: 18, maxWidth: 900 }}>A different body behind every order.</h2>
+        <p className="rv rv-d2" style={{ ...sub(mobile ? 18 : 24, 'rgba(255,255,255,0.7)'), marginTop: 18, maxWidth: 640 }}>Every month, what your customers measure and what to cut next.</p>
+
+        <div className="rv rv-d2" style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr auto 1.3fr', gap: mobile ? 28 : 56, alignItems: 'center', marginTop: mobile ? 56 : 96 }}>
+          <div style={{ border: '1px solid rgba(255,255,255,0.18)', borderRadius: 14, padding: mobile ? '26px' : '38px', textAlign: 'center', ...eyebrow('rgba(255,255,255,0.85)'), fontSize: 13 }}>Your shoppers</div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 96, height: 96, borderRadius: 999, border: '2px solid rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 0 10px rgba(255,255,255,0.06), 0 0 0 20px rgba(255,255,255,0.03)' }}>
+              <span className="dot" style={{ width: 22, height: 22, borderRadius: 999, background: COBALT, boxShadow: `0 0 24px ${COBALT}` }} />
+            </div>
+            <span style={{ ...eyebrow('rgba(255,255,255,0.6)'), fontSize: 11 }}>TryOn measures</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {OUT.map((o) => (
+              <div key={o.k} style={card}>
+                <span style={{ ...eyebrow('rgba(255,255,255,0.7)'), fontSize: 12 }}>{o.k}</span>
+                <span style={{ fontFamily: MONO, fontSize: mobile ? 15 : 20, color: '#8EA2FF', letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>{o.v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="rv rv-d3" style={{ marginTop: mobile ? 48 : 72, display: 'flex', gap: mobile ? 14 : 40, flexWrap: 'wrap', justifyContent: 'center', ...eyebrow('rgba(255,255,255,0.55)'), fontSize: 12 }}>
+          <span><b style={{ color: WHITE, fontWeight: 600 }}>No spreadsheets</b></span><span>No fit sessions</span><span>One report a month</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Where they are: the globe card we had ─── */
+function Where({ mobile }: { mobile: boolean }) {
+  return (
+    <section style={{ background: WHITE }}>
+      <div style={{ maxWidth: 1360, margin: '0 auto', padding: mobile ? '72px 20px' : '140px 48px', display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 36 : 64, alignItems: 'center' }}>
+        <div>
+          <div className="rv" style={eyebrow()}>Where they are</div>
+          <h2 className="rv rv-d1" style={{ ...h(mobile ? 'clamp(32px, 9vw, 44px)' : 'clamp(40px, 4.2vw, 64px)'), marginTop: 18 }}>Sizes by country, before you ship there.</h2>
+          <p className="rv rv-d2" style={{ ...sub(mobile ? 17 : 21), marginTop: 18, maxWidth: 520 }}>The Netherlands runs large. Spain runs small. Your report says by how much.</p>
+        </div>
+        <div className="rv rv-d1" style={{ display: 'flex', justifyContent: 'center' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/redesign/fit-report.jpg" alt="Size report by country" style={{ width: '100%', maxWidth: 560, height: 'auto', display: 'block' }} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Production: cobalt ─── */
+function Production({ mobile }: { mobile: boolean }) {
+  const tile: React.CSSProperties = { padding: mobile ? '22px 22px' : '30px 34px', textDecoration: 'none', color: WHITE, display: 'flex', flexDirection: 'column', gap: 6 };
+  const tiles = [
+    { t: 'Start free trial', d: 'One button, thirty days free.', href: '/start' },
+    { t: 'See pricing', d: 'From $19 a month.', href: '/pricing' },
+    { t: 'Production by Fravash', d: 'Fabric, sample, graded order. Denim first.', href: FRAVASH_URL, ext: true },
+    { t: 'Book a call', d: 'Brands, press, partnerships.', href: '/book' },
   ];
   return (
-    <section id="s02" data-sec="The answer" style={{ background: WHITE }}>
-      <div style={{ padding: mobile ? '72px 20px 0' : '112px 64px 0', boxSizing: 'border-box' }}>
-        <p className="rv" style={disp(mobile ? '20px' : 'clamp(22px, 2.6vw, 36px)', { marginBottom: mobile ? 12 : 20 })}>The answer is</p>
-        <h2 className="rv rv-d1" style={disp(mobile ? 'clamp(52px, 15vw, 72px)' : 'clamp(56px, 9.6vw, 150px)', { letterSpacing: '-0.04em' })}>One button</h2>
-        <div style={{ borderTop: `1px solid ${RULE}`, marginTop: 48 }} />
-        <div style={{ padding: mobile ? '40px 0 0' : '88px 0 0' }}>
-          <p className="rv" style={{ margin: 0, maxWidth: 1100, fontFamily: SANS, fontSize: mobile ? 21 : 'clamp(24px, 2.9vw, 42px)', lineHeight: mobile ? 1.3 : 1.25, letterSpacing: '-0.02em', color: INK }}>
-            Shoppers get their size in 30 seconds. You get their measurements every month.
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1.4fr)', gap: 48, alignItems: 'end', padding: mobile ? '40px 0 48px' : '96px 0 0' }}>
-            <div className="rv"><Pill href="/product" mobile={mobile}>See how it works</Pill></div>
-            <div className="fr rv rv-d1" style={{ aspectRatio: '16 / 9' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/redesign/tryon-product.jpg" alt="TryOn on a Ramin product page" />
-            </div>
-          </div>
+    <section id="production" style={{ background: COBALT, color: WHITE, position: 'relative', overflow: 'hidden' }}>
+      <div aria-hidden style={{ position: 'absolute', right: mobile ? -160 : -120, top: '50%', transform: 'translateY(-50%)', width: 620, height: 620, borderRadius: 999, border: '70px solid rgba(255,255,255,0.08)', boxShadow: 'inset 0 0 0 60px rgba(255,255,255,0.06)' }} />
+      <div style={{ position: 'relative', maxWidth: 1360, margin: '0 auto', padding: mobile ? '80px 20px 88px' : '150px 48px 160px' }}>
+        <div className="rv" style={eyebrow('rgba(255,255,255,0.7)')}>Where this goes</div>
+        <h2 className="rv rv-d1" style={{ ...h(mobile ? 'clamp(40px, 11vw, 56px)' : 'clamp(52px, 5.6vw, 96px)', WHITE), marginTop: 18, maxWidth: 820 }}>Cut to the people who buy.</h2>
+        <p className="rv rv-d2" style={{ ...sub(mobile ? 18 : 24, 'rgba(255,255,255,0.85)'), marginTop: 22, maxWidth: 680 }}>The size run goes to Fravash, our production company. The next drop comes back graded to your customers.</p>
+        <div className="rv rv-d2" style={{ marginTop: mobile ? 44 : 64, display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', border: '1px solid rgba(255,255,255,0.35)', borderRadius: 14, overflow: 'hidden' }}>
+          {tiles.map((t, i) => {
+            const st: React.CSSProperties = { ...tile, background: i === 0 ? WHITE : 'transparent', color: i === 0 ? COBALT : WHITE, borderRight: !mobile && i % 2 === 0 ? '1px solid rgba(255,255,255,0.35)' : 0, borderBottom: (mobile ? i < 3 : i < 2) ? '1px solid rgba(255,255,255,0.35)' : 0 };
+            const inner = <><span style={{ fontFamily: SANS, fontSize: mobile ? 22 : 28, fontWeight: 500, letterSpacing: '-0.025em' }}>{t.t}</span><span style={{ fontFamily: SANS, fontSize: mobile ? 15 : 18, opacity: 0.8 }}>{t.d}</span></>;
+            return t.ext ? <a key={t.t} href={t.href} target="_blank" rel="noopener noreferrer" style={st}>{inner}</a> : <Link key={t.t} href={t.href} style={st}>{inner}</Link>;
+          })}
         </div>
-      </div>
-      <div style={{ padding: mobile ? '48px 20px 0' : '96px 64px 0', boxSizing: 'border-box' }}>
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: 0, borderTop: `1px solid ${RULE}` }}>
-          {items.map((it, i) => (
-            <li key={it.k} style={{
-              padding: mobile ? '24px 0 28px' : i === 0 ? '32px 32px 40px 0' : i === 2 ? '32px 0 40px 32px' : '32px 32px 40px',
-              borderRight: !mobile && i < 2 ? `1px solid ${RULE2}` : 0,
-              borderBottom: mobile && i < 2 ? `1px solid ${RULE2}` : 0,
-              display: 'flex', flexDirection: 'column', gap: 16,
-            }} className={`rv rv-d${i + 1}`}>
-              <div className="fr" style={{ aspectRatio: it.ar }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={it.img} alt={it.k} style={{ objectPosition: it.k === 'Report' ? 'left top' : 'center' }} />
-              </div>
-              <span style={{ ...mono, color: MUTE }}>{it.k}</span>
-              <span style={{ fontFamily: SANS, fontSize: 17, color: BODY, lineHeight: 1.5 }}>{it.v}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <div style={{ height: mobile ? 64 : 112 }} />
-    </section>
-  );
-}
-
-function Production({ mobile }: { mobile: boolean }) {
-  return (
-    <section id="s03" data-sec="Production" style={{ background: WHITE, borderTop: `1px solid ${RULE}` }}>
-      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)', gap: mobile ? 28 : '48px 96px', padding: mobile ? '72px 20px 64px' : '128px 64px 112px', boxSizing: 'border-box' }}>
-        <h2 className="rv" style={disp(mobile ? '28px' : 'clamp(28px, 3.4vw, 48px)')}>Then we make it</h2>
-        <div className="rv rv-d1" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <p style={disp(mobile ? '20px' : 'clamp(20px, 2vw, 28px)')}>The data goes to the factory</p>
-          <p style={body()}>Design and size run in. Graded garments out. Denim first.</p>
-          <div style={{ paddingTop: 12 }}>
-            <Pill href={FRAVASH_URL} external mobile={mobile}>Production by Fravash</Pill>
-          </div>
+        <div className="rv rv-d3" style={{ display: 'flex', gap: 12, marginTop: 28, flexWrap: 'wrap' }}>
+          <Pill href="/start" kind="white">Start free trial</Pill>
+          <Pill href="/book" kind="outline" on="cobalt">Contact us</Pill>
         </div>
       </div>
     </section>
   );
 }
 
+/* ─── Pricing, short ─── */
 function Pricing({ mobile }: { mobile: boolean }) {
-  const short: Record<string, string> = { size_pro: 'The size button. No 3D.', try_on: 'Your clothes on their body.', insights: 'Try-On plus the monthly report.' };
-  const rows = PLANS.filter((p) => ['size_pro', 'try_on', 'insights'].includes(p.id)).map((p) => ({ k: `${p.name} · ${p.price}/mo`, v: short[p.id] }));
-  rows.push({ k: 'Production', v: 'On request, through Fravash.' });
+  const short: Record<string, string> = { size_pro: 'The button. No 3D.', try_on: 'Your clothes on their body.', insights: 'Try-On plus the monthly report.' };
+  const rows = PLANS.filter((p) => ['size_pro', 'try_on', 'insights'].includes(p.id));
   return (
-    <section id="s04" data-sec="Pricing" style={{ background: WHITE, borderTop: `1px solid ${RULE}` }}>
-      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1.4fr)', gap: mobile ? 28 : '48px 96px', padding: mobile ? '72px 20px 64px' : '112px 64px', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <h2 className="rv" style={disp(mobile ? '28px' : 'clamp(28px, 3.4vw, 48px)')}>Less than one return a day</h2>
-          <div className="rv rv-d1"><Pill href="/pricing" mobile={mobile}>See full pricing</Pill></div>
+    <section style={{ background: PAPER }}>
+      <div style={{ maxWidth: 1360, margin: '0 auto', padding: mobile ? '72px 20px 80px' : '140px 48px 150px', display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1.2fr', gap: mobile ? 36 : 64, alignItems: 'start' }}>
+        <div>
+          <div className="rv" style={eyebrow()}>Pricing</div>
+          <h2 className="rv rv-d1" style={{ ...h(mobile ? 'clamp(32px, 9vw, 44px)' : 'clamp(40px, 4.2vw, 64px)'), marginTop: 18 }}>Less than one return a day.</h2>
+          <p className="rv rv-d2" style={{ ...sub(mobile ? 17 : 21), marginTop: 18, maxWidth: 440 }}>Thirty days free on every plan. Shopify billing.</p>
+          <div className="rv rv-d2" style={{ marginTop: 28 }}><Pill href="/pricing" kind="outline">See full pricing</Pill></div>
         </div>
-        <ul className="rv rv-d1" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', borderTop: `1px solid ${RULE}` }}>
-          {rows.map((r) => (
-            <li key={r.k} style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 2.2fr)', gap: mobile ? 8 : '16px 32px', padding: '24px 0', borderBottom: `1px solid ${RULE}` }}>
-              <span style={{ ...mono, color: INK }}>{r.k}</span>
-              <span style={{ fontFamily: SANS, fontSize: 17, color: BODY }}>{r.v}</span>
-            </li>
+        <div className="rv rv-d1">
+          {rows.map((p, i) => (
+            <div key={p.id} style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr auto' : '1fr 1.4fr auto', gap: 16, alignItems: 'baseline', padding: mobile ? '20px 0' : '26px 0', borderTop: i === 0 ? `1px solid ${RULE}` : 0, borderBottom: `1px solid ${RULE}` }}>
+              <span style={{ ...h(mobile ? '22px' : '28px', INK, 500), letterSpacing: '-0.02em' }}>{p.name}</span>
+              {!mobile && <span style={sub(18)}>{short[p.id]}</span>}
+              <span style={{ fontFamily: MONO, fontSize: mobile ? 16 : 18, color: p.highlight ? COBALT : INK }}>{p.price}<span style={{ color: GREY }}>/mo</span></span>
+            </div>
           ))}
-        </ul>
-      </div>
-    </section>
-  );
-}
-
-function Vision({ mobile }: { mobile: boolean }) {
-  return (
-    <section id="s05" data-sec="Where this goes" style={{ background: WHITE }}>
-      <div style={{ padding: mobile ? '72px 20px 0' : '128px 64px 0', boxSizing: 'border-box' }}>
-        <h2 className="rv" style={disp(mobile ? 'clamp(44px, 12.5vw, 64px)' : 'clamp(48px, 8vw, 120px)', { letterSpacing: '-0.04em' })}>Fit by measurement</h2>
-        <div style={{ borderTop: `1px solid ${RULE}`, marginTop: 48 }} />
-        <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1.4fr)', gap: 48, padding: mobile ? '36px 0 72px' : '72px 0 112px' }}>
-          <span style={{ ...mono, color: MUTE }}>05 — Vision</span>
-          <p className="rv rv-d1" style={{ margin: 0, maxWidth: 760, fontFamily: SANS, fontSize: mobile ? 18 : 'clamp(20px, 2.2vw, 30px)', lineHeight: mobile ? 1.4 : 1.35, letterSpacing: '-0.015em', color: INK }}>
-            Clothes are cut to a chart written before anyone bought them. We cut to the people who did. Every scan teaches the next run.
-          </p>
         </div>
       </div>
     </section>
   );
 }
 
+/* ─── Contact ─── */
 function Contact({ mobile }: { mobile: boolean }) {
   return (
-    <section id="s06" data-sec="Contact" style={{ background: WHITE, borderTop: `1px solid ${RULE}` }}>
-      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: 48, alignItems: 'end', padding: mobile ? '72px 20px 56px' : '112px 64px 96px', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <span style={{ ...mono, color: MUTE }}>06 — Contact</span>
-          <h2 className="rv" style={disp(mobile ? 'clamp(40px, 11.5vw, 60px)' : 'clamp(40px, 6vw, 96px)', { letterSpacing: '-0.03em' })}>Put it on one product</h2>
-          <p className="rv rv-d1" style={{ ...body(), maxWidth: 560 }}>Shopify theme editor, no code. Thirty days free. Press and production: hello@tryon.global</p>
+    <section style={{ background: WHITE }}>
+      <div style={{ maxWidth: 1360, margin: '0 auto', padding: mobile ? '72px 20px 80px' : '140px 48px 150px', display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 36 : 64, alignItems: 'center' }}>
+        <div>
+          <div className="rv" style={eyebrow()}>Contact</div>
+          <h2 className="rv rv-d1" style={{ ...h(mobile ? 'clamp(32px, 9vw, 44px)' : 'clamp(40px, 4.2vw, 64px)'), marginTop: 18 }}>Tell us what you make.</h2>
+          <p className="rv rv-d2" style={{ ...sub(mobile ? 17 : 21), marginTop: 18, maxWidth: 480 }}>Every message is read by someone who can answer it. hello@tryon.global</p>
         </div>
-        <div className="rv rv-d2" style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: mobile ? 'stretch' : 'flex-end' }}>
-          <Pill href="/start" mobile={mobile}>Start free trial</Pill>
-          <Pill href="/book" mobile={mobile}>Book a call</Pill>
+        <div className="rv rv-d2" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: mobile ? 'flex-start' : 'flex-end' }}>
+          <Pill href="/book">Book a call</Pill>
+          <Pill href="/start" kind="outline">Start free trial</Pill>
         </div>
+      </div>
+      <div style={{ maxWidth: 1360, margin: '0 auto', padding: mobile ? '0 20px 32px' : '0 48px 40px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, ...eyebrow(), fontSize: 11 }}>
+        <span>TryOn · by Fravash, Amsterdam · 2026</span>
+        <span style={{ display: 'flex', gap: 24 }}><Link href="/product" style={{ color: GREY, textDecoration: 'none' }}>Product</Link><Link href="/pricing" style={{ color: GREY, textDecoration: 'none' }}>Pricing</Link><Link href="/privacy" style={{ color: GREY, textDecoration: 'none' }}>Privacy</Link><a href={FRAVASH_URL} target="_blank" rel="noopener noreferrer" style={{ color: GREY, textDecoration: 'none' }}>fravash.ai</a></span>
       </div>
     </section>
-  );
-}
-
-function Footer({ mobile }: { mobile: boolean }) {
-  const cell: React.CSSProperties = { padding: mobile ? '14px 20px' : '20px 32px', borderRight: `1px solid ${RULE}`, display: 'flex', alignItems: 'center', gap: 14, ...mono, color: INK, textDecoration: 'none' };
-  return (
-    <footer style={{ borderTop: `1px solid ${RULE}`, background: WHITE }}>
-      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : 'minmax(220px, 2.2fr) repeat(4, minmax(0, 1fr))' }}>
-        <span style={{ ...cell, fontFamily: SANS, fontSize: 15, letterSpacing: 0, textTransform: 'none', gridColumn: mobile ? '1 / -1' : undefined, borderBottom: mobile ? `1px solid ${RULE}` : 0 }}><Wordmark /><span style={{ opacity: 0.65 }}>by Fravash, Amsterdam</span></span>
-        <Link href="/product" style={cell}>Product</Link>
-        <Link href="/pricing" style={cell}>Pricing</Link>
-        <Link href="/privacy" style={cell}>Privacy</Link>
-        <a href={FRAVASH_URL} target="_blank" rel="noopener noreferrer" style={{ ...cell, borderRight: 0 }}>fravash.ai</a>
-      </div>
-    </footer>
   );
 }
 
 export function SimpleLanding({ dark: _dark = false }: { dark?: boolean }) {
   const mobile = useIsMobile();
-  const [section, setSection] = useState('Home');
   useReveal();
-
-  useEffect(() => {
-    const els = Array.from(document.querySelectorAll<HTMLElement>('[data-sec]'));
-    if (!els.length || !('IntersectionObserver' in window)) return;
-    const io = new IntersectionObserver((entries) => {
-      const hit = entries.filter((e) => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-      if (hit) setSection((hit.target as HTMLElement).dataset.sec || 'Home');
-    }, { rootMargin: '-40% 0px -50% 0px', threshold: [0, 0.2, 0.5] });
-    els.forEach((el) => io.observe(el));
-    return () => io.disconnect();
-  }, []);
-
   return (
-    <div style={{ width: '100%', background: WHITE, color: INK, fontFamily: SANS, fontSize: 17, lineHeight: 1.5, colorScheme: 'light' }}>
+    <div style={{ width: '100%', background: PAPER, color: INK, fontFamily: SANS, colorScheme: 'light' }}>
       {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" />
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" />
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <div data-sec="Home"><Hero mobile={mobile} /></div>
-      <StatusBar mobile={mobile} section={SECTIONS.includes(section) ? section : 'Home'} />
-      <Partners mobile={mobile} />
-      <Problem mobile={mobile} />
-      <Answer mobile={mobile} />
+      <Nav mobile={mobile} />
+      <Hero mobile={mobile} />
+      <How mobile={mobile} />
+      <Report mobile={mobile} />
+      <Where mobile={mobile} />
       <Production mobile={mobile} />
       <Pricing mobile={mobile} />
-      <Vision mobile={mobile} />
       <Contact mobile={mobile} />
-      <Footer mobile={mobile} />
     </div>
   );
 }
