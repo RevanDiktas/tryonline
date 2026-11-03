@@ -8,7 +8,7 @@ import { useIsMobile } from './useIsMobile';
 import { PLANS } from '@/lib/plans';
 
 /* TryOn home. White. Ink and one cobalt. Mono eyebrows, sentence-case headlines set tight,
-   pill buttons. The 3D avatar and the La Fam launch film are the only pictures.
+   pill buttons. The 3D avatar, the La Fam launch film and two shots of the try-on are the only pictures.
    One ink section, one cobalt section. Nothing else. */
 
 const AvatarHero = dynamic(() => import('./AvatarHero').then((m) => m.AvatarHero), { ssr: false });
@@ -68,7 +68,7 @@ const Wrap = ({ children, mobile, pad = 'section' }: { children: React.ReactNode
 /* ─── Nav ─── */
 function Nav({ mobile }: { mobile: boolean }) {
   const [open, setOpen] = useState(false);
-  const links = [{ label: 'How it works', href: '#how' }, { label: 'The report', href: '#report' }, { label: 'Production', href: '#production' }, { label: 'Pricing', href: '/pricing' }];
+  const links = [{ label: 'How it works', href: '#how' }, { label: '3D', href: '#tryon' }, { label: 'The report', href: '#report' }, { label: 'Production', href: '#production' }, { label: 'Pricing', href: '/pricing' }];
   return (
     <header style={{ background: 'rgba(255,255,255,0.86)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', position: 'sticky', top: 0, zIndex: 20 }}>
       <div style={{ maxWidth: 1320, margin: '0 auto', padding: mobile ? '16px 20px' : '22px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
@@ -158,6 +158,39 @@ function How({ mobile }: { mobile: boolean }) {
           <video autoPlay muted loop playsInline poster="/redesign/lafam-launch.jpg" aria-label="TryOn on the La Fam product page" style={{ width: '100%', maxWidth: mobile ? 340 : 440, height: 'auto', display: 'block', background: WHITE }}>
             <source src="/redesign/lafam-launch.mp4" type="video/mp4" />
           </video>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── The 3D try-on ─── */
+const TECH = [
+  { k: 'Cross-platform', d: 'Shopify, WooCommerce, custom shops. Phone, tablet, desktop. One line of code.' },
+  { k: '3D cloth physics', d: 'The garment is simulated on the customer\u2019s body, not pasted on a photo. You see where it pulls and where it hangs.' },
+  { k: 'Agentic fit API', d: 'The same size answer, for AI shopping agents. Already live as an MCP for Claude and ChatGPT.' },
+];
+function ThreeD({ mobile }: { mobile: boolean }) {
+  return (
+    <section id="tryon" style={{ background: WHITE }}>
+      <div style={{ maxWidth: 1320, margin: '0 auto', padding: mobile ? '0 20px 88px' : '0 48px 150px' }}>
+        <div className="rv" style={eyebrow()}>The 3D try-on</div>
+        <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(34px, 9.5vw, 48px)' : 'clamp(44px, 4.4vw, 72px)'), marginTop: 18, maxWidth: 760 }}>Your clothes on their body. Real cloth.</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1.9fr 1fr', gap: mobile ? 20 : 32, marginTop: mobile ? 36 : 64, alignItems: 'stretch' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="rv rv-1" src="/redesign/ramin-widget.jpg" alt="TryOn open on a Ramin product page: the shopper\u2019s avatar in the hoodie, measurements and recommended size" style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 16, border: `1px solid ${RULE}` }} />
+          <div className="rv rv-2" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 16, border: `1px solid ${RULE}`, overflow: 'hidden', minHeight: mobile ? 360 : 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/redesign/avatar-render.jpg" alt="A measured avatar wearing a simulated black hoodie and sweatpants" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', maxHeight: mobile ? 420 : 'none' }} />
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(3, 1fr)', gap: mobile ? 32 : 48, marginTop: mobile ? 48 : 80 }}>
+          {TECH.map((t, i) => (
+            <div key={t.k} className={`rv rv-${i + 1}`} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <span style={eyebrow(i === 2 ? COBALT : GREY)}>{t.k}</span>
+              <span style={{ ...text(mobile ? 17 : 19, INK), maxWidth: 360 }}>{t.d}</span>
+            </div>
+          ))}
         </div>
       </div>
     </section>
@@ -276,6 +309,7 @@ export function SimpleLanding({ dark: _dark = false }: { dark?: boolean }) {
       <Nav mobile={mobile} />
       <Hero mobile={mobile} />
       <How mobile={mobile} />
+      <ThreeD mobile={mobile} />
       <Report mobile={mobile} />
       <Vision mobile={mobile} />
       <Pricing mobile={mobile} />
