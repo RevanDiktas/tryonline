@@ -8,7 +8,8 @@ import { useIsMobile } from './useIsMobile';
 import { SharedNav, NavCta, AuthAwareSignInLink } from './SharedNav';
 import { siteLinks } from './siteLinks';
 import { SiteFooter } from './SiteFooter';
-import { PLANS, TRIAL_DAYS } from '@/lib/plans';
+import { PLANS as ALL_PLANS, TRIAL_DAYS, type Plan } from '@/lib/plans';
+const PLANS = ALL_PLANS;
 
 // Lazy-load AvatarHero so the Three.js bundle doesn't block first paint of the
 // home page. ssr:false because the Canvas needs WebGL.
@@ -174,7 +175,7 @@ function DesktopHero() {
             letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
             marginBottom: 28,
           }}>
-            TryOn · Size and 3D try-on for Shopify
+            TryOn · Fit intelligence for fashion brands
           </div>
 
           <h1 style={{
@@ -183,7 +184,7 @@ function DesktopHero() {
             letterSpacing: '-0.04em', lineHeight: 0.94,
             margin: '0 0 24px',
           }}>
-            Your size in 30&nbsp;seconds.
+            Know who you&apos;re dressing.
           </h1>
 
           <p style={{
@@ -191,7 +192,7 @@ function DesktopHero() {
             color: C.mute, fontWeight: 400, letterSpacing: '-0.005em',
             maxWidth: 520, margin: '0 0 32px',
           }}>
-            On every product. No account. Try it on in 3D where you can.
+            Your shoppers get their size in 30 seconds. You get, for the first time, what your customers&apos; bodies actually look like. Then we make the clothes to fit them.
           </p>
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 32 }}>
@@ -360,6 +361,11 @@ function DesktopBrandShopperTiles() {
 /* ─── One button, three pieces ─── */
 const PIECES = [
   {
+    tag: 'Customer Body Report',
+    desc: 'Monthly. Shape distribution, grading gaps, the size curve per style and returns by size. The data a design team has never had.',
+    image: '/redesign/fit-report.jpg',
+  },
+  {
     tag: 'Find my size',
     desc: 'Seven quick questions, no account. Every size scored as a % match. Sold out in yours? The next best, and how it will fit.',
     visual: 'mock' as const,
@@ -369,12 +375,148 @@ const PIECES = [
     desc: 'The upgrade. One photo gives a measured size, not an estimate, and a photoreal 3D avatar to try clothes on.',
     image: '/redesign/fit-passport.jpg',
   },
+];
+
+/* ─── Bodies: what the brand sees that it never saw before ─── */
+const BODY_CARDS = [
   {
-    tag: 'Insights for brands',
-    desc: 'ROI and attribution, fit intelligence, the size finder funnel and returns by size, in one dashboard.',
-    image: '/redesign/fit-report.jpg',
+    tag: 'Shape distribution',
+    desc: 'Who actually buys from you, by body shape, not by size label. Shoulders, chest, waist, hips, height.',
+  },
+  {
+    tag: 'Grading gaps',
+    desc: 'Which of your sizes are a compromise, and for how many of your customers. Where M is cut for a body only a quarter of your buyers have.',
+  },
+  {
+    tag: 'Size curve per style',
+    desc: 'How many of each size to cut for the next drop, from the bodies that buy, not from last season’s sales.',
   },
 ];
+
+function BodyCards({ mobile }: { mobile?: boolean }) {
+  const C = useC();
+  return (
+    <div style={{
+      display: mobile ? 'flex' : 'grid',
+      flexDirection: mobile ? 'column' : undefined,
+      gridTemplateColumns: mobile ? undefined : 'repeat(3, 1fr)',
+      gap: 0, border: `1px solid ${C.line}`, background: C.surface,
+    }}>
+      {BODY_CARDS.map((b, i) => (
+        <div key={b.tag} style={{
+          padding: mobile ? '18px 18px 20px' : '28px 24px 30px',
+          borderRight: !mobile && i < BODY_CARDS.length - 1 ? `1px solid ${C.line}` : 'none',
+          borderBottom: mobile && i < BODY_CARDS.length - 1 ? `1px solid ${C.line}` : 'none',
+          display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          <div style={{
+            fontFamily: 'var(--mono)', fontSize: 11, color: C.mute, fontWeight: 500,
+            letterSpacing: '0.08em', textTransform: 'uppercase',
+          }}>0{i + 1}</div>
+          <div style={{ fontFamily: 'var(--display)', fontSize: mobile ? 17 : 19, fontWeight: 600, color: C.ink }}>{b.tag}</div>
+          <div style={{ ...bodyStyle, fontSize: mobile ? 13.5 : 14.5, color: C.mute }}>{b.desc}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DesktopBodies() {
+  const C = useC();
+  return (
+    <section style={{
+      background: C.bg, color: C.ink,
+      padding: '88px 32px',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+        <h2 style={{
+          ...headingStyle('clamp(36px, 4.5vw, 64px)'),
+          marginBottom: 14, maxWidth: 980,
+        }}>
+          Brands know their customers&apos; postcodes. We show them their bodies.
+        </h2>
+        <p style={{ ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 40 }}>
+          Every size check and every fit passport teaches you something about the people who buy from you. Three things you have never been able to see, in one report.
+        </p>
+        <BodyCards />
+        <div style={{
+          marginTop: 20, fontFamily: 'var(--display)', fontSize: 14, color: C.mute,
+        }}>
+          Live with La Fam Amsterdam. First case study with numbers: January 2027.
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MobileBodies() {
+  const C = useC();
+  return (
+    <section style={{
+      background: C.bg, color: C.ink, padding: '52px 18px',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      <h2 style={{ ...headingStyle('30px'), marginBottom: 12 }}>
+        Brands know their customers&apos; postcodes. We show them their bodies.
+      </h2>
+      <p style={{ ...bodyStyle, fontSize: 14, color: C.mute, marginBottom: 22 }}>
+        Three things you have never been able to see, in one report.
+      </p>
+      <BodyCards mobile />
+      <div style={{ marginTop: 14, fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>
+        Live with La Fam Amsterdam. First case study with numbers: January 2027.
+      </div>
+    </section>
+  );
+}
+
+/* ─── Then we make it: the data goes into production via Fravash ─── */
+const FRAVASH_URL = 'https://fravash.ai';
+
+function MakeIt({ mobile }: { mobile?: boolean }) {
+  const C = useC();
+  return (
+    <section style={{
+      background: C.cardBg, color: C.cardInk,
+      padding: mobile ? '52px 18px' : '88px 32px',
+      borderBottom: `1px solid ${C.line}`,
+    }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+        <div style={{
+          fontFamily: 'var(--mono)', fontSize: 11, color: C.cardMute, fontWeight: 500,
+          letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 14,
+        }}>Production</div>
+        <h2 style={{
+          ...headingStyle(mobile ? '30px' : 'clamp(36px, 4.5vw, 64px)'),
+          marginBottom: 14, maxWidth: 920, color: C.cardInk,
+        }}>
+          Then we make it.
+        </h2>
+        <p style={{
+          ...bodyStyle, fontSize: mobile ? 14 : 16, color: C.cardMute,
+          maxWidth: 640, marginBottom: 28,
+        }}>
+          The data doesn&apos;t stop at a dashboard. Send us the size curve and the design, and we source, sample and produce it, graded from your customers&apos; bodies. Denim first.
+        </p>
+        <a
+          href={FRAVASH_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 10,
+            background: C.cardInk, color: C.cardBg, textDecoration: 'none',
+            padding: '14px 26px', borderRadius: 9999,
+            fontFamily: 'var(--display)', fontSize: 15, fontWeight: 600,
+            letterSpacing: '-0.005em',
+          }}
+        >
+          Production by Fravash <span>→</span>
+        </a>
+      </div>
+    </section>
+  );
+}
 
 function PieceVisual({ piece, pad }: { piece: typeof PIECES[number]; pad: number }) {
   const C = useC();
@@ -439,10 +581,14 @@ function DesktopComponents() {
   );
 }
 
-/* ─── Pricing summary: straight from lib/plans, never hard-coded here ─── */
+/* ─── Pricing summary: straight from lib/plans, never hard-coded here.
+   The home page shows the three plans a new brand picks from; Scale and Brand live on /pricing. ─── */
+const HOME_PLAN_IDS: Plan['id'][] = ['size_pro', 'try_on', 'insights'];
+
 function PlanSummary({ mobile }: { mobile?: boolean }) {
   const C = useC();
   const router = useRouter();
+  const PLANS = ALL_PLANS.filter((p) => HOME_PLAN_IDS.includes(p.id));
   return (
     <div>
       <div style={{
@@ -509,7 +655,7 @@ function PlanSummary({ mobile }: { mobile?: boolean }) {
         ))}
       </div>
       <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute, marginTop: 12 }}>
-        {TRIAL_DAYS}-day free trial on every plan. Prices in USD.
+        {TRIAL_DAYS}-day free trial on every plan. Prices in USD. Larger catalogues and production: <Link href="/pricing" style={{ color: C.ink }}>see full pricing</Link> or <a href={FRAVASH_URL} target="_blank" rel="noopener noreferrer" style={{ color: C.ink }}>talk to Fravash</a>.
       </div>
     </div>
   );
@@ -521,17 +667,17 @@ function DesktopBrands() {
   const cmp = [
     {
       name: 'Google VTO',
-      bullets: ['Flat 2D image generation.', 'No body measurements.', 'Happens on Google. Brand loses the data.'],
+      bullets: ['Flat 2D image generation.', 'No body measurements.', 'Happens on Google. Brand loses the data.', 'Nothing goes into production.'],
       muted: true,
     },
     {
       name: 'True Fit',
-      bullets: ['Size recommendation only.', 'No 3D, no avatar.', 'Enterprise pricing, sold by order volume.'],
+      bullets: ['Size recommendation only.', 'No 3D, no avatar.', 'Enterprise pricing, sold by order volume.', 'Nothing goes into production.'],
       muted: true,
     },
     {
       name: 'TryOn',
-      bullets: ['A size on every product, 3D try-on where you have it.', 'Every size scored as a % match.', 'Brand keeps the data and the PDP.'],
+      bullets: ['A size on every product, 3D try-on where you have it.', 'Every size scored as a % match.', 'Brand keeps the data and the PDP.', 'Your size curve goes into production.'],
       muted: false,
     },
   ];
@@ -552,7 +698,7 @@ function DesktopBrands() {
         <p style={{
           ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48,
         }}>
-          Built for Shopify fashion brands. Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on when you are ready.
+          Built for Shopify fashion brands. Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on, then the Customer Body Report when you want to know who you are dressing.
         </p>
 
         <div style={{ marginBottom: 56 }}>
@@ -701,7 +847,7 @@ function MobileHero() {
         letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
         marginBottom: 18,
       }}>
-        TryOn · Size and 3D try-on
+        TryOn · Fit intelligence for fashion brands
       </div>
       <h1 style={{
         fontFamily: 'var(--display)', fontWeight: 900,
@@ -709,14 +855,14 @@ function MobileHero() {
         letterSpacing: '-0.04em', lineHeight: 0.92,
         margin: '0 0 16px',
       }}>
-        Your size in 30&nbsp;seconds.
+        Know who you&apos;re dressing.
       </h1>
       <p style={{
         fontFamily: 'var(--display)', fontSize: 17, lineHeight: 1.45,
         color: C.mute, fontWeight: 400, letterSpacing: '-0.005em',
         margin: '0 0 6px',
       }}>
-        On every product. No account. Try it on in 3D where you can.
+        Shoppers get their size in 30 seconds. You see what your customers&apos; bodies actually look like. Then we make the clothes to fit them.
       </p>
 
       <div style={{
@@ -847,7 +993,7 @@ function MobileBrands() {
         Pay less than one return per day.
       </h2>
       <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginBottom: 22 }}>
-        Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on when you are ready.
+        Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on, then the Customer Body Report.
       </p>
 
       <div style={{ marginBottom: 28 }}>
@@ -975,23 +1121,6 @@ function PathTile({
 type Stat = { value: string; line: string; source: string; href: string };
 const STAT_GROUPS: { title: string; stats: Stat[]; note?: string }[] = [
   {
-    title: 'More sales',
-    stats: [
-      {
-        value: '30%',
-        line: 'Size advice lifted conversion 30% and order value 47% for ARMEDANGELS.',
-        source: 'Fit Analytics, ARMEDANGELS A/B test, 2024',
-        href: 'https://fitanalytics.com/case-studies/armedangels',
-      },
-      {
-        value: '59%',
-        line: 'of online shoppers say clothes looked different on them than expected.',
-        source: 'Google / Ipsos, 2023',
-        href: 'https://blog.google/products-and-platforms/products/shopping/ai-virtual-try-on-google-shopping/',
-      },
-    ],
-  },
-  {
     title: 'Fewer returns',
     stats: [
       {
@@ -1000,22 +1129,10 @@ const STAT_GROUPS: { title: string; stats: Stat[]; note?: string }[] = [
         source: 'McKinsey, Returns management in apparel',
         href: 'https://www.mckinsey.com/industries/retail/our-insights/returning-to-order-improving-returns-management-for-apparel-companies',
       },
-      {
-        value: '10%',
-        line: 'fewer size-related returns at Zalando with size advice.',
-        source: 'Zalando, 2023',
-        href: 'https://corporate.zalando.com/en/technology/zalando-launches-size-recommendations-based-customers-own-body-measurements',
-      },
-      {
-        value: '$850B',
-        line: 'of goods sent back by US shoppers in 2025, nearly 1 in 5 online orders.',
-        source: 'NRF & Happy Returns, 2025',
-        href: 'https://nrf.com/media-center/press-releases/consumers-expected-to-return-nearly-850-billion-in-merchandise-in-2025',
-      },
     ],
   },
   {
-    title: 'Know what fits your customers',
+    title: 'Lost sales',
     stats: [
       {
         value: '4 in 10',
@@ -1023,6 +1140,11 @@ const STAT_GROUPS: { title: string; stats: Stat[]; note?: string }[] = [
         source: 'Zalando & YouGov, 2024',
         href: 'https://corporate.zalando.com/en/fashion/fitting-room-frustration-new-research-reveals-low-confidence-among-fashion-shoppers',
       },
+    ],
+  },
+  {
+    title: 'Bracketing',
+    stats: [
       {
         value: '51%',
         line: 'of Gen Z order several sizes and send the rest back.',
@@ -1030,14 +1152,8 @@ const STAT_GROUPS: { title: string; stats: Stat[]; note?: string }[] = [
         href: 'https://happyreturns.com/2024-nrf-returns-report',
       },
     ],
-    note: 'TryOn shows you which sizes your shoppers really need, product by product: fewer surprises in stock, fewer returns.',
+    note: 'Every one of those is a body your size chart did not describe. TryOn shows you which sizes your shoppers really need, product by product.',
   },
-];
-
-const RULEBOOK = [
-  { date: 'Jul 2026', title: 'EU bans destruction of unsold apparel.', sub: 'Central Digital Product Passport registry goes live.' },
-  { date: 'Sep 2026', title: 'ECGT applies. Anti-greenwashing.', sub: 'Words like "sustainable" become regulated. Claims need proof.' },
-  { date: '2028', title: 'DPP mandatory for textiles.', sub: 'Every garment sold in the EU carries a digital twin.' },
 ];
 
 function StatBlock({ s, compact }: { s: Stat; compact?: boolean }) {
@@ -1106,31 +1222,8 @@ function DesktopEvidence() {
           Published industry figures and other brands&apos; results, each linked to its source.
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, alignItems: 'stretch', marginBottom: 56 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, alignItems: 'stretch' }}>
           {STAT_GROUPS.map((g) => <StatGroup key={g.title} g={g} />)}
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.1fr', gap: 40, alignItems: 'start' }}>
-          <div>
-            <h3 style={{ ...headingStyle('clamp(26px, 3vw, 40px)'), marginBottom: 12 }}>
-              The EU rulebook, 2026 to 2028.
-            </h3>
-            <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, maxWidth: 480 }}>
-              Every garment we render is already a 3D digital twin. DPP-ready by design. While other VTO vendors will be deleting &quot;sustainable&quot; from their landing pages, we will be quoting the regulation.
-            </p>
-          </div>
-          <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface }}>
-            {RULEBOOK.map((r, i) => (
-              <div key={r.date} style={{
-                padding: '20px 24px',
-                borderBottom: i < RULEBOOK.length - 1 ? `1px solid ${C.line}` : 'none',
-              }}>
-                <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute, fontWeight: 500, marginBottom: 8 }}>{r.date}</div>
-                <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 600, color: C.ink, lineHeight: 1.3, letterSpacing: '-0.01em' }}>{r.title}</div>
-                <div style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginTop: 6 }}>{r.sub}</div>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
     </section>
@@ -1151,23 +1244,8 @@ function MobileEvidence() {
         Published industry figures and other brands&apos; results, each linked to its source.
       </p>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 32 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {STAT_GROUPS.map((g) => <StatGroup key={g.title} g={g} compact />)}
-      </div>
-
-      <div style={{
-        fontFamily: 'var(--display)', fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 10,
-      }}>EU rulebook, 2026 to 2028</div>
-      <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface }}>
-        {RULEBOOK.map((r, i) => (
-          <div key={r.date} style={{
-            padding: '14px 16px',
-            borderBottom: i < RULEBOOK.length - 1 ? `1px solid ${C.line}` : 'none',
-          }}>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, fontWeight: 500, marginBottom: 4 }}>{r.date}</div>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{r.title}</div>
-          </div>
-        ))}
       </div>
     </section>
   );
@@ -1200,9 +1278,11 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
           <>
             <MobileHero />
             <Partners mobile />
+            <MobileBodies />
             <MobileComponents />
             <MobileBrandShopperTiles />
             <MobileEvidence />
+            <MakeIt mobile />
             <MobileBrands />
             <MobileShoppers />
           </>
@@ -1210,9 +1290,11 @@ export function BroadcastLanding({ dark = false }: { dark?: boolean }) {
           <>
             <DesktopHero />
             <Partners />
+            <DesktopBodies />
             <DesktopComponents />
             <DesktopBrandShopperTiles />
             <DesktopEvidence />
+            <MakeIt />
             <DesktopBrands />
             <DesktopShoppers />
           </>

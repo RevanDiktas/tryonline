@@ -87,7 +87,7 @@ async def get_my_brand(user_id: str = Depends(get_current_user_id)):
 # ---- leads: brands that ask to start from tryon.global/start (public, rate-limited) ----
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_LEAD_PLANS = {"size_pro", "try_on", "scale", "brand"}
+_LEAD_PLANS = {"size_pro", "try_on", "insights", "scale", "brand"}
 
 
 class BrandLeadBody(BaseModel):

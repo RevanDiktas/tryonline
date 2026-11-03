@@ -47,7 +47,7 @@ export function SiteFooter({ dark }: { dark: boolean }) {
       }}>
         {wordmark}
         {links}
-        <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute }}>TryOn, 2026</div>
+        <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute }}>TryOn · by Fravash, Amsterdam · 2026</div>
       </footer>
     );
   }
@@ -63,7 +63,7 @@ export function SiteFooter({ dark }: { dark: boolean }) {
       }}>
         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
           {wordmark}
-          <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>TryOn, 2026</div>
+          <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>TryOn · by Fravash, Amsterdam · 2026</div>
         </div>
         {links}
       </div>

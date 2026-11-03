@@ -10,7 +10,7 @@
  * differ in what is included: Size Pro has no 3D; the 3D plans differ in garments we make.
  */
 export type Plan = {
-  id: 'size_pro' | 'try_on' | 'scale' | 'brand';
+  id: 'size_pro' | 'try_on' | 'insights' | 'scale' | 'brand';
   name: string;
   price: string;          // as shown, e.g. "$19"
   period: string;         // e.g. "per month"
@@ -53,8 +53,23 @@ export const PLANS: Plan[] = [
       'Unlimited try-ons',
     ],
     limits: `${TRIAL_DAYS}-day free trial.`,
-    highlight: true,
     cta: { label: 'Start free trial', href: '/start?plan=try_on' },
+  },
+  {
+    id: 'insights',
+    name: 'Insights',
+    price: '$349',
+    period: 'per month',
+    pitch: 'Try-On plus a monthly Customer Body Report: who you are really dressing.',
+    features: [
+      'Everything in Try-On',
+      'Monthly Customer Body Report: shape distribution, grading gaps, size curve per style, returns by size',
+      'A 30-minute readout with our team every month',
+      'First in line for body-informed production',
+    ],
+    limits: `${TRIAL_DAYS}-day free trial. Three-month pilot, cancel any time.`,
+    highlight: true,
+    cta: { label: 'Start free trial', href: '/start?plan=insights' },
   },
   {
     id: 'scale',
