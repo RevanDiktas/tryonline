@@ -7,7 +7,7 @@ import { getCurrentUser, type User } from '@/lib/supabase-auth';
 import { isShopifyMode } from '@/lib/app-mode';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
-import { BroadcastLanding } from '@/components/redesign/Broadcast';
+import { SimpleLanding as BroadcastLanding } from '@/components/redesign/SimpleLanding';
 
 function HomePageContent() {
   const router = useRouter();
