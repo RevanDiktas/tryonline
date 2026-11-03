@@ -166,7 +166,7 @@ function How({ mobile }: { mobile: boolean }) {
 
 /* ─── The 3D try-on ─── */
 const TECH = [
-  { k: 'Cross-platform', d: 'Shopify, WooCommerce, custom shops. Phone, tablet, desktop. One line of code.' },
+  { k: 'One passport, every brand', d: 'A shopper measures once. Their fit passport works in every store that runs TryOn. New customers arrive already sized.' },
   { k: '3D cloth physics', d: 'The garment is simulated on the customer\u2019s body, not pasted on a photo. You see where it pulls and where it hangs.' },
   { k: 'Agentic fit API', d: 'The same size answer, for AI shopping agents. Already live as an MCP for Claude and ChatGPT.' },
 ];
