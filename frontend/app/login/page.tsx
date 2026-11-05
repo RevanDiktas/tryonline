@@ -8,7 +8,7 @@ import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
 import { isShopifyMode } from '@/lib/app-mode';
 import { captureWidgetReturn, completeWidgetLink, shopperHomePath, widgetReturnQuery } from '@/lib/widgetReturn';
-import { AuthSignIn, type SignInData } from '@/components/redesign/AuthForms';
+import { AuthSignIn, AuthRoleChooser, type SignInData } from '@/components/redesign/AuthForms';
 
 function LoginContent() {
   const router = useRouter();
@@ -20,6 +20,13 @@ function LoginContent() {
 
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Website fork: brand or shopper. Deep-linkable with ?as=brand / ?as=shopper.
+  // Skipped on the Shopify-embedded surface and on widget hand-offs (those are shopper flows).
+  const asParam = searchParams.get('as');
+  const [role, setRole] = useState<'brand' | 'shopper' | null>(
+    asParam === 'brand' || asParam === 'shopper' ? asParam : null,
+  );
 
   // Widget hand-off (?from=widget&return=…): persist before any OAuth redirect.
   useEffect(() => { captureWidgetReturn(searchParams); }, [searchParams]);
@@ -60,6 +67,12 @@ function LoginContent() {
   // It must NOT be driven by resolvedShop: a stale shop context in sessionStorage
   // would otherwise hide the shopper Google/Apple sign in on the public website.
   const shopifyMode = isShopifyMode();
+  const widgetFlow = Boolean(searchParams.get('from') || searchParams.get('return') || searchParams.get('link_state'));
+
+  if (!shopifyMode && !widgetFlow && !role) {
+    return <AuthRoleChooser dark={dark} onChoose={setRole} />;
+  }
+  const brandMode = shopifyMode || role === 'brand';
 
   return (
     <AuthSignIn
@@ -70,7 +83,9 @@ function LoginContent() {
       onGoogle={() => handleSocial('google')}
       onApple={() => handleSocial('apple')}
       onSignUpClick={() => router.push(resolvedShop ? `/signup?shop=${encodeURIComponent(resolvedShop)}` : `/signup${widgetReturnQuery()}`)}
-      shopifyMode={shopifyMode}
+      shopifyMode={brandMode}
+      switchLabel={!shopifyMode && !widgetFlow ? (role === 'brand' ? 'Not a brand? Sign in as a shopper' : 'Run a brand? Sign in as a brand') : undefined}
+      onSwitchRole={!shopifyMode && !widgetFlow ? () => { setFormError(null); setRole(role === 'brand' ? 'shopper' : 'brand'); } : undefined}
     />
   );
 }

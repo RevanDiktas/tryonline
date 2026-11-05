@@ -533,6 +533,9 @@ export type AuthSignInProps = {
   onSignUpClick?: () => void;
   /** Brand-only embedded Shopify surface: brand copy, hide shopper SSO. */
   shopifyMode?: boolean;
+  /** Website fork: a small "switch" line under the form (e.g. back to the brand / shopper choice). */
+  switchLabel?: string;
+  onSwitchRole?: () => void;
 };
 
 export function AuthSignIn({
@@ -544,6 +547,8 @@ export function AuthSignIn({
   onApple,
   onSignUpClick,
   shopifyMode = false,
+  switchLabel,
+  onSwitchRole,
 }: AuthSignInProps) {
   const C = dark ? PAL.dark : PAL.light;
   const mobile = useIsMobile();
@@ -564,14 +569,55 @@ export function AuthSignIn({
           onSignUpClick={onSignUpClick}
           darkBg={dark}
           shopifyMode={shopifyMode}
+          switchLabel={switchLabel}
+          onSwitchRole={onSwitchRole}
         />
       </div>
     </ThemeCtx.Provider>
   );
 }
 
+/* ───────────── Website sign-in fork: brand or shopper ───────────── */
+export function AuthRoleChooser({ dark = false, onChoose }: { dark?: boolean; onChoose: (role: 'brand' | 'shopper') => void }) {
+  const C = dark ? PAL.dark : PAL.light;
+  const mobile = useIsMobile();
+  const card = (title: string, sub: string, role: 'brand' | 'shopper') => (
+    <button
+      type="button"
+      onClick={() => onChoose(role)}
+      style={{
+        textAlign: 'left', background: C.bg, color: C.ink, cursor: 'pointer',
+        border: `1px solid ${C.faint}`, borderRadius: 16, padding: mobile ? '20px 18px' : '24px 22px',
+        display: 'flex', flexDirection: 'column', gap: 6, font: 'inherit',
+      }}
+    >
+      <span style={{ fontFamily: 'var(--display)', fontWeight: 700, fontSize: mobile ? 20 : 22, letterSpacing: '-0.02em' }}>{title}</span>
+      <span style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.dim }}>{sub}</span>
+    </button>
+  );
+  return (
+    <ThemeCtx.Provider value={C}>
+      <div className="tryon-redesign-root" style={{ background: C.bg, color: C.ink, minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ borderBottom: `1px solid ${C.faint}`, padding: mobile ? '12px 18px' : '14px 28px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <Wordmark darkBg={dark} />
+        </div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: mobile ? '20px 18px' : '32px' }}>
+          <div style={{ width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <div style={{ fontFamily: 'var(--display)', fontSize: 12, letterSpacing: '0.04em', color: C.dim, textTransform: 'uppercase', marginBottom: 8 }}>Sign in</div>
+              <h1 style={{ fontFamily: 'var(--display)', fontWeight: 700, fontSize: mobile ? 28 : 36, letterSpacing: '-0.025em', lineHeight: 1.05, margin: 0, color: C.ink }}>Who are you?</h1>
+            </div>
+            {card('I run a brand', 'Dashboard, size data, your store', 'brand')}
+            {card('I am a shopper', 'Your fit passport and sizes', 'shopper')}
+          </div>
+        </div>
+      </div>
+    </ThemeCtx.Provider>
+  );
+}
+
 function SignInInner({
-  mobile, loading, formError, onSubmit, onGoogle, onApple, onSignUpClick, darkBg, shopifyMode,
+  mobile, loading, formError, onSubmit, onGoogle, onApple, onSignUpClick, darkBg, shopifyMode, switchLabel, onSwitchRole,
 }: {
   mobile: boolean;
   loading: boolean;
@@ -582,6 +628,8 @@ function SignInInner({
   onSignUpClick?: () => void;
   darkBg: boolean;
   shopifyMode: boolean;
+  switchLabel?: string;
+  onSwitchRole?: () => void;
 }) {
   const C = useC();
   const [f, setF] = useState<SignInData>({ email: '', password: '', remember: true });
@@ -715,6 +763,13 @@ function SignInInner({
             >
               {loading ? 'Signing in…' : 'Sign in →'}
             </button>
+            {onSwitchRole && switchLabel && (
+              <button
+                type="button"
+                onClick={onSwitchRole}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0 0', font: 'inherit', fontFamily: 'var(--display)', fontSize: 12, color: C.dim, textAlign: 'center' }}
+              >{switchLabel}</button>
+            )}
           </div>
         </div>
       </form>
