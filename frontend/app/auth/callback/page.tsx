@@ -93,12 +93,14 @@ function AuthCallbackInner() {
         router.replace('/auth/complete-profile');
         return;
       }
-      const hasFP = await hasFitPassport(user.id);
-      if (user.user_type === 'brand' && hasFP) {
+      // Brand accounts always land on the brand dashboard; a fit passport is a
+      // shopper thing and must never route a brand into shopper onboarding.
+      if (user.user_type === 'brand') {
         router.replace('/brand');
-      } else {
-        router.replace(shopperHomePath(hasFP));
+        return;
       }
+      const hasFP = await hasFitPassport(user.id);
+      router.replace(shopperHomePath(hasFP));
     };
 
     const finish = async () => {
