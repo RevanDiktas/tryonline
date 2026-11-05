@@ -79,11 +79,13 @@ function Nav({ mobile }: { mobile: boolean }) {
         {!mobile ? (
           <nav style={{ display: 'flex', alignItems: 'center', gap: 34 }}>
             {links.map((l) => <a key={l.href} href={l.href} className="lnk" style={{ fontFamily: SANS, fontSize: 17, color: GREY, textDecoration: 'none', letterSpacing: '-0.01em' }}>{l.label}</a>)}
+            <a href="/login" className="lnk" style={{ fontFamily: SANS, fontSize: 17, color: INK, textDecoration: 'none', letterSpacing: '-0.01em', fontWeight: 500 }}>Sign in</a>
             <Pill href="/book" kind="outline">Contact</Pill>
             <Pill href="/start">Start free trial</Pill>
           </nav>
         ) : (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Pill href="/login" kind="outline">Sign in</Pill>
             <Pill href="/start">Start</Pill>
             <button type="button" aria-label={open ? 'Close menu' : 'Menu'} onClick={() => setOpen((o) => !o)} style={{ width: 44, height: 44, borderRadius: 999, border: '1px solid rgba(10,10,10,0.22)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ width: 16 }}><span style={{ display: 'block', height: 1.5, background: INK, marginBottom: 4 }} /><span style={{ display: 'block', height: 1.5, background: INK, marginBottom: 4 }} /><span style={{ display: 'block', height: 1.5, background: INK }} /></span>
