@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
-import { login, hasAvatarFiles, signInWithSocial } from '@/lib/supabase-auth';
+import { login, hasAvatarFiles, signInWithSocial, requestPasswordReset } from '@/lib/supabase-auth';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
 import { isShopifyMode } from '@/lib/app-mode';
@@ -20,6 +20,20 @@ function LoginContent() {
 
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const handleForgot = async (email: string) => {
+    setFormError(null); setNotice(null);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setFormError('Type your email above first, then press Forgot.');
+    setLoading(true);
+    try {
+      const { error } = await requestPasswordReset(email);
+      if (error) setFormError(error);
+      else setNotice(`We sent a reset link to ${email}. Open it on this device to choose a new password.`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Website fork: brand or shopper. Deep-linkable with ?as=brand / ?as=shopper.
   // Skipped on the Shopify-embedded surface and on widget hand-offs (those are shopper flows).
@@ -84,6 +98,8 @@ function LoginContent() {
       onApple={() => handleSocial('apple')}
       onSignUpClick={() => router.push(resolvedShop ? `/signup?shop=${encodeURIComponent(resolvedShop)}` : `/signup${widgetReturnQuery()}`)}
       shopifyMode={brandMode}
+      onForgot={handleForgot}
+      notice={notice}
       switchLabel={!shopifyMode && !widgetFlow ? (role === 'brand' ? 'Not a brand? Sign in as a shopper' : 'Run a brand? Sign in as a brand') : undefined}
       onSwitchRole={!shopifyMode && !widgetFlow ? () => { setFormError(null); setRole(role === 'brand' ? 'shopper' : 'brand'); } : undefined}
     />

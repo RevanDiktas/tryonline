@@ -29,6 +29,13 @@ function AuthCallbackInner() {
     let cancelled = false;
 
     const routeAfterAuth = async () => {
+      // Password-recovery link (Supabase appends type=recovery to the fragment; we also
+      // tag the redirect with ?flow=recovery): let the user set a new password first.
+      const hash = typeof window !== 'undefined' ? window.location.hash : '';
+      if (searchParams.get('flow') === 'recovery' || /type=recovery/.test(hash)) {
+        router.replace('/auth/reset-password');
+        return;
+      }
       const user = await ensureUserProfile();
       if (!user) {
         if (!cancelled) { setIsError(true); setMessage('Could not complete sign-in.'); }

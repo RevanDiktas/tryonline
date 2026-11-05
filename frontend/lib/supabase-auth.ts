@@ -350,6 +350,19 @@ export async function ensureUserProfile(): Promise<User | null> {
   return await getCurrentUser();
 }
 
+/** Password reset, step 1: Supabase emails a link back to /auth/callback?flow=recovery. */
+export async function requestPasswordReset(email: string): Promise<{ error: string | null }> {
+  const redirectTo = `${window.location.origin}/auth/callback?flow=recovery`;
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  return { error: error ? error.message : null };
+}
+
+/** Password reset, step 2: the recovery link signed the user in; set the new password. */
+export async function updatePassword(password: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.auth.updateUser({ password });
+  return { error: error ? error.message : null };
+}
+
 export async function logout(): Promise<void> {
   await supabase.auth.signOut();
 }

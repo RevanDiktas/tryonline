@@ -536,6 +536,10 @@ export type AuthSignInProps = {
   /** Website fork: a small "switch" line under the form (e.g. back to the brand / shopper choice). */
   switchLabel?: string;
   onSwitchRole?: () => void;
+  /** "Forgot?" pressed with the email typed so far. */
+  onForgot?: (email: string) => void | Promise<void>;
+  /** Informational line (e.g. "Check your email"), shown above the button. */
+  notice?: string | null;
 };
 
 export function AuthSignIn({
@@ -549,6 +553,8 @@ export function AuthSignIn({
   shopifyMode = false,
   switchLabel,
   onSwitchRole,
+  onForgot,
+  notice = null,
 }: AuthSignInProps) {
   const C = dark ? PAL.dark : PAL.light;
   const mobile = useIsMobile();
@@ -571,6 +577,8 @@ export function AuthSignIn({
           shopifyMode={shopifyMode}
           switchLabel={switchLabel}
           onSwitchRole={onSwitchRole}
+          onForgot={onForgot}
+          notice={notice}
         />
       </div>
     </ThemeCtx.Provider>
@@ -617,7 +625,7 @@ export function AuthRoleChooser({ dark = false, onChoose }: { dark?: boolean; on
 }
 
 function SignInInner({
-  mobile, loading, formError, onSubmit, onGoogle, onApple, onSignUpClick, darkBg, shopifyMode, switchLabel, onSwitchRole,
+  mobile, loading, formError, onSubmit, onGoogle, onApple, onSignUpClick, darkBg, shopifyMode, switchLabel, onSwitchRole, onForgot, notice,
 }: {
   mobile: boolean;
   loading: boolean;
@@ -630,6 +638,8 @@ function SignInInner({
   shopifyMode: boolean;
   switchLabel?: string;
   onSwitchRole?: () => void;
+  onForgot?: (email: string) => void | Promise<void>;
+  notice?: string | null;
 }) {
   const C = useC();
   const [f, setF] = useState<SignInData>({ email: '', password: '', remember: true });
@@ -707,7 +717,12 @@ function SignInInner({
               label="Password"
               required
               sub={
-                <a href="#" style={{ color: C.ink, fontFamily: 'var(--display)', fontSize: 11, letterSpacing: '0.02em' }}>Forgot?</a>
+                <button
+                  type="button"
+                  onClick={() => onForgot?.(f.email)}
+                  disabled={loading}
+                  style={{ color: C.ink, fontFamily: 'var(--display)', fontSize: 11, letterSpacing: '0.02em', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}
+                >Forgot?</button>
               }
             >
               <TextInput
@@ -748,6 +763,9 @@ function SignInInner({
               }}>{formError}</div>
             )}
 
+            {notice && (
+              <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.ink, background: C.faint, borderRadius: 12, padding: '10px 14px' }}>{notice}</div>
+            )}
             <button
               type="submit"
               disabled={loading}
