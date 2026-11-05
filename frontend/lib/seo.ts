@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 
 export const SITE_URL = 'https://tryon.global';
-export const SITE_NAME = 'TryOn';
-export const DEFAULT_TITLE = 'TryOn: size and body data for fashion brands';
+export const SITE_NAME = 'Tryon';
+export const DEFAULT_TITLE = 'Tryon: size and body data for fashion brands';
 export const DEFAULT_DESCRIPTION =
   'A size button on every product. Your customers\' measurements, every month. The next run graded to them. Built in Amsterdam, live with La Fam.';
 

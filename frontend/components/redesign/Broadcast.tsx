@@ -175,7 +175,7 @@ function DesktopHero() {
             letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
             marginBottom: 28,
           }}>
-            TryOn · Amsterdam
+            Tryon · Amsterdam
           </div>
 
           <h1 style={{
@@ -347,7 +347,7 @@ function DesktopBrandShopperTiles() {
           <PathTile
             tag="For shoppers"
             title="I am a shopper"
-            sub="Get your size free, no account. Seven quick questions, about 30 seconds."
+            sub="Seven quick questions, about 30 seconds."
             cta="Try Find my size →"
             onClick={() => router.push('/demo')}
             C={C}
@@ -367,7 +367,7 @@ const PIECES = [
   },
   {
     tag: 'Find my size',
-    desc: 'Seven quick questions, no account. Every size scored as a % match. Sold out in yours? The next best, and how it will fit.',
+    desc: 'Seven quick questions. Every size scored as a % match. Sold out in yours? The next best, and how it will fit.',
     visual: 'mock' as const,
   },
   {
@@ -672,7 +672,7 @@ function DesktopBrands() {
       muted: true,
     },
     {
-      name: 'TryOn',
+      name: 'Tryon',
       bullets: ['A size on every product, 3D try-on where you have it.', 'Every size scored as a % match.', 'Brand keeps the data and the PDP.', 'Your size run goes to the factory.'],
       muted: false,
     },
@@ -700,7 +700,7 @@ function DesktopBrands() {
         <div style={{ marginBottom: 56 }}>
           <div style={{
             fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 14,
-          }}>Why TryOn</div>
+          }}>Why Tryon</div>
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0,
             border: `1px solid ${C.line}`,
@@ -739,7 +739,7 @@ function DesktopBrands() {
             One button, added in your Shopify theme editor.
           </h3>
           <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, maxWidth: 560 }}>
-            Install the app and drop the TryOn block onto your product page. It reads Try On on products with a 3D garment and Find my size on the rest. No code, no SDK, no agency.
+            Install the app and drop the Tryon block onto your product page. It reads Try On on products with a 3D garment and Find my size on the rest. No code, no SDK, no agency.
           </p>
         </div>
 
@@ -751,7 +751,7 @@ function DesktopBrands() {
 
 /* ─── For Shoppers: a size needs no account; the passport is the upgrade ─── */
 const PASSPORT_STEPS = [
-  { k: '30 seconds', title: 'Seven questions, your size.', sub: 'Who for, height, weight, age, two body-shape drawings, fit preference. No account.' },
+  { k: '30 seconds', title: 'Seven questions, your size.', sub: 'Who for, height, weight, age, two body-shape drawings, fit preference.' },
   { k: 'One photo', title: 'Your size, measured.', sub: 'The fit passport measures you from one photo, so the size is measured, not estimated.' },
   { k: 'In 3D', title: 'See it on your own body.', sub: 'A photoreal avatar of you, with real cloth simulation on products in 3D.' },
 ];
@@ -773,12 +773,12 @@ function DesktopShoppers() {
               ...headingStyle('clamp(36px, 4.5vw, 64px)'),
               marginBottom: 18,
             }}>
-              No account for your size. One passport for every brand.
+              One passport for every brand.
             </h2>
             <p style={{
               ...bodyStyle, color: C.mute, maxWidth: 480, marginBottom: 26,
             }}>
-              Find my size is free and needs no sign-up. Your answers are remembered on every product and every TryOn store. Want more? The fit passport measures you from one photo and builds your 3D avatar.
+              Find my size is free and needs no sign-up. Your answers are remembered on every product and every Tryon store. Want more? The fit passport measures you from one photo and builds your 3D avatar.
             </p>
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -843,7 +843,7 @@ function MobileHero() {
         letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500,
         marginBottom: 18,
       }}>
-        TryOn · Amsterdam
+        Tryon · Amsterdam
       </div>
       <h1 style={{
         fontFamily: 'var(--display)', fontWeight: 900,
@@ -938,7 +938,7 @@ function MobileBrandShopperTiles() {
         <PathTile
           tag="For shoppers"
           title="I am a shopper"
-          sub="Get your size free, no account."
+          sub="Get your size in 30 seconds."
           cta="Try Find my size →"
           onClick={() => router.push('/demo')}
           C={C}
@@ -1000,7 +1000,7 @@ function MobileBrands() {
           One button, added in your Shopify theme editor.
         </h3>
         <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute }}>
-          Drop the TryOn block onto your product page. No code, no SDK.
+          Drop the Tryon block onto your product page. No code, no SDK.
         </p>
       </div>
 
@@ -1015,10 +1015,9 @@ function MobileShoppers() {
   return (
     <section style={{ background: C.bg, color: C.ink, padding: '52px 18px', borderBottom: `1px solid ${C.line}` }}>
       <h2 style={{ ...headingStyle('30px'), marginBottom: 12 }}>
-        No account for your size.
       </h2>
       <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginBottom: 18 }}>
-        Free, no sign-up, remembered on every TryOn store. The fit passport is the upgrade: one photo, a measured size and your 3D avatar.
+        Free, no sign-up, remembered on every Tryon store. The fit passport is the upgrade: one photo, a measured size and your 3D avatar.
       </p>
 
       <div style={{ border: `1px solid ${C.line}`, borderRadius: 16, background: C.surface, marginBottom: 18 }}>
@@ -1112,7 +1111,7 @@ function PathTile({
 }
 
 /* ─── Why fit matters: industry figures, each linked to its source ───
-   Other companies' results and published studies, shown as theirs, never as TryOn's.
+   Other companies' results and published studies, shown as theirs, never as Tryon's.
    Only figures checked against the primary page go here. */
 type Stat = { value: string; line: string; source: string; href: string };
 const STAT_GROUPS: { title: string; stats: Stat[]; note?: string }[] = [
@@ -1148,7 +1147,7 @@ const STAT_GROUPS: { title: string; stats: Stat[]; note?: string }[] = [
         href: 'https://happyreturns.com/2024-nrf-returns-report',
       },
     ],
-    note: 'Most of these are a size that was wrong for that body. TryOn shows you which sizes your shoppers need, product by product.',
+    note: 'Most of these are a size that was wrong for that body. Tryon shows you which sizes your shoppers need, product by product.',
   },
 ];
 

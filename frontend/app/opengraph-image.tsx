@@ -19,10 +19,10 @@ const SCORES = [
 ];
 
 const HEADLINE = 'Your size in 30 seconds.';
-const SUB = 'On every product. No account. 3D try-on where you can.';
+const SUB = 'Your size from one photo. 3D try-on with real cloth.';
 const CTA = 'Find my size →';
 // Every character the card draws, so Google Fonts serves one small subset per weight.
-const GLYPHS = `TryOn${HEADLINE}${SUB}${CTA}Your size96% match${SCORES.map((s) => `${s.size}${s.score}%`).join('')}YOUR SIZE`;
+const GLYPHS = `Tryon${HEADLINE}${SUB}${CTA}Your size96% match${SCORES.map((s) => `${s.size}${s.score}%`).join('')}YOUR SIZE`;
 
 // Inter from Google Fonts (woff, which the renderer reads); if it can't be fetched the card
 // still renders in the default font.
@@ -53,7 +53,7 @@ export default async function Image() {
         fontFamily: 'Inter', padding: '64px 72px', justifyContent: 'space-between', alignItems: 'center',
       }}>
         <div style={{ display: 'flex', flexDirection: 'column', width: 600 }}>
-          <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 56 }}>TryOn</div>
+          <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 56 }}>Tryon</div>
           <div style={{ fontSize: 84, fontWeight: 800, letterSpacing: '-0.045em', lineHeight: 0.98, marginBottom: 28 }}>
             {HEADLINE}
           </div>

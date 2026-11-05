@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic';
 import { useIsMobile } from './useIsMobile';
 import { PLANS } from '@/lib/plans';
 
-/* TryOn home. White. Ink and one cobalt. Mono eyebrows, sentence-case headlines set tight,
+/* Tryon home. White. Ink and one cobalt. Mono eyebrows, sentence-case headlines set tight,
    pill buttons. The 3D avatar, the La Fam launch film and two shots of the try-on are the only pictures.
    One ink section, one cobalt section. Nothing else. */
 
@@ -72,9 +72,9 @@ function Nav({ mobile }: { mobile: boolean }) {
   return (
     <header style={{ background: 'rgba(255,255,255,0.86)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', position: 'sticky', top: 0, zIndex: 20 }}>
       <div style={{ maxWidth: 1320, margin: '0 auto', padding: mobile ? '16px 20px' : '22px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
-        <Link href="/" aria-label="TryOn home" style={{ display: 'flex', alignItems: 'center' }}>
+        <Link href="/" aria-label="Tryon home" style={{ display: 'flex', alignItems: 'center' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/redesign/wordmark.png" alt="TryOn" style={{ height: mobile ? 20 : 22, width: 'auto', display: 'block' }} />
+          <img src="/redesign/wordmark.png" alt="Tryon" style={{ height: mobile ? 20 : 22, width: 'auto', display: 'block' }} />
         </Link>
         {!mobile ? (
           <nav style={{ display: 'flex', alignItems: 'center', gap: 34 }}>
@@ -108,7 +108,7 @@ function Hero({ mobile }: { mobile: boolean }) {
     <section style={{ background: WHITE }}>
       <div style={{ maxWidth: 1320, margin: '0 auto', padding: mobile ? '28px 20px 0' : '48px 48px 0', display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1.05fr 1fr', gap: mobile ? 16 : 40, alignItems: 'center' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: mobile ? 20 : 28, paddingBottom: mobile ? 0 : 56 }}>
-          <div className="up" style={eyebrow()}>TryOn · Amsterdam</div>
+          <div className="up" style={eyebrow()}>Tryon · Amsterdam</div>
           <h1 className="up d1" style={head(mobile ? 'clamp(40px, 11vw, 56px)' : 'clamp(52px, 5.4vw, 92px)')}>Clothes made for the bodies that buy them.</h1>
           <p className="up d2" style={{ ...text(mobile ? 18 : 22), maxWidth: 540 }}>One button measures your shoppers. The next run is cut to them.</p>
           <div className="up d3" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -134,7 +134,7 @@ function Hero({ mobile }: { mobile: boolean }) {
 /* ─── How it works: the film, and three lines ─── */
 const STEPS = [
   { n: '01', t: 'Tap Find my size' },
-  { n: '02', t: 'Seven questions. No account.' },
+  { n: '02', t: 'Seven questions, or one photo.' },
   { n: '03', t: 'Every size, scored. Add the right one to cart.' },
 ];
 function How({ mobile }: { mobile: boolean }) {
@@ -155,7 +155,7 @@ function How({ mobile }: { mobile: boolean }) {
           <p className="rv rv-3" style={{ ...text(mobile ? 16 : 18), marginTop: mobile ? 32 : 48, maxWidth: 460 }}>Live on lafamamsterdam.com. One photo upgrades the answer to a measured size and a 3D avatar.</p>
         </div>
         <div className="rv rv-1" style={{ display: 'flex', justifyContent: 'center' }}>
-          <video autoPlay muted loop playsInline poster="/redesign/lafam-launch.jpg" aria-label="TryOn on the La Fam product page" style={{ width: '100%', maxWidth: mobile ? 340 : 440, height: 'auto', display: 'block', background: WHITE }}>
+          <video autoPlay muted loop playsInline poster="/redesign/lafam-launch.jpg" aria-label="Tryon on the La Fam product page" style={{ width: '100%', maxWidth: mobile ? 340 : 440, height: 'auto', display: 'block', background: WHITE }}>
             <source src="/redesign/lafam-launch.mp4" type="video/mp4" />
           </video>
         </div>
@@ -166,7 +166,7 @@ function How({ mobile }: { mobile: boolean }) {
 
 /* ─── The 3D try-on ─── */
 const TECH = [
-  { k: 'One passport, every brand', d: 'A shopper measures once. Their fit passport works in every store that runs TryOn. New customers arrive already sized.' },
+  { k: 'One passport, every brand', d: 'A shopper measures once. Their fit passport works in every store that runs Tryon. New customers arrive already sized.' },
   { k: '3D cloth physics', d: 'The garment is simulated on the customer\u2019s body, not pasted on a photo. You see where it pulls and where it hangs.' },
   { k: 'Agentic fit API', d: 'The same size answer, for AI shopping agents. Already live as an MCP for Claude and ChatGPT.' },
 ];
@@ -178,7 +178,7 @@ function ThreeD({ mobile }: { mobile: boolean }) {
         <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(34px, 9.5vw, 48px)' : 'clamp(44px, 4.4vw, 72px)'), marginTop: 18, maxWidth: 760 }}>Your clothes on their body. Real cloth.</h2>
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1.9fr 1fr', gap: mobile ? 20 : 32, marginTop: mobile ? 36 : 64, alignItems: 'stretch' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="rv rv-1" src="/redesign/ramin-widget.jpg" alt="TryOn open on a Ramin product page: the shopper\u2019s avatar in the hoodie, measurements and recommended size" style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 16, border: `1px solid ${RULE}` }} />
+          <img className="rv rv-1" src="/redesign/ramin-widget.jpg" alt="Tryon open on a Ramin product page: the shopper\u2019s avatar in the hoodie, measurements and recommended size" style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 16, border: `1px solid ${RULE}` }} />
           <div className="rv rv-2" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 16, border: `1px solid ${RULE}`, overflow: 'hidden', minHeight: mobile ? 360 : 0 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/redesign/avatar-render.jpg" alt="A measured avatar wearing a simulated black hoodie and sweatpants" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', maxHeight: mobile ? 420 : 'none' }} />
@@ -291,7 +291,7 @@ function Footer({ mobile }: { mobile: boolean }) {
   return (
     <footer style={{ background: WHITE }}>
       <div style={{ maxWidth: 1320, margin: '0 auto', padding: mobile ? '28px 20px' : '36px 48px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, ...eyebrow(SOFT), fontSize: 11 }}>
-        <span>TryOn · by Fravash, Amsterdam · 2026</span>
+        <span>Tryon · by Fravash, Amsterdam · 2026</span>
         <span style={{ display: 'flex', gap: 24 }}><Link href="/product" style={l}>Product</Link><Link href="/pricing" style={l}>Pricing</Link><Link href="/privacy" style={l}>Privacy</Link><a href={FRAVASH_URL} target="_blank" rel="noopener noreferrer" style={l}>fravash.ai</a></span>
       </div>
     </footer>

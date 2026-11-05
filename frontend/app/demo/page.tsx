@@ -45,7 +45,7 @@ const mockPassport = {
 const SIZE_FINDER_URL = 'https://tryon.global/size-finder.html';
 const SIZE_PRODUCT = {
   name: 'Black T-shirt',
-  brand: 'TryOn demo',
+  brand: 'Tryon demo',
   price: '€29.00',
   image: '/redesign/originals-black-tshirt.png',
   // The card loads from tryon.global and only shows https images.
@@ -466,7 +466,7 @@ export default function DemoPage() {
             fontFamily: 'var(--display)', fontSize: mobile ? 15 : 17, lineHeight: 1.55,
             color: C.mute, maxWidth: 620, margin: `0 0 ${mobile ? 28 : 40}px`,
           }}>
-            The same TryOn block on both product pages. This zip-up has a 3D garment, so the button reads Try On. The T-shirt does not, so it reads Find my size. No account needed for either.
+            The same Tryon block on both product pages. This zip-up has a 3D garment, so the button reads Try On. The T-shirt does not, so it reads Find my size.
           </p>
 
           <div style={{

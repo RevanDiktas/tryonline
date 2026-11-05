@@ -11,7 +11,7 @@ import LiveSizeDemo from '@/components/redesign/LiveSizeDemo';
 import { PAL, type Palette, headingStyle, bodyStyle, eyebrowStyle, pillButton, ACCENT } from '@/components/redesign/marketing';
 import { PLANS, TRIAL_DAYS, ENTRY_PLAN } from '@/lib/plans';
 
-/* /product: what TryOn is. One button on the store; Find my size on every product, Try On on
+/* /product: what Tryon is. One button on the store; Find my size on every product, Try On on
    products in 3D; the fit passport as the upgrade; what the brand gets. With the real card live. */
 
 function Hero({ C, mobile }: { C: Palette; mobile: boolean }) {
@@ -49,9 +49,9 @@ function Hero({ C, mobile }: { C: Palette; mobile: boolean }) {
 
 function Steps({ C, mobile }: { C: Palette; mobile: boolean }) {
   const steps = [
-    { n: '01', title: 'Seven quick questions', body: 'Who it is for, height and weight on a ruler, age, two body-shape questions with drawings, and how they like their clothes to fit. No account, about 30 seconds.' },
+    { n: '01', title: 'Seven quick questions', body: 'Who it is for, height and weight on a ruler, age, two body-shape questions with drawings, and how they like their clothes to fit. About 30 seconds.' },
     { n: '02', title: 'Every size, scored', body: 'Their size, and a % match for every size: L 96, M 31, XL 23. If their size is sold out, the card says so and moves them to the next best, with how it will fit.' },
-    { n: '03', title: 'Add to cart, from the card', body: 'The size they pick goes straight into your cart. Their answers are remembered on every product, and in every store that uses TryOn.' },
+    { n: '03', title: 'Add to cart, from the card', body: 'The size they pick goes straight into your cart. Their answers are remembered on every product, and in every store that uses Tryon.' },
   ];
   return (
     <section style={{ background: C.surface, color: C.ink, padding: mobile ? '56px 20px' : '88px 32px', borderBottom: `1px solid ${C.line}` }}>
@@ -96,7 +96,7 @@ function Passport({ C, mobile }: { C: Palette; mobile: boolean }) {
             From an estimate to their exact size.
           </h2>
           <p style={{ ...bodyStyle, color: C.mute, maxWidth: 520, marginBottom: 28 }}>
-            After their size, the card offers the fit passport: <b style={{ color: C.ink }}>Try On</b> on products in 3D, <b style={{ color: C.ink }}>Create my fit passport</b> on the rest. It is free for shoppers and follows them to every TryOn store.
+            After their size, the card offers the fit passport: <b style={{ color: C.ink }}>Try On</b> on products in 3D, <b style={{ color: C.ink }}>Create my fit passport</b> on the rest. It is free for shoppers and follows them to every Tryon store.
           </p>
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, borderTop: `1px solid ${C.line}` }}>
             {points.map(([t, d]) => (
@@ -116,12 +116,12 @@ function Passport({ C, mobile }: { C: Palette; mobile: boolean }) {
 
 function ForBrands({ C, mobile }: { C: Palette; mobile: boolean }) {
   const install = [
-    ['Install TryOn', 'From the Shopify App Store, or from the private link we send you today.'],
-    ['Add the button', 'Open your theme editor and add the TryOn block next to your size picker. No code.'],
+    ['Install Tryon', 'From the Shopify App Store, or from the private link we send you today.'],
+    ['Add the button', 'Open your theme editor and add the Tryon block next to your size picker. No code.'],
     ['Live on every product', 'Find my size works on every product with sizes from the first minute. We make your garments in 3D for Try On.'],
   ];
   const insights = [
-    ['ROI and attribution', 'Orders, revenue and add-to-carts from shoppers who used TryOn, against the rest.'],
+    ['ROI and attribution', 'Orders, revenue and add-to-carts from shoppers who used Tryon, against the rest.'],
     ['Size finder funnel', 'Where shoppers drop off in the quiz, and the % match each size gets.'],
     ['Fit intelligence', 'Recommended against bought sizes, per product, and which sizes are under pressure.'],
     ['Returns and risk', 'Return rates by size and product, and the orders most likely to come back.'],
@@ -161,7 +161,7 @@ function ForBrands({ C, mobile }: { C: Palette; mobile: boolean }) {
           </div>
           <figure style={{ margin: 0 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/redesign/fit-intelligence.jpg" alt="The TryOn brand dashboard" style={{ width: '100%', borderRadius: 20, display: 'block', border: `1px solid ${C.line}` }} />
+            <img src="/redesign/fit-intelligence.jpg" alt="The Tryon brand dashboard" style={{ width: '100%', borderRadius: 20, display: 'block', border: `1px solid ${C.line}` }} />
             <figcaption style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginTop: 10 }}>The brand dashboard (example data).</figcaption>
           </figure>
         </div>

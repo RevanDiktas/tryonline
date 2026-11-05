@@ -34,7 +34,7 @@ export function SiteFooter({ dark }: { dark: boolean }) {
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={dark ? '/redesign/wordmark-white.png' : '/redesign/wordmark.png'}
-      alt="TryOn"
+      alt="Tryon"
       style={{ height: mobile ? 13 : 14, width: 'auto', display: 'block' }}
     />
   );
@@ -47,7 +47,7 @@ export function SiteFooter({ dark }: { dark: boolean }) {
       }}>
         {wordmark}
         {links}
-        <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute }}>TryOn · by Fravash, Amsterdam · 2026</div>
+        <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute }}>Tryon · by Fravash, Amsterdam · 2026</div>
       </footer>
     );
   }
@@ -63,7 +63,7 @@ export function SiteFooter({ dark }: { dark: boolean }) {
       }}>
         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
           {wordmark}
-          <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>TryOn · by Fravash, Amsterdam · 2026</div>
+          <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute }}>Tryon · by Fravash, Amsterdam · 2026</div>
         </div>
         {links}
       </div>

@@ -1,5 +1,5 @@
 /**
- * TryOn plans: the single source for every page that shows prices (/pricing, the home page
+ * Tryon plans: the single source for every page that shows prices (/pricing, the home page
  * summary, /product, /start). Set 2026-10-06 from competitor research (Kiwi, Goodsize,
  * Easysize, Faslet, True Fit, LiSA, Reality Try, 3DLOOK); Brand is the top tier from the
  * original pricing. Shopify bills in USD, so prices are USD.

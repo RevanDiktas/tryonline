@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * Embedded admin for the "TryOn Size" Shopify app (application_url = app.tryon.global/size-app).
+ * Embedded admin for the "Tryon Size" Shopify app (application_url = app.tryon.global/size-app).
  *
  * One page, one login: App Bridge hands us a session token, the backend verifies it and swaps
  * it for an Admin API token (backend/app/api/routes/size_app.py). The merchant never makes a
- * TryOn account. The page shows three steps (choose a plan, add the button, see it live) and
+ * Tryon account. The page shows three steps (choose a plan, add the button, see it live) and
  * the last 30 days of the size card on the store.
  *
  * Plain HTML from a route handler, like /app: App Bridge must be the first script, and the
@@ -28,7 +28,7 @@ export function GET(request: NextRequest) {
   <meta name="shopify-api-key" content="${escapeHtml(clientId)}"/>
   <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
   <script src="https://cdn.shopify.com/shopifycloud/polaris.js"></script>
-  <title>TryOn Size</title>
+  <title>Tryon Size</title>
   <style>
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
     .stat b { display: block; font-size: 22px; line-height: 1.2; margin-top: 4px; }
@@ -36,8 +36,8 @@ export function GET(request: NextRequest) {
   </style>
 </head>
 <body>
-  <s-page heading="TryOn Size">
-    <s-banner id="error" tone="critical" heading="TryOn Size could not load" hidden>
+  <s-page heading="Tryon Size">
+    <s-banner id="error" tone="critical" heading="Tryon Size could not load" hidden>
       <s-paragraph id="error-text"></s-paragraph>
     </s-banner>
 
@@ -83,7 +83,7 @@ export function GET(request: NextRequest) {
       </s-section>
 
       <s-section heading="How it works">
-        <s-paragraph>Shoppers answer seven quick questions (height, weight, age and build) and get their size for the product in about 30 seconds, with a % match for every size. No account and no size chart needed. Shoppers who want more can measure themselves with one photo for their measured size, and keep it for every store that uses TryOn.</s-paragraph>
+        <s-paragraph>Shoppers answer seven quick questions (height, weight, age and build) and get their size for the product in about 30 seconds, with a % match for every size. Shoppers who want more can measure themselves with one photo for their measured size, and keep it for every store that uses Tryon.</s-paragraph>
         <s-paragraph>Unlimited shoppers and sizes on every plan. Questions: <s-link href="mailto:support@tryon.global">support@tryon.global</s-link></s-paragraph>
       </s-section>
     </div>
@@ -104,7 +104,7 @@ export function GET(request: NextRequest) {
   function render(d) {
     badge($('plan-badge'), d.active, 'Done', 'To do');
     $('plan-text').textContent = d.active
-      ? 'You are on ' + (d.plan_name || 'TryOn Size') + '. The button shows on your store.'
+      ? 'You are on ' + (d.plan_name || 'Tryon Size') + '. The button shows on your store.'
       : 'Start the 30-day free trial. The button shows on your store once a plan is active.';
     $('plan-btn').textContent = d.active ? 'Change plan' : 'Start free trial';
     $('plan-btn').setAttribute('variant', d.active ? 'secondary' : 'primary');
@@ -129,7 +129,7 @@ export function GET(request: NextRequest) {
   }
   function load() {
     if (!window.shopify || typeof window.shopify.idToken !== 'function') {
-      return fail('Open TryOn Size from your Shopify admin.');
+      return fail('Open Tryon Size from your Shopify admin.');
     }
     window.shopify.idToken()
       .then(function (token) {
@@ -141,8 +141,8 @@ export function GET(request: NextRequest) {
       })
       .then(render)
       .catch(function (e) {
-        console.error('[TryOn Size]', e);
-        fail('We could not reach TryOn (' + (e && e.message ? e.message : 'network') + ').');
+        console.error('[Tryon Size]', e);
+        fail('We could not reach Tryon (' + (e && e.message ? e.message : 'network') + ').');
       });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', load);
