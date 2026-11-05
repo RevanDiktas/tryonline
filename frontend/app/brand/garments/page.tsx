@@ -411,6 +411,7 @@ export default function GarmentsPage() {
           </div>
           <div className="flex items-center gap-3">
             <span className={`text-sm ${dark ? 'text-white/50' : 'text-gray-500'}`}>{user?.email}</span>
+            <Link href="/brand/size-charts" className={`px-3 py-2 text-sm rounded-lg border transition ${dark ? 'border-white/15 hover:bg-white/5' : 'border-gray-200 hover:bg-gray-50'}`}>Size charts per category</Link>
             <button
               onClick={() => { resetForm(); setShowForm(true); }}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition ${dark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-gray-800'}`}

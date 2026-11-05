@@ -165,7 +165,7 @@ const handler = createMcpHandler(
         if (!body) {
           return fail(`TryOn has no sizes for this shopper yet. Ask their women's or men's sizes, height, weight, age and build, and call save_my_size_profile; then call recommend_size again. Or they can measure from one photo at ${MEASURE_URL}.`);
         }
-        const brand = product.shop ? await getBrandGarment(product.shop, product.handle).catch(() => null) : null;
+        const brand = product.shop ? await getBrandGarment(product.shop, product.handle, product.productType, product.title).catch(() => null) : null;
         const garment = brand || garmentFromProduct(product.productType, product.title);
         const answer = sizeFor(body, product.sizes, garment, args.fit, args.country || product.storeCountry);
         if (!answer) return fail('Could not work out a size for this product.');

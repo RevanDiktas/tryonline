@@ -790,6 +790,35 @@ export const garmentApi = {
   },
 };
 
+/* ───────── Category size charts (one chart per category / Shopify product type) ───────── */
+export interface BrandSizeChart {
+  id: string;
+  brand_id: string;
+  name: string;
+  category: string;
+  product_types: string[];
+  fit_type: string;
+  size_chart: Record<string, Record<string, number>>;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const sizeChartApi = {
+  async list(): Promise<BrandSizeChart[]> {
+    return fetchApi('/api/size-charts');
+  },
+  async create(data: { name: string; category: string; product_types?: string[]; fit_type?: string; size_chart?: Record<string, Record<string, number>> }): Promise<BrandSizeChart> {
+    return fetchApi('/api/size-charts', { method: 'POST', body: JSON.stringify(data) });
+  },
+  async update(id: string, data: { name?: string; category?: string; product_types?: string[]; fit_type?: string; size_chart?: Record<string, Record<string, number>>; is_active?: boolean }): Promise<BrandSizeChart> {
+    return fetchApi(`/api/size-charts/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  },
+  async remove(id: string): Promise<void> {
+    await fetchApi(`/api/size-charts/${id}`, { method: 'DELETE' });
+  },
+};
+
 /**
  * Upload photo via backend (uses service key, bypasses Supabase Storage RLS).
  */

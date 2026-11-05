@@ -73,11 +73,20 @@ export async function bodyFor(userId: string, token: string): Promise<{ body: Bo
 }
 
 /** A TryOn brand's own garment (category, cut, chart) for this product; null when the store or product has none. */
-export async function getBrandGarment(shop: string, handle: string): Promise<(Garment & { has3d: boolean }) | null> {
+export async function getBrandGarment(shop: string, handle: string, productType = '', title = ''): Promise<(Garment & { has3d: boolean }) | null> {
   const r = await call(`/api/products/${encodeURIComponent(handle)}/tryon-config?shop=${encodeURIComponent(shop)}`, null);
-  if (!r.ok) return null;
-  const d = await r.json();
-  return { category: d.category || 'tops', fitType: d.fit_type || 'regular', chart: d.size_chart || {}, has3d: true };
+  if (r.ok) {
+    const d = await r.json();
+    const chart = d.size_chart || {};
+    if (Object.keys(chart).length) return { category: d.category || 'tops', fitType: d.fit_type || 'regular', chart, has3d: true };
+  }
+  // No 3D chart: the brand's category chart (one per category or Shopify product type).
+  const q = new URLSearchParams({ shop, product_id: handle, product_type: productType, title });
+  const r2 = await call(`/api/size-charts/resolve?${q}`, null);
+  if (!r2.ok) return null;
+  const d2 = await r2.json();
+  if (!d2.size_chart || !Object.keys(d2.size_chart).length) return null;
+  return { category: d2.category || 'tops', fitType: d2.fit_type || 'regular', chart: d2.size_chart, has3d: r.ok };
 }
 
 export async function addToWishlist(token: string, item: {

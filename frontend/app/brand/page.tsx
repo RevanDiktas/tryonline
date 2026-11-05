@@ -524,6 +524,13 @@ export default function BrandDashboardPage() {
                   </p>
                 </div>
               </Link>
+              <Link href="/brand/size-charts" className={`flex items-start gap-3 p-3 rounded-lg transition hover:ring-1 ${dark ? 'bg-white/5 hover:ring-white/20' : 'bg-white hover:ring-blue-200'}`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${dark ? 'bg-white/10 text-white/40' : 'bg-gray-100 text-gray-400'}`}>↔</div>
+                <div>
+                  <p className={`text-xs font-medium ${dark ? 'text-white/80' : 'text-gray-800'}`}>Size charts per category</p>
+                  <p className={`text-xs mt-0.5 ${dark ? 'text-white/40' : 'text-gray-500'}`}>One chart for all T-shirts, one for all jeans. Used by the size button.</p>
+                </div>
+              </Link>
               <div className={`flex items-start gap-3 p-3 rounded-lg ${dark ? 'bg-white/5' : 'bg-white'}`}>
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${dark ? 'bg-white/10 text-white/40' : 'bg-gray-100 text-gray-400'}`}>3</div>
                 <div>

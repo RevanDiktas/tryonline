@@ -688,6 +688,14 @@ const garmentReady = (async () => {
       const r = await fetch(`${cfg.api}/api/products/${encodeURIComponent(cfg.productId)}/tryon-config?shop=${encodeURIComponent(cfg.shop)}`);
       if (r.ok) { const d = await r.json(); category = d.category || category; fitType = d.fit_type || fitType; chart = d.size_chart || {}; has3d = true; }
     } catch { /* offline or no garment: the product's own words are enough */ }
+    // No chart from a 3D garment: the brand's category chart (one per category or Shopify product type).
+    if (!Object.keys(chart).length) {
+      try {
+        const q = new URLSearchParams({ shop: cfg.shop, product_id: cfg.productId, product_type: cfg.productType || '', title: cfg.productName || '' });
+        const r2 = await fetch(`${cfg.api}/api/size-charts/resolve?${q}`);
+        if (r2.ok) { const d2 = await r2.json(); if (d2.size_chart && Object.keys(d2.size_chart).length) { chart = d2.size_chart; category = d2.category || category; fitType = d2.fit_type || fitType; } }
+      } catch { /* same: the product's own words are enough */ }
+    }
   }
   garment = { category, fitType, has3d, chart };
 })();
