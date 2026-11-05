@@ -301,6 +301,13 @@ function Footer({ mobile }: { mobile: boolean }) {
 }
 
 export function SimpleLanding({ dark: _dark = false }: { dark?: boolean }) {
+  // Safety net: a Supabase recovery link that lands on the home page carries
+  // #access_token=…&type=recovery. Hand it to the reset screen with the fragment intact.
+  useEffect(() => {
+    if (typeof window !== 'undefined' && /type=recovery/.test(window.location.hash)) {
+      window.location.replace('/auth/reset-password' + window.location.hash);
+    }
+  }, []);
   const mobile = useIsMobile();
   useReveal();
   return (
