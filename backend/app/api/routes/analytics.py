@@ -5,6 +5,7 @@ Uses direct Supabase table queries with Python aggregation.
 Results are cached for 60 seconds via TTLCache to avoid repeated full scans.
 """
 import hashlib
+import threading
 import json
 import logging
 import statistics
@@ -69,28 +70,70 @@ def fetch_all(make_query: Callable[[], Any], page_size: int = PAGE_SIZE) -> list
             return rows
 
 
+# Every column any dashboard route reads. One scan per (shop, range) serves them all.
+SCAN_COLUMNS = "id,event_type,session_id,user_id,product_id,user_agent,event_data,created_at,shop_domain,country,city"
+# Scans are shared for this long. A range click re-uses the scan of a click a moment ago;
+# new events show up within this many seconds.
+SCAN_TTL_SECONDS = 120
+_scan_cache: TTLCache = TTLCache(maxsize=64, ttl=SCAN_TTL_SECONDS)
+_scan_locks: dict[str, threading.Lock] = {}
+_scan_locks_guard = threading.Lock()
+
+
+def _scan_lock(key: str) -> threading.Lock:
+    with _scan_locks_guard:
+        lock = _scan_locks.get(key)
+        if lock is None:
+            lock = _scan_locks[key] = threading.Lock()
+        return lock
+
+
+def scan_events(shop: str, start_ts: str, end_ts: str, widen: bool = True) -> list[dict]:
+    """All analytics_events rows for ONE shop in [start_ts, end_ts], every column, cached.
+    The twenty routes one dashboard load fires all ask for the same range at the same
+    moment: the first one scans, the rest wait on its lock and get the same list. A plain
+    window is cut out of the cohort window (same start, end + attribution days), so one
+    dashboard load scans the table once. Callers must not mutate the rows."""
+    key = _cache_key("scan", shop=shop, start=start_ts, end=end_ts)
+    rows = _scan_cache.get(key)
+    if rows is not None:
+        return rows
+    with _scan_lock(key):
+        rows = _scan_cache.get(key)
+        if rows is not None:
+            return rows
+        end_dt = parse_ts(end_ts)
+        wide_end = end_dt + timedelta(days=ATTRIBUTION_WINDOW_DAYS) if end_dt else None
+        if widen and wide_end is not None:
+            # Cohort routes read start..end+attribution; serve this narrower window from it.
+            wider = scan_events(shop, start_ts, wide_end.isoformat(), widen=False)
+            rows = [r for r in wider if (parse_ts(r.get("created_at")) or end_dt) <= end_dt]
+            _scan_cache[key] = rows
+            return rows
+        def make():
+            return (
+                supabase_service.client.table("analytics_events")
+                .select(SCAN_COLUMNS)
+                .eq("shop_domain", shop)
+                .gte("created_at", start_ts)
+                .lte("created_at", end_ts)
+            )
+        rows = fetch_all(make)
+        _scan_cache[key] = rows
+        return rows
+
+
 def fetch_events(columns: str, shop: str, start_ts: str, end_ts: str, **eq: Any) -> list[dict]:
-    """All analytics_events rows for ONE shop in [start_ts, end_ts]. The shop filter is built
-    in here so no caller can query without it; extra **eq filters only narrow further."""
-    def make():
-        q = (
-            supabase_service.client.table("analytics_events")
-            .select(columns)
-            .eq("shop_domain", shop)
-            .gte("created_at", start_ts)
-            .lte("created_at", end_ts)
-        )
-        for col, val in eq.items():
-            q = q.eq(col, val)
-        if "event_type" not in eq:
-            # One row per store visitor per day: only ever counted (count_events), never
-            # scanned with the widget's own events.
-            try:
-                q = q.not_.in_("event_type", list(STORE_TRAFFIC_EVENTS))
-            except AttributeError:
-                pass
-        return q
-    return fetch_all(make)
+    """Rows for ONE shop in [start_ts, end_ts], from the shared scan. `columns` is kept for
+    the callers' documentation: rows carry every SCAN_COLUMNS column, which is a superset.
+    Extra **eq filters only narrow further. Store traffic rows (one per visitor per day) are
+    left out unless an event_type is asked for by name: they are only ever counted."""
+    rows = scan_events(shop, start_ts, end_ts)
+    if "event_type" not in eq:
+        rows = [r for r in rows if r.get("event_type") not in STORE_TRAFFIC_EVENTS]
+    for col, val in eq.items():
+        rows = [r for r in rows if r.get(col) == val]
+    return rows
 
 
 STORE_TRAFFIC_EVENTS = ("store_visit", "store_widget_used")
@@ -233,6 +276,7 @@ def clear_caches() -> None:
     """Drop cached responses and cached event scans (tests, and after a data fix)."""
     _cache.clear()
     _events_cache.clear()
+    _scan_cache.clear()
 
 
 def _r(value: Optional[float], digits: int = 4) -> Optional[float]:
@@ -256,7 +300,8 @@ def load_cohort_events(shop: str, start_d, end_d) -> list[dict]:
         return cached
     start, end = _day_bounds(start_d, end_d)
     end_ext = end + timedelta(days=ATTRIBUTION_WINDOW_DAYS)
-    events = fetch_events(COHORT_COLUMNS, shop, start.isoformat(), end_ext.isoformat())
+    events = [e for e in scan_events(shop, start.isoformat(), end_ext.isoformat(), widen=False)
+              if e.get("event_type") not in STORE_TRAFFIC_EVENTS]
     now = datetime.now(timezone.utc)
     if end_ext < now:
         late_from = (end_ext + timedelta(microseconds=1)).isoformat()
@@ -274,7 +319,7 @@ def load_cohort(shop: str, start_d, end_d) -> tuple[Cohort, list[dict]]:
 
 
 @router.get("/debug")
-async def analytics_debug(
+def analytics_debug(
     shop: str = Depends(get_brand_shop),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
@@ -334,7 +379,7 @@ class MetricsResponse(BaseModel):
 
 
 @router.get("/metrics", response_model=MetricsResponse)
-async def get_metrics(
+def get_metrics(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -430,7 +475,7 @@ def product_breakdown(c: Cohort) -> dict[str, dict[str, Any]]:
 
 
 @router.get("/metrics-by-product", response_model=MetricsByProductResponse)
-async def get_metrics_by_product(
+def get_metrics_by_product(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -487,7 +532,7 @@ class FitMetricsResponse(BaseModel):
 
 
 @router.get("/fit-metrics", response_model=FitMetricsResponse)
-async def get_fit_metrics(
+def get_fit_metrics(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -674,7 +719,7 @@ class RegionalSizeResponse(BaseModel):
 
 
 @router.get("/velocity", response_model=VelocityResponse)
-async def get_velocity(
+def get_velocity(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -708,7 +753,7 @@ async def get_velocity(
 
 
 @router.get("/at-risk-products", response_model=AtRiskProductsResponse)
-async def get_at_risk_products(
+def get_at_risk_products(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -760,7 +805,7 @@ async def get_at_risk_products(
 
 
 @router.get("/exploration-trend", response_model=ExplorationTrendResponse)
-async def get_exploration_trend(
+def get_exploration_trend(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -808,7 +853,7 @@ async def get_exploration_trend(
 
 
 @router.get("/size-stress", response_model=SizeStressResponse)
-async def get_size_stress(
+def get_size_stress(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -887,7 +932,7 @@ async def get_size_stress(
 
 
 @router.get("/regional-size", response_model=RegionalSizeResponse)
-async def get_regional_size_distribution(
+def get_regional_size_distribution(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -995,7 +1040,7 @@ class DwellMetricsResponse(BaseModel):
 
 
 @router.get("/dwell-metrics", response_model=DwellMetricsResponse)
-async def get_dwell_metrics(
+def get_dwell_metrics(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -1095,7 +1140,7 @@ def _classify_device(user_agent: str | None) -> str:
 
 
 @router.get("/device-metrics", response_model=DeviceMetricsResponse)
-async def get_device_metrics(
+def get_device_metrics(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -1161,7 +1206,7 @@ class FitConfidenceResponse(BaseModel):
 
 
 @router.get("/fit-confidence-by-product", response_model=FitConfidenceResponse)
-async def get_fit_confidence_by_product(
+def get_fit_confidence_by_product(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -1252,7 +1297,7 @@ class RepeatVisitorsResponse(BaseModel):
 
 
 @router.get("/repeat-visitors", response_model=RepeatVisitorsResponse)
-async def get_repeat_visitors(
+def get_repeat_visitors(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -1365,7 +1410,7 @@ def _bucket_measurement(value: float) -> str:
 
 
 @router.get("/body-shape-insights", response_model=BodyShapeInsightsResponse)
-async def get_body_shape_insights(
+def get_body_shape_insights(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -1500,7 +1545,7 @@ class ReturnMetricsResponse(BaseModel):
 
 
 @router.get("/return-metrics", response_model=ReturnMetricsResponse)
-async def get_return_metrics(
+def get_return_metrics(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -1681,7 +1726,7 @@ class CohortComparisonResponse(BaseModel):
 
 
 @router.get("/cohort-comparison", response_model=CohortComparisonResponse)
-async def get_cohort_comparison(
+def get_cohort_comparison(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -1770,7 +1815,7 @@ def conversion_lift_numbers(
 
 
 @router.get("/conversion-lift", response_model=ConversionLiftResponse)
-async def get_conversion_lift(
+def get_conversion_lift(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -1855,7 +1900,7 @@ class ReturnRiskResponse(BaseModel):
 
 
 @router.get("/return-risk", response_model=ReturnRiskResponse)
-async def get_return_risk(
+def get_return_risk(
     shop: str = Depends(get_brand_shop),
 ):
     key = _cache_key("return_risk", shop=shop)
@@ -1969,7 +2014,7 @@ class TimeSeriesResponse(BaseModel):
 
 
 @router.get("/time-series", response_model=TimeSeriesResponse)
-async def get_time_series(
+def get_time_series(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -2066,7 +2111,7 @@ class FitPurchaseCorrelationResponse(BaseModel):
 
 
 @router.get("/fit-purchase-correlation", response_model=FitPurchaseCorrelationResponse)
-async def get_fit_purchase_correlation(
+def get_fit_purchase_correlation(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
@@ -2442,7 +2487,7 @@ def size_finder_summary(
 
 
 @router.get("/size-finder", response_model=SizeFinderResponse)
-async def get_size_finder(
+def get_size_finder(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     shop: str = Depends(get_brand_shop),
