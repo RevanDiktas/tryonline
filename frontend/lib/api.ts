@@ -758,6 +758,11 @@ export const garmentApi = {
     return fetchApi(`/api/garments/${garmentId}/sync`, { method: 'POST' });
   },
 
+  /** Copy a garment (chart, fit, fabric, every mesh) as a new one with its own name and product handle. */
+  async duplicate(garmentId: string, data: { name: string; shopify_product_id?: string }): Promise<{ garment: Garment; files_copied: number; files_expected: number }> {
+    return fetchApi(`/api/garments/${garmentId}/duplicate`, { method: 'POST', body: JSON.stringify(data) });
+  },
+
   /**
    * Upload a mesh for one size. Routed by extension: .glb backs the 3D viewer
    * (garments.sizes), .obj backs the Newton drape sim (garments.obj_sizes).

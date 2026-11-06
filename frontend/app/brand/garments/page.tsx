@@ -129,6 +129,11 @@ export default function GarmentsPage() {
   const [uploadTarget, setUploadTarget] = useState<{ garmentId: string; size: string } | null>(null);
 
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  // "Duplicate": the same cut in another colour is a separate Shopify product at La Fam.
+  const [dupSource, setDupSource] = useState<Garment | null>(null);
+  const [dupForm, setDupForm] = useState({ name: '', shopify_product_id: '' });
+  const [dupError, setDupError] = useState('');
+  const [duplicating, setDuplicating] = useState(false);
 
   const [loadError, setLoadError] = useState('');
 
@@ -212,6 +217,34 @@ export default function GarmentsPage() {
     });
     setEditingId(g.id);
     setShowForm(true);
+  };
+
+  const startDuplicate = (g: Garment) => {
+    setDupSource(g);
+    setDupForm({ name: `${g.name} (copy)`, shopify_product_id: '' });
+    setDupError('');
+  };
+
+  const handleDuplicate = async () => {
+    if (!dupSource || !brandId) return;
+    if (!dupForm.name.trim()) { setDupError('Name is required'); return; }
+    setDuplicating(true);
+    setDupError('');
+    try {
+      const r = await garmentApi.duplicate(dupSource.id, {
+        name: dupForm.name.trim(),
+        shopify_product_id: dupForm.shopify_product_id.trim() || undefined,
+      });
+      await loadGarments(brandId);
+      setDupSource(null);
+      if (r.files_copied < r.files_expected) {
+        setError(`Copied, but only ${r.files_copied} of ${r.files_expected} mesh files came along. Re-upload the missing sizes.`);
+      }
+    } catch (e) {
+      setDupError(e instanceof Error ? e.message : 'Could not copy');
+    } finally {
+      setDuplicating(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -568,6 +601,9 @@ export default function GarmentsPage() {
                     >
                       {syncingId === g.id ? 'Syncing...' : 'Sync Files'}
                     </button>
+                    <button onClick={() => startDuplicate(g)} className={`text-xs transition px-2 py-1 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-black'}`}>
+                      Duplicate
+                    </button>
                     <button onClick={() => startEdit(g)} className={`text-xs transition px-2 py-1 ${dark ? 'text-white/50 hover:text-white' : 'text-gray-500 hover:text-black'}`}>
                       Edit
                     </button>
@@ -782,6 +818,50 @@ export default function GarmentsPage() {
           </div>
         )}
       </main>
+
+      {dupSource && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !duplicating && setDupSource(null)}>
+          <div
+            role="dialog" aria-modal="true" aria-labelledby="dup-title"
+            onClick={(e) => e.stopPropagation()}
+            className={`w-full max-w-md rounded-xl p-6 border ${dark ? 'bg-[#141414] border-white/10 text-white' : 'bg-white border-gray-200 text-black shadow-xl'}`}
+          >
+            <h2 id="dup-title" className="text-lg font-semibold mb-1">Duplicate garment</h2>
+            <p className={`text-sm mb-5 ${dark ? 'text-white/50' : 'text-gray-500'}`}>
+              Copies the size chart, fit, fabric settings and every uploaded mesh of <b>{dupSource.name}</b>. Use it for another colour that is its own product in Shopify.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`} htmlFor="dup-name">Name *</label>
+                <input
+                  id="dup-name" type="text" autoFocus value={dupForm.name}
+                  onChange={(e) => setDupForm({ ...dupForm, name: e.target.value })}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleDuplicate(); }}
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'border-gray-200 text-black focus:ring-black'}`}
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${dark ? 'text-white/60' : 'text-gray-700'}`} htmlFor="dup-handle">Shopify product handle</label>
+                <input
+                  id="dup-handle" type="text" value={dupForm.shopify_product_id}
+                  onChange={(e) => setDupForm({ ...dupForm, shopify_product_id: e.target.value.trim() })}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleDuplicate(); }}
+                  placeholder={dupSource.shopify_product_id ? `e.g. ${dupSource.shopify_product_id.replace(/[^-]+$/, 'navy')}` : 'e.g. striped-pants-navy'}
+                  className={`w-full px-3 py-2 border rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:border-transparent ${dark ? 'bg-white/5 border-white/10 text-white focus:ring-white/30' : 'border-gray-200 text-black focus:ring-black'}`}
+                />
+                <p className={`text-xs mt-1 ${dark ? 'text-white/30' : 'text-gray-400'}`}>The handle from the product URL in Shopify. You can add it later with Edit.</p>
+              </div>
+              {dupError && <p className="text-sm text-red-500">{dupError}</p>}
+              <div className="flex justify-end gap-2 pt-1">
+                <button onClick={() => setDupSource(null)} disabled={duplicating} className={`px-4 py-2 rounded-lg text-sm ${dark ? 'text-white/60 hover:text-white' : 'text-gray-600 hover:text-black'}`}>Cancel</button>
+                <button onClick={handleDuplicate} disabled={duplicating} className={`px-4 py-2 rounded-lg text-sm font-medium ${dark ? 'bg-white text-black' : 'bg-black text-white'} disabled:opacity-50`}>
+                  {duplicating ? 'Copying...' : 'Duplicate'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

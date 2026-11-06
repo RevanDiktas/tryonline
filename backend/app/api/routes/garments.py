@@ -4,6 +4,7 @@ Garment CRUD + GLB file upload for brand dashboard — JWT-protected.
 - POST   /api/garments                    -- create garment row
 - PUT    /api/garments/{garment_id}       -- update garment row
 - DELETE /api/garments/{garment_id}       -- delete garment row
+- POST   /api/garments/{garment_id}/duplicate -- copy a garment (chart, meshes) under a new name/handle
 - POST   /api/garments/{garment_id}/upload -- upload GLB file for a size
 """
 import uuid
@@ -253,6 +254,108 @@ async def delete_garment(garment_id: str, user_id: str = Depends(get_current_use
 
     supabase.client.table("garments").delete().eq("id", garment_id).execute()
     return {"ok": True}
+
+
+class GarmentDuplicate(BaseModel):
+    name: str
+    shopify_product_id: Optional[str] = None
+
+
+def _copy_storage_files(bucket, paths: dict, brand_id: str, new_folder: str) -> dict:
+    """Copy each stored mesh ({size: "garments/<brand>/<folder>/<size>.ext"}) into the new
+    garment's folder. Returns the new map. A file that cannot be copied is left out, so the
+    brand sees the gap on the card instead of a path that points at nothing."""
+    out = {}
+    for size, path in (paths or {}).items():
+        if not path or not isinstance(path, str) or path.startswith("http"):
+            continue
+        src = path[len("garments/"):] if path.startswith("garments/") else path
+        if not src.startswith(f"{brand_id}/"):
+            continue   # never copy across brands
+        dst = f"{brand_id}/{new_folder}/{src.rsplit('/', 1)[-1]}"
+        try:
+            try:
+                bucket.copy(src, dst)
+            except Exception:
+                content = bucket.download(src)
+                ctype = "model/obj" if dst.lower().endswith(".obj") else "model/gltf-binary"
+                bucket.upload(dst, content, {"content-type": ctype, "x-upsert": "true"})
+            out[size] = f"garments/{dst}"
+        except Exception as e:
+            print(f"[garments] duplicate: could not copy {src} -> {dst}: {e}")
+    return out
+
+
+@router.post("/{garment_id}/duplicate")
+async def duplicate_garment(
+    garment_id: str,
+    body: GarmentDuplicate,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Copy a garment as a new one: same category, fit, size chart, fabric settings and every
+    uploaded mesh, under a new name and Shopify product handle. For the colourway that is a
+    separate Shopify product in the store (same cut, same chart, same meshes)."""
+    brand_id = _get_user_brand_id(user_id)
+    src = _verify_garment_ownership(garment_id, brand_id)
+
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    spid = (body.shopify_product_id or "").strip() or None
+    if spid and spid == (src.get("shopify_product_id") or "").strip():
+        raise HTTPException(status_code=400, detail="Give the copy its own product handle")
+    if spid:
+        dup = supabase.client.table("garments").select("id").eq("brand_id", brand_id).eq(
+            "shopify_product_id", spid).limit(1).execute()
+        if dup.data:
+            raise HTTPException(status_code=409, detail="A garment already uses that product handle")
+
+    row = {
+        "brand_id": brand_id,
+        "name": name,
+        "category": src.get("category"),
+        "shopify_product_id": spid,
+        "fit_type": src.get("fit_type") or "regular",
+        "size_chart": src.get("size_chart") or {},
+        "fabric_config": src.get("fabric_config") or {},
+        "thumbnail_url": src.get("thumbnail_url"),
+        "sizes": {},
+        "obj_sizes": {},
+        "is_active": True,
+    }
+    if spid:
+        row["shopify_product_handle"] = spid
+    try:
+        ins = supabase.client.table("garments").insert(row).execute()
+    except Exception as e:
+        if spid and "shopify_product_handle" in str(e).lower():
+            row.pop("shopify_product_handle", None)
+            ins = supabase.client.table("garments").insert(row).execute()
+        else:
+            raise HTTPException(status_code=500, detail=str(e))
+    if not ins.data:
+        raise HTTPException(status_code=500, detail="Insert returned no data")
+    new = ins.data[0]
+    new_id = str(new["id"])
+    new_folder = _storage_product_folder(new) or new_id
+
+    supabase.ensure_garments_bucket()
+    bucket = supabase.client.storage.from_(settings.garments_bucket)
+    sizes = _copy_storage_files(bucket, src.get("sizes") or {}, brand_id, new_folder)
+    obj_sizes = _copy_storage_files(bucket, src.get("obj_sizes") or {}, brand_id, new_folder)
+    upd = supabase.client.table("garments").update(
+        {"sizes": sizes, "obj_sizes": obj_sizes}
+    ).eq("id", new_id).execute()
+    garment = (upd.data or [new])[0]
+
+    if obj_sizes:
+        # The copy needs its own drapes on every avatar; same meshes, so same result.
+        background_tasks.add_task(_backfill_drape_for_garment, new_id)
+
+    wanted = len(src.get("sizes") or {}) + len(src.get("obj_sizes") or {})
+    copied = len(sizes) + len(obj_sizes)
+    return {"ok": True, "garment": garment, "files_copied": copied, "files_expected": wanted}
 
 
 @router.post("/{garment_id}/sync")
