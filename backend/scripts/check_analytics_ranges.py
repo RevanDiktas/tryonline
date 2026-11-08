@@ -167,7 +167,11 @@ set_events(rows)
 r = get("/api/analytics/metrics", **span(366))
 check("/metrics counts all 2500 events across pages (not 1000)",
       r.status_code == 200 and r.json()["widget_opens"] == 2500, r.text[:200])  # 2500 sessions
-pages = [off for t, _, off in fake.log if t == "analytics_events"]
+# Pages of the main scan only: the late-returns scan (after the attribution window, up to
+# now) and the store-visit count are separate queries.
+scans = [(f, off) for t, f, off in fake.log if t == "analytics_events"]
+first = str(scans[0][0])
+pages = [off for f, off in scans if str(f) == first]
 check("paged at offsets 0,1000,2000,2500 (empty page ends it)", pages == [0, 1000, 2000, 2500], str(pages))
 
 fake.max_rows = 400  # a server cap below PAGE_SIZE must still not truncate
