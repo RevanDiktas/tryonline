@@ -1,8 +1,15 @@
 # Status: 2026-11-08 — La Fam demo prep (Web Summit, 2026-11-09)
 
 Branch `feature/analytics` (production). Commits today: `cb610b5` (repair script `--brand`),
-plus the widget drape lock and this report. Backend on Railway and widget on Vercel follow
-the branch automatically.
+`fd2e08d` (widget drape lock + this report), and the Railway note below. Backend on Railway
+and widget on Vercel follow the branch automatically.
+
+**Deploy state at close (19:50 CET).** Vercel serves `fd2e08d` (live `test-viewer.html`
+byte-identical to the commit). Railway's automatic build of `fd2e08d` FAILED at 19:39 with
+no build or deploy log at all, although the commit touched nothing under `backend/`; the
+previous deploy (`cb610b5`) stayed online. `railway redeploy --from-source --yes` at 19:43
+built the same commit cleanly and `/version` now reports `fd2e08d`. Treated as a transient
+Railway failure: same commit, no code change, clean on retry.
 
 ## WHERE THINGS STAND
 
