@@ -286,6 +286,38 @@ def _copy_storage_files(bucket, paths: dict, brand_id: str, new_folder: str) -> 
     return out
 
 
+_SIDECAR_EXT = (".mtl", ".png", ".jpg", ".jpeg", ".webp", ".tga", ".bmp")
+
+
+def _copy_sidecar_files(bucket, brand_id: str, src_folder: str, new_folder: str) -> int:
+    """Copy every non-mesh file (materials, textures) from the source garment folder into the
+    new one. Best effort; returns how many were copied."""
+    if not src_folder or src_folder == new_folder:
+        return 0
+    copied = 0
+    try:
+        entries = bucket.list(f"{brand_id}/{src_folder}") or []
+    except Exception as e:
+        print(f"[garments] duplicate: could not list {brand_id}/{src_folder}: {e}")
+        return 0
+    for ent in entries:
+        name = (ent.get("name") if isinstance(ent, dict) else getattr(ent, "name", None)) or ""
+        if not name.lower().endswith(_SIDECAR_EXT):
+            continue
+        src = f"{brand_id}/{src_folder}/{name}"
+        dst = f"{brand_id}/{new_folder}/{name}"
+        try:
+            try:
+                bucket.copy(src, dst)
+            except Exception:
+                content = bucket.download(src)
+                bucket.upload(dst, content, {"x-upsert": "true"})
+            copied += 1
+        except Exception as e:
+            print(f"[garments] duplicate: could not copy sidecar {src} -> {dst}: {e}")
+    return copied
+
+
 @router.post("/{garment_id}/duplicate")
 async def duplicate_garment(
     garment_id: str,
@@ -344,6 +376,10 @@ async def duplicate_garment(
     bucket = supabase.client.storage.from_(settings.garments_bucket)
     sizes = _copy_storage_files(bucket, src.get("sizes") or {}, brand_id, new_folder)
     obj_sizes = _copy_storage_files(bucket, src.get("obj_sizes") or {}, brand_id, new_folder)
+    # An OBJ points at sidecar files by name (.mtl materials, texture images). Without them
+    # the drape worker fails every job with "MTL could not be downloaded". Copy the whole
+    # source folder, not just the meshes.
+    _copy_sidecar_files(bucket, brand_id, _storage_product_folder(src), new_folder)
     upd = supabase.client.table("garments").update(
         {"sizes": sizes, "obj_sizes": obj_sizes}
     ).eq("id", new_id).execute()
