@@ -1070,6 +1070,18 @@
     const wishlistBtn = document.getElementById('wishlist-btn');
     let isWishlisted = false;
 
+    // Widget token: proves to the API that this iframe is the signed-in shopper (the API checks
+    // it against the user_id). Issued by /api/auth/widget-state after a verified sign-in; shared
+    // with the onboarding card through same-origin storage.
+    var widgetToken = (function() {
+      try { return localStorage.getItem('tryon_widget_token') || sessionStorage.getItem('tryon_widget_token') || null; } catch (e) { return null; }
+    })();
+    function widgetHeaders(extra) {
+      var h = extra ? Object.assign({}, extra) : {};
+      if (widgetToken) h['X-Widget-Token'] = widgetToken;
+      return h;
+    }
+
     // Config (from URL params: product_id, variant_id, shop, user_id, preferred_fit)
     const isLocal = /^localhost$|^127\.0\.0\.1$/i.test(window.location.hostname);
     const config = window.TRYON_CONFIG || {
@@ -1096,7 +1108,7 @@
       try {
         const res = await fetch(config.apiUrl + '/api/events/tryon-session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: widgetHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             user_id: config.userId || undefined,
             shop_domain: config.shopDomain,
@@ -1139,7 +1151,7 @@
       };
       fetch(config.apiUrl + '/api/events/track', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: widgetHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload)
       }).catch(e => console.warn('[TryOn] Track failed:', e));
     }
@@ -1185,7 +1197,7 @@
       };
     }
     async function fetchAvatarOneAttempt(url, credentials) {
-      var r = await fetch(url, { credentials: credentials ? 'include' : 'omit' });
+      var r = await fetch(url, { credentials: credentials ? 'include' : 'omit', headers: widgetHeaders() });
       if (r.ok) {
         var d = await r.json();
         return parseAvatarResponse(d);
@@ -1852,7 +1864,7 @@
     function requestDrapingForGarment(garmentId, size) {
       fetch(config.apiUrl + '/api/draping/request', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: widgetHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ garment_id: garmentId, size: size, user_id: config.userId }),
       }).then(function(r) { return r.json(); }).then(function(data) {
         if (data && data.cached && data.draped_url) {
@@ -1877,7 +1889,7 @@
       var url = config.apiUrl + '/api/draping/request';
       fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: widgetHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           garment_id: serverGarmentId,
           size: size,
@@ -1911,7 +1923,7 @@
           drapeFailed(size);
           return;
         }
-        fetch(config.apiUrl + '/api/draping/status/' + encodeURIComponent(requestId))
+        fetch(config.apiUrl + '/api/draping/status/' + encodeURIComponent(requestId), { headers: widgetHeaders() })
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (data.status === 'completed' && data.draped_url) {
@@ -2194,7 +2206,11 @@
     function forgetUser() {
       config.userId = null;
       config.displayName = null;
-      ['tryon_user_id', 'tryon_user_name'].forEach(function(k) {
+      widgetToken = null;
+      // Also the onboarding card's own account (same-origin storage, shared with size-finder.html):
+      // its Supabase session, widget token and any build in flight. Otherwise the card still
+      // shows the previous shopper after "Sign out".
+      ['tryon_user_id', 'tryon_user_name', 'tryon_widget_token', 'tryon_size_session', 'tryon_size_job', 'tryon_size_details', 'tryon_size_profile_dirty'].forEach(function(k) {
         try { localStorage.removeItem(k); } catch (e) {}
         try { sessionStorage.removeItem(k); } catch (e) {}
       });
@@ -2261,7 +2277,16 @@
       try { localStorage.setItem(SWITCH_KEY, '1'); } catch (e) {}
       var u = new URL(window.location.href);
       ['user_id', 'display_name', 'start_closed'].forEach(function(k) { u.searchParams.delete(k); });
-      navigateWidget(u.toString());
+      // End the tryon.global cookie session /auth/me reads, else the reload signs the same
+      // shopper straight back in. Best effort, capped at 2.5 s so sign-out never hangs.
+      var done = false;
+      var go = function() { if (done) return; done = true; navigateWidget(u.toString()); };
+      try {
+        var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        setTimeout(function() { if (ctrl) ctrl.abort(); go(); }, 2500);
+        fetch('/auth/logout', { method: 'POST', credentials: 'include', signal: ctrl ? ctrl.signal : undefined })
+          .catch(function() {}).then(go);
+      } catch (e) { go(); }
     }
     var switchBtn = document.getElementById('tryon-gate-switch');
     if (switchBtn) switchBtn.addEventListener('click', signOutWidget);
@@ -2346,8 +2371,13 @@
       return 'ws-' + Math.random().toString(36).substring(2) + Date.now().toString(36);
     }
 
-    function reloadWithUser(userId, displayName) {
+    function reloadWithUser(userId, displayName, wt) {
       try { localStorage.removeItem('tryon_switch_account'); } catch (e) {}
+      if (wt) {
+        widgetToken = wt;
+        try { localStorage.setItem('tryon_widget_token', wt); } catch (e) {}
+        try { sessionStorage.setItem('tryon_widget_token', wt); } catch (e) {}
+      }
       // Persist durably so future visits skip the gate (the URL param is ephemeral).
       try { localStorage.setItem('tryon_user_id', userId); } catch (e) {}
       try { sessionStorage.setItem('tryon_user_id', userId); } catch (e) {}
@@ -2418,7 +2448,7 @@
           if (data && data.user_id && widgetStatePolls[token]) {
             Object.keys(widgetStatePolls).forEach(stopWidgetStatePoll);
             if (token === linkToken) clearLinkToken();
-            reloadWithUser(data.user_id, data.display_name);
+            reloadWithUser(data.user_id, data.display_name, data.widget_token);
           }
         }).catch(function() {});
       }
@@ -2514,6 +2544,13 @@
       const gen = ++flowGen;
       const stale = function() { return gen !== flowGen || uiState === 'closed'; };
       setUiState('booting');
+      if (!config.userId && wantsAccountSwitch()) {
+        // The shopper pressed "Sign out": do not pick up this browser's tryon.global session
+        // again. They choose an account; reloadWithUser clears the flag once they have.
+        if (stale()) return;
+        showLoginGate('signin');
+        return;
+      }
       if (!config.userId) {
         var me = null;
         try {
@@ -2660,7 +2697,7 @@
         + '/status?shop=' + encodeURIComponent(config.shopDomain)
         + '&user_id=' + encodeURIComponent(config.userId);
       var token = getSupabaseAccessToken();
-      var statusHeaders = token ? { 'Authorization': 'Bearer ' + token } : {};
+      var statusHeaders = widgetHeaders(token ? { 'Authorization': 'Bearer ' + token } : {});
       fetch(statusUrl, { headers: statusHeaders })
         .then(r => r.ok ? r.json() : null)
         .then(data => { if (data && data.wishlisted) setWishlistState(true); })
@@ -2700,7 +2737,7 @@
 
       // Direct API call — user_id in body (works in third-party iframe where JWT is unavailable)
       const token = getSupabaseAccessToken();
-      const authHeaders = token ? { 'Authorization': 'Bearer ' + token } : {};
+      const authHeaders = widgetHeaders(token ? { 'Authorization': 'Bearer ' + token } : {});
       if (newState) {
         const body = {
           product_id: config.productId,
