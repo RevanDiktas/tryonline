@@ -708,7 +708,7 @@
         preferredFit: p.get('preferred_fit') || null,
         country: p.get('country') || null,  // ISO 3166-1 alpha-2; selects regional body-size bands
         openDirect: openParam || inIframe,
-        tryGarmentOnly: p.get('try_garment_only') === '1',
+        tryGarmentOnly: false,  // locked off, see TRYON_DRAPE_LOCK below
         productName: p.get('product_name') ? decodeURIComponent(p.get('product_name')) : null,
         productImageUrl: p.get('product_image') ? decodeURIComponent(p.get('product_image')) : null,
         productPrice: p.get('product_price') ? decodeURIComponent(p.get('product_price')) : null,
@@ -1095,6 +1095,13 @@
       openDirect: false,
       tryGarmentOnly: false
     };
+    /* TRYON_DRAPE_LOCK — NON-NEGOTIABLE (Revan, 2026-11-08).
+       The try-on always shows the shopper's own avatar wearing the garment draped to their
+       body, with the companion piece; an undraped garment is held back until its drape
+       arrives (see displayModel). No URL parameter, host config or theme setting may switch
+       the avatar or the draping off. `try_garment_only` was a debug view; it is ignored here on
+       purpose and must stay ignored. See CLAUDE.md, "DO NOT". */
+    config.tryGarmentOnly = false;
 
     // Session for attribution
     let sessionId = null;
