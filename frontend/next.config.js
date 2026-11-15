@@ -28,6 +28,16 @@ const nextConfig = {
         source: '/size-finder.html',
         headers: [{ key: 'Content-Security-Policy', value: 'frame-ancestors *' }],
       },
+      {
+        // AR jewellery try-on and the 3D viewer are framed by the store's product page. The
+        // block's iframe must also carry allow="camera" or getUserMedia is denied in the frame.
+        source: '/ar-tryon.html',
+        headers: [{ key: 'Content-Security-Policy', value: 'frame-ancestors *' }],
+      },
+      {
+        source: '/jewelry-viewer.html',
+        headers: [{ key: 'Content-Security-Policy', value: 'frame-ancestors *' }],
+      },
     ];
   },
 };

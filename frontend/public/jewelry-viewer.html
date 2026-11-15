@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>3D pieces</title>
+  <!--
+    TryOn jewellery viewer (Vanrycke pilot, Nov 2026).
+
+    Turn each piece in 3D, then open the camera try-on for it. Reads the same catalogue
+    as ar-tryon.html (/models/jewelry/<brand>/manifest.json) and draws with the same
+    light and materials, so a piece looks the same here as it does on the hand.
+
+    ?brand=vanrycke   which catalogue (default vanrycke)
+    ?product=<handle> open on this piece
+    ?color=white      open on this metal where the piece has it
+    ?embed=1          no header or try-on button: just the turntable, for a product page
+  -->
+  <style>
+    :root { --bg: #14110f; --ink: #f4efe9; --dim: rgba(244,239,233,.6); --line: rgba(244,239,233,.18); }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 15px/1.4 system-ui, -apple-system, "Helvetica Neue", sans-serif; overflow: hidden; }
+    #stage { position: fixed; inset: 0; background: radial-gradient(120% 90% at 50% 38%, #2b2520 0%, #14110f 62%); }
+    #gl { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+    #gl:active { cursor: grabbing; }
+    header { position: absolute; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top) + 18px) 20px 0; text-align: center; pointer-events: none; }
+    .brand { font-size: 11px; letter-spacing: .28em; text-transform: uppercase; color: var(--dim); }
+    h1 { margin: 6px 0 0; font: 400 24px/1.2 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; letter-spacing: .01em; }
+    .sub { margin-top: 4px; font-size: 13px; color: var(--dim); min-height: 18px; }
+    footer { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 16px calc(env(safe-area-inset-bottom) + 18px); display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .seg { display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(255,255,255,.07); border: 1px solid var(--line); max-width: 100%; }
+    .seg button { border: 0; background: transparent; color: var(--dim); font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+    .seg button[aria-pressed="true"] { background: var(--ink); color: #14110f; }
+    .seg button:focus-visible, .cta:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    #metals { display: none; }
+    #metals.show { display: flex; }
+    .cta { display: block; width: min(360px, 100%); box-sizing: border-box; height: 50px; line-height: 50px; text-align: center; border-radius: 999px; background: var(--ink); color: #14110f; font-weight: 600; letter-spacing: .03em; text-decoration: none; }
+    .tip { font-size: 12px; color: var(--dim); }
+    #msg { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; color: var(--dim); }
+    #msg.show { display: grid; }
+    body.embed header, body.embed .cta, body.embed .tip, body.embed #products { display: none; }
+    @media (max-width: 380px) { .seg button { padding: 8px 10px; font-size: 12px; } h1 { font-size: 21px; } }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="gl" aria-label="3D model. Drag to turn, pinch or scroll to zoom."></canvas>
+    <header>
+      <div class="brand" id="brand"></div>
+      <h1 id="name">&nbsp;</h1>
+      <div class="sub" id="sub"></div>
+    </header>
+    <footer>
+      <div class="seg" id="metals" role="group" aria-label="Metal"></div>
+      <div class="seg" id="products" role="group" aria-label="Piece"></div>
+      <a class="cta" id="try" href="#">Try it on</a>
+      <div class="tip">Drag to turn · pinch to zoom</div>
+    </footer>
+    <div id="msg"></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+    const q = new URLSearchParams(location.search);
+    const brand = (q.get('brand') || 'vanrycke').replace(/[^a-z0-9-]/gi, '');
+    const MANIFEST = '/models/jewelry/' + brand + '/manifest.json';
+    const METAL_NAMES = { rose: 'Rose gold', white: 'White gold', yellow: 'Yellow gold' };
+    const $ = (id) => document.getElementById(id);
+    if (q.get('embed') === '1') document.body.classList.add('embed');
+    function say(text) { $('msg').textContent = text; $('msg').classList.toggle('show', !!text); }
+
+    // ---- Renderer: same light and tone mapping as ar-tryon.html
+    const canvas = $('gl');
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    renderer.setClearColor(0x000000, 0);
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.LinearToneMapping;
+    const scene = new THREE.Scene();
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    function studioEnvironment() {
+      const s = new THREE.Scene();
+      s.add(new THREE.Mesh(new THREE.SphereGeometry(6, 32, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.60, 0.58, 0.56), side: THREE.BackSide })));
+      const panel = (w, h, x, y, z, k) => {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(k, k, k), side: THREE.DoubleSide }));
+        m.position.set(x, y, z); m.lookAt(0, 0, 0); s.add(m);
+      };
+      panel(4.0, 2.5, 0, 4.2, 1.5, 1.8); panel(2.0, 4.0, -4.2, 1.0, 2.0, 1.5); panel(2.0, 4.0, 4.2, 0.5, 1.0, 1.2);
+      panel(3.0, 1.2, 0, -1.0, 4.5, 1.0); panel(1.5, 3.0, 0, 1.0, -4.8, 1.0); panel(1.2, 1.2, -2.5, -3.5, -1.5, 0.05);
+      const tex = pmrem.fromScene(s, 0.02).texture;
+      s.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+      return tex;
+    }
+    try { scene.environment = studioEnvironment(); }
+    catch (e) { console.warn('[TryOn 3D] studio environment failed, using room', e); scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; }
+    scene.add(new THREE.DirectionalLight(0xffffff, 0.8).translateX(0.3).translateY(1).translateZ(1));
+
+    // Jewellery is millimetres across: the near plane has to be far closer than a garment viewer's.
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.001, 10);
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true; controls.dampingFactor = 0.08; controls.enablePan = false;
+    controls.autoRotate = true; controls.autoRotateSpeed = 1.6;
+    let idle = null;
+    controls.addEventListener('start', () => { controls.autoRotate = false; clearTimeout(idle); });
+    controls.addEventListener('end', () => { clearTimeout(idle); idle = setTimeout(() => { controls.autoRotate = true; }, 4000); });
+
+    function resize() {
+      const b = $('stage').getBoundingClientRect();
+      renderer.setSize(b.width, b.height, false);
+      camera.aspect = b.width / Math.max(b.height, 1); camera.updateProjectionMatrix();
+      if (holder.children.length) frameModel();
+    }
+
+    const draco = new DRACOLoader(); draco.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');
+    const loader = new GLTFLoader(); loader.setDRACOLoader(draco);
+    const cache = new Map();
+    function load(url) {
+      if (!cache.has(url)) cache.set(url, new Promise((res, rej) => loader.load(url, g => {
+        g.scene.traverse(o => {
+          if (!o.isMesh || !o.material) return;
+          if (o.material.name === 'diamond') {
+            o.material = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.05, roughness: 0.0,
+              transmission: 0.55, ior: 2.42, thickness: 0.0015, envMapIntensity: 3.0, flatShading: true });
+          } else o.material.envMapIntensity = 1.0;
+        });
+        res(g.scene);
+      }, undefined, rej)));
+      return cache.get(url);
+    }
+
+    const holder = new THREE.Group(); scene.add(holder);
+    let radius = 0.05;
+    function frameModel() {
+      const box = new THREE.Box3().setFromObject(holder);
+      const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
+      radius = Math.max(s.x, s.y, s.z) / 2 || 0.01;
+      // Fit the piece in the middle band of the screen, clear of the title and the buttons.
+      const fit = Math.min(1, camera.aspect) * 0.62;
+      const dist = radius / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / fit;
+      const dir = camera.position.clone().sub(controls.target);
+      if (dir.lengthSq() < 1e-9) dir.set(0.55, 0.3, 1);
+      controls.target.copy(c);
+      camera.position.copy(c).add(dir.normalize().multiplyScalar(dist));
+      controls.minDistance = radius * 1.2; controls.maxDistance = dist * 2.5;
+      camera.near = Math.max(radius / 200, 0.0005); camera.far = dist * 10; camera.updateProjectionMatrix();
+    }
+
+    // ---- Catalogue and UI
+    let catalogue = {}, handle = null, metal = 'rose', token = 0;
+    function specLine(it) {
+      const bits = [];
+      if (it.anchor === 'ring' && it.ring_size_fr) bits.push('Shown in size ' + it.ring_size_fr);
+      if (it.anchor === 'necklace' && it.chain_cm) bits.push(it.chain_cm + ' cm chain');
+      return bits.join(' · ');
+    }
+    function pressed(group, value) { for (const b of group.children) b.setAttribute('aria-pressed', String(b.dataset.v === value)); }
+    async function show(h, m) {
+      const it = catalogue[h]; if (!it) return;
+      const variants = it.variants || { rose: it.glb };
+      handle = h; metal = variants[m] ? m : (variants.rose ? 'rose' : Object.keys(variants)[0]);
+      const my = ++token;
+      $('name').textContent = it.name || h; $('sub').textContent = specLine(it);
+      pressed($('products'), h);
+      const keys = Object.keys(variants);
+      $('metals').classList.toggle('show', keys.length > 1);
+      $('metals').replaceChildren(...keys.map(k => { const b = document.createElement('button'); b.type = 'button'; b.dataset.v = k; b.textContent = METAL_NAMES[k] || k; b.onclick = () => show(handle, k); return b; }));
+      pressed($('metals'), metal);
+      const back = location.origin + location.pathname + '?brand=' + brand + '&product=' + encodeURIComponent(h) + '&color=' + metal;
+      $('try').href = '/ar-tryon.html?product_id=' + encodeURIComponent(h) + '&color=' + metal +
+        '&product_name=' + encodeURIComponent(it.name || '') + '&brand_name=' + encodeURIComponent(brand) + '&return_url=' + encodeURIComponent(back);
+      try {
+        const model = await load(variants[metal]);
+        if (my !== token) return;                                  // a newer choice won
+        const fresh = holder.children.length === 0 || holder.userData.handle !== h;
+        holder.clear(); holder.add(model); holder.userData.handle = h;
+        if (fresh) { camera.position.copy(controls.target); frameModel(); } else frameModel();
+        say('');
+      } catch (e) { console.error('[TryOn 3D] model failed', e); if (my === token) say('This model could not be loaded. Check your connection and reload.'); }
+    }
+
+    async function main() {
+      say('Loading…');
+      try {
+        const r = await fetch(MANIFEST, { cache: 'no-store' });
+        if (!r.ok) throw new Error('catalogue ' + r.status);
+        const m = await r.json();
+        for (const k of Object.keys(m)) if (k !== '_comment' && m[k] && m[k].glb) catalogue[k] = m[k];
+      } catch (e) { console.error('[TryOn 3D] catalogue failed', e); say('No 3D pieces are available here yet.'); return; }
+      const handles = Object.keys(catalogue);
+      if (!handles.length) { say('No 3D pieces are available here yet.'); return; }
+      $('brand').textContent = brand;
+      const short = { ring: 'Ring', earring: 'Earring', necklace: 'Necklace', bracelet: 'Bracelet' };
+      $('products').replaceChildren(...handles.map(h => { const b = document.createElement('button'); b.type = 'button'; b.dataset.v = h; b.textContent = short[catalogue[h].anchor] || catalogue[h].name || h; b.onclick = () => show(h, metal); return b; }));
+      addEventListener('resize', resize);
+      if (window.ResizeObserver) new ResizeObserver(resize).observe($('stage'));
+      resize();
+      const first = handles.find(h => h === q.get('product')) || handles[0];
+      await show(first, (q.get('color') || 'rose').toLowerCase());
+      window.__ready = true;
+      (function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+    }
+    main();
+  </script>
+</body>
+</html>

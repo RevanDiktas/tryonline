@@ -1,0 +1,774 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Try it on</title>
+  <!--
+    TryOn AR jewellery try-on (Vanrycke pilot, Nov 2026).
+
+    One page, three anchor types. Hand landmarker drives rings and bracelets, face
+    landmarker drives earrings and necklaces. Everything runs on the device: frames
+    never leave the phone, only analytics events reach our backend.
+
+    Frames: the GLBs are authored in metres with a known local origin per anchor
+    (see avatar-creation/jewelry/build_jewelry.py). This page never rescales a
+    model; it estimates the camera-space depth of the hand/face from MediaPipe's
+    metric world landmarks so perspective produces the right size on screen.
+  -->
+  <style>
+    :root { --ink: #111; --paper: #fff; --accent: #b8865b; }
+    html, body { margin: 0; height: 100%; background: #000; color: var(--paper); font: 15px/1.4 system-ui, -apple-system, "Helvetica Neue", sans-serif; overflow: hidden; }
+    #stage { position: fixed; inset: 0; }
+    #cam, #frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+    #cam { opacity: 0; }   /* the camera stream stays in the page but is never what you see: #frame is */
+    #cam.mirror, #frame.mirror { transform: scaleX(-1); }
+    #gl { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    #ui { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+    #ui > * { pointer-events: auto; }
+    .top { display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 12px) 16px 12px; background: linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,0)); }
+    .top .name { flex: 1; font-weight: 600; letter-spacing: .02em; }
+    .top .price { opacity: .85; }
+    .icon-btn { width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgba(255,255,255,.18); color: #fff; font-size: 18px; display: grid; place-items: center; backdrop-filter: blur(8px); cursor: pointer; }
+    #hint { align-self: center; margin: 0 16px; padding: 10px 16px; border-radius: 999px; background: rgba(0,0,0,.55); backdrop-filter: blur(8px); font-size: 14px; text-align: center; transition: opacity .3s; }
+    #hint.hidden { opacity: 0; }
+    .bottom { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 16px calc(env(safe-area-inset-bottom) + 18px); background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.6)); }
+    .cta { flex: 1; height: 48px; border: 0; border-radius: 999px; background: var(--paper); color: var(--ink); font-weight: 600; font-size: 15px; letter-spacing: .03em; cursor: pointer; }
+    .cta:disabled { opacity: .5; }
+    #state { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; background: #0b0b0b; }
+    #state.show { display: grid; }
+    #state h2 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
+    #state p { margin: 0 0 18px; opacity: .8; max-width: 320px; }
+    #state a, #state button { display: inline-block; padding: 12px 22px; border-radius: 999px; background: var(--paper); color: var(--ink); text-decoration: none; font-weight: 600; border: 0; font-size: 15px; }
+    .spinner { width: 36px; height: 36px; border-radius: 50%; border: 3px solid rgba(255,255,255,.2); border-top-color: #fff; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #debug { position: absolute; left: 8px; bottom: 96px; font: 11px/1.3 ui-monospace, monospace; color: #9f9; background: rgba(0,0,0,.5); padding: 6px 8px; border-radius: 6px; white-space: pre; display: none; }
+    #debug.show { display: block; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+        "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.0/vision_bundle.mjs"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="stage">
+    <video id="cam" playsinline muted autoplay></video>
+    <canvas id="frame"></canvas>
+    <canvas id="gl"></canvas>
+    <div id="ui">
+      <div class="top">
+        <button class="icon-btn" id="close" aria-label="Close">✕</button>
+        <div class="name" id="p-name">Try it on</div>
+        <div class="price" id="p-price"></div>
+      </div>
+      <div id="hint">Starting camera…</div>
+      <div class="bottom">
+        <button class="icon-btn" id="flip" aria-label="Switch camera">⟲</button>
+        <button class="cta" id="cart" disabled>Add to cart</button>
+        <button class="icon-btn" id="shot" aria-label="Take a photo">◎</button>
+      </div>
+    </div>
+    <div id="debug"></div>
+    <div id="state">
+      <div>
+        <div class="spinner" id="state-spin"></div>
+        <h2 id="state-title">Loading</h2>
+        <p id="state-text"></p>
+        <div id="state-action"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ---- Config from the URL (same keys the Shopify block passes to test-viewer.html)
+    (function () {
+      var p = new URLSearchParams(location.search);
+      var isLocal = /^localhost$|^127\.0\.0\.1$/i.test(location.hostname);
+      function dec(k) { return p.get(k) ? decodeURIComponent(p.get(k)) : null; }
+      window.TRYON_AR = {
+        apiUrl: p.get('api_url') || (isLocal ? 'http://localhost:8000' : ''),
+        productId: p.get('product_id') || '',
+        variantId: p.get('variant_id') || '',
+        shopDomain: p.get('shop') || 'demo.myshopify.com',
+        userId: p.get('user_id') || null,
+        productName: dec('product_name'),
+        productPrice: dec('product_price'),
+        brandName: dec('brand_name'),
+        returnUrl: (function (u) { return u && /^https?:\/\//i.test(u) ? u : null; })(dec('return_url')),
+        size: p.get('size') || '',
+        // Dev overrides: point at any GLB / anchor without a catalogue entry.
+        glb: p.get('glb'), anchor: p.get('anchor'), finger: (p.get('finger') || '').toLowerCase(),
+        color: (p.get('color') || 'rose').toLowerCase().indexOf('white') === 0 || /blanc|white/i.test(p.get('color') || '') ? 'white' : 'rose',
+        facing: p.get('facing') || 'user',
+        debug: p.get('debug') === '1',
+        inIframe: window.self !== window.top
+      };
+    })();
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+    import { FilesetResolver, HandLandmarker, FaceLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
+
+    const MP_WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.0/wasm';
+    const MP_HAND = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task';
+    const MP_FACE = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task';
+    const MP_POSE = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task';
+    const MANIFEST = '/models/jewelry/vanrycke/manifest.json';
+    // A ring is worn snug, so it is drawn at the width of the finger it sits on. The width
+    // is measured in the camera image (measureFinger); when that fails it falls back to the
+    // phalanx length (breadth / length ~ 0.40 on fingers, ~0.60 on the thumb).
+    // Each finger: [knuckle landmark, next joint, position between them, breadth / length].
+    // The knuckle landmark sits inside the palm, below the web between the fingers, so a
+    // ring is worn well past the midpoint towards the middle joint.
+    const FINGERS = { thumb: [2, 3, 0.55, 0.60], index: [5, 6, 0.62, 0.40], middle: [9, 10, 0.62, 0.40], ring: [13, 14, 0.62, 0.40], pinky: [17, 18, 0.62, 0.38] };
+    // Earlobe piercing relative to the face-oval points below the ear (93/132, 323/361), in the head frame (m).
+    const LOBE_MIX = 0.35, LOBE_BACK = 0.014, LOBE_OUT = 0.004;
+    // Necklace origin (the nape, on the neck's axis) below the midpoint between the ears (m).
+    // The model carries its own worn shape from there: sides 27 mm lower, pendant 84 mm lower.
+    const NECK_DROP = 0.115;
+    const FOV_V = 58;                 // assumed vertical FOV of phone cameras; depth estimate absorbs the error
+    const LOST_AFTER_MS = 400;
+
+    const cfg = window.TRYON_AR;
+    const $ = (id) => document.getElementById(id);
+    const video = $('cam'), canvas = $('gl'), hint = $('hint'), debugEl = $('debug');
+    // Sync. A <video> keeps playing while a frame is being analysed, so a jewel drawn over the
+    // live element is always placed for a frame that has already left the screen: on a moving
+    // hand the ring trailed a full finger-width behind (measured with a panning clip,
+    // 2026-11-15). Each camera frame is therefore copied to this canvas once, tracked from
+    // that copy, and shown together with the jewel placed for it.
+    const frame = $('frame'), fctx = frame.getContext('2d', { alpha: false });
+    if (cfg.debug) debugEl.classList.add('show');
+    const log = (...a) => { console.log('[TryOn AR]', ...a); };
+
+    // ---- Analytics (same contract as the garment widget; mode=ar in metadata)
+    let sessionId = null;
+    async function createSession() {
+      try {
+        const r = await fetch(cfg.apiUrl + '/api/events/tryon-session', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: cfg.userId || undefined, shop_domain: cfg.shopDomain,
+            product_id: cfg.productId, product_name: cfg.productName || undefined, variant_id: cfg.variantId })
+        });
+        const d = await r.json(); if (d.session_id) sessionId = d.session_id;
+      } catch (e) { console.warn('[TryOn AR] session failed', e); }
+    }
+    function track(eventType, metadata = {}) {
+      fetch(cfg.apiUrl + '/api/events/track', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_type: eventType, session_id: sessionId || undefined, user_id: cfg.userId || undefined,
+          shop_domain: cfg.shopDomain, product_id: cfg.productId, variant_id: cfg.variantId,
+          metadata: Object.assign({ mode: 'ar' }, metadata) })
+      }).catch(() => {});
+    }
+
+    // ---- States
+    function showState(title, text, actionHtml, spin) {
+      $('state-title').textContent = title; $('state-text').textContent = text || '';
+      $('state-action').innerHTML = actionHtml || ''; $('state-spin').style.display = spin ? '' : 'none';
+      $('state').classList.add('show');
+    }
+    function hideState() { $('state').classList.remove('show'); }
+    function setHint(t) { hint.textContent = t; hint.classList.toggle('hidden', !t); }
+
+    // ---- Catalogue: backend first, static manifest until the route ships
+    async function loadCatalogue() {
+      if (cfg.glb) return { anchor: cfg.anchor || 'ring', glb: cfg.glb, name: cfg.productName || 'Preview' };
+      if (cfg.productId) {
+        try {
+          const r = await fetch(cfg.apiUrl + '/api/products/' + encodeURIComponent(cfg.productId) + '/ar-config?shop=' + encodeURIComponent(cfg.shopDomain));
+          if (r.ok) { const j = await r.json(); if (j && j.glb) return j; }
+        } catch (e) { /* fall through */ }
+        try {
+          const r = await fetch(MANIFEST, { cache: 'no-store' });
+          const m = await r.json();
+          const key = Object.keys(m).find(k => k !== '_comment' && cfg.productId.toLowerCase().indexOf(k) === 0);
+          if (key) return m[key];
+        } catch (e) { /* fall through */ }
+      }
+      return null;
+    }
+
+    // ---- Three.js
+    // No preserveDrawingBuffer: with it on, some browsers composite the previous frames
+    // back in and the jewel leaves a trail of copies. The photo button re-renders a frame
+    // synchronously right before reading the canvas instead.
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, premultipliedAlpha: true });
+    renderer.autoClear = true;
+    renderer.setClearColor(0x000000, 0);
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Linear, not filmic: ACES pulls bright reflections towards white, and on a chain one
+    // pixel wide that turned rose gold into silver. Softbox levels below stay low enough
+    // that a highlight keeps the metal's tint.
+    renderer.toneMapping = THREE.LinearToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    const scene = new THREE.Scene();
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    // Jeweller's light tent: polished gold has no colour of its own, it shows what it reflects.
+    // RoomEnvironment is a dim room with a few lamps, so the metal read as dark grey. This is
+    // a bright neutral shell with large softboxes, which is how jewellery is photographed.
+    function studioEnvironment() {
+      const s = new THREE.Scene();
+      s.add(new THREE.Mesh(new THREE.SphereGeometry(6, 32, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.60, 0.58, 0.56), side: THREE.BackSide })));
+      const panel = (w, h, x, y, z, k) => {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(k, k, k), side: THREE.DoubleSide }));
+        m.position.set(x, y, z); m.lookAt(0, 0, 0); s.add(m);
+      };
+      panel(4.0, 2.5, 0, 4.2, 1.5, 1.8);     // overhead softbox
+      panel(2.0, 4.0, -4.2, 1.0, 2.0, 1.5);   // key, camera left
+      panel(2.0, 4.0, 4.2, 0.5, 1.0, 1.2);    // fill, camera right
+      panel(3.0, 1.2, 0, -1.0, 4.5, 1.0);     // low front fill
+      panel(1.5, 3.0, 0, 1.0, -4.8, 1.0);   // rim
+      panel(1.2, 1.2, -2.5, -3.5, -1.5, 0.05); // one dark card so facets keep contrast
+      const tex = pmrem.fromScene(s, 0.02).texture;
+      s.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+      return tex;
+    }
+    try { scene.environment = studioEnvironment(); }
+    catch (e) { console.warn('[TryOn AR] studio environment failed, using room', e); scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; }
+    const camera = new THREE.PerspectiveCamera(FOV_V, 1, 0.02, 5);
+    const key = new THREE.DirectionalLight(0xffffff, 0.8); key.position.set(0.3, 1, 1); scene.add(key);
+    const jewel = new THREE.Group(); jewel.visible = false; scene.add(jewel);
+    const jewel2 = new THREE.Group(); jewel2.visible = false; jewel2.scale.x = -1; scene.add(jewel2);   // mirrored twin for the other ear
+    // Occluders write depth only: they stand in for the finger, head and neck so the part of
+    // the jewel that passes behind the body is hidden.
+    const occluder = new THREE.Group(); scene.add(occluder);
+    const occMat = new THREE.MeshBasicMaterial({ colorWrite: false });
+    function hideOccluders() { for (const c of occluder.children) c.visible = false; }
+    // Debug dots (debug=1): the landmarks each anchor is derived from.
+    const dots = [];
+    function showDots(points) {
+      if (!cfg.debug) return;
+      while (dots.length < points.length) {
+        const d = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshBasicMaterial({ color: dots.length ? 0x00e5ff : 0xff2a2a, depthTest: false }));
+        d.renderOrder = 9; scene.add(d); dots.push(d);
+      }
+      dots.forEach((d, i) => { d.visible = i < points.length; if (d.visible) { d.position.copy(points[i]); d.scale.setScalar(-points[i].z * 0.004); } });
+    }
+
+    let W = 0, H = 0, focal = 1;
+    function resize() {
+      const box = $('stage').getBoundingClientRect();
+      W = Math.round(box.width) || innerWidth; H = Math.round(box.height) || innerHeight;
+      renderer.setSize(W, H, false);
+      camera.aspect = W / H; camera.updateProjectionMatrix();
+      focal = (H / 2) / Math.tan(THREE.MathUtils.degToRad(FOV_V) / 2);
+    }
+    addEventListener('resize', () => { resize(); updateVideoFit(); }); resize();
+    if (window.ResizeObserver) new ResizeObserver(() => { resize(); updateVideoFit(); }).observe($('stage'));
+
+    const draco = new DRACOLoader(); draco.setDecoderPath('https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/');
+    const gltf = new GLTFLoader(); gltf.setDRACOLoader(draco);
+    function loadGlb(url) {
+      return new Promise((res, rej) => gltf.load(url, g => {
+        g.scene.traverse(o => {
+          if (!o.isMesh) return;
+          if (o.material && o.material.name === 'diamond') {
+            // Faceted stone: flat shading keeps each facet catching its own patch of the
+            // environment, which is what reads as sparkle; partial transmission keeps body.
+            o.material = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.05, roughness: 0.0,
+              transmission: 0.55, ior: 2.42, thickness: 0.0015, envMapIntensity: 3.0, flatShading: true });
+          } else if (o.material) {
+            o.material.envMapIntensity = 1.0;
+          }
+          o.renderOrder = 1;
+        });
+        res(g.scene);
+      }, undefined, rej));
+    }
+
+    // ---- Video geometry: object-fit cover mapping from normalized landmark to screen px
+    let mirrored = true;
+    let vw = 0, vh = 0, vs = 1, ox = 0, oy = 0;
+    function updateVideoFit() {
+      vw = video.videoWidth || 1280; vh = video.videoHeight || 720;
+      vs = Math.max(W / vw, H / vh);
+      ox = (W - vw * vs) / 2; oy = (H - vh * vs) / 2;
+    }
+    function toScreen(lm) {
+      const nx = mirrored ? 1 - lm.x : lm.x;
+      return { x: ox + nx * vw * vs, y: oy + lm.y * vh * vs, z: lm.z * vw * vs };
+    }
+    // Screen px + depth (m) -> camera space (camera looks down -Z)
+    function unproject(sx, sy, Z) {
+      return new THREE.Vector3((sx - W / 2) / focal * Z, -(sy - H / 2) / focal * Z, -Z);
+    }
+    // Depth from a set of (metric length, pixel length) pairs: the least foreshortened
+    // segment gives the smallest, most trustworthy estimate.
+    function depthFromSegments(pairs) {
+      let best = Infinity;
+      for (const [lm, px] of pairs) if (px > 2) best = Math.min(best, focal * lm / px);
+      return THREE.MathUtils.clamp(best, 0.08, 2.0);
+    }
+    function lmPoint(screen, Z) {
+      // MediaPipe z is roughly in the same normalized scale as x; convert to a depth offset.
+      const dz = screen.z / focal * Z;
+      return unproject(screen.x, screen.y, Z + dz);
+    }
+
+    // ---- Smoothing (one-euro on position, slerp on rotation)
+    class OneEuro {
+      constructor(minCutoff = 1.2, beta = 0.02, dCutoff = 1.0) { this.mc = minCutoff; this.b = beta; this.dc = dCutoff; this.x = null; this.dx = 0; this.t = null; }
+      alpha(cut, dt) { const tau = 1 / (2 * Math.PI * cut); return 1 / (1 + tau / dt); }
+      filter(v, t) {
+        if (this.x === null) { this.x = v; this.t = t; return v; }
+        const dt = Math.max((t - this.t) / 1000, 1e-3); this.t = t;
+        const dx = (v - this.x) / dt;
+        this.dx += this.alpha(this.dc, dt) * (dx - this.dx);
+        const cut = this.mc + this.b * Math.abs(this.dx);
+        this.x += this.alpha(cut, dt) * (v - this.x);
+        return this.x;
+      }
+      reset() { this.x = null; }
+    }
+    // One-euro: steady at rest (minCutoff), quick in motion (beta raises the cutoff with
+    // speed). Positions here are in metres, so speeds are a few cm/s and beta has to be
+    // tens, not the 0.02 this page started with: at that value the filter never opened up
+    // and every piece lagged its wearer by about 150 ms.
+    class Smoother {
+      constructor(minCutoff = 1.2, beta = 20, rot = 0.35) {
+        this.fx = new OneEuro(minCutoff, beta); this.fy = new OneEuro(minCutoff, beta); this.fz = new OneEuro(minCutoff * 0.8, beta / 2);
+        this.q = new THREE.Quaternion(); this.init = false; this.rot = rot;
+      }
+      apply(obj, pos, quat, t) {
+        obj.position.set(this.fx.filter(pos.x, t), this.fy.filter(pos.y, t), this.fz.filter(pos.z, t));
+        if (!this.init) { this.q.copy(quat); this.init = true; } else this.q.slerp(quat, this.rot);
+        obj.quaternion.copy(this.q);
+      }
+      reset() { this.fx.reset(); this.fy.reset(); this.fz.reset(); this.init = false; }
+    }
+    let sm = new Smoother(), sm2 = new Smoother();
+    const fs = new OneEuro(0.5, 0.0), fo = new OneEuro(0.5, 0.0);   // ring: fit and sideways correction
+    const fZ = new OneEuro(0.4, 10);                                 // necklace: distance
+    function resetSmooth() { sm.reset(); sm2.reset(); fs.reset(); fo.reset(); fZ.reset(); }
+
+    // ---- Anchors
+    const FACE_SEGS = [[33, 263, 0.090], [10, 152, 0.190], [234, 454, 0.145]]; // outer canthi, forehead-chin, ear-to-ear (m)
+
+    let fingerOccluder = null;
+    function ensureFingerOccluder(innerD) {
+      if (fingerOccluder) return fingerOccluder;
+      const r = innerD / 2 * 0.97;
+      fingerOccluder = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.05, 0.06, 24, 1, false), occMat);
+      fingerOccluder.renderOrder = 0; occluder.add(fingerOccluder); return fingerOccluder;
+    }
+
+    const RING_BAND = 0.0008;                                        // chain width (m)
+
+    // Hand size reference: palm bones of an average adult hand (m), between MediaPipe hand
+    // landmarks. Only image landmarks are used. MediaPipe's "world" hand landmarks came back
+    // collapsed (knuckles 8 mm apart) in testing, and the old minimum-over-segments depth
+    // on top of them drew the ring three fingers wide.
+    const PALM_REF = [[0, 5, 0.094], [0, 9, 0.092], [0, 17, 0.082], [5, 17, 0.070]];
+
+    // Where the finger really is. Hand landmarks are joint centres estimated by a network:
+    // good to a few millimetres, which on a 17 mm finger is a ring visibly off to one side.
+    // So the camera image has the last word: sample a line across the finger at the ring's
+    // position, walk out from the centre until the colour stops being this finger's skin,
+    // and take the two edges. Returns the sideways correction and the width in video pixels,
+    // or null when the edges cannot be trusted (fingers pressed together, finger end-on).
+    const probe = document.createElement('canvas'); probe.width = probe.height = 48;
+    const pctx = probe.getContext('2d', { willReadFrequently: true });
+    function measureFinger(lmA, lmB, along, est) {
+      if (!pctx || !(est > 4)) return null;
+      const ax = (lmB.x - lmA.x) * vw, ay = (lmB.y - lmA.y) * vh;
+      const L = Math.hypot(ax, ay); if (L < est * 0.6) return null;           // pointing at the camera
+      const ux = ax / L, uy = ay / L, px = -uy, py = ux;                       // finger axis, perpendicular
+      const cx = (lmA.x + (lmB.x - lmA.x) * along) * vw, cy = (lmA.y + (lmB.y - lmA.y) * along) * vh;
+      const N = 48, B = est * 3.2, sc = N / B, K = 22, step = (B / 2) / (K + 1);
+      let d;
+      try { pctx.drawImage(frame, cx - B / 2, cy - B / 2, B, B, 0, 0, N, N); d = pctx.getImageData(0, 0, N, N).data; }
+      catch (e) { return null; }
+      const prof = [];
+      for (let k = -K; k <= K; k++) {
+        let r = 0, g = 0, b = 0, n = 0;
+        for (let j = -2; j <= 2; j++) {                                        // five lines along the finger
+          const xi = Math.round((B / 2 + px * k * step + ux * j * est * 0.12) * sc);
+          const yi = Math.round((B / 2 + py * k * step + uy * j * est * 0.12) * sc);
+          if (xi < 0 || yi < 0 || xi >= N || yi >= N) continue;
+          const o = (yi * N + xi) * 4; r += d[o]; g += d[o + 1]; b += d[o + 2]; n++;
+        }
+        prof.push(n ? [r / n, g / n, b / n] : null);
+      }
+      // An edge is the sharpest colour step on each side. Shading across a lit finger is a
+      // slow ramp and the finger's outline is a jump, so the step finds the outline where a
+      // "no longer skin-coloured" threshold stopped short on the shaded side.
+      const cd = (i, j) => { const a = prof[i], b = prof[j]; return a && b ? Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) : 0; };
+      const kMin = Math.max(2, Math.round(0.15 * est / step)), kMax = Math.min(K - 1, Math.round(0.9 * est / step));
+      const edge = (side) => {
+        let best = 0, bg = 0;
+        for (let k = kMin; k <= kMax; k++) { const g = cd(K + side * (k + 1), K + side * (k - 1)); if (g > bg) { bg = g; best = k; } }
+        if (bg < 50) return null;                                              // of 765; no clear outline on this side
+        const g0 = cd(K + side * best, K + side * (best - 2)), g2 = cd(K + side * (best + 2), K + side * best);
+        return best + THREE.MathUtils.clamp((g2 - g0) / (2 * bg), -0.5, 0.5);  // nudge towards the heavier neighbour
+      };
+      const eR = edge(1), eL = edge(-1);
+      if (eR == null || eL == null) return null;
+      const w = (eR + eL) * step, off = (eR - eL) / 2 * step;
+      if (w < est * 0.7 || w > est * 1.45 || Math.abs(off) > est * 0.5) return null;
+      return { w, off, px, py };
+    }
+
+    let finger = FINGERS[cfg.finger] ? cfg.finger : 'ring';
+    let lastHandS = null, corr = { off: 0, w: 1, ok: 0 };
+    function ringSpot(S, name) { const [a, b, along] = FINGERS[name]; return { x: S[a].x + (S[b].x - S[a].x) * along, y: S[a].y + (S[b].y - S[a].y) * along }; }
+    function placeRing(res, t, item) {
+      const lm = res.landmarks[0];
+      const S = lm.map(toScreen); lastHandS = S;
+      const [iA, iB, along, ratio] = FINGERS[finger];
+      // Landmark z is in the same pixel scale as x and y, so lengths are taken in 3D and a
+      // finger pointing at the camera is not mistaken for a short one.
+      const len = (a, b) => Math.hypot(S[a].x - S[b].x, S[a].y - S[b].y, S[a].z - S[b].z);
+      let m = 0, px = 0; for (const [a, b, d] of PALM_REF) { m += d; px += len(a, b); }
+      const Z = THREE.MathUtils.clamp(focal * m / Math.max(px, 1), 0.08, 2.0);
+      const P = (i) => lmPoint(S[i], Z);
+      const p0 = P(0), p5 = P(5), pA = P(iA), pB = P(iB), p17 = P(17);
+      const axis = pB.clone().sub(pA).normalize();                   // along the chosen finger
+      let n = new THREE.Vector3().subVectors(p5, p0).cross(new THREE.Vector3().subVectors(p17, p0)).normalize();
+      if (n.z < 0) n.negate();                                        // bar on the side facing the camera
+      n.sub(axis.clone().multiplyScalar(n.dot(axis))).normalize();
+      const x = new THREE.Vector3().crossVectors(axis, n).normalize();
+      const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, axis, n));
+      const pos = pA.clone().lerp(pB, along);
+      const depth = -pos.z, pxPerM = focal / depth;                  // screen px per metre at the ring
+      const estW = ratio * pA.distanceTo(pB);                        // finger width from the phalanx (m)
+      // Image measurement, as a ratio to the estimate so it carries across distance changes.
+      const meas = measureFinger(lm[iA], lm[iB], along, estW * pxPerM / vs);
+      if (meas) {
+        const estV = estW * pxPerM / vs;
+        // Sideways: use this frame's own measurement, and remember a slow average for the
+        // frames where the edges cannot be found. Width is a property of the finger, so it
+        // only ever moves slowly.
+        corr.off = meas.off / estV; corr.offAvg = fo.filter(corr.off, t); corr.w = fs.filter(meas.w / estV, t); corr.ok = t;
+        corr.dx = (mirrored ? -1 : 1) * meas.px; corr.dy = -meas.py;  // perpendicular, in camera space
+      } else if (corr.offAvg != null) corr.off = corr.offAvg;
+      const fingerW = estW * corr.w;
+      if (corr.dx != null) pos.add(new THREE.Vector3(corr.dx, corr.dy, 0).multiplyScalar(corr.off * estW));
+      sm.apply(jewel, pos, q, t);
+      const innerD = item.inner_diameter_mm ? item.inner_diameter_mm / 1000 : 0.0165;
+      // Snug: the middle of the chain, not its inside edge, lies on the finger's outline, so
+      // the ends turn out of sight at the sides of the finger and do not stick out past it.
+      const fit = THREE.MathUtils.clamp(fingerW / (innerD + RING_BAND), 0.6, 1.8);
+      jewel.scale.setScalar(fit);
+      const occ = ensureFingerOccluder(innerD);
+      occ.position.copy(jewel.position); occ.quaternion.copy(jewel.quaternion); occ.scale.setScalar(fit); occ.visible = true;
+      showDots([pos, pA, pB]);
+      return { Z: +Z.toFixed(3), finger, fingerMm: +(fingerW * 1000).toFixed(1), measured: t - corr.ok < 500,
+        off: +corr.off.toFixed(2), w: +corr.w.toFixed(2),
+        handed: res.handedness && res.handedness[0] && res.handedness[0][0] ? res.handedness[0][0].categoryName : '?' };
+    }
+    // Tap a finger to wear the ring there.
+    $('stage').addEventListener('pointerdown', (e) => {
+      if (!hand || !tracking || !lastHandS || (e.target.closest && e.target.closest('button'))) return;
+      let best = null, bd = Infinity;
+      for (const name of Object.keys(FINGERS)) {
+        const sp = ringSpot(lastHandS, name), dd = Math.hypot(sp.x - e.clientX, sp.y - e.clientY);
+        if (dd < bd) { bd = dd; best = name; }
+      }
+      const palm = Math.hypot(lastHandS[0].x - lastHandS[9].x, lastHandS[0].y - lastHandS[9].y);
+      if (best && best !== finger && bd < palm * 0.9) {
+        finger = best; corr = { off: 0, w: 1, ok: 0 }; resetSmooth(); log('finger', finger);
+      }
+    });
+
+    function headPose(res) {
+      // 4x4 column-major in a y-up, z-towards-viewer frame; mirror about X when the preview is mirrored.
+      const mats = res.facialTransformationMatrixes;
+      if (!mats || !mats.length) return new THREE.Quaternion();
+      const m = new THREE.Matrix4().fromArray(mats[0].data);
+      if (mirrored) { const S = new THREE.Matrix4().makeScale(-1, 1, 1); m.premultiply(S).multiply(S); }
+      const q = new THREE.Quaternion(); const p = new THREE.Vector3(); const s = new THREE.Vector3();
+      m.decompose(p, q, s); return q;
+    }
+    let headOccluder = null;
+    function ensureHeadOccluder() {
+      if (headOccluder) return headOccluder;
+      headOccluder = new THREE.Group();
+      const skull = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), occMat); skull.name = 'skull';
+      // Neck under the back half of the head, narrower than the ears, so a chain hanging from
+      // the far ear disappears behind it when the head turns.
+      const neckG = new THREE.CylinderGeometry(0.050, 0.056, 0.22, 24, 1, false); neckG.translate(0, -0.19, -0.02);
+      const neck = new THREE.Mesh(neckG, occMat);
+      skull.renderOrder = neck.renderOrder = 0; headOccluder.add(skull, neck);
+      occluder.add(headOccluder); return headOccluder;
+    }
+    // A pair: one earring on each ear, each smoothed on its own. MediaPipe indices 234/93/132
+    // run down one side of the face oval, 454/323/361 down the other. Nothing chooses a side;
+    // the head and neck stand-in hides whichever ear has turned away, as the real head does.
+    function placeEarring(res, t, item) {
+      const lm = res.faceLandmarks[0];
+      const S = lm.map(toScreen);
+      const Z = depthFromSegments(FACE_SEGS.map(([a, b, dm]) => [dm, Math.hypot(S[a].x - S[b].x, S[a].y - S[b].y)]));
+      const P = (i) => lmPoint(S[i], Z);
+      const q = headPose(res);
+      const yaw = new THREE.Euler().setFromQuaternion(q, 'YXZ').y;
+      const pA = P(234), pB = P(454);
+      const back = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
+      const lobe = (iUp, iLow, pSide, pOther) => P(iUp).lerp(P(iLow), LOBE_MIX)
+        .add(pSide.clone().sub(pOther).normalize().multiplyScalar(LOBE_OUT)).add(back.clone().multiplyScalar(LOBE_BACK));
+      const lobeA = lobe(93, 132, pA, pB), lobeB = lobe(323, 361, pB, pA);
+      // Gravity keeps the chain vertical; only the head's turn rotates it.
+      const hang = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0, 'YXZ'));
+      sm.apply(jewel, lobeA, hang, t); sm2.apply(jewel2, lobeB, hang, t);
+      const head = ensureHeadOccluder();
+      head.position.copy(pA).add(pB).multiplyScalar(0.5).add(back.clone().multiplyScalar(0.012));
+      head.quaternion.copy(q); head.getObjectByName('skull').scale.set(pA.distanceTo(pB) / 2, 0.125, 0.105); head.visible = true;
+      showDots([lobeA, lobeB, pA, pB]);
+      return { Z: +Z.toFixed(3), yaw: +THREE.MathUtils.radToDeg(yaw).toFixed(0) };
+    }
+
+    let neckOccluder = null;
+    function ensureNeckOccluder() {
+      if (neckOccluder) return neckOccluder;
+      neckOccluder = new THREE.Group();
+      // The chain's back half runs from the nape (y = 0) down to the sides of the neck
+      // (y = -27 mm), 56 to 62 mm out; its front half drops onto the chest. So: a neck column
+      // just inside that path, and a torso slab behind the front chain.
+      const col = new THREE.CylinderGeometry(1, 1, 0.16, 32, 1, false); col.translate(0, 0.045, 0);
+      const neck = new THREE.Mesh(col, occMat); neck.scale.set(0.058, 1, 0.054);
+      const slab = new THREE.BoxGeometry(0.40, 0.25, 0.24); slab.translate(0, -0.125, -0.132);
+      const torso = new THREE.Mesh(slab, occMat);
+      neck.renderOrder = torso.renderOrder = 0; neckOccluder.add(neck, torso);
+      occluder.add(neckOccluder); return neckOccluder;
+    }
+    // Necklace. The face mesh gives the scale and the head position: it is the most precise
+    // tracker here (it is what places the earrings), and the midpoint between the ears sits
+    // on the axis the head nods and turns about, so it barely moves when the head does. The
+    // pose model, run every third frame, gives the body's direction from the shoulders:
+    // which way is "down the neck" and how the chest is turned. Shoulders under a hoodie, or
+    // the raised shoulder of the arm holding the phone, are rough, so they only steer.
+    const torso = { dir: null, x: null, seen: -1e9 };
+    let poseTick = 0;
+    function updateTorso(ears, t) {
+      let res;
+      try { res = pose.detectForVideo(frame, performance.now()); } catch (e) { return; }
+      if (!res.landmarks || !res.landmarks.length) return;
+      const lm = res.landmarks[0];
+      const v = (i) => lm[i].visibility == null ? 1 : lm[i].visibility;
+      if (Math.min(v(11), v(12)) < 0.5) return;
+      const sL = toScreen(lm[11]), sR = toScreen(lm[12]);
+      const d = new THREE.Vector3((sL.x + sR.x) / 2 - ears.x, -((sL.y + sR.y) / 2 - ears.y), 0);
+      if (d.length() < 10 || d.y > 0) return;                                  // shoulders must be below the ears
+      d.normalize();
+      // Shoulder line in the image only: it tilts the chain with the shoulders. The pose
+      // model's depth for the two shoulders was the main source of the chain swinging, and
+      // someone holding a phone up to themselves is square to it anyway.
+      const x = new THREE.Vector3(sL.x - sR.x, -(sL.y - sR.y), 0);
+      if (x.x < 0) x.negate(); x.normalize();
+      torso.dir = torso.dir ? torso.dir.lerp(d, 0.2).normalize() : d;
+      torso.x = torso.x ? torso.x.lerp(x, 0.2).normalize() : x;
+      torso.seen = t;
+    }
+    function placeNecklace(res, t, item) {
+      const lm = res.faceLandmarks[0];
+      const S = lm.map(toScreen);
+      // Distance sets the chain's size on screen, so it is smoothed hard: a flicker here
+      // makes the whole necklace breathe.
+      const Z = fZ.filter(depthFromSegments(FACE_SEGS.map(([a, b, dm]) => [dm, Math.hypot(S[a].x - S[b].x, S[a].y - S[b].y)])), t);
+      const ears = lmPoint(S[234], Z).add(lmPoint(S[454], Z)).multiplyScalar(0.5);
+      if (pose && poseTick++ % 3 === 0) updateTorso({ x: (S[234].x + S[454].x) / 2, y: (S[234].y + S[454].y) / 2 }, t);
+      // Once the shoulders have been seen their direction is kept: dropping back to "straight
+      // down" whenever the pose model blinks made the chain jump between two positions.
+      const body = !!torso.dir;
+      const down = new THREE.Vector3(0, -1, 0);
+      const neckLine = body ? torso.dir.clone().multiplyScalar(0.4).add(down.clone().multiplyScalar(0.6)).normalize() : down;
+      const x = body ? torso.x.clone() : new THREE.Vector3(1, 0, 0);
+      const up = new THREE.Vector3(0, 1, 0); up.sub(x.clone().multiplyScalar(up.dot(x))).normalize();
+      const z = new THREE.Vector3().crossVectors(x, up).normalize();          // chest forward
+      const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, up, z));
+      const pos = ears.clone().add(neckLine.multiplyScalar(NECK_DROP));
+      sm.apply(jewel, pos, q, t);
+      const occ = ensureNeckOccluder();
+      occ.position.copy(jewel.position); occ.quaternion.copy(jewel.quaternion); occ.visible = true;
+      showDots([pos, ears]);
+      return { Z: +Z.toFixed(3), body, yaw: +THREE.MathUtils.radToDeg(Math.atan2(-z.x, z.z)).toFixed(0) };
+    }
+
+    // ---- Camera
+    let stream = null, facing = cfg.facing;
+    async function startCamera() {
+      if (stream) stream.getTracks().forEach(tr => tr.stop());
+      const constraints = { audio: false, video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } } };
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      await new Promise(r => { if (video.readyState >= 2) r(); else video.onloadedmetadata = () => r(); });
+      await video.play();
+      const settings = stream.getVideoTracks()[0].getSettings ? stream.getVideoTracks()[0].getSettings() : {};
+      mirrored = (settings.facingMode || facing) !== 'environment';
+      video.classList.toggle('mirror', mirrored); frame.classList.toggle('mirror', mirrored);
+      updateVideoFit();
+      log('camera', vw + 'x' + vh, 'facing', settings.facingMode || facing, 'mirrored', mirrored);
+    }
+    function cameraBlocked(err) {
+      const name = err && err.name || '';
+      const noPolicy = cfg.inIframe && document.featurePolicy && !document.featurePolicy.allowsFeature('camera');
+      const text = noPolicy || name === 'NotAllowedError'
+        ? 'Your browser blocked the camera inside this page. Open the try-on full screen to allow it.'
+        : name === 'NotFoundError' ? 'No camera was found on this device.' : 'The camera could not be started (' + (name || 'unknown') + ').';
+      const full = location.href + (location.search ? '&' : '?') + 'standalone=1';
+      showState('Camera needed', text, '<a href="' + full + '" target="_blank" rel="noopener">Open full screen</a>', false);
+      track('tryon_ended', { reason: 'camera_blocked', error: name });
+    }
+
+    // ---- Main
+    let hand = null, face = null, pose = null, item = null, lastSeen = 0, lastVideoTime = -1, tracking = false, started = false;
+    const HINTS = {
+      ring: ['Show the back of your hand', 'Show me your hand'],
+      bracelet: ['Show the back of your hand', 'Show me your hand'],
+      earring: ['Look at the camera', 'Look at the camera'],
+      necklace: ['Face the camera, shoulders in view', 'Look at the camera']
+    };
+    async function main() {
+      showState('Loading', 'Preparing your try-on…', '', true);
+      if (cfg.productName) $('p-name').textContent = cfg.productName;
+      if (cfg.productPrice) $('p-price').textContent = cfg.productPrice;
+      createSession().then(() => track('widget_opened', { anchor: item && item.anchor }));
+
+      item = await loadCatalogue();
+      if (!item) { showState('Not available', 'This product has no try-on model yet.', '', false); return; }
+      if (item.name && !cfg.productName) $('p-name').textContent = item.name;
+      log('item', item);
+
+      const glbUrl = (item.variants && item.variants[cfg.color]) || item.glb;
+      const [model] = await Promise.all([
+        loadGlb(glbUrl),
+        (async () => {
+          const fileset = await FilesetResolver.forVisionTasks(MP_WASM);
+          // GPU first; some phones (older iOS Safari, low-end Android) cannot create the GPU
+          // delegate, and a slower try-on is better than none.
+          const create = async (Task, model, opts) => {
+            let last = null;
+            for (const delegate of ['GPU', 'CPU']) {
+              try { const tsk = await Task.createFromOptions(fileset, Object.assign({ baseOptions: { modelAssetPath: model, delegate } }, opts)); log('delegate', delegate); return tsk; }
+              catch (e) { last = e; console.warn('[TryOn AR] ' + delegate + ' delegate failed', e); }
+            }
+            throw last || new Error('Tracking could not start on this device.');
+          };
+          if (item.anchor === 'ring' || item.anchor === 'bracelet') {
+            hand = await create(HandLandmarker, MP_HAND, { runningMode: 'VIDEO', numHands: 1, minHandDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
+          } else {
+            const wantPose = item.anchor === 'necklace';
+            [face, pose] = await Promise.all([
+              create(FaceLandmarker, MP_FACE, { runningMode: 'VIDEO', numFaces: 1, outputFacialTransformationMatrixes: true }),
+              // Without the pose model the necklace still works, hanging straight down from the head.
+              wantPose ? create(PoseLandmarker, MP_POSE, { runningMode: 'VIDEO', numPoses: 1 }).catch(e => { console.warn('[TryOn AR] pose unavailable', e); return null; }) : null
+            ]);
+          }
+          log('mediapipe ready', hand ? 'hand' : pose ? 'face+pose' : 'face');
+        })()
+      ]);
+      jewel.add(model);
+      if (item.anchor === 'earring') jewel2.add(model.clone());
+      // Steadier for pieces on the body; quicker for a hand, which moves fast.
+      if (item.anchor === 'necklace') sm = new Smoother(0.8, 25, 0.2);
+      else if (item.anchor === 'ring') sm = new Smoother(1.5, 60, 0.4);
+
+      try { await startCamera(); } catch (e) { cameraBlocked(e); return; }
+      hideState();
+      if (cfg.inIframe) { try { window.parent.postMessage({ type: 'TRYON_READY' }, '*'); } catch (e) {} }
+      $('cart').disabled = false;
+      if (!cfg.inIframe && !cartTarget()) $('cart').style.visibility = 'hidden';   // nothing to add to outside a store
+      setHint(HINTS[item.anchor] ? HINTS[item.anchor][0] : HINTS.ring[0]);
+      requestAnimationFrame(loop);
+    }
+
+    function loop(t) {
+      requestAnimationFrame(loop);
+      if (video.readyState < 2) return;
+      if (video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
+        if (vw !== video.videoWidth || vh !== video.videoHeight) updateVideoFit();
+        if (frame.width !== vw || frame.height !== vh) { frame.width = vw; frame.height = vh; }
+        fctx.drawImage(video, 0, 0, vw, vh);
+        let info = null;
+        try {
+          if (hand) {
+            const res = hand.detectForVideo(frame, performance.now());
+            if (res.landmarks && res.landmarks.length) info = placeRing(res, t, item);
+          } else if (face) {
+            const res = face.detectForVideo(frame, performance.now());
+            if (res.faceLandmarks && res.faceLandmarks.length) info = item.anchor === 'necklace' ? placeNecklace(res, t, item) : placeEarring(res, t, item);
+          }
+        } catch (e) { console.warn('[TryOn AR] detect failed', e); }
+        if (info) {
+          lastSeen = t;
+          if (!tracking) {
+            tracking = true; jewel.visible = true; jewel2.visible = item.anchor === 'earring';
+            if (item.anchor === 'ring' && !started) { setHint('Tap a finger to move the ring'); setTimeout(() => { if (tracking) setHint(''); }, 3500); }
+            else setHint('');
+            if (!started) { started = true; track('tryon_started', { anchor: item.anchor }); }
+            log('tracking', JSON.stringify(info));
+          }
+          window.__arInfo = info;
+          if (cfg.debug) debugEl.textContent = JSON.stringify(info) + '\npos ' + jewel.position.toArray().map(v => v.toFixed(3)).join(' ');
+        } else if (tracking && t - lastSeen > LOST_AFTER_MS) {
+          tracking = false; jewel.visible = false; jewel2.visible = false; hideOccluders(); showDots([]); resetSmooth();
+          setHint(HINTS[item.anchor] ? HINTS[item.anchor][1] : HINTS.ring[1]);
+        }
+      }
+      renderer.clear();
+      renderer.render(scene, camera);
+    }
+
+    // ---- Controls
+    $('flip').addEventListener('click', async () => {
+      facing = facing === 'user' ? 'environment' : 'user';
+      try { await startCamera(); resetSmooth(); } catch (e) { cameraBlocked(e); }
+    });
+    $('shot').addEventListener('click', async () => {
+      const out = document.createElement('canvas'); out.width = W; out.height = H;
+      const c = out.getContext('2d');
+      c.save(); if (mirrored) { c.translate(W, 0); c.scale(-1, 1); }
+      c.drawImage(frame, mirrored ? W - (ox + vw * vs) : ox, oy, vw * vs, vh * vs); c.restore();
+      renderer.clear(); renderer.render(scene, camera);   // fresh frame, same task, so the buffer is still valid
+      c.drawImage(canvas, 0, 0, W, H);
+      out.toBlob(async (blob) => {
+        const file = new File([blob], 'tryon.jpg', { type: 'image/jpeg' });
+        track('tryon_ended', { reason: 'photo' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); return; } catch (e) {} }
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tryon.jpg'; a.click();
+      }, 'image/jpeg', 0.92);
+    });
+    function closeWidget() {
+      track('tryon_ended', { reason: 'close', tracked: started });
+      if (window.parent !== window) { try { window.parent.postMessage({ type: 'TRYON_CLOSE' }, '*'); } catch (e) {} }
+      else if (cfg.returnUrl) location.href = cfg.returnUrl;
+      else if (history.length > 1) history.back();
+    }
+    $('close').addEventListener('click', closeWidget);
+    // Opened outside the store iframe (camera fallback, shared link): add through Shopify's
+    // cart permalink on the store the shopper came from.
+    function cartTarget() {
+      let base = null;
+      try { if (cfg.returnUrl) base = new URL(cfg.returnUrl).origin; } catch (e) {}
+      if (!base && cfg.shopDomain && cfg.shopDomain !== 'demo.myshopify.com' && /^[a-z0-9.-]+$/i.test(cfg.shopDomain)) base = 'https://' + cfg.shopDomain;
+      if (base && /^\d+$/.test(cfg.variantId)) return base + '/cart/add?id=' + cfg.variantId + '&quantity=1';
+      return null;   // no variant, nothing to add: the button is hidden and Close goes back
+    }
+    $('cart').addEventListener('click', () => {
+      track('add_to_cart', { size: cfg.size || undefined, anchor: item && item.anchor });
+      if (window.parent !== window) {
+        try { window.parent.postMessage({ type: 'TRYON_ADD_TO_CART', payload: { productId: cfg.productId, variantId: cfg.variantId,
+          size: cfg.size, shop: cfg.shopDomain, session_id: sessionId } }, '*'); } catch (e) {}
+        setTimeout(closeWidget, 100);
+      } else {
+        const target = cartTarget();
+        if (target) setTimeout(() => { location.href = target; }, 150);   // let the event leave first
+      }
+    });
+    document.addEventListener('visibilitychange', () => { if (document.hidden && video.srcObject) video.pause(); else if (video.srcObject) video.play().catch(() => {}); });
+
+    main().catch(e => { console.error('[TryOn AR] fatal', e); showState('Something went wrong', String(e && e.message || e), '', false); });
+  </script>
+</body>
+</html>
