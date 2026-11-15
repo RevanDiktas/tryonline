@@ -22,6 +22,14 @@ Configuration via env:
   - DRAPE_DISPATCH_BATCH        (max jobs claimed per tick, default 4)
   - DRAPE_MAX_IN_FLIGHT         (jobs RunPod may hold, queued + running; default 2,
                                  the drape endpoint's max workers)
+  - DRAPE_EXECUTION_TIMEOUT_S   (RunPod kills a drape after this; default 900)
+  - DRAPE_STUCK_AFTER_S         (we cancel and fail a job still running after this;
+                                 default 1800)
+
+A drape runs 30-75 s (the heaviest measured: 220 s). On 2026-11-13/14 three jobs for one
+garment ran 18 to 44+ hours each because nothing ever stopped them: the two workers were
+held, every other drape queued behind them, and the GPU bill ran all weekend. Hence the
+execution timeout on every job and the reaper in each tick.
 """
 
 from __future__ import annotations
@@ -45,6 +53,12 @@ MAX_IN_FLIGHT = int(os.getenv("DRAPE_MAX_IN_FLIGHT", "2"))
 # Without RunPod's own count, a job dispatched longer ago than this no longer holds a slot
 # (a lost webhook must not stall the queue). A drape runs in 30-75 s plus a cold start.
 IN_FLIGHT_WINDOW_SECONDS = 15 * 60
+# RunPod's own kill switch for one job, sent with every /run. Generous: 4x the heaviest
+# drape seen, so a slow cold start never kills a good job.
+EXECUTION_TIMEOUT_S = int(os.getenv("DRAPE_EXECUTION_TIMEOUT_S", "900"))
+# Our side: a job still running after this is cancelled on RunPod and failed here, so a
+# job RunPod lost (or a hung worker that ignored the timeout) cannot hold a slot for days.
+STUCK_AFTER_S = int(os.getenv("DRAPE_STUCK_AFTER_S", "1800"))
 
 _wake: Optional[asyncio.Event] = None
 
@@ -164,6 +178,7 @@ async def _dispatch_one(client: httpx.AsyncClient, job: dict) -> None:
     webhook = _webhook_url()
     if webhook:
         payload["webhook"] = webhook
+    payload["policy"] = {"executionTimeout": EXECUTION_TIMEOUT_S * 1000}
 
     run_url = f"https://api.runpod.ai/v2/{settings.runpod_draping_endpoint_id}/run"
     headers = {"Authorization": f"Bearer {settings.runpod_api_key}"}
@@ -229,6 +244,43 @@ def _free_slots(backlog: int) -> int:
     return max(0, min(DISPATCH_BATCH, MAX_IN_FLIGHT - backlog))
 
 
+def _stuck_jobs() -> list[dict]:
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=STUCK_AFTER_S)).isoformat()
+    try:
+        r = supabase_service.client.table("drape_jobs").select(
+            "id,runpod_job_id,dispatched_at,garment_id,size"
+        ).in_("status", ["dispatched", "running"]).lt("dispatched_at", cutoff).execute()
+        return r.data or []
+    except Exception as e:
+        print(f"[drape_dispatcher] stuck-job lookup failed: {e}")
+        return []
+
+
+async def _reap_stuck(client: httpx.AsyncClient) -> int:
+    """Cancel on RunPod, and fail here, every job running longer than STUCK_AFTER_S.
+    Failed, not re-queued: a drape that ran half an hour will run half an hour again.
+    A shopper asking for that garment can still retry it after the usual cooldown."""
+    jobs = _stuck_jobs()
+    for job in jobs:
+        rp_id = job.get("runpod_job_id")
+        if rp_id:
+            url = f"https://api.runpod.ai/v2/{settings.runpod_draping_endpoint_id}/cancel/{rp_id}"
+            try:
+                await client.post(url, headers={"Authorization": f"Bearer {settings.runpod_api_key}"}, timeout=10.0)
+            except Exception as e:
+                print(f"[drape_dispatcher] cancel {rp_id} failed: {e}")
+        try:
+            supabase_service.client.table("drape_jobs").update({
+                "status": "failed",
+                "error_message": f"Cancelled: still running after {STUCK_AFTER_S // 60} min (dispatched {job.get('dispatched_at')})",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", job["id"]).in_("status", ["dispatched", "running"]).execute()
+        except Exception as e:
+            print(f"[drape_dispatcher] failing stuck job {job['id']} failed: {e}")
+        print(f"[drape_dispatcher] reaped stuck drape {job['id']} garment={job.get('garment_id')} size={job.get('size')} runpod={rp_id}")
+    return len(jobs)
+
+
 async def _tick() -> None:
     if not settings.runpod_api_key or not settings.runpod_draping_endpoint_id:
         return
@@ -237,6 +289,7 @@ async def _tick() -> None:
         return
 
     async with httpx.AsyncClient() as client:
+        await _reap_stuck(client)
         backlog = await _runpod_backlog(client)
         if backlog is None:
             backlog = _db_in_flight()
