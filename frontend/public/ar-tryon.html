@@ -108,6 +108,9 @@
         color: (p.get('color') || 'rose').toLowerCase().indexOf('white') === 0 || /blanc|white/i.test(p.get('color') || '') ? 'white' : 'rose',
         facing: p.get('facing') || 'user',
         debug: p.get('debug') === '1',
+        // Test rig only: pretend frames arrive this many ms apart, so the smoothing behaves as
+        // on a phone even when a software-rendered test browser manages two frames a second.
+        simDt: p.get('debug') === '1' ? (+p.get('sim_dt') || 0) : 0,
         inIframe: window.self !== window.top
       };
     })();
@@ -351,9 +354,15 @@
       reset() { this.fx.reset(); this.fy.reset(); this.fz.reset(); this.init = false; }
     }
     let sm = new Smoother(), sm2 = new Smoother();
-    const fs = new OneEuro(0.5, 0.0), fo = new OneEuro(0.5, 0.0);   // ring: fit and sideways correction
+    // Ring. Each quantity is smoothed by how fast it can really change and how noisy its
+    // source is: the finger's width never changes, the sideways correction and the distance
+    // change slowly, and the two angles that come from the tracker's depth guess (tilt towards
+    // the camera, roll round the finger) are its noisiest output, 3 to 8 degrees from frame to
+    // frame on a hand held still. Only the position in the image is left quick.
+    const fo = new OneEuro(1.0, 0.0), fW = new OneEuro(0.25, 0.0), fE = new OneEuro(0.25, 0.0);
+    const fZr = new OneEuro(0.6, 8), fTilt = new OneEuro(0.6, 2), fRoll = new OneEuro(0.5, 2);
     const fZ = new OneEuro(0.4, 10);                                 // necklace: distance
-    function resetSmooth() { sm.reset(); sm2.reset(); fs.reset(); fo.reset(); fZ.reset(); }
+    function resetSmooth() { sm.reset(); sm2.reset(); fo.reset(); fW.reset(); fE.reset(); fZr.reset(); fTilt.reset(); fRoll.reset(); fZ.reset(); }
 
     // ---- Anchors
     const FACE_SEGS = [[33, 263, 0.090], [10, 152, 0.190], [234, 454, 0.145]]; // outer canthi, forehead-chin, ear-to-ear (m)
@@ -382,7 +391,7 @@
     // or null when the edges cannot be trusted (fingers pressed together, finger end-on).
     const probe = document.createElement('canvas'); probe.width = probe.height = 48;
     const pctx = probe.getContext('2d', { willReadFrequently: true });
-    function measureFinger(lmA, lmB, along, est) {
+    function measureFinger(lmA, lmB, along, est, ref) {
       if (!pctx || !(est > 4)) return null;
       const ax = (lmB.x - lmA.x) * vw, ay = (lmB.y - lmA.y) * vh;
       const L = Math.hypot(ax, ay); if (L < est * 0.6) return null;           // pointing at the camera
@@ -418,12 +427,12 @@
       const eR = edge(1), eL = edge(-1);
       if (eR == null || eL == null) return null;
       const w = (eR + eL) * step, off = (eR - eL) / 2 * step;
-      if (w < est * 0.7 || w > est * 1.45 || Math.abs(off) > est * 0.5) return null;
+      if (w < ref * 0.7 || w > ref * 1.45 || Math.abs(off) > ref * 0.5) return null;
       return { w, off, px, py };
     }
 
     let finger = FINGERS[cfg.finger] ? cfg.finger : 'ring';
-    let lastHandS = null, corr = { off: 0, w: 1, ok: 0 };
+    let lastHandS = null, corr = { off: 0, ok: 0 };
     function ringSpot(S, name) { const [a, b, along] = FINGERS[name]; return { x: S[a].x + (S[b].x - S[a].x) * along, y: S[a].y + (S[b].y - S[a].y) * along }; }
     function placeRing(res, t, item) {
       const lm = res.landmarks[0];
@@ -433,30 +442,43 @@
       // finger pointing at the camera is not mistaken for a short one.
       const len = (a, b) => Math.hypot(S[a].x - S[b].x, S[a].y - S[b].y, S[a].z - S[b].z);
       let m = 0, px = 0; for (const [a, b, d] of PALM_REF) { m += d; px += len(a, b); }
-      const Z = THREE.MathUtils.clamp(focal * m / Math.max(px, 1), 0.08, 2.0);
+      const Z = fZr.filter(THREE.MathUtils.clamp(focal * m / Math.max(px, 1), 0.08, 2.0), t);
       const P = (i) => lmPoint(S[i], Z);
       const p0 = P(0), p5 = P(5), pA = P(iA), pB = P(iB), p17 = P(17);
-      const axis = pB.clone().sub(pA).normalize();                   // along the chosen finger
+      // Orientation in three parts. The finger's direction in the image comes straight from
+      // two landmarks and is used as it is. Its tilt towards or away from the camera, and the
+      // roll of the bar round the finger, both rest on the tracker's depth, so each is
+      // smoothed on its own before the frame is put back together.
+      const d = pB.clone().sub(pA), l2 = Math.hypot(d.x, d.y) || 1e-6;
+      const tilt = fTilt.filter(Math.atan2(d.z, l2), t);
+      const axis = new THREE.Vector3(d.x / l2 * Math.cos(tilt), d.y / l2 * Math.cos(tilt), Math.sin(tilt));
       let n = new THREE.Vector3().subVectors(p5, p0).cross(new THREE.Vector3().subVectors(p17, p0)).normalize();
       if (n.z < 0) n.negate();                                        // bar on the side facing the camera
-      n.sub(axis.clone().multiplyScalar(n.dot(axis))).normalize();
+      const ref = new THREE.Vector3(0, 0, 1); ref.sub(axis.clone().multiplyScalar(ref.dot(axis)));
+      if (ref.lengthSq() < 1e-6) ref.set(0, 1, 0); ref.normalize();   // the perpendicular that faces the camera
+      const side = new THREE.Vector3().crossVectors(axis, ref);
+      const roll = fRoll.filter(Math.atan2(n.dot(side), n.dot(ref)), t);
+      n = ref.multiplyScalar(Math.cos(roll)).add(side.multiplyScalar(Math.sin(roll)));
       const x = new THREE.Vector3().crossVectors(axis, n).normalize();
       const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, axis, n));
       const pos = pA.clone().lerp(pB, along);
       const depth = -pos.z, pxPerM = focal / depth;                  // screen px per metre at the ring
       const estW = ratio * pA.distanceTo(pB);                        // finger width from the phalanx (m)
-      // Image measurement, as a ratio to the estimate so it carries across distance changes.
-      const meas = measureFinger(lm[iA], lm[iB], along, estW * pxPerM / vs);
+      // Image measurement. The search window follows the width already established; whether a
+      // result is believable is judged against the anatomical estimate, so a wrong width can
+      // never lock itself in.
+      const estV = estW * pxPerM / vs, expectV = (corr.wM || estW) * pxPerM / vs;
+      const meas = measureFinger(lm[iA], lm[iB], along, expectV, estV);
       if (meas) {
-        const estV = estW * pxPerM / vs;
-        // Sideways: use this frame's own measurement, and remember a slow average for the
-        // frames where the edges cannot be found. Width is a property of the finger, so it
-        // only ever moves slowly.
-        corr.off = meas.off / estV; corr.offAvg = fo.filter(corr.off, t); corr.w = fs.filter(meas.w / estV, t); corr.ok = t;
+        // Sideways offset as a fraction of the finger's width: it belongs to the finger, not
+        // to where the hand is, so smoothing it adds no lag when the hand moves.
+        corr.off = fo.filter(meas.off / expectV, t);
+        corr.wM = fW.filter(meas.w * vs / pxPerM, t);                // the finger's width in metres
+        corr.ok = t;
         corr.dx = (mirrored ? -1 : 1) * meas.px; corr.dy = -meas.py;  // perpendicular, in camera space
-      } else if (corr.offAvg != null) corr.off = corr.offAvg;
-      const fingerW = estW * corr.w;
-      if (corr.dx != null) pos.add(new THREE.Vector3(corr.dx, corr.dy, 0).multiplyScalar(corr.off * estW));
+      }
+      const fingerW = corr.wM != null ? corr.wM : fE.filter(estW, t);
+      if (corr.dx != null) pos.add(new THREE.Vector3(corr.dx, corr.dy, 0).multiplyScalar(corr.off * fingerW));
       sm.apply(jewel, pos, q, t);
       const innerD = item.inner_diameter_mm ? item.inner_diameter_mm / 1000 : 0.0165;
       // Snug: the middle of the chain, not its inside edge, lies on the finger's outline, so
@@ -466,8 +488,11 @@
       const occ = ensureFingerOccluder(innerD);
       occ.position.copy(jewel.position); occ.quaternion.copy(jewel.quaternion); occ.scale.setScalar(fit); occ.visible = true;
       showDots([pos, pA, pB]);
+      // debug=1: per-frame trace of what went in and what came out, for measuring shake.
+      if (cfg.debug) (window.__arTrace || (window.__arTrace = [])).push({ t, raw: pos.toArray(), rq: q.toArray(), Z, estW, off: meas ? meas.off / expectV : null,
+        w: meas ? meas.w / estV : null, out: jewel.position.toArray(), oq: jewel.quaternion.toArray(), fit, focal });
       return { Z: +Z.toFixed(3), finger, fingerMm: +(fingerW * 1000).toFixed(1), measured: t - corr.ok < 500,
-        off: +corr.off.toFixed(2), w: +corr.w.toFixed(2),
+        off: +corr.off.toFixed(2), w: +(fingerW / estW).toFixed(2),
         handed: res.handedness && res.handedness[0] && res.handedness[0][0] ? res.handedness[0][0].categoryName : '?' };
     }
     // Tap a finger to wear the ring there.
@@ -480,7 +505,7 @@
       }
       const palm = Math.hypot(lastHandS[0].x - lastHandS[9].x, lastHandS[0].y - lastHandS[9].y);
       if (best && best !== finger && bd < palm * 0.9) {
-        finger = best; corr = { off: 0, w: 1, ok: 0 }; resetSmooth(); log('finger', finger);
+        finger = best; corr = { off: 0, ok: 0 }; resetSmooth(); log('finger', finger);
       }
     });
 
@@ -674,7 +699,7 @@
       if (item.anchor === 'earring') jewel2.add(model.clone());
       // Steadier for pieces on the body; quicker for a hand, which moves fast.
       if (item.anchor === 'necklace') sm = new Smoother(0.8, 25, 0.2);
-      else if (item.anchor === 'ring') sm = new Smoother(1.5, 60, 0.4);
+      else if (item.anchor === 'ring') sm = new Smoother(0.8, 30, 0.4);
 
       try { await startCamera(); } catch (e) { cameraBlocked(e); return; }
       hideState();
@@ -685,6 +710,7 @@
       requestAnimationFrame(loop);
     }
 
+    let simFrames = 0;
     function loop(t) {
       requestAnimationFrame(loop);
       if (video.readyState < 2) return;
@@ -694,6 +720,7 @@
         if (frame.width !== vw || frame.height !== vh) { frame.width = vw; frame.height = vh; }
         fctx.drawImage(video, 0, 0, vw, vh);
         let info = null;
+        if (cfg.simDt) t = (simFrames++) * cfg.simDt;
         try {
           if (hand) {
             const res = hand.detectForVideo(frame, performance.now());
