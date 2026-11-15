@@ -24,7 +24,9 @@
     #cam { opacity: 0; }   /* the camera stream stays in the page but is never what you see: #frame is */
     #cam.mirror, #frame.mirror { transform: scaleX(-1); }
     #gl { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-    #ui { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+    #ui { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+    /* While a loading or error panel is up, only the top bar (with Close) stays on top of it. */
+    #stage.busy #hint, #stage.busy .bottom { visibility: hidden; }
     #ui > * { pointer-events: auto; }
     .top { display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 12px) 16px 12px; background: linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,0)); }
     .top .name { flex: 1; font-weight: 600; letter-spacing: .02em; }
@@ -35,7 +37,7 @@
     .bottom { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 16px calc(env(safe-area-inset-bottom) + 18px); background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.6)); }
     .cta { flex: 1; height: 48px; border: 0; border-radius: 999px; background: var(--paper); color: var(--ink); font-weight: 600; font-size: 15px; letter-spacing: .03em; cursor: pointer; }
     .cta:disabled { opacity: .5; }
-    #state { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; background: #0b0b0b; }
+    #state { position: absolute; inset: 0; z-index: 1; display: none; place-items: center; text-align: center; padding: 24px; background: #0b0b0b; }
     #state.show { display: grid; }
     #state h2 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
     #state p { margin: 0 0 18px; opacity: .8; max-width: 320px; }
@@ -123,6 +125,7 @@
     const MP_FACE = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task';
     const MP_POSE = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task';
     const MANIFEST = '/models/jewelry/vanrycke/manifest.json';
+    const LANDING = '/jewelry-viewer.html';
     // A ring is worn snug, so it is drawn at the width of the finger it sits on. The width
     // is measured in the camera image (measureFinger); when that fails it falls back to the
     // phalanx length (breadth / length ~ 0.40 on fingers, ~0.60 on the thumb).
@@ -175,9 +178,9 @@
     function showState(title, text, actionHtml, spin) {
       $('state-title').textContent = title; $('state-text').textContent = text || '';
       $('state-action').innerHTML = actionHtml || ''; $('state-spin').style.display = spin ? '' : 'none';
-      $('state').classList.add('show');
+      $('state').classList.add('show'); $('stage').classList.add('busy');
     }
-    function hideState() { $('state').classList.remove('show'); }
+    function hideState() { $('state').classList.remove('show'); $('stage').classList.remove('busy'); }
     function setHint(t) { hint.textContent = t; hint.classList.toggle('hidden', !t); }
 
     // ---- Catalogue: backend first, static manifest until the route ships
@@ -742,8 +745,9 @@
     function closeWidget() {
       track('tryon_ended', { reason: 'close', tracked: started });
       if (window.parent !== window) { try { window.parent.postMessage({ type: 'TRYON_CLOSE' }, '*'); } catch (e) {} }
-      else if (cfg.returnUrl) location.href = cfg.returnUrl;
-      else if (history.length > 1) history.back();
+      // Opened on its own: back to where the shopper came from, or to the piece's landing page.
+      // A link opened from a chat app starts a new tab with no history, so "back" did nothing.
+      else location.href = cfg.returnUrl || (LANDING + '?product=' + encodeURIComponent(cfg.productId) + '&color=' + cfg.color);
     }
     $('close').addEventListener('click', closeWidget);
     // Opened outside the store iframe (camera fallback, shared link): add through Shopify's

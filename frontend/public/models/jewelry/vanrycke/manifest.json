@@ -2,31 +2,31 @@
   "_comment": "Interim catalogue for the Vanrycke AR pilot. ar-tryon.html reads /api/products/{handle}/ar-config first and falls back to this file until the jewelry_models table + route ship (plan day 5). Dimensions in mm, GLBs in metres. `variants` maps the gold colour option to a GLB; ar-tryon.html picks by ?color=, default rose. Only the necklace exists in white gold (Revan, 2026-11-15); ring and earring are rose only. Model URLs carry ?v=N: bump N whenever a GLB is rebuilt, or phones keep drawing the cached old one (happened on 2026-11-15).",
   "bague-calamity-jane": {
     "anchor": "ring",
-    "glb": "/models/jewelry/vanrycke/bague-calamity-jane_52.glb",
+    "glb": "/models/jewelry/vanrycke/bague-calamity-jane_52.glb?v=2",
     "ring_size_fr": 52,
     "inner_diameter_mm": 16.55,
     "name": "Calamity Jane Ring",
     "variants": {
-      "rose": "/models/jewelry/vanrycke/bague-calamity-jane_52.glb"
+      "rose": "/models/jewelry/vanrycke/bague-calamity-jane_52.glb?v=2"
     }
   },
   "chaine-doreille-calamity-jane": {
     "anchor": "earring",
-    "glb": "/models/jewelry/vanrycke/chaine-doreille-calamity-jane.glb",
+    "glb": "/models/jewelry/vanrycke/chaine-doreille-calamity-jane.glb?v=2",
     "total_length_mm": 96,
     "name": "Calamity Jane Chain Earring",
     "variants": {
-      "rose": "/models/jewelry/vanrycke/chaine-doreille-calamity-jane.glb"
+      "rose": "/models/jewelry/vanrycke/chaine-doreille-calamity-jane.glb?v=2"
     }
   },
   "collier-one": {
     "anchor": "necklace",
-    "glb": "/models/jewelry/vanrycke/collier-one_42cm.glb?v=2",
+    "glb": "/models/jewelry/vanrycke/collier-one_42cm.glb?v=3",
     "chain_cm": 42,
     "pendant_drop_mm": 83.9,
     "name": "One Necklace",
     "variants": {
-      "rose": "/models/jewelry/vanrycke/collier-one_42cm.glb?v=2",
+      "rose": "/models/jewelry/vanrycke/collier-one_42cm.glb?v=3",
       "white": "/models/jewelry/vanrycke/collier-one_42cm_white.glb?v=2"
     }
   }

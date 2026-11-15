@@ -3,11 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>3D pieces</title>
+  <title>Try it on</title>
   <!--
-    TryOn jewellery viewer (Vanrycke pilot, Nov 2026).
+    TryOn jewellery landing page (Vanrycke pilot, Nov 2026).
 
-    Turn each piece in 3D, then open the camera try-on for it. Reads the same catalogue
+    A black page with each piece turning in 3D and one button that opens the camera try-on;
+    closing the try-on comes back here. Every piece-and-metal is its own entry, so what is
+    rose gold and what is white gold is never behind a toggle. Reads the same catalogue
     as ar-tryon.html (/models/jewelry/<brand>/manifest.json) and draws with the same
     light and materials, so a piece looks the same here as it does on the hand.
 
@@ -17,9 +19,9 @@
     ?embed=1          no header or try-on button: just the turntable, for a product page
   -->
   <style>
-    :root { --bg: #14110f; --ink: #f4efe9; --dim: rgba(244,239,233,.6); --line: rgba(244,239,233,.18); }
+    :root { --bg: #000; --ink: #f4efe9; --dim: rgba(244,239,233,.6); --line: rgba(244,239,233,.18); }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 15px/1.4 system-ui, -apple-system, "Helvetica Neue", sans-serif; overflow: hidden; }
-    #stage { position: fixed; inset: 0; background: radial-gradient(120% 90% at 50% 38%, #2b2520 0%, #14110f 62%); }
+    #stage { position: fixed; inset: 0; background: #000; }
     #gl { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
     #gl:active { cursor: grabbing; }
     header { position: absolute; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top) + 18px) 20px 0; text-align: center; pointer-events: none; }
@@ -27,13 +29,11 @@
     h1 { margin: 6px 0 0; font: 400 24px/1.2 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; letter-spacing: .01em; }
     .sub { margin-top: 4px; font-size: 13px; color: var(--dim); min-height: 18px; }
     footer { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 16px calc(env(safe-area-inset-bottom) + 18px); display: flex; flex-direction: column; align-items: center; gap: 12px; }
-    .seg { display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(255,255,255,.07); border: 1px solid var(--line); max-width: 100%; }
+    .seg { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; padding: 4px; border-radius: 24px; background: rgba(255,255,255,.07); border: 1px solid var(--line); max-width: 100%; }
     .seg button { border: 0; background: transparent; color: var(--dim); font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
-    .seg button[aria-pressed="true"] { background: var(--ink); color: #14110f; }
+    .seg button[aria-pressed="true"] { background: var(--ink); color: #000; }
     .seg button:focus-visible, .cta:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-    #metals { display: none; }
-    #metals.show { display: flex; }
-    .cta { display: block; width: min(360px, 100%); box-sizing: border-box; height: 50px; line-height: 50px; text-align: center; border-radius: 999px; background: var(--ink); color: #14110f; font-weight: 600; letter-spacing: .03em; text-decoration: none; }
+    .cta { display: block; width: min(360px, 100%); box-sizing: border-box; height: 50px; line-height: 50px; text-align: center; border-radius: 999px; background: var(--ink); color: #000; font-weight: 600; letter-spacing: .03em; text-decoration: none; }
     .tip { font-size: 12px; color: var(--dim); }
     #msg { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; color: var(--dim); }
     #msg.show { display: grid; }
@@ -53,7 +53,6 @@
       <div class="sub" id="sub"></div>
     </header>
     <footer>
-      <div class="seg" id="metals" role="group" aria-label="Metal"></div>
       <div class="seg" id="products" role="group" aria-label="Piece"></div>
       <a class="cta" id="try" href="#">Try it on</a>
       <div class="tip">Drag to turn · pinch to zoom</div>
@@ -153,34 +152,33 @@
     }
 
     // ---- Catalogue and UI
-    let catalogue = {}, handle = null, metal = 'rose', token = 0;
-    function specLine(it) {
-      const bits = [];
-      if (it.anchor === 'ring' && it.ring_size_fr) bits.push('Shown in size ' + it.ring_size_fr);
+    let catalogue = {}, token = 0;
+    const SHORT = { ring: 'Ring', earring: 'Earrings', necklace: 'Necklace', bracelet: 'Bracelet' };
+    function variantsOf(it) { return it.variants && Object.keys(it.variants).length ? it.variants : { rose: it.glb }; }
+    function specLine(it, m) {
+      const bits = [METAL_NAMES[m] || m];
+      if (it.anchor === 'ring' && it.ring_size_fr) bits.push('shown in size ' + it.ring_size_fr);
       if (it.anchor === 'necklace' && it.chain_cm) bits.push(it.chain_cm + ' cm chain');
       return bits.join(' · ');
     }
     function pressed(group, value) { for (const b of group.children) b.setAttribute('aria-pressed', String(b.dataset.v === value)); }
     async function show(h, m) {
       const it = catalogue[h]; if (!it) return;
-      const variants = it.variants || { rose: it.glb };
-      handle = h; metal = variants[m] ? m : (variants.rose ? 'rose' : Object.keys(variants)[0]);
+      const variants = variantsOf(it);
+      const metal = variants[m] ? m : (variants.rose ? 'rose' : Object.keys(variants)[0]);
       const my = ++token;
-      $('name').textContent = it.name || h; $('sub').textContent = specLine(it);
-      pressed($('products'), h);
-      const keys = Object.keys(variants);
-      $('metals').classList.toggle('show', keys.length > 1);
-      $('metals').replaceChildren(...keys.map(k => { const b = document.createElement('button'); b.type = 'button'; b.dataset.v = k; b.textContent = METAL_NAMES[k] || k; b.onclick = () => show(handle, k); return b; }));
-      pressed($('metals'), metal);
+      $('name').textContent = it.name || h; $('sub').textContent = specLine(it, metal);
+      pressed($('products'), h + '|' + metal);
       const back = location.origin + location.pathname + '?brand=' + brand + '&product=' + encodeURIComponent(h) + '&color=' + metal;
       $('try').href = '/ar-tryon.html?product_id=' + encodeURIComponent(h) + '&color=' + metal +
         '&product_name=' + encodeURIComponent(it.name || '') + '&brand_name=' + encodeURIComponent(brand) + '&return_url=' + encodeURIComponent(back);
       try {
         const model = await load(variants[metal]);
         if (my !== token) return;                                  // a newer choice won
-        const fresh = holder.children.length === 0 || holder.userData.handle !== h;
+        const fresh = holder.userData.handle !== h;
         holder.clear(); holder.add(model); holder.userData.handle = h;
-        if (fresh) { camera.position.copy(controls.target); frameModel(); } else frameModel();
+        if (fresh) camera.position.copy(controls.target);          // new piece: default angle; same piece in another metal: keep the angle
+        frameModel();
         say('');
       } catch (e) { console.error('[TryOn 3D] model failed', e); if (my === token) say('This model could not be loaded. Check your connection and reload.'); }
     }
@@ -196,8 +194,13 @@
       const handles = Object.keys(catalogue);
       if (!handles.length) { say('No 3D pieces are available here yet.'); return; }
       $('brand').textContent = brand;
-      const short = { ring: 'Ring', earring: 'Earring', necklace: 'Necklace', bracelet: 'Bracelet' };
-      $('products').replaceChildren(...handles.map(h => { const b = document.createElement('button'); b.type = 'button'; b.dataset.v = h; b.textContent = short[catalogue[h].anchor] || catalogue[h].name || h; b.onclick = () => show(h, metal); return b; }));
+      // One entry per piece and metal: Ring, Earrings, Necklace rose gold, Necklace white gold.
+      const entries = [];
+      for (const h of handles) {
+        const keys = Object.keys(variantsOf(catalogue[h]));
+        for (const k of keys) entries.push({ h, k, label: (SHORT[catalogue[h].anchor] || catalogue[h].name || h) + (keys.length > 1 ? ' · ' + (METAL_NAMES[k] || k).toLowerCase() : '') });
+      }
+      $('products').replaceChildren(...entries.map(e => { const b = document.createElement('button'); b.type = 'button'; b.dataset.v = e.h + '|' + e.k; b.textContent = e.label; b.onclick = () => show(e.h, e.k); return b; }));
       addEventListener('resize', resize);
       if (window.ResizeObserver) new ResizeObserver(resize).observe($('stage'));
       resize();

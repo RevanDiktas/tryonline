@@ -36,9 +36,14 @@ from trimesh.visual.material import PBRMaterial
 # 18k rose gold, linear sRGB-ish base colour. Metals in glTF keep their colour in
 # baseColor with metallic = 1; roughness low but not mirror, polished jewellery ~0.2.
 METALS = {
-    # 18k rose gold is paler and pinker than copper: less saturation, more lightness.
-    # Metallic workflow keeps the tint in baseColor; polished jewellery roughness ~0.15.
-    "rose": PBRMaterial(name="rose_gold", baseColorFactor=[236, 190, 172, 255], metallicFactor=1.0, roughnessFactor=0.15),
+    # glTF baseColorFactor is LINEAR, and trimesh writes these bytes as value / 255 with no
+    # conversion. The first rose value (236, 190, 172) was picked as an sRGB swatch, so it
+    # was stored far paler than intended and displayed as (246, 224, 214): next to white gold
+    # the two were hard to tell apart on a phone (Revan, 2026-11-15). The values below are
+    # linear reflectance x 255. 18k rose gold: (0.93, 0.64, 0.54), between the old value and
+    # copper (0.955, 0.637, 0.538 is already copper once the red is this strong; keep green
+    # and blue above it or it reads as copper again).
+    "rose": PBRMaterial(name="rose_gold", baseColorFactor=[237, 163, 138, 255], metallicFactor=1.0, roughnessFactor=0.15),
     # 18k white gold (rhodium-plated): near-neutral, a touch warm, slightly brighter than steel.
     "white": PBRMaterial(name="white_gold", baseColorFactor=[244, 243, 240, 255], metallicFactor=1.0, roughnessFactor=0.14),
 }
