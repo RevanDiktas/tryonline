@@ -12,6 +12,10 @@
     photo), height and gender, and gets body measurements in cm. The result table has a column
     for real tape measurements, and a 3D view draws where each measurement is taken.
 
+    Testers are usually alone, so each photo can also be taken in the page with a self-timer:
+    prop the phone up, press start, walk back, and it counts down out loud and takes the photo
+    (front, then side after a cue to turn, when started with "Take both").
+
     ?k=<key>        access key, sent as X-API-Key on every call
     ?id=<uuid>      reopen a measurement (set automatically after upload, so a reload resumes)
     ?api=<base>     backend base URL; only honoured when the page itself runs on localhost
@@ -59,6 +63,9 @@
     .slot.has { border-style: solid; }
     .slot .badge { position: absolute; left: 8px; bottom: 8px; background: rgba(10,10,10,.78); color: #fff; font-size: 12px; padding: 4px 9px; border-radius: 999px; pointer-events: none; }
     .slot .rm { position: absolute; right: 8px; top: 8px; width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(10,10,10,.78); color: #fff; font-size: 16px; line-height: 1; cursor: pointer; z-index: 2; }
+    .sbtns { display: grid; gap: 6px; margin-top: 8px; }
+    .sbtns .btn { width: 100%; padding: 10px 6px; font-size: 13.5px; border-radius: 10px; }
+    #bothBtn { width: 100%; margin-top: 12px; }
     .hint { font-size: 12.5px; color: var(--dim); margin: 6px 2px 0; min-height: 18px; }
     ul.guide { margin: 14px 0 22px; padding: 12px 14px 12px 30px; background: var(--soft); border-radius: var(--radius); font-size: 13.5px; }
     ul.guide li { margin: 2px 0; }
@@ -82,6 +89,38 @@
     .btn.small { padding: 9px 14px; font-size: 13.5px; border-radius: 10px; }
     .btn[disabled] { opacity: .5; cursor: default; }
     .alert { border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); background: color-mix(in srgb, var(--bad) 7%, transparent); color: var(--bad); border-radius: 10px; padding: 11px 13px; font-size: 14px; margin: 14px 0; }
+
+    /* Camera with self-timer */
+    #cam { position: fixed; inset: 0; z-index: 50; background: #000; color: #fff; overflow: hidden; touch-action: manipulation; }
+    .cam-stage { position: absolute; inset: 0; display: grid; place-items: center; }
+    .cam-frame { position: relative; overflow: hidden; }
+    #camVideo { width: 100%; height: 100%; display: block; object-fit: fill; background: #111; }
+    #camVideo.mirror { transform: scaleX(-1); }
+    #camOutline { position: absolute; left: 50%; top: 5%; height: 90%; width: auto; transform: translateX(-50%); color: rgba(255,255,255,.55); pointer-events: none; }
+    #cam.review #camOutline, #cam.review #camVideo { visibility: hidden; }
+    .cam-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: calc(env(safe-area-inset-top) + 10px) 12px 18px; background: linear-gradient(rgba(0,0,0,.6), transparent); }
+    #camTitle { font-size: 14px; font-weight: 600; text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.7); }
+    .cbtn { font: inherit; font-size: 13.5px; color: #fff; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.35); border-radius: 999px; padding: 9px 14px; cursor: pointer; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+    .cbtn.solid { background: #fff; color: #000; border-color: #fff; font-weight: 600; }
+    .cbtn.round { width: 40px; height: 40px; padding: 0; font-size: 20px; line-height: 1; }
+    .cbtn[aria-pressed="true"] { background: #fff; color: #000; }
+    .cam-bottom { position: absolute; left: 0; right: 0; bottom: 0; display: grid; gap: 12px; justify-items: center; text-align: center; padding: 28px 16px calc(env(safe-area-inset-bottom) + 18px); background: linear-gradient(transparent, rgba(0,0,0,.72) 45%); }
+    .cam-tip { font-size: 13.5px; line-height: 1.4; max-width: 34em; text-shadow: 0 1px 4px rgba(0,0,0,.8); margin: 0; }
+    .cam-row { display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
+    #camStart { font-size: 17px; padding: 15px 34px; }
+    .cam-count { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; }
+    #camCue { font-size: clamp(24px, 7vw, 44px); font-weight: 700; padding: 0 16px; text-shadow: 0 2px 10px #000, 0 0 3px #000; }
+    #camNum { font-size: min(62vw, 46vh); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; text-shadow: 0 0 40px rgba(0,0,0,.75), 0 0 6px #000; -webkit-text-stroke: 3px rgba(0,0,0,.55); }
+    #camCancel { pointer-events: auto; position: absolute; bottom: calc(env(safe-area-inset-bottom) + 22px); }
+    .cam-shots { position: absolute; inset: 64px 12px 150px; display: flex; gap: 10px; align-items: center; justify-content: center; }
+    .cam-shots figure { margin: 0; flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .cam-shots img { flex: 1 1 0; min-height: 0; max-width: 100%; object-fit: contain; border-radius: 10px; }
+    .cam-shots figcaption { font-size: 12.5px; color: rgba(255,255,255,.8); }
+    #camFlash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+    #camFlash.go { animation: camflash .5s ease-out; }
+    @keyframes camflash { 0% { opacity: 1; } 100% { opacity: 0; } }
+    #camMsg { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: rgba(255,255,255,.8); pointer-events: none; }
+    body.cam-open { overflow: hidden; }
 
     /* Progress and error */
     .center { text-align: center; padding: 56px 0 30px; }
@@ -172,6 +211,10 @@
           <b>Front photo</b><small>Required · tap to add</small>
           <input type="file" id="f-front" accept="image/*" aria-label="Front photo, required">
         </label>
+        <div class="sbtns">
+          <button class="btn cam-only" type="button" id="cam-front" hidden>Take with timer</button>
+          <button class="btn ghost" type="button" id="pick-front">Choose a photo</button>
+        </div>
         <div class="hint" id="h-front"></div>
       </div>
       <div>
@@ -180,16 +223,23 @@
           <b>Side photo</b><small>Optional · a second reading</small>
           <input type="file" id="f-side" accept="image/*" aria-label="Side photo, optional">
         </label>
+        <div class="sbtns">
+          <button class="btn cam-only" type="button" id="cam-side" hidden>Take with timer</button>
+          <button class="btn ghost" type="button" id="pick-side">Choose a photo</button>
+        </div>
         <div class="hint" id="h-side"></div>
       </div>
     </div>
+    <button class="btn ghost cam-only" type="button" id="bothBtn" hidden>Take both with one timer: front, then side</button>
+    <div class="hint" id="h-cam"></div>
     <ul class="guide">
       <li>Whole body in the picture, from head to feet.</li>
       <li>Only you in the picture, against a plain background.</li>
       <li>Fitted clothing. Loose clothes add centimetres.</li>
       <li>Front: face the camera, arms slightly away from the body.</li>
       <li>Side: turn 90 degrees, arms down.</li>
-      <li>Have someone hold the phone at chest height, a few steps back.</li>
+      <li>Phone upright at about chest height, a few steps back.</li>
+      <li id="g-alone">On your own? Prop the phone up and use the timer. It counts down out loud.</li>
     </ul>
     <form id="form" novalidate>
       <div class="fields">
@@ -214,6 +264,47 @@
       <button class="btn big" id="go" type="submit">Get my measurements</button>
     </form>
   </section>
+
+  <!-- Camera with self-timer (opened from the photo slots) -->
+  <div id="cam" role="dialog" aria-modal="true" aria-label="Camera with timer" hidden>
+    <div class="cam-stage"><div class="cam-frame" id="camFrame">
+      <video id="camVideo" playsinline muted autoplay></video>
+      <svg id="camOutline" viewBox="0 0 60 120" fill="none" stroke="currentColor" stroke-width="0.8" stroke-dasharray="2.5 2" aria-hidden="true">
+        <g id="ol-front"><circle cx="30" cy="11" r="9"/><path d="M19 24h22a5 5 0 0 1 5 4l6 34-5 1-6-26v26l2 54h-9l-4-48-4 48h-9l2-54V37l-6 26-5-1 6-34a5 5 0 0 1 5-4z"/></g>
+        <g id="ol-side" hidden><circle cx="32" cy="11" r="9"/><path d="M27 24h7a6 6 0 0 1 6 6v32l-2 2v51h5v5H30l-2-50-2-10V30a6 6 0 0 1 1-6z"/></g>
+      </svg>
+    </div></div>
+    <div id="camMsg" hidden></div>
+    <div class="cam-shots" id="camShots" hidden></div>
+    <div class="cam-count" id="camCount" hidden aria-live="assertive">
+      <div id="camCue"></div><div id="camNum"></div>
+      <button class="cbtn" type="button" id="camCancel">Cancel</button>
+    </div>
+    <div id="camFlash"></div>
+    <div class="cam-top">
+      <button class="cbtn round" type="button" id="camClose" aria-label="Close camera">&times;</button>
+      <div id="camTitle"></div>
+      <button class="cbtn" type="button" id="camFlip">Switch camera</button>
+    </div>
+    <div class="cam-bottom" id="camLive" hidden>
+      <p class="cam-tip" id="camTip"></p>
+      <div class="cam-row" role="group" aria-label="Timer">
+        <span style="font-size:13px">Timer</span>
+        <button class="cbtn" type="button" data-sec="5" aria-pressed="false">5 s</button>
+        <button class="cbtn" type="button" data-sec="10" aria-pressed="true">10 s</button>
+        <button class="cbtn" type="button" data-sec="15" aria-pressed="false">15 s</button>
+      </div>
+      <button class="cbtn solid" type="button" id="camStart">Start timer</button>
+    </div>
+    <div class="cam-bottom" id="camReview" hidden>
+      <p class="cam-tip" id="camReviewTip">Whole body in the picture, head to feet, and only you?</p>
+      <div class="cam-row">
+        <button class="cbtn" type="button" id="camRetake">Retake</button>
+        <button class="cbtn" type="button" id="camUseNext" hidden>Use, then take the side photo</button>
+        <button class="cbtn solid" type="button" id="camUse">Use photo</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 2. Progress -->
   <section id="v-progress" class="narrow center" hidden aria-live="polite">
@@ -418,6 +509,180 @@
   $('f-front').addEventListener('change', e => pick('front', e.target.files[0]));
   $('f-side').addEventListener('change', e => pick('side', e.target.files[0]));
 
+  // ---- Camera with self-timer. A photo taken here goes through pick(), exactly like a chosen file.
+  const CAM_OK = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const TURN_SECONDS = 6;                  // time to turn to the side between the two photos
+  const cam = { open: false, state: 'closed', which: 'front', first: 'front', both: false, stream: null, lastTracks: [], shots: {}, run: 0, seconds: 10, facing: 'user', audio: null, wake: null };
+  try { if (localStorage.getItem('measure.facing') === 'environment') cam.facing = 'environment'; } catch (e) { /* storage blocked */ }
+  const CAM_TEXT = {
+    front: { title: 'Front photo', cue: 'Face the camera', tip: 'Stand the phone upright at about chest height. Step back until your whole body is inside the outline, arms slightly away from the body. Only you in the picture, plain background.' },
+    side: { title: 'Side photo', cue: 'Turn to your side', tip: 'Same spot, turned 90 degrees so your side faces the camera, arms down. Whole body inside the outline, only you in the picture.' },
+  };
+  function tone(freq, ms, at = 0, gain = 0.7) {
+    const a = cam.audio; if (!a) return;
+    try {
+      const o = a.createOscillator(), g = a.createGain(), t = a.currentTime + at;
+      o.type = 'triangle'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000);
+      o.connect(g).connect(a.destination); o.start(t); o.stop(t + ms / 1000 + 0.02);
+    } catch (e) { /* sound is a bonus */ }
+  }
+  function speak(text) { try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'en'; u.rate = 0.95; speechSynthesis.speak(u); } catch (e) { /* no speech on this device */ } }
+  function stopStream() {
+    if (cam.stream) { cam.lastTracks = cam.stream.getTracks(); cam.lastTracks.forEach(t => t.stop()); }
+    cam.stream = null; $('camVideo').srcObject = null;
+  }
+  function fitFrame() {
+    const v = $('camVideo'), w = v.videoWidth, h = v.videoHeight; if (!w || !h) return;
+    const s = Math.min(innerWidth / w, innerHeight / h);          // whole frame visible: what you see is what is taken
+    $('camFrame').style.width = Math.floor(w * s) + 'px'; $('camFrame').style.height = Math.floor(h * s) + 'px';
+  }
+  function camShow(state) {
+    cam.state = state;
+    $('cam').classList.toggle('review', state === 'review');
+    $('camLive').hidden = state !== 'live'; $('camCount').hidden = state !== 'count';
+    $('camReview').hidden = $('camShots').hidden = state !== 'review';
+    $('camMsg').hidden = state !== 'starting'; $('camFlip').hidden = state !== 'live' || cam.oneCamera;
+    const t = CAM_TEXT[cam.which];
+    $('camTitle').textContent = state === 'review' ? 'Check the photo' + (cam.shots.side && cam.shots.front ? 's' : '') : (cam.both ? (cam.which === 'front' ? '1 of 2 · ' : '2 of 2 · ') : '') + t.title;
+    $('camTip').textContent = t.tip + (cam.both && cam.which === 'front' ? ' After the first photo, stay there and turn to your side for the second.' : '');
+    $('ol-front').toggleAttribute('hidden', cam.which !== 'front'); $('ol-side').toggleAttribute('hidden', cam.which !== 'side');
+  }
+  async function startStream() {
+    stopStream(); camShow('starting'); $('camMsg').textContent = 'Starting the camera…';
+    const my = ++cam.run;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: cam.facing }, width: { ideal: 2560 }, height: { ideal: 1440 } } });
+    } catch (e) {
+      console.warn('[measure] camera refused', e);
+      if (my !== cam.run) return false;
+      const why = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError') ? 'Camera access was not allowed. You can allow it in the browser settings, or choose a photo instead.'
+        : e && (e.name === 'NotFoundError' || e.name === 'OverconstrainedError') ? 'No camera was found on this device. Please choose a photo instead.'
+        : 'The camera could not be started. Please choose a photo instead.';
+      closeCamera(); $('h-cam').textContent = why; return false;
+    }
+    if (my !== cam.run || !cam.open) { stream.getTracks().forEach(t => t.stop()); return false; }   // closed while the prompt was up
+    cam.stream = stream;
+    const v = $('camVideo'), track = stream.getVideoTracks()[0];
+    track.addEventListener('ended', () => { if (cam.stream === stream && cam.state !== 'review') { closeCamera(); $('h-cam').textContent = 'The camera stopped. Please try again or choose a photo.'; } });
+    v.srcObject = stream;
+    try { await v.play(); } catch (e) { /* autoplay attribute covers it */ }
+    if (!v.videoWidth) await new Promise(r => v.addEventListener('loadedmetadata', r, { once: true }));
+    if (my !== cam.run) return false;
+    const facing = (track.getSettings && track.getSettings().facingMode) || '';
+    v.classList.toggle('mirror', facing !== 'environment');       // mirror the preview only; the photo is taken unmirrored
+    try { cam.oneCamera = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput').length < 2; } catch (e) { cam.oneCamera = false; }
+    fitFrame(); camShow('live'); $('h-cam').textContent = '';
+    return true;
+  }
+  async function openCamera(which, both) {
+    if (!CAM_OK || cam.open) return;
+    Object.assign(cam, { open: true, which, first: which, both: !!both, shots: {} });
+    $('cam').hidden = false; document.body.classList.add('cam-open');
+    await startStream();
+  }
+  function closeCamera() {
+    cam.run++; cam.open = false; cam.state = 'closed';
+    stopStream();
+    for (const s of Object.values(cam.shots)) URL.revokeObjectURL(s.url);
+    cam.shots = {};
+    try { speechSynthesis.cancel(); } catch (e) { /* none */ }
+    if (cam.wake) { cam.wake.release().catch(() => {}); cam.wake = null; }
+    $('cam').hidden = true; document.body.classList.remove('cam-open');
+  }
+  // Count down on the wall clock, so a throttled timer cannot stretch it. Resolves false when cancelled.
+  async function countdown(seconds, cue, my) {
+    $('camCue').textContent = cue; camShow('count');
+    const end = Date.now() + seconds * 1000; let shown = null;
+    while (my === cam.run) {
+      const left = Math.ceil((end - Date.now()) / 1000);
+      if (left <= 0) return true;
+      if (left !== shown) { shown = left; $('camNum').textContent = left; tone(left <= 3 ? 1175 : 784, 140); }
+      await sleep(50);
+    }
+    return false;
+  }
+  async function snap(which) {
+    const v = $('camVideo'), c = document.createElement('canvas');
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);                         // straight from the sensor: never mirrored
+    tone(1568, 90); tone(2093, 420, 0.1, 0.9);
+    const f = $('camFlash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
+    const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.95));
+    if (!blob || !c.width) throw new Error('capture failed');
+    cam.shots[which] = { blob, url: URL.createObjectURL(blob), w: c.width, h: c.height };
+  }
+  async function runTimer() {
+    if (cam.state !== 'live') return;
+    // Sound has to be unlocked inside this tap or iOS keeps it silent.
+    try { cam.audio = cam.audio || new (window.AudioContext || window.webkitAudioContext)(); if (cam.audio.state === 'suspended') cam.audio.resume(); } catch (e) { cam.audio = null; }
+    try { const u = new SpeechSynthesisUtterance(''); u.volume = 0; speechSynthesis.speak(u); } catch (e) { /* no speech */ }
+    try { if (navigator.wakeLock && !cam.wake) navigator.wakeLock.request('screen').then(w => { if (cam.open) cam.wake = w; else w.release(); }).catch(() => {}); } catch (e) { /* screen may dim */ }
+    const my = ++cam.run;
+    try {
+      if (!await countdown(cam.seconds, CAM_TEXT[cam.which].cue, my)) return;
+      await snap(cam.which);
+      if (my !== cam.run) return;
+      if (cam.both && cam.which === 'front') {
+        cam.which = 'side';
+        tone(659, 160, 0.7); tone(784, 160, 0.9); tone(988, 260, 1.1);          // rising three notes: turn now
+        setTimeout(() => { if (my === cam.run) speak('Now turn to your side. Arms down.'); }, 700);
+        if (!await countdown(TURN_SECONDS, 'Now turn to your side', my)) return;
+        await snap('side');
+        if (my !== cam.run) return;
+      }
+      stopStream(); showReview();
+    } catch (e) {
+      console.error('[measure] capture failed', e);
+      if (my === cam.run) { closeCamera(); $('h-cam').textContent = 'The photo could not be taken. Please try again or choose a photo.'; }
+    }
+  }
+  function showReview() {
+    const names = Object.keys(cam.shots);
+    $('camShots').replaceChildren(...['front', 'side'].filter(k => cam.shots[k]).map(k => {
+      const f = document.createElement('figure'), i = new Image(), c = document.createElement('figcaption');
+      i.src = cam.shots[k].url; i.alt = k + ' photo just taken'; c.textContent = k === 'front' ? 'Front' : 'Side'; f.append(i, c); return f;
+    }));
+    $('camUse').textContent = names.length > 1 ? 'Use both photos' : 'Use photo';
+    $('camUseNext').hidden = !(names.length === 1 && names[0] === 'front');
+    camShow('review');
+  }
+  async function useShots(thenSide) {
+    const shots = cam.shots; cam.shots = {};
+    for (const k of ['front', 'side']) if (shots[k]) { await pick(k, shots[k].blob); URL.revokeObjectURL(shots[k].url); }
+    if (thenSide && cam.open) { Object.assign(cam, { which: 'side', first: 'side', both: false }); await startStream(); }
+    else closeCamera();
+  }
+  function cancelToLive() { cam.run++; for (const s of Object.values(cam.shots)) URL.revokeObjectURL(s.url); cam.shots = {}; cam.which = cam.first; if (cam.stream) camShow('live'); else startStream(); }
+  if (CAM_OK) {
+    document.querySelectorAll('.cam-only').forEach(n => n.hidden = false);
+    $('cam-front').addEventListener('click', () => openCamera('front', false));
+    $('cam-side').addEventListener('click', () => openCamera('side', false));
+    $('bothBtn').addEventListener('click', () => openCamera('front', true));
+    $('camStart').addEventListener('click', runTimer);
+    $('camCancel').addEventListener('click', cancelToLive);
+    $('camRetake').addEventListener('click', cancelToLive);
+    $('camUse').addEventListener('click', () => useShots(false));
+    $('camUseNext').addEventListener('click', () => useShots(true));
+    $('camClose').addEventListener('click', closeCamera);
+    $('camFlip').addEventListener('click', () => { cam.facing = cam.facing === 'user' ? 'environment' : 'user'; try { localStorage.setItem('measure.facing', cam.facing); } catch (e) { /* fine */ } startStream(); });
+    $('cam').querySelectorAll('[data-sec]').forEach(b => b.addEventListener('click', () => { cam.seconds = +b.dataset.sec; $('cam').querySelectorAll('[data-sec]').forEach(o => o.setAttribute('aria-pressed', String(o === b))); }));
+    $('camVideo').addEventListener('resize', fitFrame); addEventListener('resize', fitFrame);
+    addEventListener('keydown', e => { if (e.key === 'Escape' && cam.open) closeCamera(); });
+    // Never leave the camera running behind a hidden page.
+    addEventListener('pagehide', () => { if (cam.open) closeCamera(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden && cam.open) closeCamera(); });
+    // On a phone, tapping the slot itself opens the timer camera; "Choose a photo" always opens the picker.
+    for (const k of ['front', 'side']) {
+      let touched = false;                 // decided by the tap itself, not by a guess about the device
+      $('f-' + k).addEventListener('pointerdown', e => { touched = e.pointerType === 'touch'; });
+      $('f-' + k).addEventListener('click', e => { if (!cam.bypass && touched) { e.preventDefault(); openCamera(k, false); } touched = false; });
+    }
+  } else $('g-alone').hidden = true;
+  for (const k of ['front', 'side']) $('pick-' + k).addEventListener('click', () => { cam.bypass = true; $('f-' + k).click(); cam.bypass = false; });
+  window.__cam = () => ({ ok: CAM_OK, open: cam.open, state: cam.state, which: cam.which, live: !!cam.stream, tracks: cam.lastTracks.map(t => t.readyState), shots: Object.fromEntries(Object.entries(cam.shots).map(([k, v]) => [k, [v.w, v.h]])) });
+
   // ---- Submit
   function formError(msg) { $('formErr').textContent = msg; $('formErr').hidden = !msg; if (msg) $('formErr').scrollIntoView({ block: 'nearest' }); }
   $('form').addEventListener('submit', async (ev) => {
@@ -618,7 +883,7 @@
     if (st.dirty && !confirm('Your tape measurements are not saved yet. Start a new measurement anyway?')) return;
     st.dirty = false; pollToken++;
     if (st.viewer) { st.viewer.destroy(); st.viewer = null; }
-    clearSlot('front'); clearSlot('side'); $('form').reset(); formError(''); setId(null); show('form');
+    clearSlot('front'); clearSlot('side'); $('h-cam').textContent = ''; $('form').reset(); formError(''); setId(null); show('form');
   });
 
   // ---- Geometry for the "where we measure" view (no three.js needed, so it can be checked on its own)
