@@ -42,4 +42,8 @@ CREATE TABLE IF NOT EXISTS measure_requests (
 CREATE INDEX IF NOT EXISTS measure_requests_partner_created_idx
   ON measure_requests (partner, created_at DESC);
 
+-- Age of the person, when given. Stored with weight for accuracy analysis; the GPU
+-- pipeline uses neither today (height sets the scale, the photo sets the shape).
+ALTER TABLE measure_requests ADD COLUMN IF NOT EXISTS age integer;
+
 ALTER TABLE measure_requests ENABLE ROW LEVEL SECURITY;

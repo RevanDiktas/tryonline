@@ -330,6 +330,7 @@ async def _public(row: Dict[str, Any], with_body: bool = True) -> Dict[str, Any]
         "label": row.get("label"),
         "height_cm": row.get("height_cm"),
         "weight_kg": row.get("weight_kg"),
+        "age": row.get("age"),
         "gender": row.get("gender"),
         "views": views,
         "measurements": row.get("measurements"),
@@ -357,6 +358,7 @@ async def create_measurement(
     height_cm: float = Form(...),
     gender: str = Form(...),
     weight_kg: Optional[float] = Form(default=None),
+    age: Optional[int] = Form(default=None),
     label: Optional[str] = Form(default=None),
     partner: str = Depends(require_partner),
 ):
@@ -368,6 +370,8 @@ async def create_measurement(
         raise HTTPException(status_code=400, detail="gender must be male, female or neutral")
     if weight_kg is not None and not 30 <= weight_kg <= 300:
         raise HTTPException(status_code=400, detail="weight_kg must be between 30 and 300")
+    if age is not None and not 14 <= age <= 100:
+        raise HTTPException(status_code=400, detail="age must be between 14 and 100")
 
     photos = {"front": (front, await _read_photo(front, "front"))}
     if side is not None and side.filename:
@@ -412,6 +416,7 @@ async def create_measurement(
         "label": (label or "").strip()[:80] or None,
         "height_cm": height_cm,
         "weight_kg": weight_kg,
+        "age": age,
         "gender": gender,
         "status": "processing" if started else "failed",
         "views": views,

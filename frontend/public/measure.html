@@ -206,6 +206,8 @@
           <input type="text" id="label" maxlength="80" placeholder="Who is in the photo" autocomplete="off"></label>
         <label class="field"><span>Weight, kg <i>(optional)</i></span>
           <input type="text" inputmode="decimal" id="weight" placeholder="e.g. 75" autocomplete="off"></label>
+        <label class="field"><span>Age <i>(optional)</i></span>
+          <input type="text" inputmode="numeric" id="age" placeholder="e.g. 34" autocomplete="off"></label>
       </div>
       <div class="alert" id="formErr" role="alert" hidden></div>
       <p class="consent">By continuing you agree that your photos are stored privately and used only to test measurement accuracy.</p>
@@ -420,18 +422,20 @@
   function formError(msg) { $('formErr').textContent = msg; $('formErr').hidden = !msg; if (msg) $('formErr').scrollIntoView({ block: 'nearest' }); }
   $('form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const height = parseNum($('height').value), weight = parseNum($('weight').value);
+    const height = parseNum($('height').value), weight = parseNum($('weight').value), age = parseNum($('age').value);
     const gender = (document.querySelector('input[name=gender]:checked') || {}).value;
     if (!photos.front) return formError('Please add a front photo first.');
     if (height === null || isNaN(height) || height < 120 || height > 230) return formError('Please enter your height in centimetres, between 120 and 230.');
     if (!gender) return formError('Please choose a gender. It sets the body shape the measurement starts from.');
     if (weight !== null && (isNaN(weight) || weight < 30 || weight > 300)) return formError('Weight should be a number in kilograms, or leave it empty.');
+    if (age !== null && (isNaN(age) || age < 14 || age > 100)) return formError('Age should be a number between 14 and 100, or leave it empty.');
     formError('');
     const fd = new FormData();
     fd.append('front', photos.front.blob, 'front.jpg');
     if (photos.side) fd.append('side', photos.side.blob, 'side.jpg');
     fd.append('height_cm', String(height)); fd.append('gender', gender);
     if (weight !== null) fd.append('weight_kg', String(weight));
+    if (age !== null) fd.append('age', String(Math.round(age)));
     const label = $('label').value.trim().slice(0, 80); if (label) fd.append('label', label);
     const go = $('go'); go.disabled = true; go.textContent = 'Uploading photos…';
     try {
