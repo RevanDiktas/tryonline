@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     # from then on a bare user_id is refused.
     widget_auth_required: bool = False
 
+    # Partner measurement API (app/api/routes/measure.py)
+    # 'partner:key,partner:key'. Empty = nobody can call /api/measure.
+    measure_api_keys: str = ""
+    # Price of a GPU hour when the worker's GPU is not in measure.GPU_USD_PER_HOUR (the A40 rate).
+    measure_gpu_usd_per_hour_default: float = 1.22
+
     # Server (Railway/Render set PORT at runtime)
     port: int = 8000
 

@@ -16,6 +16,7 @@ class RunPodService:
         self.api_key = settings.runpod_api_key
         self.endpoint_id = settings.runpod_endpoint_id
         self.base_url = f"https://api.runpod.ai/v2/{self.endpoint_id}"
+        self._worker_gpus: Dict[str, str] = {}
         
     def _get_headers(self) -> Dict[str, str]:
         return {
@@ -108,14 +109,14 @@ class RunPodService:
                     print(f"[RunPod] Job {job_id} error: {error}")
                 
                 # RunPod's own clock: time waiting for a worker, and time the worker ran (ms).
-                timing = {"queue_ms": data.get("delayTime"), "gpu_ms": data.get("executionTime")}
+                timing = {"queue_ms": data.get("delayTime"), "gpu_ms": data.get("executionTime"), "worker_id": data.get("workerId")}
 
                 if status != "COMPLETED" or not output:
                     return {"status": status, "output": output, "error": error, "timing": timing}
                 
                 # Pipeline error (handler returned {"error": "..."})
                 if output.get("error"):
-                    return {"status": "COMPLETED", "output": output, "error": output["error"]}
+                    return {"status": "COMPLETED", "output": output, "error": output["error"], "timing": timing}
                 
                 # Decode base64 files into bytes
                 processed_output = {
@@ -146,6 +147,38 @@ class RunPodService:
             traceback.print_exc()
             return {"status": "IN_PROGRESS", "output": None, "error": None}
     
+    async def worker_gpu(self, worker_id: Optional[str]) -> Optional[str]:
+        """Which GPU a worker of this endpoint runs on (e.g. "NVIDIA A40"), or None.
+
+        The endpoint draws from several GPU pools at very different prices, and a job's
+        status only names the worker, so the cost of a job needs this lookup. A worker's
+        GPU never changes, so answers are kept for the life of the process.
+        """
+        if not worker_id:
+            return None
+        if worker_id in self._worker_gpus:
+            return self._worker_gpus[worker_id]
+        query = "query{myself{endpoints{id pods{id machine{gpuTypeId}}}}}"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://api.runpod.io/graphql",
+                    json={"query": query},
+                    headers=self._get_headers(),
+                    timeout=20.0,
+                )
+            endpoints = (((response.json().get("data") or {}).get("myself") or {}).get("endpoints")) or []
+            for endpoint in endpoints:
+                if endpoint.get("id") != self.endpoint_id:
+                    continue
+                for pod in endpoint.get("pods") or []:
+                    gpu = (pod.get("machine") or {}).get("gpuTypeId")
+                    if pod.get("id") and gpu:
+                        self._worker_gpus[pod["id"]] = gpu
+        except Exception as e:
+            print(f"[RunPod] Worker GPU lookup failed: {e}")
+        return self._worker_gpus.get(worker_id)
+
     async def cancel_job(self, job_id: str) -> bool:
         """Cancel a running job"""
         async with httpx.AsyncClient() as client:
@@ -194,6 +227,9 @@ class MockRunPodService:
             "error": None
         }
     
+    async def worker_gpu(self, worker_id: Optional[str]) -> Optional[str]:
+        return None
+
     async def cancel_job(self, job_id: str) -> bool:
         return True
 

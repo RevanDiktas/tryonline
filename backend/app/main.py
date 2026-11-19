@@ -13,7 +13,7 @@ from app.api.rate_limit import client_key
 from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
-from app.api.routes import auth, avatar, measurements, events, health, webhooks, analytics, products, addresses, checkout_profile, shopify, brand, garments, wishlist, draping, size_app, size_charts
+from app.api.routes import auth, avatar, measurements, events, health, webhooks, analytics, products, addresses, checkout_profile, shopify, brand, garments, wishlist, draping, size_app, size_charts, measure
 
 
 settings = get_settings()
@@ -104,6 +104,7 @@ app.include_router(size_charts.router, prefix="/api/size-charts", tags=["Size ch
 app.include_router(wishlist.router, prefix="/api/wishlist", tags=["Wishlist"])
 app.include_router(draping.router, prefix="/api/draping", tags=["Draping"])
 app.include_router(size_app.router, prefix="/api/size-app", tags=["TryOn Size"])
+app.include_router(measure.router, prefix="/api/measure", tags=["Measure"])
 
 
 @app.get("/")
