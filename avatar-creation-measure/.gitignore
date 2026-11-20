@@ -1,0 +1,12 @@
+# macOS AppleDouble cruft (external volume writes these)
+._*
+.DS_Store
+__pycache__/
+# Fetched at build time or by scripts/local_invoke.py, never committed
+human_model_files/
+*.pth
+*.npz
+*.obj
+# The root .gitignore ignores every *.pt. The measurement CNN (about 10 MB) is the one exception:
+# it has to be in the build context, because RunPod builds this folder straight from GitHub.
+!weights/measure_cnn.pt

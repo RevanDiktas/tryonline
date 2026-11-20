@@ -1,0 +1,7 @@
+{
+ "version": "bodym-v1-30ep-s0",
+ "sha256": "ff96994f2470f3eeb82a18314e2358b05eedc16a8206058138f47e282af5a908",
+ "framing": "bbox",
+ "source": ".local_prototype/measure_ml/cnn_model_official_s0.pt (cnn_bodym.py official 30 0)",
+ "note": "Trained on the BodyM Train split, 30 epochs. Test-A 10.4 mm, Test-B 13.7 mm mean error over 14 measurements (front + side). BodyM is CC BY-NC: pre-seed validation only."
+}
