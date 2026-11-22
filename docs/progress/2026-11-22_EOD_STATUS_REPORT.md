@@ -9,9 +9,10 @@
 - The synthetic edge is about twice as rough as real outlines, so on real photos **pose and camera are the costs
   that carry over**. With clean edges the realistic set scores 8.3 mm (chest 91.5% within 3%), against 6.2 mm
   clean (chest 96.2%) and 10.1 mm fully realistic (chest 83.5%).
-- The cost does not come from extreme captures: error is the same at 2 m and at 4 m, and across arm angles. A test
-  of whether the variation can be learned from more captures per body is rendering and is the first job next
-  session.
+- The cost does not come from extreme captures: error is the same at 2 m and at 4 m, and across arm angles.
+- **The variation is learnable from data.** Showing the network each training body under three captures instead
+  of one brings the clean-edge realistic set from 8.3 mm to 6.9 mm on the same test bodies, with chest, hip and
+  ankle back at the bar. Training four times longer on one capture makes it worse (9.1 mm). Synthetic only so far.
 - A side photo with the feet cut off is harmless alone, but costs about 5 points on chest and waist when the side
   photo is also at a different scale from the front one, which is what real photos have.
 - Nothing was committed, pushed or deployed. The measure endpoint and the avatar pipeline are as they were. The
@@ -97,23 +98,44 @@ What the numbers say:
   people score 10.4 mm, chest 81.9%. So real photos carry a further cost the synthetic set does not model:
   clothing, the side cut and scale, and outlines that are smooth but wrong at larger scale are the suspects.
 
-## Still running when this was written (laptop only)
+## More captures per body (added 21:55)
 
-- `synth/out2/cond_no_edge_rep1.npz`, `_rep2`, `_rep3`: three more captures of every body with fresh random
-  camera, pose and hair, clean edges. Safe to restart (`make_conds.py`, progress saved every 200 bodies).
-- `pipe_synth_reps.py ../synth/out2 no_edge 0 240`: the clean-edge realistic set trained four times longer, the
-  control for the test below. Log `pipe_synth_reps_no_edge_x1_240.log`.
+Every body was rendered three more times with fresh random camera, pose and hair, clean edges
+(`synth/out2/cond_no_edge_rep1.npz`, `_rep2`, `_rep3`). Training bodies are shown under several captures; the 400
+test bodies keep their single original capture. Script: `measure_ml/pipe_synth_reps.py`.
+
+| Share within 3% | Clean | Realistic, clean edges, 3 captures per body | 1 capture | 1 capture, trained 4x longer |
+|---|---|---|---|---|
+| Ankle | 96.5 | 96.5 | 89.0 | 79.8 |
+| Arm length | 97.0 | 95.0 | 86.0 | 84.5 |
+| Bicep | 78.5 | 71.8 | 68.5 | 58.5 |
+| Calf | 96.0 | 94.0 | 89.5 | 85.2 |
+| Chest | 96.2 | 96.0 | 91.5 | 92.0 |
+| Forearm | 86.8 | 84.2 | 78.5 | 75.2 |
+| Hip | 97.5 | 96.2 | 92.8 | 91.2 |
+| Leg length | 92.2 | 88.8 | 87.2 | 85.5 |
+| Shoulder breadth | 85.0 | 80.5 | 67.8 | 64.8 |
+| Shoulder to crotch | 89.5 | 89.5 | 85.5 | 85.0 |
+| Thigh | 93.2 | 88.8 | 86.0 | 81.5 |
+| Waist | 92.8 | 91.2 | 86.8 | 84.5 |
+| Wrist | 90.8 | 87.0 | 79.2 | 76.8 |
+| Average error, mm | 6.2 | 6.9 | 8.3 | 9.1 |
+
+- Three captures per body recover about two thirds of the gap between the clean-edge realistic set and clean.
+- The gain is from the extra captures: four times the training on one capture overfits and scores worse.
+- This is on synthetic bodies. It has not been tried on real people.
+- The four-capture run was started at 21:55 and had not finished when this was written
+  (`pipe_synth_reps_no_edge_x4.log`).
 
 ## Next session, in this order
 
-1. **Score the repeat captures:** `PIPE_PROFILES=_v2 python pipe_synth_reps.py ../synth/out2 no_edge 3`. Training
-   bodies under four captures, same test set. If 8.3 mm falls toward 6.2, capture variation is learnable from
-   data (more captures per body, synthetic or real). If it stays, the outline has to be normalised before
-   measuring. Compare against the 240-epoch control, not only the 60-epoch run.
-2. **Side photo scale when the feet are cut:** take the side scale from a landmark both photos share (head top to
+1. **Read the four-capture score** (rerun `PIPE_PROFILES=_v2 python pipe_synth_reps.py ../synth/out2 no_edge 3`
+   if it did not finish) and see whether a fourth capture keeps closing the gap.
+2. **Carry it to real people:** pretrain on many captures per synthetic body, then fine-tune on BodyM. Yesterday's
+   pretraining used one capture per body and gave no gain; many captures per body is the untried version.
+3. **Side photo scale when the feet are cut:** take the side scale from a landmark both photos share (head top to
    crotch or to the shoulder line) instead of borrowing the front scale, and re-score real people. Also make
    `measure.html` refuse a side photo with the feet out of frame.
-3. **Depending on 1:** either build the multi-capture training set, or normalise pose and perspective.
 4. Compare BodyM's real outlines with the clean case beyond edge wander (clothing, larger-scale shape).
 5. Tape-measured test set from Brave Particle (needs Revan to ask); confidence stage; paper. Unchanged.
 
