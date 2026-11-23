@@ -124,15 +124,17 @@ test bodies keep their single original capture. Script: `measure_ml/pipe_synth_r
 - Three captures per body recover about two thirds of the gap between the clean-edge realistic set and clean.
 - The gain is from the extra captures: four times the training on one capture overfits and scores worse.
 - This is on synthetic bodies. It has not been tried on real people.
-- The four-capture run was started at 21:55 and had not finished when this was written
-  (`pipe_synth_reps_no_edge_x4.log`).
+- **Four captures per body (finished 22:19): 6.8 mm, the same as three within run-to-run noise.** Ankle 94.5,
+  arm length 96.0, bicep 71.5, calf 94.5, chest 95.0, forearm 85.0, hip 95.5, leg length 89.8, shoulder breadth
+  80.0, shoulder to crotch 90.2, thigh 92.5, waist 92.2, wrist 85.0. The gain levels off at about three captures,
+  and about 0.6 mm above clean remains. More captures of the same bodies will not remove it; more distinct bodies
+  or normalising the outline for pose and camera are the candidates.
 
 ## Next session, in this order
 
-1. **Read the four-capture score** (rerun `PIPE_PROFILES=_v2 python pipe_synth_reps.py ../synth/out2 no_edge 3`
-   if it did not finish) and see whether a fourth capture keeps closing the gap.
-2. **Carry it to real people:** pretrain on many captures per synthetic body, then fine-tune on BodyM. Yesterday's
-   pretraining used one capture per body and gave no gain; many captures per body is the untried version.
+1. Done: the four-capture score is in the section above.
+2. **Carry it to real people:** pretrain on three captures per synthetic body, then fine-tune on BodyM. Yesterday's
+   pretraining used one capture per body and gave no gain; several captures per body is the untried version.
 3. **Side photo scale when the feet are cut:** take the side scale from a landmark both photos share (head top to
    crotch or to the shoulder line) instead of borrowing the front scale, and re-score real people. Also make
    `measure.html` refuse a side photo with the feet out of frame.
