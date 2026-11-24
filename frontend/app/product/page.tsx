@@ -50,8 +50,8 @@ function Hero({ C, mobile }: { C: Palette; mobile: boolean }) {
 function Steps({ C, mobile }: { C: Palette; mobile: boolean }) {
   const steps = [
     { n: '01', title: 'Seven quick questions', body: 'Who it is for, height and weight on a ruler, age, two body-shape questions with drawings, and how they like their clothes to fit. About 30 seconds.' },
-    { n: '02', title: 'Every size, scored', body: 'Their size, and a % match for every size: L 96, M 31, XL 23. If their size is sold out, the card says so and moves them to the next best, with how it will fit.' },
-    { n: '03', title: 'Add to cart, from the card', body: 'The size they pick goes straight into your cart. Their answers are remembered on every product, and in every store that uses Tryon.' },
+    { n: '02', title: 'Every size scored', body: 'Their size, and a % match for every size: L 96, M 31, XL 23. If their size is sold out, the card says so and moves them to the next best, with how it will fit.' },
+    { n: '03', title: 'Add to cart from the card', body: 'The size they pick goes straight into your cart. Their answers are remembered on every product, and in every store that uses Tryon.' },
   ];
   return (
     <section style={{ background: C.surface, color: C.ink, padding: mobile ? '56px 20px' : '88px 32px', borderBottom: `1px solid ${C.line}` }}>
@@ -148,7 +148,7 @@ function ForBrands({ C, mobile }: { C: Palette; mobile: boolean }) {
         </div>
         <div style={{ display: 'grid', gap: mobile ? 32 : 56, gridTemplateColumns: mobile ? '1fr' : '0.9fr 1.1fr', alignItems: 'center' }}>
           <div>
-            <h3 style={{ ...headingStyle('clamp(26px, 3vw, 40px)'), marginBottom: 14 }}>See what fit is worth to you.</h3>
+            <h3 style={{ ...headingStyle('clamp(26px, 3vw, 40px)'), marginBottom: 14 }}>See what fit is worth to you</h3>
             <p style={{ ...bodyStyle, color: C.mute, marginBottom: 22 }}>Your dashboard shows every size shoppers were given, what they bought, and what came back.</p>
             <ul style={{ listStyle: 'none', padding: 0, margin: 0, borderTop: `1px solid ${C.line}` }}>
               {insights.map(([t, d]) => (
@@ -177,7 +177,7 @@ function PlansStrip({ C, mobile }: { C: Palette; mobile: boolean }) {
     <section style={{ background: C.bg, color: C.ink, padding: mobile ? '56px 20px' : '88px 32px', borderBottom: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1180, margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap', marginBottom: 32 }}>
-          <h2 style={{ ...headingStyle('clamp(30px, 4vw, 52px)'), maxWidth: 680 }}>Try it free for {TRIAL_DAYS} days.</h2>
+          <h2 style={{ ...headingStyle('clamp(30px, 4vw, 52px)'), maxWidth: 680 }}>Try it free for {TRIAL_DAYS} days</h2>
           <button type="button" style={pillButton('ghost', C)} onClick={() => router.push('/pricing')}>All plans <span>→</span></button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : `repeat(${shown.length}, 1fr)`, border: `1px solid ${C.line}`, background: C.surface }}>
@@ -204,7 +204,7 @@ function FinalCTA({ C }: { C: Palette }) {
   return (
     <section style={{ background: C.surface, color: C.ink, padding: '72px 20px 88px' }}>
       <div style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center' }}>
-        <h2 style={{ ...headingStyle('clamp(34px, 4.5vw, 60px)'), marginBottom: 14 }}>Put it on your store today.</h2>
+        <h2 style={{ ...headingStyle('clamp(34px, 4.5vw, 60px)'), marginBottom: 14 }}>Put it on your store today</h2>
         <p style={{ ...bodyStyle, color: C.mute, margin: '0 auto 28px', maxWidth: 520 }}>
           Tell us your store. We send your install link within one working day, and Find my size is live on every product from the first minute. Free for 30 days.
         </p>

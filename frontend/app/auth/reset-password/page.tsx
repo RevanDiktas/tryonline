@@ -57,14 +57,14 @@ export default function ResetPasswordPage() {
         {ready === 'checking' && <p style={{ color: '#6E6E73' }}>One moment…</p>}
         {ready === 'expired' && (
           <>
-            <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0 }}>This link has expired.</h1>
+            <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0 }}>This link has expired</h1>
             <p style={{ color: '#6E6E73', margin: 0 }}>Go back to sign in and press Forgot again to get a fresh one.</p>
             <a href="/login?as=brand" style={{ color: '#0040FF', fontWeight: 600 }}>Back to sign in</a>
           </>
         )}
         {ready === 'ok' && (
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0 }}>Choose a new password.</h1>
+            <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0 }}>Choose a new password</h1>
             <label style={{ fontSize: 12, color: '#6E6E73' }}>New password
               <input type="password" value={pw} onChange={e => setPw(e.target.value)} autoComplete="new-password" style={{ ...input, marginTop: 6 }} />
             </label>

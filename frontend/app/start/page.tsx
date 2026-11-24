@@ -54,7 +54,7 @@ function StartForm({ C }: { C: Palette }) {
   if (state === 'sent') {
     return (
       <div style={{ border: `1px solid ${C.line}`, background: C.surface, borderRadius: 24, padding: '36px 30px' }}>
-        <h2 style={{ ...headingStyle('32px'), marginBottom: 12 }}>You are on the list.</h2>
+        <h2 style={{ ...headingStyle('32px'), marginBottom: 12 }}>You are on the list</h2>
         <p style={{ ...bodyStyle, color: C.mute, marginBottom: 24 }}>
           We will email {form.email.trim()} your install link within one working day. It takes a few minutes: install, add the TryOn block in your theme editor, done. Find my size is then live on every product.
         </p>
@@ -126,7 +126,7 @@ export default function StartPage() {
         <div style={{ maxWidth: 1120, margin: '0 auto', display: 'grid', gap: mobile ? 36 : 72, gridTemplateColumns: mobile ? '1fr' : '0.95fr 1.05fr', alignItems: 'start' }}>
           <div>
             <p style={eyebrowStyle(C)}>{TRIAL_DAYS}-day free trial · For Shopify brands</p>
-            <h1 style={{ ...headingStyle('clamp(40px, 5.4vw, 72px)'), marginBottom: 18 }}>Get TryOn on your store.</h1>
+            <h1 style={{ ...headingStyle('clamp(40px, 5.4vw, 72px)'), marginBottom: 18 }}>Get TryOn on your store</h1>
             <p style={{ ...bodyStyle, fontSize: 17.5, color: C.mute, maxWidth: 460, marginBottom: 32 }}>
               Your shoppers get their size on every product in 30 seconds. You get fewer returns, and the data to prove it.
             </p>
