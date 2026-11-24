@@ -182,8 +182,8 @@ function ThreeD({ mobile }: { mobile: boolean }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className="rv rv-1" src="/redesign/ramin-widget.jpg" alt="Tryon open on a Ramin product page: the shopper\u2019s avatar in the hoodie, measurements and recommended size" style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 16, border: `1px solid ${RULE}` }} />
           <div className="rv rv-2" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 16, border: `1px solid ${RULE}`, overflow: 'hidden', minHeight: mobile ? 360 : 0 }}>
-            <video autoPlay muted loop playsInline poster="/redesign/lafam-avatar.jpg" aria-label="The 3D avatar try-on on a La Fam product page" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', maxHeight: mobile ? 420 : 'none', background: WHITE }}>
-              <source src="/redesign/lafam-avatar.mp4" type="video/mp4" />
+            <video autoPlay muted loop playsInline poster="/redesign/lafam-phone.jpg" aria-label="The 3D avatar try-on on a La Fam product page" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', maxHeight: mobile ? 420 : 'none', background: WHITE }}>
+              <source src="/redesign/lafam-phone.mp4" type="video/mp4" />
             </video>
           </div>
         </div>
