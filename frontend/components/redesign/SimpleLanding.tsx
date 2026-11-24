@@ -180,9 +180,9 @@ function ThreeD({ mobile }: { mobile: boolean }) {
         <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(34px, 9.5vw, 48px)' : 'clamp(44px, 4.4vw, 72px)'), marginTop: 18, maxWidth: 760 }}>Your clothes on their body in real cloth</h2>
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1.9fr 1fr', gap: mobile ? 20 : 32, marginTop: mobile ? 36 : 64, alignItems: 'stretch' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="rv rv-1" src="/redesign/ramin-widget.jpg" alt="Tryon open on a Ramin product page: the shopper\u2019s avatar in the hoodie, measurements and recommended size" style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 16, border: `1px solid ${RULE}` }} />
-          <div className="rv rv-2" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', minHeight: mobile ? 360 : 0 }}>
-            <video autoPlay muted loop playsInline poster="/redesign/lafam-tryon.jpg" aria-label="The 3D avatar try-on on a La Fam product page" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', maxHeight: mobile ? 420 : 'none', background: WHITE }}>
+          <img className="rv rv-1" src="/redesign/ramin-widget.jpg" alt="Tryon open on a Ramin product page: the shopper\u2019s avatar in the hoodie, measurements and recommended size" style={{ width: '100%', height: 'auto', display: 'block', alignSelf: 'start' }} />
+          <div className="rv rv-2" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', minHeight: mobile ? 360 : 0 }}>
+            <video autoPlay muted loop playsInline poster="/redesign/lafam-tryon.jpg" aria-label="The 3D avatar try-on on a La Fam product page" style={mobile ? { width: '100%', height: '100%', objectFit: 'contain', display: 'block', maxHeight: 420, background: WHITE } : { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: 'block', background: WHITE }}>
               <source src="/redesign/lafam-tryon.mp4" type="video/mp4" />
             </video>
           </div>
