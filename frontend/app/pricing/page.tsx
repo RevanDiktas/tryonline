@@ -18,12 +18,12 @@ function Hero({ C }: { C: Palette }) {
           ...headingStyle('clamp(44px, 5.5vw, 80px)'),
           maxWidth: 1100, marginBottom: 18,
         }}>
-          Try it free for {TRIAL_DAYS} days.
+          Find my size is free
         </h1>
         <p style={{
           ...bodyStyle, fontSize: 17, color: C.mute, maxWidth: 720, marginBottom: 8,
         }}>
-          Find my size on every product from {PLANS[0].price} a month. Add 3D try-on when you are ready. Every plan starts with a {TRIAL_DAYS}-day free trial. Try-ons are never limited.
+          Find my size on every product is free. Add 3D try-on and the monthly report when you are ready. Paid plans start with a {TRIAL_DAYS}-day free trial. Try-ons are never limited.
         </p>
         <p style={{
           ...bodyStyle, fontSize: 13.5, color: C.mute, maxWidth: 720,
@@ -232,7 +232,7 @@ function FAQ({ C }: { C: Palette }) {
     { q: 'Are try-ons limited?',
       a: 'Never. A busy weekend should not cost you more, so try-ons and shopper avatars are unlimited on every plan with 3D. Plans differ in how many of your garments we make in 3D: 40 on Try-On, 200 on Scale, 400 and up on Brand.' },
     { q: 'How am I billed?',
-      a: `Through your Shopify bill, monthly. Every plan starts with a ${TRIAL_DAYS}-day free trial, and you can change or cancel any time from Shopify. Brand adds a one-time setup fee.` },
+      a: `Find my size is free. Paid plans go through your Shopify bill, monthly, and start with a ${TRIAL_DAYS}-day free trial, and you can change or cancel any time from Shopify. Brand adds a one-time setup fee.` },
     { q: 'What about shopper privacy?',
       a: 'Shoppers get a size without an account; their answers stay on their device. The optional fit passport photo is used only to measure them and build their avatar. See our privacy policy for details.' },
   ];

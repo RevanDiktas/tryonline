@@ -4,7 +4,8 @@
  * Easysize, Faslet, True Fit, LiSA, Reality Try, 3DLOOK); Brand is the top tier from the
  * original pricing. Shopify bills in USD, so prices are USD.
  *
- * No free plan: every plan starts with a free trial. Nothing is metered: Find my size, try-ons
+ * Size Pro (the Find my size button) is free since 2026-11-24; the paid plans start with a
+ * free trial. The free plan must also exist in Shopify Managed Pricing. Nothing is metered: Find my size, try-ons
  * and avatars are unlimited on every plan (Revan, 2026-10-06: a brand must never be capped
  * because shoppers try on a lot; La Fam went from 300 to 600 try-ons in a weekend). Plans
  * differ in what is included: Size Pro has no 3D; the 3D plans differ in garments we make.
@@ -28,24 +29,24 @@ export const PLANS: Plan[] = [
   {
     id: 'size_pro',
     name: 'Size Pro',
-    price: '$19',
-    period: 'per month',
-    pitch: 'The Find my size button on every product. No 3D.',
+    price: 'Free',
+    period: 'no time limit',
+    pitch: 'The 30 second Find my size button on every product. No 3D.',
     features: [
       'Find my size on every product with sizes, unlimited',
       'A % match for every size, and the next best when one sells out',
       'Fit passport: shoppers measured from one photo',
       'Full analytics: size funnel, fit, returns by size',
     ],
-    limits: `${TRIAL_DAYS}-day free trial.`,
-    cta: { label: 'Start free trial', href: '/start?plan=size_pro' },
+    limits: 'Free. No trial needed.',
+    cta: { label: 'Start free', href: '/start?plan=size_pro' },
   },
   {
     id: 'try_on',
     name: 'Try-On',
     price: '$109',
     period: 'per month',
-    pitch: 'Shoppers see your clothes on their own 3D body.',
+    pitch: 'A 3D avatar from their photos, wearing your clothes.',
     features: [
       'Everything in Size Pro',
       'Photoreal 3D try-on with real cloth simulation',
@@ -105,5 +106,5 @@ export const PLANS: Plan[] = [
   },
 ];
 
-/** The cheapest plan, for "from $19/month" lines. */
+/** The entry plan: Find my size, free. */
 export const ENTRY_PLAN = PLANS[0];

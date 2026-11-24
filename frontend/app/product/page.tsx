@@ -9,7 +9,7 @@ import { siteLinks } from '@/components/redesign/siteLinks';
 import { SiteFooter } from '@/components/redesign/SiteFooter';
 import LiveSizeDemo from '@/components/redesign/LiveSizeDemo';
 import { PAL, type Palette, headingStyle, bodyStyle, eyebrowStyle, pillButton, ACCENT } from '@/components/redesign/marketing';
-import { PLANS, TRIAL_DAYS, ENTRY_PLAN } from '@/lib/plans';
+import { PLANS, TRIAL_DAYS } from '@/lib/plans';
 
 /* /product: what Tryon is. One button on the store; Find my size on every product, Try On on
    products in 3D; the fit passport as the upgrade; what the brand gets. With the real card live. */
@@ -38,7 +38,7 @@ function Hero({ C, mobile }: { C: Palette; mobile: boolean }) {
             <button type="button" style={pillButton('ghost', C)} onClick={() => router.push('/demo')}>See the 3D try-on</button>
           </div>
           <p style={{ ...bodyStyle, fontSize: 13, color: C.mute, marginTop: 16 }}>
-            From {ENTRY_PLAN.price} a month, with a {TRIAL_DAYS}-day free trial on every plan.
+            Find my size is free. 3D try-on and the report start with a {TRIAL_DAYS}-day free trial.
           </p>
         </div>
         <LiveSizeDemo C={C} />
@@ -177,7 +177,7 @@ function PlansStrip({ C, mobile }: { C: Palette; mobile: boolean }) {
     <section style={{ background: C.bg, color: C.ink, padding: mobile ? '56px 20px' : '88px 32px', borderBottom: `1px solid ${C.line}` }}>
       <div style={{ maxWidth: 1180, margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap', marginBottom: 32 }}>
-          <h2 style={{ ...headingStyle('clamp(30px, 4vw, 52px)'), maxWidth: 680 }}>Try it free for {TRIAL_DAYS} days</h2>
+          <h2 style={{ ...headingStyle('clamp(30px, 4vw, 52px)'), maxWidth: 680 }}>Find my size is free</h2>
           <button type="button" style={pillButton('ghost', C)} onClick={() => router.push('/pricing')}>All plans <span>→</span></button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : `repeat(${shown.length}, 1fr)`, border: `1px solid ${C.line}`, background: C.surface }}>

@@ -81,7 +81,7 @@ function Nav({ mobile }: { mobile: boolean }) {
             {links.map((l) => <a key={l.href} href={l.href} className="lnk" style={{ fontFamily: SANS, fontSize: 17, color: GREY, textDecoration: 'none', letterSpacing: '-0.01em' }}>{l.label}</a>)}
             <a href="/login" className="lnk" style={{ fontFamily: SANS, fontSize: 17, color: INK, textDecoration: 'none', letterSpacing: '-0.01em', fontWeight: 500 }}>Sign in</a>
             <Pill href="/book" kind="outline">Contact</Pill>
-            <Pill href="/start">Start free trial</Pill>
+            <Pill href="/start">Start free</Pill>
           </nav>
         ) : (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -114,7 +114,7 @@ function Hero({ mobile }: { mobile: boolean }) {
           <h1 className="up d1" style={head(mobile ? 'clamp(40px, 11vw, 56px)' : 'clamp(52px, 5.4vw, 92px)')}>The future of clothing starts here</h1>
           <p className="up d2" style={{ ...text(mobile ? 18 : 22), maxWidth: 540 }}>Fit and consumer data for sample testing, sourcing and production.</p>
           <div className="up d3" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <Pill href="/start">Start free trial</Pill>
+            <Pill href="/start">Start free</Pill>
             <Pill href="#how" kind="outline">How it works</Pill>
           </div>
         </div>
@@ -176,14 +176,15 @@ function ThreeD({ mobile }: { mobile: boolean }) {
   return (
     <section id="tryon" style={{ background: WHITE }}>
       <div style={{ maxWidth: 1320, margin: '0 auto', padding: mobile ? '0 20px 88px' : '0 48px 150px' }}>
-        <div className="rv" style={eyebrow()}>The 3D try-on</div>
+        <div className="rv" style={eyebrow()}>3D avatar and fit from photos</div>
         <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(34px, 9.5vw, 48px)' : 'clamp(44px, 4.4vw, 72px)'), marginTop: 18, maxWidth: 760 }}>Your clothes on their body in real cloth</h2>
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1.9fr 1fr', gap: mobile ? 20 : 32, marginTop: mobile ? 36 : 64, alignItems: 'stretch' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className="rv rv-1" src="/redesign/ramin-widget.jpg" alt="Tryon open on a Ramin product page: the shopper\u2019s avatar in the hoodie, measurements and recommended size" style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 16, border: `1px solid ${RULE}` }} />
           <div className="rv rv-2" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 16, border: `1px solid ${RULE}`, overflow: 'hidden', minHeight: mobile ? 360 : 0 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/redesign/avatar-render.jpg" alt="A measured avatar wearing a simulated black hoodie and sweatpants" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', maxHeight: mobile ? 420 : 'none' }} />
+            <video autoPlay muted loop playsInline poster="/redesign/lafam-avatar.jpg" aria-label="The 3D avatar try-on on a La Fam product page" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', maxHeight: mobile ? 420 : 'none', background: WHITE }}>
+              <source src="/redesign/lafam-avatar.mp4" type="video/mp4" />
+            </video>
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(3, 1fr)', gap: mobile ? 32 : 48, marginTop: mobile ? 48 : 80 }}>
@@ -246,21 +247,21 @@ function Vision({ mobile }: { mobile: boolean }) {
 
 /* ─── Pricing ─── */
 function Pricing({ mobile }: { mobile: boolean }) {
-  const short: Record<string, string> = { size_pro: 'The button with no 3D', try_on: 'Your clothes on their body', insights: 'Try-On plus the monthly report' };
+  const short: Record<string, string> = { size_pro: 'The 30 second size button', try_on: 'The 3D avatar and fit from photos', insights: 'Try-On plus the monthly report' };
   const rows = PLANS.filter((p) => ['size_pro', 'try_on', 'insights'].includes(p.id));
   return (
     <section style={{ background: WHITE, borderTop: `1px solid ${RULE}` }}>
       <div style={{ maxWidth: 1320, margin: '0 auto', padding: mobile ? '88px 20px' : '140px 48px', display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1.3fr', gap: mobile ? 40 : 64, alignItems: 'start' }}>
         <div>
           <div className="rv" style={eyebrow()}>Pricing</div>
-          <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(32px, 9vw, 44px)' : 'clamp(40px, 4vw, 60px)'), marginTop: 18 }}>Thirty days free on every plan</h2>
-          <p className="rv rv-2" style={{ ...text(mobile ? 16 : 19), marginTop: 16 }}>Nothing is metered. Find my size and try-ons are unlimited.</p>
+          <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(32px, 9vw, 44px)' : 'clamp(40px, 4vw, 60px)'), marginTop: 18 }}>Find my size is free</h2>
+          <p className="rv rv-2" style={{ ...text(mobile ? 16 : 19), marginTop: 16 }}>3D try-on and the report start with thirty days free. Nothing is metered.</p>
           <div className="rv rv-2" style={{ marginTop: 28 }}><Pill href="/pricing" kind="outline">See full pricing</Pill></div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(3, 1fr)', gap: mobile ? 28 : 32 }}>
           {rows.map((p, i) => (
             <div key={p.id} className={`rv rv-${i + 1}`} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <span style={{ fontFamily: MONO, fontSize: 22, color: p.highlight ? COBALT : INK }}>{p.price}<span style={{ color: SOFT, fontSize: 14 }}> /mo</span></span>
+              <span style={{ fontFamily: MONO, fontSize: 22, color: p.highlight ? COBALT : INK }}>{p.price}{p.period === 'per month' && <span style={{ color: SOFT, fontSize: 14 }}> /mo</span>}</span>
               <span style={{ fontFamily: SANS, fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color: INK }}>{p.name}</span>
               <span style={text(16)}>{short[p.id]}</span>
             </div>
@@ -280,7 +281,7 @@ function Contact({ mobile }: { mobile: boolean }) {
         <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(40px, 11vw, 56px)' : 'clamp(52px, 5.6vw, 96px)', WHITE), marginTop: 18, maxWidth: 820 }}>Put it on one product</h2>
         <p className="rv rv-2" style={{ ...text(mobile ? 18 : 22, 'rgba(255,255,255,0.85)'), marginTop: 20, maxWidth: 560 }}>Shopify theme editor, no code. Brands, press and production: hello@tryon.global</p>
         <div className="rv rv-3" style={{ display: 'flex', gap: 10, marginTop: 40, flexWrap: 'wrap' }}>
-          <Pill href="/start" kind="white">Start free trial</Pill>
+          <Pill href="/start" kind="white">Start free</Pill>
           <Pill href="/book" kind="outline" on="dark">Book a call</Pill>
         </div>
       </Wrap>

@@ -651,7 +651,7 @@ function PlanSummary({ mobile }: { mobile?: boolean }) {
         ))}
       </div>
       <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute, marginTop: 12 }}>
-        {TRIAL_DAYS}-day free trial on every plan. Prices in USD. Bigger catalogues and production: <Link href="/pricing" style={{ color: C.ink }}>see full pricing</Link> or <a href={FRAVASH_URL} target="_blank" rel="noopener noreferrer" style={{ color: C.ink }}>talk to Fravash</a>.
+        Find my size is free. {TRIAL_DAYS}-day free trial on paid plans. Prices in USD. Bigger catalogues and production: <Link href="/pricing" style={{ color: C.ink }}>see full pricing</Link> or <a href={FRAVASH_URL} target="_blank" rel="noopener noreferrer" style={{ color: C.ink }}>talk to Fravash</a>.
       </div>
     </div>
   );
@@ -694,7 +694,7 @@ function DesktopBrands() {
         <p style={{
           ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48,
         }}>
-          Built for Shopify fashion brands. Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on, then the report.
+          Built for Shopify fashion brands. Start with Find my size on every product, free. Add 3D try-on, then the report.
         </p>
 
         <div style={{ marginBottom: 56 }}>
@@ -989,7 +989,7 @@ function MobileBrands() {
         Pay less than one return per day.
       </h2>
       <p style={{ ...bodyStyle, fontSize: 13.5, color: C.mute, marginBottom: 22 }}>
-        Start with Find my size on every product, from {PLANS[0].price} a month with a 30-day free trial. Add 3D try-on, then the report.
+        Start with Find my size on every product, free. Add 3D try-on, then the report.
       </p>
 
       <div style={{ marginBottom: 28 }}>
