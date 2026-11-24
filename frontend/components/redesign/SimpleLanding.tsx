@@ -111,7 +111,7 @@ function Hero({ mobile }: { mobile: boolean }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: mobile ? 20 : 28, paddingBottom: mobile ? 0 : 56 }}>
           <div className="up" style={eyebrow()}>Tryon · Amsterdam</div>
           <h1 className="up d1" style={head(mobile ? 'clamp(40px, 11vw, 56px)' : 'clamp(52px, 5.4vw, 92px)')}>The future of clothing starts here</h1>
-          <p className="up d2" style={{ ...text(mobile ? 18 : 22), maxWidth: 540 }}>Know how many of each size to make. A free button measures your shoppers, and every month you get the size run for your next drop.</p>
+          <p className="up d2" style={{ ...text(mobile ? 18 : 22), maxWidth: 540 }}>Fit and consumer data for sample testing, sourcing and production.</p>
           <div className="up d3" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <Pill href="/start">Start free</Pill>
             <Pill href="#how" kind="outline">How it works</Pill>
