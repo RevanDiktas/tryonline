@@ -110,8 +110,8 @@ function Hero({ mobile }: { mobile: boolean }) {
       <div style={{ maxWidth: 1320, margin: '0 auto', padding: mobile ? '28px 20px 0' : '48px 48px 0', display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1.05fr 1fr', gap: mobile ? 16 : 40, alignItems: 'center' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: mobile ? 20 : 28, paddingBottom: mobile ? 0 : 56 }}>
           <div className="up" style={eyebrow()}>Tryon · Amsterdam</div>
-          <h1 className="up d1" style={head(mobile ? 'clamp(40px, 11vw, 56px)' : 'clamp(52px, 5.4vw, 92px)')}>Know how many of each size to make.</h1>
-          <p className="up d2" style={{ ...text(mobile ? 18 : 22), maxWidth: 540 }}>A free button measures your shoppers. Every month you get the size run for your next drop.</p>
+          <h1 className="up d1" style={head(mobile ? 'clamp(40px, 11vw, 56px)' : 'clamp(52px, 5.4vw, 92px)')}>The future of clothing starts here</h1>
+          <p className="up d2" style={{ ...text(mobile ? 18 : 22), maxWidth: 540 }}>Know how many of each size to make. A free button measures your shoppers, and every month you get the size run for your next drop.</p>
           <div className="up d3" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <Pill href="/start">Start free</Pill>
             <Pill href="#how" kind="outline">How it works</Pill>
@@ -135,8 +135,8 @@ function Hero({ mobile }: { mobile: boolean }) {
 /* ─── How it works: the film, and three lines ─── */
 const STEPS = [
   { n: '01', t: 'Tap Find my size' },
-  { n: '02', t: 'Seven questions, or one photo.' },
-  { n: '03', t: 'Every size, scored. Add the right one to cart.' },
+  { n: '02', t: 'Seven questions or one photo' },
+  { n: '03', t: 'Every size scored and the right one in the cart' },
 ];
 function How({ mobile }: { mobile: boolean }) {
   return (
@@ -144,7 +144,7 @@ function How({ mobile }: { mobile: boolean }) {
       <div style={{ maxWidth: 1320, margin: '0 auto', padding: mobile ? '88px 20px' : '170px 48px 150px', display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: mobile ? 44 : 64, alignItems: 'center' }}>
         <div>
           <div className="rv" style={eyebrow()}>On the product page · free</div>
-          <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(34px, 9.5vw, 48px)' : 'clamp(44px, 4.4vw, 72px)'), marginTop: 18, maxWidth: 560 }}>Your size in 30 seconds.</h2>
+          <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(34px, 9.5vw, 48px)' : 'clamp(44px, 4.4vw, 72px)'), marginTop: 18, maxWidth: 560 }}>Your size in 30 seconds</h2>
           <ol style={{ listStyle: 'none', margin: mobile ? '36px 0 0' : '56px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: mobile ? 22 : 28 }}>
             {STEPS.map((s, i) => (
               <li key={s.n} className={`rv rv-${i + 1}`} style={{ display: 'grid', gridTemplateColumns: '40px 1fr', gap: 14, alignItems: 'baseline' }}>
@@ -167,7 +167,7 @@ function How({ mobile }: { mobile: boolean }) {
 
 /* ─── The 3D try-on ─── */
 const TECH = [
-  { k: 'One passport, every brand', d: 'A shopper measures once. Their fit passport works in every store that runs Tryon.' },
+  { k: 'One passport for every brand', d: 'A shopper measures once. Their fit passport works in every store that runs Tryon.' },
   { k: '3D cloth physics', d: 'The garment is simulated on the customer\u2019s body, not pasted on a photo. You see where it pulls and where it hangs.' },
   { k: 'Agentic fit API', d: 'The same size answer, for AI shopping agents. Already live as an MCP for Claude and ChatGPT.' },
 ];
@@ -176,7 +176,7 @@ function ThreeD({ mobile }: { mobile: boolean }) {
     <section id="tryon" style={{ background: WHITE }}>
       <div style={{ maxWidth: 1320, margin: '0 auto', padding: mobile ? '0 20px 88px' : '0 48px 150px' }}>
         <div className="rv" style={eyebrow()}>The 3D try-on</div>
-        <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(34px, 9.5vw, 48px)' : 'clamp(44px, 4.4vw, 72px)'), marginTop: 18, maxWidth: 760 }}>Your clothes on their body. Real cloth.</h2>
+        <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(34px, 9.5vw, 48px)' : 'clamp(44px, 4.4vw, 72px)'), marginTop: 18, maxWidth: 760 }}>Your clothes on their body in real cloth</h2>
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1.9fr 1fr', gap: mobile ? 20 : 32, marginTop: mobile ? 36 : 64, alignItems: 'stretch' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className="rv rv-1" src="/redesign/ramin-widget.jpg" alt="Tryon open on a Ramin product page: the shopper\u2019s avatar in the hoodie, measurements and recommended size" style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 16, border: `1px solid ${RULE}` }} />
@@ -209,7 +209,7 @@ function Report({ mobile }: { mobile: boolean }) {
     <section id="report" style={{ background: INK, color: WHITE }}>
       <Wrap mobile={mobile}>
         <div className="rv" style={eyebrow('rgba(255,255,255,0.5)')}>The report · monthly · what you pay for</div>
-        <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(34px, 9.5vw, 48px)' : 'clamp(44px, 4.6vw, 76px)', WHITE), marginTop: 18, maxWidth: 820 }}>A different body behind every order.</h2>
+        <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(34px, 9.5vw, 48px)' : 'clamp(44px, 4.6vw, 76px)', WHITE), marginTop: 18, maxWidth: 820 }}>A different body behind every order</h2>
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(3, 1fr)', gap: mobile ? 40 : 48, marginTop: mobile ? 56 : 112 }}>
           {OUT.map((o, i) => (
             <div key={o.k} className={`rv rv-${i + 1}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -230,7 +230,7 @@ function Vision({ mobile }: { mobile: boolean }) {
     <section id="production" style={{ background: WHITE }}>
       <Wrap mobile={mobile}>
         <div className="rv" style={eyebrow()}>Where this goes</div>
-        <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(44px, 13vw, 72px)' : 'clamp(64px, 8vw, 140px)'), marginTop: 18, letterSpacing: '-0.045em' }}>Measured.<br />Then made.</h2>
+        <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(44px, 13vw, 72px)' : 'clamp(64px, 8vw, 140px)'), marginTop: 18, letterSpacing: '-0.045em' }}>Measured<br />Then made</h2>
         <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1.2fr', gap: mobile ? 28 : 64, marginTop: mobile ? 36 : 72, alignItems: 'start' }}>
           <p className="rv rv-2" style={{ ...text(mobile ? 19 : 26, INK), maxWidth: 620, letterSpacing: '-0.02em' }}>The size run goes to Fravash, our production company. The next drop comes back cut to your customers. Denim first.</p>
           <div className="rv rv-3" style={{ display: 'flex', flexDirection: 'column', gap: 28, alignItems: mobile ? 'flex-start' : 'flex-end' }}>
@@ -256,7 +256,7 @@ function Pricing({ mobile }: { mobile: boolean }) {
       <div style={{ maxWidth: 1320, margin: '0 auto', padding: mobile ? '88px 20px' : '140px 48px', display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1.3fr', gap: mobile ? 40 : 64, alignItems: 'start' }}>
         <div>
           <div className="rv" style={eyebrow()}>Pricing</div>
-          <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(32px, 9vw, 44px)' : 'clamp(40px, 4vw, 60px)'), marginTop: 18 }}>The button is free. You pay for the report.</h2>
+          <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(32px, 9vw, 44px)' : 'clamp(40px, 4vw, 60px)'), marginTop: 18 }}>The button is free<br />You pay for the report</h2>
           <p className="rv rv-2" style={{ ...text(mobile ? 16 : 19), marginTop: 16 }}>The report starts as a three-month pilot.</p>
           <div className="rv rv-2" style={{ marginTop: 28 }}><Pill href="/pricing" kind="outline">See full pricing</Pill></div>
         </div>
@@ -280,7 +280,7 @@ function Contact({ mobile }: { mobile: boolean }) {
     <section style={{ background: COBALT, color: WHITE }}>
       <Wrap mobile={mobile}>
         <div className="rv" style={eyebrow('rgba(255,255,255,0.7)')}>Contact</div>
-        <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(40px, 11vw, 56px)' : 'clamp(52px, 5.6vw, 96px)', WHITE), marginTop: 18, maxWidth: 820 }}>Put it on one product.</h2>
+        <h2 className="rv rv-1" style={{ ...head(mobile ? 'clamp(40px, 11vw, 56px)' : 'clamp(52px, 5.6vw, 96px)', WHITE), marginTop: 18, maxWidth: 820 }}>Put it on one product</h2>
         <p className="rv rv-2" style={{ ...text(mobile ? 18 : 22, 'rgba(255,255,255,0.85)'), marginTop: 20, maxWidth: 560 }}>Shopify theme editor, no code. Brands, press and production: hello@tryon.global</p>
         <div className="rv rv-3" style={{ display: 'flex', gap: 10, marginTop: 40, flexWrap: 'wrap' }}>
           <Pill href="/start" kind="white">Start free</Pill>
