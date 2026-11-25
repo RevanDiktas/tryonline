@@ -10,3 +10,9 @@ human_model_files/
 # The root .gitignore ignores every *.pt. The measurement CNN (about 10 MB) is the one exception:
 # it has to be in the build context, because RunPod builds this folder straight from GitHub.
 !weights/measure_cnn.pt
+# The street pipeline's own files (about 27 MB together), listed in weights/street_models.json. Same reason.
+# The clothing parser (109 MB) is NOT committed: the Dockerfile downloads it.
+!weights/street_*.pt
+!weights/ansur_tape_prior.npz
+!weights/stage2_sizes.npz
+*.safetensors

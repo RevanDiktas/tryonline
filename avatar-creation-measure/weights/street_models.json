@@ -1,0 +1,68 @@
+{
+ "version": "street-2026-11-25",
+ "measurements": [
+  "ankle",
+  "arm-length",
+  "bicep",
+  "calf",
+  "chest",
+  "forearm",
+  "height",
+  "hip",
+  "leg-length",
+  "shoulder-breadth",
+  "shoulder-to-crotch",
+  "thigh",
+  "waist",
+  "wrist"
+ ],
+ "models": [
+  {
+   "file": "street_both_both4_K3.pt",
+   "source": "street_both_both4_K3.pt",
+   "sha256": "d4a5b26636e87ce596b2c6eb0fb1c5da401a717a58fdd652dd4c9db0e270a948",
+   "kind": "both",
+   "width": 64,
+   "n_meta": 65,
+   "data": "street4"
+  },
+  {
+   "file": "street_both_both4_K6.pt",
+   "source": "street_both_both4_K6.pt",
+   "sha256": "b63b1303d9fef98ef389f52fe4ea49b54415127eedcbfb906188bcab33241356",
+   "kind": "both",
+   "width": 64,
+   "n_meta": 65,
+   "data": "street4"
+  },
+  {
+   "file": "street_both_both4_K3w.pt",
+   "source": "street_both_both4_K3w.pt",
+   "sha256": "b699a60971a1fbfea348d0591f9ca582a3d44dc7be121ebcf4c7600eb6e67bcd",
+   "kind": "both",
+   "width": 96,
+   "n_meta": 65,
+   "data": "street4"
+  }
+ ],
+ "tape_prior": {
+  "file": "ansur_tape_prior.npz",
+  "source": "ansur_tape_prior.npz",
+  "sha256": "e45f946c6760addea1810e2ce929721d9b7886947ce2e0fdce068514e1302855"
+ },
+ "stage2_sizes": {
+  "file": "stage2_sizes.npz",
+  "source": "stage2_sizes.npz",
+  "sha256": "3fa6cbf6a091660af27e29aa48143955e63cfe422feb1d06dfb4d5f46e64e679"
+ },
+ "stage2_fitted_on": "the average of the networks listed when stage2_sizes.py was run; refit it when the model list changes",
+ "parser": {
+  "file": "segformer_b2_clothes.safetensors",
+  "sha256": "8f86fd90c567afd4370b3cc3a7e81ed767a632b2832a738331af660acc0c4c68",
+  "bytes": 109493236,
+  "in_this_folder": false,
+  "url": "https://huggingface.co/mattmdjaga/segformer_b2_clothes/resolve/main/model.safetensors",
+  "licence": "NVIDIA Source Code License for SegFormer (non-commercial), trained on ATR; accepted pre-seed only"
+ },
+ "note": "BodyM-trained networks (CC BY-NC) and ANSUR II regressions: pre-seed validation only."
+}

@@ -1,0 +1,12 @@
+{
+ "version": "pipeline-2026-11-24-split_95-5_s0",
+ "sha256": "5e1cfb5dff79aba693634bc889b0452bd32bf8cc2f2f289986c632d2ffe52bc5",
+ "models": [
+  "ridge2",
+  "fullj",
+  "full1"
+ ],
+ "trained_on": "split_95-5_s0",
+ "needs_side": true,
+ "framing": "bodym-960x720"
+}
