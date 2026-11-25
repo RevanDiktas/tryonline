@@ -6,6 +6,9 @@
   - used(): once per visitor per day, when the widget showed this shopper a size or the
     3D try-on; also tags the cart, so the order counts as a widget order whichever
     Add to cart button they use.
+  - A shopper who used the widget on an earlier visit has their cart tagged again on any
+    later product page, so an order placed days later, or for another product, still
+    counts. The cart is read first and written only when the tag is missing.
 
   The visitor id is a random id kept in this store's localStorage. No account, no cookie,
   nothing personal. Nothing is sent or stored when the shopper has refused analytics in
@@ -19,6 +22,7 @@
   var BASE = (script && script.getAttribute('data-base')) || 'https://tryon.global';
   var VID_KEY = 'tryon_vid';
   var CART_ATTR = '_tryon_visitor_id';
+  var USED_KEY = 'tryon_used';   // day this shopper last saw a size or try-on from the widget
 
   function allowed() {
     try {
@@ -62,6 +66,12 @@
     return ok;
   }
 
+  function usedBefore() {
+    try { return !!localStorage.getItem(USED_KEY); } catch (e) { return false; }
+  }
+
+  // Once per page. A new cart (after an order, or once the old one expired) has no tag,
+  // so the cart is read on each product page and written only when the tag is missing.
   var tagged = false;
   function tagCart() {
     if (tagged || !allowed()) return;
@@ -69,17 +79,26 @@
     if (!vid) return;
     tagged = true;
     var root = (window.Shopify && window.Shopify.routes && window.Shopify.routes.root) || '/';
-    var attributes = {};
-    attributes[CART_ATTR] = vid;
-    fetch(root + 'cart/update.js', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-      body: JSON.stringify({ attributes: attributes })
-    }).catch(function () { tagged = false; });
+    fetch(root + 'cart.js', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (cart) {
+        if (cart && cart.attributes && cart.attributes[CART_ATTR] === vid) return;
+        var attributes = {};
+        attributes[CART_ATTR] = vid;
+        return fetch(root + 'cart/update.js', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ attributes: attributes })
+        });
+      })
+      .catch(function () { tagged = false; });
   }
 
   window.TryonTraffic = {
-    visit: function () { send('visit'); },
-    used: function () { send('visit'); send('used'); tagCart(); }
+    visit: function () { send('visit'); if (usedBefore()) tagCart(); },
+    used: function () {
+      if (allowed()) { try { localStorage.setItem(USED_KEY, today()); } catch (e) {} }
+      send('visit'); send('used'); tagCart();
+    }
   };
 
   // A shopper whose answer changed in the cookie banner is picked up on the next page.
