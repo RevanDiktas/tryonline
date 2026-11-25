@@ -83,5 +83,5 @@ bad = v.startswith('wiring') and '$ALLOW_WIRING_MODEL' != '1'; \
 print('REFUSED: wiring-test checkpoint; put the real model in weights/ or build with ALLOW_WIRING_MODEL=1') if bad else None; \
 sys.exit(0 if r['ok'] and not bad else 1)"
 
-ENV MEASURE_BUILD=v0.2-street
+ENV MEASURE_BUILD=v0.3-street
 CMD ["python", "/workspace/measure/handler.py"]

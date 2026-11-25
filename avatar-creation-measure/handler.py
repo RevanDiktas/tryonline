@@ -53,7 +53,8 @@ HUMAN_MODELS = Path(os.environ.get("MEASURE_HUMAN_MODELS", HERE / "human_model_f
 DEEPLAB_WEIGHTS = os.environ.get("MEASURE_DEEPLAB_WEIGHTS") or None                         # else torchvision's cache
 STREET_WEIGHTS = Path(os.environ.get("MEASURE_STREET_WEIGHTS", HERE / "weights"))           # holds street_models.json: THE list of model files
 PARSER_WEIGHTS = os.environ.get("MEASURE_PARSER_WEIGHTS") or None                           # else weights/segformer_b2_clothes.safetensors
-STREET_BLOCKING = {"no_person", "unreadable"}       # photo checks that drop a photo from the street pipeline; every other failed check is only reported
+STREET_CUT = {"cut_off_top", "cut_off_bottom"}      # head or feet missing: scaling by the stated height would stretch the body, so ask for a new photo
+STREET_BLOCKING = {"no_person", "unreadable"} | STREET_CUT       # photo checks that drop a photo from the street pipeline; every other failed check is only reported
 STREET_IGNORED = {"arms_not_clear"}                 # not a fault in the street pipeline: hanging arms are the pose it is trained for, so no shopper is told to move them
 os.environ.setdefault("PARSE_THREADS", str(len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)))   # the parser's CPU threads
 ALLOW_LOCAL_FILES = os.environ.get("MEASURE_ALLOW_LOCAL_FILES") == "1"                      # local harness only
@@ -226,7 +227,7 @@ def _street_measure(front_urls, side_urls, height, weight, gender, typed, timing
                 c = {**c, "failed": failed, "ok": not failed, "reason": failed[0] if failed else "ok", "message": preprocess.MESSAGES[failed[0] if failed else "ok"]}
             usable = r is not None and r["labels"] is not None and not (set(c.get("failed") or []) & STREET_BLOCKING)
             parsed[view].append(r if usable else None)
-            checks[view].append({"ok": c["ok"], "reason": c["reason"], "message": c["message"], "numbers": c["numbers"], "used": False})
+            checks[view].append({"ok": c["ok"], "reason": c["reason"], "message": c["message"], "failed": list(c.get("failed") or []), "numbers": c["numbers"], "used": False})
             timings[f"{view}_photos_s"] = round(timings.get(f"{view}_photos_s", 0.0) + time.time() - t, 3)
     t = time.time(); feats, used = [], []
     for i, f in enumerate(parsed["front"]):
@@ -385,6 +386,15 @@ def measure(inp):
     street = None
     if side_urls:
         street, street_checks = _street_measure(front_urls, side_urls, height, weight, gender, typed, timings, notes)
+        if street is None:                               # never answer with the older model when the only problem is a cut-off photo
+            cut = [(v, x) for v in ("front", "side") for c in street_checks[v] for x in c["failed"] if x in STREET_CUT]
+            if cut:
+                import preprocess
+                view, why = cut[0]
+                out["checks"] = street_checks
+                out.update(error=f"{view.capitalize()} photo: {preprocess.MESSAGES[why]}", reason=why)
+                timings["total_s"] = round(time.time() - t0, 3)
+                return out
     if street is not None:
         out["checks"] = street_checks; meas, prior = street.pop("measurements"), street.pop("height_weight_only")
         out.update(street, pipeline="street", definition="tape", method="front_and_side")
