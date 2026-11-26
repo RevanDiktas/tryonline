@@ -75,13 +75,13 @@ export default function ProductPage() {
 
       <Product id="tryon" eyebrow="02 3D try-on" title="Your clothes on their body"
         facts={[{ k: 'Cloth', v: 'Simulated not pasted' }, { k: 'Body', v: 'Measured from photos' }, { k: 'Passport', v: 'One body every store' }]}>
-        <div className="pair">
+        <div className="pair" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,2fr)', alignItems: 'center' }}>
+          <video autoPlay muted loop playsInline poster="/redesign/lafam-tryon.jpg" aria-label="Try On on the La Fam product page: the shopper's avatar in the long sleeve, then add to cart"
+            style={{ width: '100%', maxWidth: 380, height: 'auto', display: 'block', margin: '0 auto' }}>
+            <source src="/redesign/lafam-tryon.mp4" type="video/mp4" />
+          </video>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className="frame" src="/redesign/ramin-widget.jpg" alt="Tryon open on a Ramin product page with the shopper's avatar in the hoodie" style={{ width: '100%', height: 'auto', display: 'block' }} />
-          <div className="frame" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/redesign/avatar-render.jpg" alt="A measured avatar wearing a simulated black hoodie and sweatpants" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', maxHeight: 520 }} />
-          </div>
         </div>
       </Product>
 

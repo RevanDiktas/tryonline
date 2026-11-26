@@ -41,7 +41,7 @@ export function OsLanding() {
       <section className="wrap hero">
         <div className="copy">
           <span className="eb rv">The operating system for fashion</span>
-          <h1 className="h1 rv" style={{ ['--d' as string]: '60ms', maxWidth: '13ch' }}>Clothes made for the bodies that buy them</h1>
+          <h1 className="h1 rv" style={{ ['--d' as string]: '60ms', maxWidth: '13ch' }}>The future of clothing starts here</h1>
           <p className="lede rv" style={{ ['--d' as string]: '120ms', fontSize: '1.1875rem', maxWidth: '30ch' }}>The intelligence layer between consumer brand and factory</p>
           <div className="rv" style={{ ['--d' as string]: '180ms', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <Link href="/book" className="btn btn-p">Work with us</Link>
