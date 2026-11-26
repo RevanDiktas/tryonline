@@ -1,366 +1,79 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useTheme } from '@/contexts/ThemeContext';
-import { SharedNav, NavCta, AuthAwareSignInLink } from '@/components/redesign/SharedNav';
-import { useIsMobile } from '@/components/redesign/useIsMobile';
-import { siteLinks } from '@/components/redesign/siteLinks';
-import { SiteFooter } from '@/components/redesign/SiteFooter';
-import { PAL, type Palette, headingStyle, bodyStyle } from '@/components/redesign/marketing';
-import { PLANS, TRIAL_DAYS } from '@/lib/plans';
+import Link from 'next/link';
+import { Site, Header } from '@/components/os/kit';
 
-function Hero({ C }: { C: Palette }) {
+/* /pricing: size recommendation at two published prices, the operating system by engagement.
+   Upper tiers, set-up fees and the results share are discussed on a call, not published. */
+
+const CSS = `
+.os .tiers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;max-width:960px;margin:0 auto}
+.os .tier{border:1px solid var(--rule);border-radius:14px;padding:40px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:18px;background:#fff;
+transition:border-color .3s var(--ease)}
+.os .tier:hover{border-color:var(--accent)}
+.os .tier.top{border-top:2px solid var(--accent)}
+.os .price{font-family:var(--f-display),system-ui;font-weight:500;font-size:clamp(2.25rem,1.8rem + 1.6vw,3.25rem);letter-spacing:-.03em;line-height:1}
+.os .per{font-size:.9375rem;color:var(--mute)}
+.os .tier hr{width:100%;height:1px;background:var(--rule);border:0;margin:6px 0}
+@media(max-width:760px){.os .tiers{grid-template-columns:1fr}.os .tier{padding:32px 24px}}
+`;
+
+type Tier = { name: string; price: string; per?: string; who: string; line?: string; top?: boolean };
+
+function Tiers({ items }: { items: Tier[] }) {
   return (
-    <section style={{ background: C.bg, color: C.ink, padding: '56px 20px 28px', borderBottom: `1px solid ${C.line}` }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <h1 style={{
-          ...headingStyle('clamp(44px, 5.5vw, 80px)'),
-          maxWidth: 1100, marginBottom: 18,
-        }}>
-          Find my size is free
-        </h1>
-        <p style={{
-          ...bodyStyle, fontSize: 17, color: C.mute, maxWidth: 720, marginBottom: 8,
-        }}>
-          Find my size on every product is free. Add 3D try-on and the monthly report when you are ready. Paid plans start with a {TRIAL_DAYS}-day free trial. Try-ons are never limited.
-        </p>
-        <p style={{
-          ...bodyStyle, fontSize: 13.5, color: C.mute, maxWidth: 720,
-        }}>
-          For Shopify fashion brands of every size. Prices in USD, billed monthly through Shopify. Cancel any time.
-        </p>
-      </div>
-    </section>
-  );
-}
-
-function Tiers({ C }: { C: Palette }) {
-  const router = useRouter();
-  const tiers = PLANS.map((p) => ({
-    name: p.name, price: p.price, priceSub: p.period, setup: p.setup ? `${p.setup}. ${p.limits}` : p.limits,
-    headline: p.pitch, features: p.features, cta: p.cta.label, ctaHref: p.cta.href, highlight: p.highlight,
-  }));
-
-  return (
-    <section style={{ padding: '24px 20px 64px', background: C.bg }}>
-      <div style={{
-        maxWidth: 1280, margin: '0 auto',
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 0,
-        border: `1px solid ${C.line}`, background: C.surface,
-      }}>
-        {tiers.map((t, i) => {
-          const dark = !!t.highlight;
-          const bg = dark ? C.cardBg : C.surface;
-          const ink = dark ? C.cardInk : C.ink;
-          const mute = dark ? C.cardMute : C.mute;
-          return (
-            <div key={t.name} style={{
-              background: bg, color: ink,
-              borderRight: i < tiers.length - 1 ? `1px solid ${C.line}` : 'none',
-              padding: '28px 22px',
-              display: 'flex', flexDirection: 'column', gap: 16,
-            }}>
-              <div>
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 13, color: mute, fontWeight: 600, marginBottom: 10,
-                  display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-                }}>
-                  {t.name}
-                  {t.highlight && (
-                    <span style={{
-                      background: ink, color: bg,
-                      padding: '2px 8px',
-                      fontSize: 10, fontWeight: 700,
-                    }}>Recommended</span>
-                  )}
-                </div>
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 40, fontWeight: 700,
-                  letterSpacing: '-0.025em', lineHeight: 1, color: ink,
-                }}>{t.price}</div>
-                {t.priceSub && (
-                  <div style={{
-                    fontFamily: 'var(--display)', fontSize: 13, color: mute, marginTop: 6,
-                  }}>{t.priceSub}</div>
-                )}
-                {t.setup && (
-                  <div style={{
-                    fontFamily: 'var(--display)', fontSize: 12, color: mute, marginTop: 4,
-                  }}>{t.setup}</div>
-                )}
-              </div>
-              <p style={{
-                ...bodyStyle, fontSize: 13, lineHeight: 1.5, margin: 0,
-                color: ink, opacity: dark ? 0.85 : 0.78,
-              }}>{t.headline}</p>
-              <ul style={{
-                listStyle: 'none', padding: 0, margin: 0,
-                display: 'flex', flexDirection: 'column', gap: 8,
-                borderTop: `1px solid ${dark ? C.cardLine : C.line}`, paddingTop: 16,
-              }}>
-                {t.features.map(f => (
-                  <li key={f} style={{
-                    fontFamily: 'var(--display)', fontSize: 12.5, lineHeight: 1.5, color: ink,
-                    opacity: dark ? 0.92 : 0.88,
-                    paddingLeft: 14, position: 'relative',
-                  }}>
-                    <span style={{
-                      position: 'absolute', left: 0, top: 6,
-                      width: 5, height: 5,
-                      background: ink, opacity: 0.5,
-                    }} />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => {
-                  if (t.ctaHref.startsWith('mailto:')) window.location.href = t.ctaHref;
-                  else router.push(t.ctaHref);
-                }}
-                style={{
-                  marginTop: 'auto',
-                  background: dark ? C.cardInk : C.ink,
-                  color: dark ? C.cardBg : C.bg,
-                  padding: '12px 16px', borderRadius: 16, border: 'none',
-                  fontFamily: 'var(--display)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer',
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                }}
-              >{t.cta} <span>→</span></button>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function ROI({ C }: { C: Palette }) {
-  const cases = [
-    { label: 'Starting brand', orders: '600 orders / month', aov: '$70 AOV', returnRate: '25% return rate',
-      monthlyReturnCost: '$2,700', ourPrice: '$19', monthlySavings: '$540', tier: 'Size Pro' },
-    { label: 'Growing brand', orders: '3,000 orders / month', aov: '$90 AOV', returnRate: '30% return rate',
-      monthlyReturnCost: '$20,250', ourPrice: '$109', monthlySavings: '$4,050', tier: 'Try-On' },
-    { label: 'Established brand', orders: '10,000 orders / month', aov: '$115 AOV', returnRate: '30% return rate',
-      monthlyReturnCost: '$96,000', ourPrice: '$279', monthlySavings: '$19,200', tier: 'Scale' },
-  ];
-  return (
-    <section style={{ background: C.surface, color: C.ink, padding: '64px 20px', borderTop: `1px solid ${C.line}` }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <h2 style={{ ...headingStyle('clamp(32px, 4.5vw, 64px)'), marginBottom: 14, maxWidth: 1000 }}>
-          What one fewer return is worth.
-        </h2>
-        <p style={{ ...bodyStyle, color: C.mute, maxWidth: 720, marginBottom: 48 }}>
-          Industry data, conservative assumptions. Capital One Shopping puts apparel return rates at 25 to 40 percent. Zeta and Optoro put cost-per-return at $18 to $45. The examples assume TryOn removes 20 percent of returns; your dashboard shows your real number.
-        </p>
-
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 0,
-          border: `1px solid ${C.line}`, background: C.bg,
-        }}>
-          {cases.map((c) => (
-            <div key={c.label} style={{
-              borderRight: `1px solid ${C.line}`,
-              borderBottom: `1px solid ${C.line}`,
-              padding: '24px 22px',
-              display: 'flex', flexDirection: 'column', gap: 14,
-            }}>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 14, color: C.ink, fontWeight: 600 }}>
-                {c.label}
-              </div>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 13, color: C.mute, lineHeight: 1.7 }}>
-                {c.orders}<br/>{c.aov}<br/>{c.returnRate}
-              </div>
-              <div style={{ height: 1, background: C.line }} />
-              <div>
-                <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4 }}>
-                  Current monthly return cost
-                </div>
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 22, fontWeight: 600,
-                  letterSpacing: '-0.02em', color: C.ink,
-                }}>{c.monthlyReturnCost}</div>
-              </div>
-              <div>
-                <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4 }}>
-                  Monthly savings with TryOn
-                </div>
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 28, fontWeight: 700,
-                  letterSpacing: '-0.02em', color: C.ink,
-                }}>{c.monthlySavings}</div>
-              </div>
-              <div style={{ height: 1, background: C.line }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <div>
-                  <div style={{ fontFamily: 'var(--display)', fontSize: 12, color: C.mute, marginBottom: 4 }}>
-                    You pay
-                  </div>
-                  <div style={{
-                    fontFamily: 'var(--display)', fontSize: 18, fontWeight: 600,
-                    letterSpacing: '-0.02em', color: C.ink,
-                  }}>{c.ourPrice}</div>
-                </div>
-                <div style={{
-                  fontFamily: 'var(--display)', fontSize: 12, fontWeight: 600,
-                  color: C.ink, padding: '3px 8px',
-                  border: `1px solid ${C.ink}`,
-                }}>{c.tier}</div>
-              </div>
-            </div>
-          ))}
+    <div className="tiers">
+      {items.map((t, i) => (
+        <div key={t.name} className={`tier rv${t.top ? ' top' : ''}`} style={{ ['--d' as string]: `${i * 60}ms` }}>
+          <span className="eb" style={{ color: t.top ? 'var(--accent)' : undefined }}>{t.name}</span>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <span className="price">{t.price}</span>{t.per && <span className="per">{t.per}</span>}
+          </div>
+          <hr />
+          <span className="h3" style={{ fontFamily: 'var(--f-display)', fontWeight: 500 }}>{t.who}</span>
+          {t.line && <span className="small" style={{ maxWidth: '28ch' }}>{t.line}</span>}
         </div>
-        <div style={{
-          marginTop: 14, fontFamily: 'var(--display)', fontSize: 12, color: C.mute,
-        }}>
-          Sources: Capital One Shopping 2024, Zeta 2025, Optoro 2024, McKinsey State of Fashion 2025.
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function FAQ({ C }: { C: Palette }) {
-  const items = [
-    { q: 'Do I need 3D garments to start?',
-      a: 'No. Find my size works on every product with sizes from the first minute, using the product and the shopper\'s answers. Try On appears on the products we have made in 3D for you; that is included in the Try-On, Scale and Brand plans.' },
-    { q: 'How does it get on my store?',
-      a: 'Install TryOn, then add the TryOn block next to your size picker in your Shopify theme editor. No code. One block covers every product: it reads Try On on products in 3D and Find my size on the rest.' },
-    { q: 'Is Find my size limited?',
-      a: 'No. Find my size is unlimited on every plan, on every product.' },
-    { q: 'Are try-ons limited?',
-      a: 'Never. A busy weekend should not cost you more, so try-ons and shopper avatars are unlimited on every plan with 3D. Plans differ in how many of your garments we make in 3D: 40 on Try-On, 200 on Scale, 400 and up on Brand.' },
-    { q: 'How am I billed?',
-      a: `Find my size is free. Paid plans go through your Shopify bill, monthly, and start with a ${TRIAL_DAYS}-day free trial, and you can change or cancel any time from Shopify. Brand adds a one-time setup fee.` },
-    { q: 'What about shopper privacy?',
-      a: 'Shoppers get a size without an account; their answers stay on their device. The optional fit passport photo is used only to measure them and build their avatar. See our privacy policy for details.' },
-  ];
-  const [open, setOpen] = useState<number | null>(0);
-  return (
-    <section style={{ background: C.bg, color: C.ink, padding: '64px 20px', borderTop: `1px solid ${C.line}` }}>
-      <div style={{ maxWidth: 880, margin: '0 auto' }}>
-        <h2 style={{ ...headingStyle('clamp(28px, 4vw, 56px)'), marginBottom: 28 }}>
-          Questions brands ask.
-        </h2>
-        <div style={{ border: `1px solid ${C.line}`, background: C.surface }}>
-          {items.map((it, i) => {
-            const isOpen = open === i;
-            return (
-              <div key={it.q} style={{
-                borderBottom: i < items.length - 1 ? `1px solid ${C.line}` : 'none',
-              }}>
-                <button
-                  onClick={() => setOpen(isOpen ? null : i)}
-                  style={{
-                    width: '100%', textAlign: 'left',
-                    padding: '18px 22px',
-                    background: 'transparent', border: 'none', cursor: 'pointer',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16,
-                    color: C.ink,
-                  }}
-                >
-                  <span style={{
-                    fontFamily: 'var(--display)', fontSize: 16, fontWeight: 600,
-                    letterSpacing: '-0.005em',
-                  }}>{it.q}</span>
-                  <span style={{
-                    fontFamily: 'var(--display)', fontSize: 16, color: C.mute,
-                    transform: isOpen ? 'rotate(45deg)' : 'rotate(0)',
-                    transition: 'transform 0.2s ease',
-                    flexShrink: 0,
-                  }}>+</span>
-                </button>
-                {isOpen && (
-                  <div style={{
-                    padding: '0 22px 20px',
-                    ...bodyStyle, fontSize: 14, color: C.mute,
-                    maxWidth: 720,
-                  }}>{it.a}</div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function FinalCTA({ C }: { C: Palette }) {
-  const router = useRouter();
-  return (
-    <section style={{ background: C.surface, color: C.ink, padding: '64px 20px 80px', borderTop: `1px solid ${C.line}` }}>
-      <div style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center' }}>
-        <h2 style={{ ...headingStyle('clamp(36px, 4.5vw, 64px)'), marginBottom: 14 }}>
-          Live on your store today.
-        </h2>
-        <p style={{ ...bodyStyle, fontSize: 15, color: C.mute, margin: '0 auto 28px', maxWidth: 540 }}>
-          Tell us your store and we send your install link within one working day. Find my size is live on every product from the first minute; free for the first 30 days.
-        </p>
-        <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <button
-            onClick={() => { router.push('/start'); }}
-            style={{
-              background: '#0040FF', color: '#FFFFFF', border: 'none',
-              padding: '14px 24px',
-              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
-              letterSpacing: '-0.005em', cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 10,
-              borderRadius: 9999,
-              transition: 'background 180ms cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-          >Start free trial <span>→</span></button>
-          <button
-            onClick={() => router.push('/book')}
-            style={{
-              background: 'transparent', color: C.ink,
-              border: `1px solid ${C.ink}`,
-              padding: '14px 24px',
-              fontFamily: 'var(--display)', fontSize: 14, fontWeight: 600,
-              letterSpacing: '-0.005em', cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 10,
-              borderRadius: 9999,
-            }}
-          >Book a call</button>
-        </div>
-      </div>
-    </section>
+      ))}
+    </div>
   );
 }
 
 export default function PricingPage() {
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
-  const C = dark ? PAL.dark : PAL.light;
-  const router = useRouter();
-  const mobile = useIsMobile();
-
-  const links = siteLinks('/pricing');
-
   return (
-    <div className="tryon-redesign-root" style={{
-      width: '100%', minHeight: '100vh',
-      background: C.bg, color: C.ink, position: 'relative',
-    }}>
-      <SharedNav
-        dark={dark}
-        links={links}
-        rightSlot={mobile ? (
-          <NavCta dark={dark} label="Free trial" onClick={() => { router.push('/start'); }} />
-        ) : (
-          <>
-            <AuthAwareSignInLink dark={dark} />
-            <NavCta dark={dark} label="Start free trial →" onClick={() => { router.push('/start'); }} />
-          </>
-        )}
-      />
-      <Hero C={C} />
-      <Tiers C={C} />
-      <ROI C={C} />
-      <FAQ C={C} />
-      <FinalCTA C={C} />
-      <SiteFooter dark={dark} />
-    </div>
+    <Site active="/pricing">
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      <section className="sec" style={{ paddingBottom: 0 }}>
+        <div className="wrap">
+          <Header as="h1" eyebrow="Pricing" title="Few brands done properly" />
+        </div>
+      </section>
+
+      <section className="sec" style={{ paddingTop: 0 }}>
+        <div className="wrap">
+          <Header eyebrow="Size recommendation" title="Every product every shopper" />
+          <Tiers items={[
+            { name: 'Size', price: '€199', per: 'a month', who: 'For brands' },
+            { name: 'Size Plus', price: '€699', per: 'a month', who: 'For bigger brands' },
+          ]} />
+          <div className="rv" style={{ display: 'flex', justifyContent: 'center', marginTop: 40 }}>
+            <Link href="/book" className="btn btn-s">Get started</Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="sec" style={{ borderTop: '1px solid var(--rule)', background: 'var(--tint)' }}>
+        <div className="wrap">
+          <Header eyebrow="The operating system" title="By engagement" line="3D try-on intelligence and production for brands we choose to work with" />
+          <Tiers items={[
+            { name: 'Diagnostic', price: '€35,000', who: 'Six weeks on your data', line: 'Credited in full when you continue' },
+            { name: 'Operating system', price: '€72,000', per: 'a year and up', who: 'Shopper to factory', line: 'Try-on intelligence stress tests and production', top: true },
+          ]} />
+          <p className="eb rv" style={{ textAlign: 'center', marginTop: 40 }}>Paid from results on request</p>
+          <div className="rv" style={{ display: 'flex', justifyContent: 'center', marginTop: 32 }}>
+            <Link href="/book" className="btn btn-p">Apply to work with us</Link>
+          </div>
+        </div>
+      </section>
+    </Site>
   );
 }

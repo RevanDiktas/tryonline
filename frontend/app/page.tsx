@@ -7,7 +7,10 @@ import { getCurrentUser, type User } from '@/lib/supabase-auth';
 import { isShopifyMode } from '@/lib/app-mode';
 import { useEnsureShopifyAdminOAuth } from '@/lib/useEnsureShopifyAdminOAuth';
 import { useResolvedShopifyShop } from '@/lib/useResolvedShopifyShop';
-import { SimpleLanding as BroadcastLanding } from '@/components/redesign/SimpleLanding';
+import { OsLanding } from '@/components/os/OsLanding';
+
+// The public home page. The Shopify-embedded surface above never reaches it.
+const BroadcastLanding = (_p: { dark?: boolean }) => <OsLanding />;
 
 function HomePageContent() {
   const router = useRouter();
