@@ -18,7 +18,7 @@ transition:border-color .3s var(--ease)}
 @media(max-width:760px){.os .tiers{grid-template-columns:1fr}.os .tier{padding:32px 24px}}
 `;
 
-type Tier = { name: string; price: string; per?: string; who: string; line?: string; top?: boolean };
+type Tier = { name: string; price?: string; per?: string; who: string; line?: string; top?: boolean };
 
 function Tiers({ items }: { items: Tier[] }) {
   return (
@@ -27,7 +27,8 @@ function Tiers({ items }: { items: Tier[] }) {
         <div key={t.name} className={`tier rv${t.top ? ' top' : ''}`} style={{ ['--d' as string]: `${i * 60}ms` }}>
           <span className="eb" style={{ color: t.top ? 'var(--accent)' : undefined }}>{t.name}</span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-            <span className="price">{t.price}</span>{t.per && <span className="per">{t.per}</span>}
+            {t.price ? <span className="price">{t.price}</span> : <span className="per" style={{ fontFamily: 'var(--f-mono)', letterSpacing: '.14em', textTransform: 'uppercase', fontSize: '.75rem', padding: '14px 0' }}>By application</span>}
+            {t.per && <span className="per">{t.per}</span>}
           </div>
           <hr />
           <span className="h3" style={{ fontFamily: 'var(--f-display)', fontWeight: 500 }}>{t.who}</span>
@@ -52,8 +53,8 @@ export default function PricingPage() {
         <div className="wrap">
           <Header eyebrow="Size recommendation" title="Every product every shopper" />
           <Tiers items={[
-            { name: 'Size', price: '€199', per: 'a month', who: 'For brands' },
-            { name: 'Size Plus', price: '€699', per: 'a month', who: 'For bigger brands' },
+            { name: 'Studio', price: '€199', per: 'a month', who: 'For independent labels' },
+            { name: 'Maison', price: '€699', per: 'a month', who: 'For established houses' },
           ]} />
           <div className="rv" style={{ display: 'flex', justifyContent: 'center', marginTop: 40 }}>
             <Link href="/book" className="btn btn-s">Get started</Link>
@@ -63,10 +64,10 @@ export default function PricingPage() {
 
       <section className="sec" style={{ borderTop: '1px solid var(--rule)', background: 'var(--tint)' }}>
         <div className="wrap">
-          <Header eyebrow="The operating system" title="By engagement" line="3D try-on intelligence and production for brands we choose to work with" />
+          <Header eyebrow="The operating system" title="By application" line="3D try-on intelligence and production for brands we choose to work with" />
           <Tiers items={[
-            { name: 'Diagnostic', price: '€35,000', who: 'Six weeks on your data', line: 'Credited in full when you continue' },
-            { name: 'Operating system', price: '€72,000', per: 'a year and up', who: 'Shopper to factory', line: 'Try-on intelligence stress tests and production', top: true },
+            { name: 'Diagnostic', who: 'Six weeks on your data', line: 'Credited in full when you continue' },
+            { name: 'Operating system', who: 'Shopper to factory', line: 'Try-on intelligence stress tests and production', top: true },
           ]} />
           <p className="eb rv" style={{ textAlign: 'center', marginTop: 40 }}>Paid from results on request</p>
           <div className="rv" style={{ display: 'flex', justifyContent: 'center', marginTop: 32 }}>
